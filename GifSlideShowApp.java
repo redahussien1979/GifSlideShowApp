@@ -26,20 +26,33 @@ public class GifSlideShowApp extends JFrame {
     private static final int PREVIEW_WIDTH = 640;
     private static final int PREVIEW_HEIGHT = 360;
 
-    private static Font poppinsExtraBoldBase;
+    private static final Map<String, Font> loadedFonts = new LinkedHashMap<>();
+    private static String[] loadedFontNames = new String[0];
     static {
-        try {
-            File fontFile = new File("Poppins-ExtraBold.ttf");
-            if (fontFile.exists()) {
-                poppinsExtraBoldBase = Font.createFont(Font.TRUETYPE_FONT, fontFile);
-                GraphicsEnvironment.getLocalGraphicsEnvironment().registerFont(poppinsExtraBoldBase);
+        // Scan parent directory for .ttf and .otf font files
+        File appDir = new File(".").getAbsoluteFile().getParentFile();
+        File[] fontFiles = appDir.listFiles((dir, name) -> {
+            String lower = name.toLowerCase();
+            return lower.endsWith(".ttf") || lower.endsWith(".otf");
+        });
+        if (fontFiles != null) {
+            Arrays.sort(fontFiles, Comparator.comparing(File::getName, String.CASE_INSENSITIVE_ORDER));
+            for (File f : fontFiles) {
+                try {
+                    Font font = Font.createFont(Font.TRUETYPE_FONT, f);
+                    GraphicsEnvironment.getLocalGraphicsEnvironment().registerFont(font);
+                    // Use filename without extension as display name
+                    String displayName = f.getName().replaceFirst("\\.[^.]+$", "");
+                    loadedFonts.put(displayName, font);
+                } catch (Exception e) {
+                    System.err.println("Could not load font " + f.getName() + ": " + e.getMessage());
+                }
             }
-        } catch (Exception e) {
-            System.err.println("Could not load Poppins-ExtraBold.ttf: " + e.getMessage());
         }
-        if (poppinsExtraBoldBase == null) {
-            poppinsExtraBoldBase = new Font("SansSerif", Font.BOLD, 1);
+        if (loadedFonts.isEmpty()) {
+            loadedFonts.put("SansSerif Bold", new Font("SansSerif", Font.BOLD, 1));
         }
+        loadedFontNames = loadedFonts.keySet().toArray(new String[0]);
     }
 
     private final List<SlideRow> slideRows = new ArrayList<>();
@@ -158,7 +171,7 @@ public class GifSlideShowApp extends JFrame {
         titleRow.setSubtitleText(titleText);
         titleRow.applyFormatting("Segoe UI", 48, Font.BOLD,
                 Color.WHITE, SwingConstants.CENTER, false, "Blur-Fit",
-                false, 50, 10, 80, Color.WHITE);
+                false, loadedFontNames[0], 50, 10, 80, Color.WHITE);
 
         slideRows.add(0, titleRow);
         rebuildSlidesPanel();
@@ -651,6 +664,7 @@ public class GifSlideShowApp extends JFrame {
         boolean showPin = source.isShowPin();
         String displayMode = source.getDisplayMode();
         boolean showSlideNumber = source.isShowSlideNumber();
+        String slideNumberFontName = source.getSlideNumberFontName();
         int slideNumberX = source.getSlideNumberX();
         int slideNumberY = source.getSlideNumberY();
         int slideNumberSize = source.getSlideNumberSize();
@@ -661,7 +675,7 @@ public class GifSlideShowApp extends JFrame {
             for (SlideRow row : slideRows) {
                 if (row == source || row.isTitleGridSlide) continue;
                 row.applyFormatting(fontName, fontSize, fontStyle, fontColor, alignment, showPin, displayMode,
-                        showSlideNumber, slideNumberX, slideNumberY, slideNumberSize, slideNumberColor);
+                        showSlideNumber, slideNumberFontName, slideNumberX, slideNumberY, slideNumberSize, slideNumberColor);
             }
         } finally {
             isSyncingFormat = false;
@@ -835,7 +849,7 @@ public class GifSlideShowApp extends JFrame {
                                      boolean showPin, int targetW, int targetH) {
         return renderFrame(image, text, fontName, fontSize, fontStyle,
                 fontColor, alignment, showPin, targetW, targetH, "Blur-Fit",
-                false, null, 0, 0, 0, null);
+                false, null, null, 0, 0, 0, null);
     }
 
     static BufferedImage renderFrame(BufferedImage image, String text,
@@ -845,7 +859,7 @@ public class GifSlideShowApp extends JFrame {
                                      String displayMode) {
         return renderFrame(image, text, fontName, fontSize, fontStyle,
                 fontColor, alignment, showPin, targetW, targetH, displayMode,
-                false, null, 0, 0, 0, null);
+                false, null, null, 0, 0, 0, null);
     }
 
     static BufferedImage renderFrame(BufferedImage image, String text,
@@ -854,6 +868,7 @@ public class GifSlideShowApp extends JFrame {
                                      boolean showPin, int targetW, int targetH,
                                      String displayMode,
                                      boolean showSlideNumber, String slideNumberText,
+                                     String slideNumberFontName,
                                      int slideNumberX, int slideNumberY,
                                      int slideNumberSize, Color slideNumberColor) {
         BufferedImage frame = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
@@ -949,7 +964,11 @@ public class GifSlideShowApp extends JFrame {
         if (showSlideNumber && slideNumberText != null && !slideNumberText.isEmpty()) {
             float numScaleFactor = targetW / 1920.0f;
             int scaledNumSize = Math.max(10, (int) (slideNumberSize * numScaleFactor));
-            Font numFont = poppinsExtraBoldBase.deriveFont(Font.BOLD, scaledNumSize);
+
+            // Resolve font from loaded fonts map
+            Font baseFont = loadedFonts.getOrDefault(slideNumberFontName,
+                    loadedFonts.values().iterator().next());
+            Font numFont = baseFont.deriveFont(Font.BOLD, (float) scaledNumSize);
             g.setFont(numFont);
             FontMetrics numFm = g.getFontMetrics();
 
@@ -957,14 +976,22 @@ public class GifSlideShowApp extends JFrame {
             int numY = (int) (slideNumberY / 100.0 * targetH);
 
             int textW = numFm.stringWidth(slideNumberText);
+            int textH = numFm.getAscent();
             int drawX = numX - textW / 2;
-            int drawY = numY + numFm.getAscent() / 2;
+            int drawY = numY + textH / 2;
 
-            // draw shadow for readability
-            g.setColor(new Color(0, 0, 0, 150));
-            int shadowOff = Math.max(2, (int) (3 * numScaleFactor));
-            g.drawString(slideNumberText, drawX + shadowOff, drawY + shadowOff);
+            // Circular transparent background sized to fit 1 or 2 digits
+            int diameter = (int) (Math.max(textW, textH) * 1.5);
+            int circleX = numX - diameter / 2;
+            int circleY = numY - diameter / 2;
 
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(new Color(0, 0, 0, 120));
+            g2.fillOval(circleX, circleY, diameter, diameter);
+            g2.dispose();
+
+            // Draw number text centered in circle
             g.setColor(slideNumberColor != null ? slideNumberColor : Color.WHITE);
             g.drawString(slideNumberText, drawX, drawY);
         }
@@ -1148,7 +1175,7 @@ public class GifSlideShowApp extends JFrame {
             slides.add(new SlideData(row.getImage(), row.getSubtitleText(),
                     row.getSelectedFont(), row.getFontSize(), row.getFontStyle(),
                     row.getFontColor(), row.getTextAlignment(), row.isShowPin(), row.getDisplayMode(),
-                    row.isShowSlideNumber(), row.getSlideNumberText(),
+                    row.isShowSlideNumber(), row.getSlideNumberText(), row.getSlideNumberFontName(),
                     row.getSlideNumberX(), row.getSlideNumberY(),
                     row.getSlideNumberSize(), row.getSlideNumberColor()));
         }
@@ -1208,7 +1235,7 @@ public class GifSlideShowApp extends JFrame {
                     s.image, s.text, s.fontName, s.fontSize,
                     s.fontStyle, s.fontColor, s.alignment, s.showPin,
                     w, h, s.displayMode,
-                    s.showSlideNumber, s.slideNumberText,
+                    s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                     s.slideNumberX, s.slideNumberY,
                     s.slideNumberSize, s.slideNumberColor);
             frames.add(frame);
@@ -1719,6 +1746,7 @@ public class GifSlideShowApp extends JFrame {
         final String displayMode;
         final boolean showSlideNumber;
         final String slideNumberText;
+        final String slideNumberFontName;
         final int slideNumberX;
         final int slideNumberY;
         final int slideNumberSize;
@@ -1726,7 +1754,8 @@ public class GifSlideShowApp extends JFrame {
 
         SlideData(BufferedImage image, String text, String fontName, int fontSize,
                   int fontStyle, Color fontColor, int alignment, boolean showPin, String displayMode,
-                  boolean showSlideNumber, String slideNumberText, int slideNumberX, int slideNumberY,
+                  boolean showSlideNumber, String slideNumberText, String slideNumberFontName,
+                  int slideNumberX, int slideNumberY,
                   int slideNumberSize, Color slideNumberColor) {
             this.image = image;
             this.text = text;
@@ -1739,6 +1768,7 @@ public class GifSlideShowApp extends JFrame {
             this.displayMode = displayMode;
             this.showSlideNumber = showSlideNumber;
             this.slideNumberText = slideNumberText;
+            this.slideNumberFontName = slideNumberFontName;
             this.slideNumberX = slideNumberX;
             this.slideNumberY = slideNumberY;
             this.slideNumberSize = slideNumberSize;
@@ -1763,6 +1793,7 @@ public class GifSlideShowApp extends JFrame {
         private final JComboBox<String> displayModeCombo;
         private final JCheckBox slideNumberCheckBox;
         private final JTextField slideNumberField;
+        private final JComboBox<String> slideNumberFontCombo;
         private final JSpinner slideNumberXSpinner;
         private final JSpinner slideNumberYSpinner;
         private final JSpinner slideNumberSizeSpinner;
@@ -1981,6 +2012,12 @@ public class GifSlideShowApp extends JFrame {
                 @Override public void changedUpdate(DocumentEvent e) { schedulePreview(); }
             });
 
+            slideNumberFontCombo = new JComboBox<>(loadedFontNames);
+            slideNumberFontCombo.setPreferredSize(new Dimension(140, 28));
+            slideNumberFontCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideNumberFontCombo.setToolTipText("Number font (from parent directory)");
+            slideNumberFontCombo.addActionListener(e -> onFormatChanged());
+
             slideNumberXSpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
             slideNumberXSpinner.setPreferredSize(new Dimension(50, 28));
             slideNumberXSpinner.setToolTipText("X position (% of width)");
@@ -2013,6 +2050,7 @@ public class GifSlideShowApp extends JFrame {
 
             toolbar3.add(slideNumberCheckBox);
             toolbar3.add(slideNumberField);
+            toolbar3.add(slideNumberFontCombo);
             toolbar3.add(styledLabel("X%:"));
             toolbar3.add(slideNumberXSpinner);
             toolbar3.add(styledLabel("Y%:"));
@@ -2092,7 +2130,8 @@ public class GifSlideShowApp extends JFrame {
 
         void applyFormatting(String fontName, int fontSize, int fontStyle,
                              Color fontColor, int alignment, boolean showPin, String displayMode,
-                             boolean showSlideNumber, int slideNumberX, int slideNumberY,
+                             boolean showSlideNumber, String slideNumberFontName,
+                             int slideNumberX, int slideNumberY,
                              int slideNumberSize, Color slideNumberColor) {
             fontCombo.setSelectedItem(fontName);
             sizeSpinner.setValue(fontSize);
@@ -2111,6 +2150,7 @@ public class GifSlideShowApp extends JFrame {
             displayModeCombo.setSelectedItem(displayMode);
 
             slideNumberCheckBox.setSelected(showSlideNumber);
+            slideNumberFontCombo.setSelectedItem(slideNumberFontName);
             slideNumberXSpinner.setValue(slideNumberX);
             slideNumberYSpinner.setValue(slideNumberY);
             slideNumberSizeSpinner.setValue(slideNumberSize);
@@ -2140,7 +2180,7 @@ public class GifSlideShowApp extends JFrame {
                     getSelectedFont(), getFontSize(), getFontStyle(),
                     getFontColor(), getTextAlignment(), isShowPin(),
                     PREVIEW_WIDTH, PREVIEW_HEIGHT, getDisplayMode(),
-                    isShowSlideNumber(), getSlideNumberText(),
+                    isShowSlideNumber(), getSlideNumberText(), getSlideNumberFontName(),
                     getSlideNumberX(), getSlideNumberY(),
                     getSlideNumberSize(), getSlideNumberColor());
 
@@ -2249,6 +2289,7 @@ public class GifSlideShowApp extends JFrame {
 
         boolean isShowSlideNumber() { return slideNumberCheckBox.isSelected(); }
         String getSlideNumberText() { return slideNumberField.getText().trim(); }
+        String getSlideNumberFontName() { return (String) slideNumberFontCombo.getSelectedItem(); }
         int getSlideNumberX() { return (int) slideNumberXSpinner.getValue(); }
         int getSlideNumberY() { return (int) slideNumberYSpinner.getValue(); }
         int getSlideNumberSize() { return (int) slideNumberSizeSpinner.getValue(); }
