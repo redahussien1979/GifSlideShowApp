@@ -1833,7 +1833,7 @@ public class GifSlideShowApp extends JFrame {
                     BorderFactory.createLineBorder(new Color(60, 63, 68), 1, true),
                     BorderFactory.createEmptyBorder(10, 10, 10, 10)));
             panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 380));
-            panel.setPreferredSize(new Dimension(1050, 370));
+            panel.setPreferredSize(new Dimension(1100, 370));
 
             previewTimer = new Timer(150, e -> updateLivePreview());
             previewTimer.setRepeats(false);
@@ -1916,7 +1916,7 @@ public class GifSlideShowApp extends JFrame {
             // RIGHT: formatting + text
             JPanel rightPanel = new JPanel(new BorderLayout(0, 6));
             rightPanel.setBackground(new Color(44, 47, 51));
-            rightPanel.setPreferredSize(new Dimension(520, 0));
+            rightPanel.setPreferredSize(new Dimension(570, 0));
 
             JPanel toolbar1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
             toolbar1.setBackground(new Color(44, 47, 51));
@@ -2012,7 +2012,7 @@ public class GifSlideShowApp extends JFrame {
             toolbar2.add(subtitleYSpinner);
 
             // ===== Toolbar Row 3: Slide number overlay =====
-            JPanel toolbar3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            JPanel toolbar3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
             toolbar3.setBackground(new Color(44, 47, 51));
 
             slideNumberCheckBox = new JCheckBox("# Number", false);
@@ -2033,7 +2033,7 @@ public class GifSlideShowApp extends JFrame {
             });
 
             slideNumberFontCombo = new JComboBox<>(loadedFontNames);
-            slideNumberFontCombo.setPreferredSize(new Dimension(120, 28));
+            slideNumberFontCombo.setPreferredSize(new Dimension(105, 28));
             slideNumberFontCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             slideNumberFontCombo.setToolTipText("Number font (from parent directory)");
             slideNumberFontCombo.addActionListener(e -> onFormatChanged());
