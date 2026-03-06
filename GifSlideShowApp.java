@@ -167,6 +167,8 @@ public class GifSlideShowApp extends JFrame {
 
         SlideRow titleRow = new SlideRow(1);
         titleRow.isTitleGridSlide = true;
+        titleRow.gridLayoutIndex = layoutIndex;
+        titleRow.gridSourceImages = new ArrayList<>(images);
         titleRow.setImageDirectly(gridImage, "📸 Layout " + layoutIndex + " (" + images.size() + " images)");
         titleRow.setSubtitleText(titleText);
         titleRow.applyFormatting("Segoe UI", 48, Font.BOLD,
@@ -194,10 +196,10 @@ public class GifSlideShowApp extends JFrame {
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
         g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
 
-        g.setColor(new Color(21, 32, 43));
+        g.setColor(new Color(18, 18, 24));
         g.fillRect(0, 0, targetW, targetH);
 
-        int gap = 4;
+        int gap = Math.max(6, Math.min(targetW, targetH) / 80);
         int count = images.size();
 
         List<int[]> cells;
@@ -220,10 +222,17 @@ public class GifSlideShowApp extends JFrame {
         }
 
         GradientPaint gradient = new GradientPaint(
-                0, targetH * 0.55f, new Color(0, 0, 0, 0),
-                0, targetH, new Color(0, 0, 0, 180));
+                0, targetH * 0.5f, new Color(0, 0, 0, 0),
+                0, targetH, new Color(0, 0, 0, 200));
         g.setPaint(gradient);
-        g.fillRect(0, (int) (targetH * 0.55), targetW, targetH);
+        g.fillRect(0, (int) (targetH * 0.5), targetW, targetH);
+
+        // Top vignette for polish
+        GradientPaint topGrad = new GradientPaint(
+                0, 0, new Color(0, 0, 0, 100),
+                0, targetH * 0.15f, new Color(0, 0, 0, 0));
+        g.setPaint(topGrad);
+        g.fillRect(0, 0, targetW, (int) (targetH * 0.15));
 
         g.dispose();
         return grid;
@@ -231,35 +240,31 @@ public class GifSlideShowApp extends JFrame {
 
     private static void drawImageInCell(Graphics2D g, BufferedImage img, int cx, int cy, int cw, int ch) {
         if (cw < 2 || ch < 2) return;
-        double scX = (double) cw / img.getWidth();
-        double scY = (double) ch / img.getHeight();
+
+        int radius = Math.min(cw, ch) / 12;
+        java.awt.geom.RoundRectangle2D roundRect =
+                new java.awt.geom.RoundRectangle2D.Float(cx, cy, cw, ch, radius, radius);
 
         Shape oldClip = g.getClip();
-        g.setClip(cx, cy, cw, ch);
+        g.setClip(roundRect);
 
-        double bgSc = Math.max(scX, scY);
-        int bgW = (int) (img.getWidth() * bgSc);
-        int bgH = (int) (img.getHeight() * bgSc);
-        BufferedImage cellBg = new BufferedImage(cw, ch, BufferedImage.TYPE_INT_RGB);
-        Graphics2D cbg = cellBg.createGraphics();
-        cbg.drawImage(img, (cw - bgW) / 2, (ch - bgH) / 2, bgW, bgH, null);
-        cbg.dispose();
-        BufferedImage cellBlurred = applyStackBlur(cellBg, 30);
-        Graphics2D darkG = cellBlurred.createGraphics();
-        darkG.setColor(new Color(0, 0, 0, 80));
-        darkG.fillRect(0, 0, cw, ch);
-        darkG.dispose();
-        g.drawImage(cellBlurred, cx, cy, null);
-
-        double fitSc = Math.min(scX, scY);
-        int fitW = (int) (img.getWidth() * fitSc);
-        int fitH = (int) (img.getHeight() * fitSc);
-        g.drawImage(img, cx + (cw - fitW) / 2, cy + (ch - fitH) / 2, fitW, fitH, null);
+        // Fill cell with cover-crop of the image
+        double scX = (double) cw / img.getWidth();
+        double scY = (double) ch / img.getHeight();
+        double coverSc = Math.max(scX, scY);
+        int drawW = (int) (img.getWidth() * coverSc);
+        int drawH = (int) (img.getHeight() * coverSc);
+        g.drawImage(img, cx + (cw - drawW) / 2, cy + (ch - drawH) / 2, drawW, drawH, null);
 
         g.setClip(oldClip);
 
-        g.setColor(new Color(255, 255, 255, 30));
-        g.drawRect(cx, cy, cw - 1, ch - 1);
+        // Subtle border
+        Graphics2D g2 = (Graphics2D) g.create();
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.setColor(new Color(255, 255, 255, 40));
+        g2.setStroke(new BasicStroke(1.5f));
+        g2.draw(roundRect);
+        g2.dispose();
     }
 
     // ===== Layout 1: Auto Grid =====
@@ -294,40 +299,54 @@ public class GifSlideShowApp extends JFrame {
         List<int[]> cells = new ArrayList<>();
         if (count < 2) return layoutAutoGrid(w, h, gap, count);
 
-        int bigW = w / 2;
-        int bigH = h / 2;
+        int bigW = (int) (w * 0.5);
+        int bigH = (int) (h * 0.55);
         int bigX = (w - bigW) / 2;
         int bigY = (h - bigH) / 2;
         cells.add(new int[]{bigX, bigY, bigW, bigH});
 
         int remaining = count - 1;
-        int topCount = Math.min(remaining, Math.max(1, remaining / 4));
-        int bottomCount = Math.min(remaining - topCount, Math.max(1, remaining / 4));
-        int leftCount = Math.min(remaining - topCount - bottomCount, Math.max(1, remaining / 4));
+        // Distribute evenly around the sides: top, bottom, left, right
+        int perSide = Math.max(1, (remaining + 3) / 4);
+        int topCount = Math.min(perSide, remaining);
+        int bottomCount = Math.min(perSide, remaining - topCount);
+        int leftCount = Math.min(perSide, remaining - topCount - bottomCount);
         int rightCount = remaining - topCount - bottomCount - leftCount;
 
-        int slotW = topCount > 0 ? (w - gap * (topCount + 1)) / topCount : 0;
-        int slotH = bigY - gap * 2;
-        for (int i = 0; i < topCount; i++) {
-            cells.add(new int[]{gap + i * (slotW + gap), gap, slotW, Math.max(slotH, 50)});
+        // Top row
+        if (topCount > 0) {
+            int slotW = (w - gap * (topCount + 1)) / topCount;
+            int slotH = bigY - gap * 2;
+            for (int i = 0; i < topCount; i++) {
+                cells.add(new int[]{gap + i * (slotW + gap), gap, slotW, Math.max(slotH, 50)});
+            }
         }
 
-        slotW = bottomCount > 0 ? (w - gap * (bottomCount + 1)) / bottomCount : 0;
-        slotH = h - (bigY + bigH + gap * 2);
-        for (int i = 0; i < bottomCount; i++) {
-            cells.add(new int[]{gap + i * (slotW + gap), bigY + bigH + gap, slotW, Math.max(slotH, 50)});
+        // Bottom row
+        if (bottomCount > 0) {
+            int slotW = (w - gap * (bottomCount + 1)) / bottomCount;
+            int slotH = h - (bigY + bigH + gap * 2);
+            for (int i = 0; i < bottomCount; i++) {
+                cells.add(new int[]{gap + i * (slotW + gap), bigY + bigH + gap, slotW, Math.max(slotH, 50)});
+            }
         }
 
-        int lSlotW = bigX - gap * 2;
-        int lSlotH = leftCount > 0 ? (bigH - gap * (leftCount - 1)) / leftCount : 0;
-        for (int i = 0; i < leftCount; i++) {
-            cells.add(new int[]{gap, bigY + i * (lSlotH + gap), Math.max(lSlotW, 50), lSlotH});
+        // Left column
+        if (leftCount > 0) {
+            int lSlotW = bigX - gap * 2;
+            int lSlotH = (bigH - gap * (leftCount - 1)) / leftCount;
+            for (int i = 0; i < leftCount; i++) {
+                cells.add(new int[]{gap, bigY + i * (lSlotH + gap), Math.max(lSlotW, 50), lSlotH});
+            }
         }
 
-        int rSlotW = w - (bigX + bigW + gap * 2);
-        int rSlotH = rightCount > 0 ? (bigH - gap * (rightCount - 1)) / rightCount : 0;
-        for (int i = 0; i < rightCount; i++) {
-            cells.add(new int[]{bigX + bigW + gap, bigY + i * (rSlotH + gap), Math.max(rSlotW, 50), rSlotH});
+        // Right column
+        if (rightCount > 0) {
+            int rSlotW = w - (bigX + bigW + gap * 2);
+            int rSlotH = (bigH - gap * (rightCount - 1)) / rightCount;
+            for (int i = 0; i < rightCount; i++) {
+                cells.add(new int[]{bigX + bigW + gap, bigY + i * (rSlotH + gap), Math.max(rSlotW, 50), rSlotH});
+            }
         }
         return cells;
     }
@@ -340,17 +359,22 @@ public class GifSlideShowApp extends JFrame {
         int bigW = (int) (w * 0.55);
         int smallW = w - bigW - gap * 3;
         int remaining = count - 1;
-        int slotH = remaining > 0 ? (h - gap * (remaining + 1)) / remaining : h;
 
-        if (bigOnLeft) {
-            cells.add(new int[]{gap, gap, bigW, h - gap * 2});
-            for (int i = 0; i < remaining; i++) {
-                cells.add(new int[]{bigW + gap * 2, gap + i * (slotH + gap), smallW, slotH});
-            }
-        } else {
-            cells.add(new int[]{w - bigW - gap, gap, bigW, h - gap * 2});
-            for (int i = 0; i < remaining; i++) {
-                cells.add(new int[]{gap, gap + i * (slotH + gap), smallW, slotH});
+        // If too many, use 2 columns on the small side
+        int cols = remaining > 4 ? 2 : 1;
+        int rows = (int) Math.ceil((double) remaining / cols);
+        int cellW = (smallW - gap * (cols - 1)) / cols;
+        int cellH = (h - gap * (rows + 1)) / rows;
+
+        int smallX = bigOnLeft ? bigW + gap * 2 : gap;
+        int bigX = bigOnLeft ? gap : w - bigW - gap;
+
+        cells.add(new int[]{bigX, gap, bigW, h - gap * 2});
+        int idx = 0;
+        for (int r = 0; r < rows && idx < remaining; r++) {
+            for (int c = 0; c < cols && idx < remaining; c++) {
+                cells.add(new int[]{smallX + c * (cellW + gap), gap + r * (cellH + gap), cellW, cellH});
+                idx++;
             }
         }
         return cells;
@@ -364,17 +388,22 @@ public class GifSlideShowApp extends JFrame {
         int bigH = (int) (h * 0.55);
         int smallH = h - bigH - gap * 3;
         int remaining = count - 1;
-        int slotW = remaining > 0 ? (w - gap * (remaining + 1)) / remaining : w;
 
-        if (bigOnTop) {
-            cells.add(new int[]{gap, gap, w - gap * 2, bigH});
-            for (int i = 0; i < remaining; i++) {
-                cells.add(new int[]{gap + i * (slotW + gap), bigH + gap * 2, slotW, smallH});
-            }
-        } else {
-            cells.add(new int[]{gap, h - bigH - gap, w - gap * 2, bigH});
-            for (int i = 0; i < remaining; i++) {
-                cells.add(new int[]{gap + i * (slotW + gap), gap, slotW, smallH});
+        // If too many, use 2 rows on the small side
+        int rows = remaining > 5 ? 2 : 1;
+        int cols = (int) Math.ceil((double) remaining / rows);
+        int cellW = (w - gap * (cols + 1)) / cols;
+        int cellH = (smallH - gap * (rows - 1)) / rows;
+
+        int smallY = bigOnTop ? bigH + gap * 2 : gap;
+        int bigY = bigOnTop ? gap : h - bigH - gap;
+
+        cells.add(new int[]{gap, bigY, w - gap * 2, bigH});
+        int idx = 0;
+        for (int r = 0; r < rows && idx < remaining; r++) {
+            for (int c = 0; c < cols && idx < remaining; c++) {
+                cells.add(new int[]{gap + c * (cellW + gap), smallY + r * (cellH + gap), cellW, cellH});
+                idx++;
             }
         }
         return cells;
@@ -885,6 +914,10 @@ public class GifSlideShowApp extends JFrame {
         if (displayMode == null) displayMode = "Blur-Fit";
 
         switch (displayMode) {
+            case "Direct": {
+                g.drawImage(image, 0, 0, targetW, targetH, null);
+                break;
+            }
             case "Fill (Crop)": {
                 double sc = Math.max((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
                 int dw = (int) (image.getWidth() * sc);
@@ -1173,9 +1206,15 @@ public class GifSlideShowApp extends JFrame {
                         "Slide " + (i + 1) + " has no image.", "Missing Image", JOptionPane.WARNING_MESSAGE);
                 return null;
             }
-            slides.add(new SlideData(row.getImage(), row.getSubtitleText(),
+            BufferedImage slideImage = row.getImage();
+            String slideDisplayMode = row.getDisplayMode();
+            if (row.isTitleGridSlide && row.gridSourceImages != null) {
+                slideImage = row.regenerateGridImage(GIF_WIDTH, GIF_HEIGHT);
+                slideDisplayMode = "Direct";
+            }
+            slides.add(new SlideData(slideImage, row.getSubtitleText(),
                     row.getSelectedFont(), row.getFontSize(), row.getFontStyle(),
-                    row.getFontColor(), row.getTextAlignment(), row.isShowPin(), row.getDisplayMode(),
+                    row.getFontColor(), row.getTextAlignment(), row.isShowPin(), slideDisplayMode,
                     row.getSubtitleY(),
                     row.isShowSlideNumber(), row.getSlideNumberText(), row.getSlideNumberFontName(),
                     row.getSlideNumberX(), row.getSlideNumberY(),
@@ -1817,6 +1856,8 @@ public class GifSlideShowApp extends JFrame {
         private final Timer previewTimer;
 
         boolean isTitleGridSlide = false;
+        private int gridLayoutIndex = 1;
+        private List<BufferedImage> gridSourceImages = null;
 
 
 
@@ -2191,17 +2232,27 @@ public class GifSlideShowApp extends JFrame {
             numberLabel.setForeground(new Color(60, 160, 200));
         }
 
+        BufferedImage regenerateGridImage(int w, int h) {
+            if (gridSourceImages == null || gridSourceImages.isEmpty()) return loadedImage;
+            return generateGridImage(gridSourceImages, w, h, gridLayoutIndex);
+        }
+
         private void updateLivePreview() {
             if (loadedImage == null) {
                 livePreviewLabel.setIcon(null);
                 livePreviewLabel.setText("Live Preview (add image first)");
                 return;
             }
+            BufferedImage frameImage = loadedImage;
+            if (isTitleGridSlide && gridSourceImages != null) {
+                frameImage = regenerateGridImage(PREVIEW_WIDTH, PREVIEW_HEIGHT);
+            }
             BufferedImage preview = renderFrame(
-                    loadedImage, textArea.getText(),
+                    frameImage, textArea.getText(),
                     getSelectedFont(), getFontSize(), getFontStyle(),
                     getFontColor(), getTextAlignment(), isShowPin(),
-                    PREVIEW_WIDTH, PREVIEW_HEIGHT, getDisplayMode(), getSubtitleY(),
+                    PREVIEW_WIDTH, PREVIEW_HEIGHT,
+                    isTitleGridSlide ? "Direct" : getDisplayMode(), getSubtitleY(),
                     isShowSlideNumber(), getSlideNumberText(), getSlideNumberFontName(),
                     getSlideNumberX(), getSlideNumberY(),
                     getSlideNumberSize(), getSlideNumberColor());
