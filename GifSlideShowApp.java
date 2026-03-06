@@ -1450,7 +1450,10 @@ public class GifSlideShowApp extends JFrame {
                         BufferedImage frame = renderFrame(
                                 s.image, s.text, s.fontName, s.fontSize,
                                 s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                videoW, videoH, s.displayMode);
+                                videoW, videoH, s.displayMode,
+                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                s.slideNumberX, s.slideNumberY,
+                                s.slideNumberSize, s.slideNumberColor);
 
                         for (int d = 0; d < framesPerSlide; d++) {
                             ImageIO.write(frame, "png",
@@ -1632,7 +1635,10 @@ public class GifSlideShowApp extends JFrame {
                             BufferedImage frame = renderFrame(
                                     s.image, s.text, s.fontName, s.fontSize,
                                     s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                    res[0], res[1], s.displayMode);
+                                    res[0], res[1], s.displayMode,
+                                    s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                    s.slideNumberX, s.slideNumberY,
+                                    s.slideNumberSize, s.slideNumberColor);
                             ImageIO.write(frame, "png",
                                     new File(tempDir, String.format("frame_%04d.png", i)));
                         }
