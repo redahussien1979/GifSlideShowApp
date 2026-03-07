@@ -1011,12 +1011,13 @@ public class GifSlideShowApp extends JFrame {
             int numY = (int) (slideNumberY / 100.0 * targetH);
 
             int textW = numFm.stringWidth(slideNumberText);
-            int textH = numFm.getAscent();
+            int ascent = numFm.getAscent();
+            int descent = numFm.getDescent();
             int drawX = numX - textW / 2;
-            int drawY = numY + textH / 2;
+            int drawY = numY + (ascent - descent) / 2;
 
             // Circular transparent background sized to fit 1 or 2 digits
-            int diameter = (int) (Math.max(textW, textH) * 1.5);
+            int diameter = (int) (Math.max(textW, ascent + descent) * 1.5);
             int circleX = numX - diameter / 2;
             int circleY = numY - diameter / 2;
 
