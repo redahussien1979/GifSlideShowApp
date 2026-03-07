@@ -2212,8 +2212,10 @@ public class GifSlideShowApp extends JFrame {
             toolbar3.add(slideNumberSizeSpinner);
 
             // ===== Toolbar Row 4: Slide text overlay =====
-            JPanel toolbar4 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
-            toolbar4.setBackground(new Color(44, 47, 51));
+            JPanel toolbar4a = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
+            toolbar4a.setBackground(new Color(44, 47, 51));
+            JPanel toolbar4b = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
+            toolbar4b.setBackground(new Color(44, 47, 51));
 
             slideTextCheckBox = new JCheckBox("Slide Text", false);
             slideTextCheckBox.setFont(new Font("Segoe UI", Font.BOLD, 11));
@@ -2284,18 +2286,20 @@ public class GifSlideShowApp extends JFrame {
             slideTextYSpinner.setToolTipText("Y position (% of height)");
             slideTextYSpinner.addChangeListener(e -> onFormatChanged());
 
-            toolbar4.add(slideTextCheckBox);
-            toolbar4.add(slideTextField);
-            toolbar4.add(slideTextFontCombo);
-            toolbar4.add(styledLabel("Size:"));
-            toolbar4.add(slideTextSizeSpinner);
-            toolbar4.add(slideTextBoldBtn);
-            toolbar4.add(slideTextItalicBtn);
-            toolbar4.add(slideTextColorBtn);
-            toolbar4.add(styledLabel("X%:"));
-            toolbar4.add(slideTextXSpinner);
-            toolbar4.add(styledLabel("Y%:"));
-            toolbar4.add(slideTextYSpinner);
+            toolbar4a.add(slideTextCheckBox);
+            toolbar4a.add(slideTextField);
+            toolbar4a.add(slideTextFontCombo);
+            toolbar4a.add(styledLabel("Size:"));
+            toolbar4a.add(slideTextSizeSpinner);
+            toolbar4a.add(slideTextBoldBtn);
+            toolbar4a.add(slideTextItalicBtn);
+            toolbar4a.add(slideTextColorBtn);
+
+            toolbar4b.add(styledLabel("  "));
+            toolbar4b.add(styledLabel("X%:"));
+            toolbar4b.add(slideTextXSpinner);
+            toolbar4b.add(styledLabel("Y%:"));
+            toolbar4b.add(slideTextYSpinner);
 
             textArea = new JTextArea(6, 20);
             textArea.setFont(new Font("Segoe UI", Font.PLAIN, 14));
@@ -2321,7 +2325,8 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(toolbar1);
             toolbarsPanel.add(toolbar2);
             toolbarsPanel.add(toolbar3);
-            toolbarsPanel.add(toolbar4);
+            toolbarsPanel.add(toolbar4a);
+            toolbarsPanel.add(toolbar4b);
 
             rightPanel.add(toolbarsPanel, BorderLayout.NORTH);
             rightPanel.add(textScroll, BorderLayout.CENTER);
