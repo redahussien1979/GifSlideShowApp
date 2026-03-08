@@ -174,7 +174,7 @@ public class GifSlideShowApp extends JFrame {
         titleRow.applyFormatting("Segoe UI", 48, Font.BOLD,
                 Color.WHITE, SwingConstants.CENTER, false, "Blur-Fit", 5, 78,
                 false, loadedFontNames[0], 50, 10, 80, Color.WHITE,
-                false, "Segoe UI", 40, Font.PLAIN, Color.YELLOW, 50, 50, 0);
+                false, "Segoe UI", 40, Font.PLAIN, Color.YELLOW, 50, 50, 0, Color.BLACK);
 
         slideRows.add(0, titleRow);
         rebuildSlidesPanel();
@@ -709,6 +709,7 @@ public class GifSlideShowApp extends JFrame {
         int slideTextX = source.getSlideTextX();
         int slideTextY = source.getSlideTextY();
         int slideTextBgOpacity = source.getSlideTextBgOpacity();
+        Color slideTextBgColor = source.getSlideTextBgColor();
 
         isSyncingFormat = true;
         try {
@@ -716,7 +717,7 @@ public class GifSlideShowApp extends JFrame {
                 if (row == source || row.isTitleGridSlide) continue;
                 row.applyFormatting(fontName, fontSize, fontStyle, fontColor, alignment, showPin, displayMode, subtitleY, subtitleBgOpacity,
                         showSlideNumber, slideNumberFontName, slideNumberX, slideNumberY, slideNumberSize, slideNumberColor,
-                        showSlideText, slideTextFontName, slideTextFontSize, slideTextFontStyle, stColor, slideTextX, slideTextY, slideTextBgOpacity);
+                        showSlideText, slideTextFontName, slideTextFontSize, slideTextFontStyle, stColor, slideTextX, slideTextY, slideTextBgOpacity, slideTextBgColor);
             }
         } finally {
             isSyncingFormat = false;
@@ -891,7 +892,7 @@ public class GifSlideShowApp extends JFrame {
         return renderFrame(image, text, fontName, fontSize, fontStyle,
                 fontColor, alignment, showPin, targetW, targetH, "Blur-Fit", 5, 78,
                 false, null, null, 0, 0, 0, null,
-                false, null, null, 0, 0, null, 0, 0, 0);
+                false, null, null, 0, 0, null, 0, 0, 0, null);
     }
 
     static BufferedImage renderFrame(BufferedImage image, String text,
@@ -902,7 +903,7 @@ public class GifSlideShowApp extends JFrame {
         return renderFrame(image, text, fontName, fontSize, fontStyle,
                 fontColor, alignment, showPin, targetW, targetH, displayMode, 5, 78,
                 false, null, null, 0, 0, 0, null,
-                false, null, null, 0, 0, null, 0, 0, 0);
+                false, null, null, 0, 0, null, 0, 0, 0, null);
     }
 
     static BufferedImage renderFrame(BufferedImage image, String text,
@@ -918,7 +919,8 @@ public class GifSlideShowApp extends JFrame {
                                      String slideTextFontName, int slideTextFontSize,
                                      int slideTextFontStyle, Color slideTextColor,
                                      int slideTextX, int slideTextY,
-                                     int slideTextBgOpacity) {
+                                     int slideTextBgOpacity,
+                                     Color slideTextBgColor) {
         BufferedImage frame = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = frame.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -1053,7 +1055,12 @@ public class GifSlideShowApp extends JFrame {
         if (showSlideText && slideText != null && !slideText.isEmpty()) {
             float stScaleFactor = targetW / 1920.0f;
             int scaledStSize = Math.max(8, (int) (slideTextFontSize * stScaleFactor));
-            Font stFont = new Font(slideTextFontName, slideTextFontStyle, scaledStSize);
+            Font stFont;
+            if (loadedFonts.containsKey(slideTextFontName)) {
+                stFont = loadedFonts.get(slideTextFontName).deriveFont(slideTextFontStyle, (float) scaledStSize);
+            } else {
+                stFont = new Font(slideTextFontName, slideTextFontStyle, scaledStSize);
+            }
             g.setFont(stFont);
             FontMetrics stFm = g.getFontMetrics();
 
@@ -1064,14 +1071,14 @@ public class GifSlideShowApp extends JFrame {
             int stCenterX = (int) (slideTextX / 100.0 * targetW);
             int stCenterY = (int) (slideTextY / 100.0 * targetH);
 
-            int totalTextHeight = stLineHeight * stLines.length;
+            int totalTextHeight = stAscent + stFm.getDescent() + stLineHeight * (stLines.length - 1);
             int maxLineWidth = 0;
             for (String line : stLines) {
                 maxLineWidth = Math.max(maxLineWidth, stFm.stringWidth(line));
             }
 
-            int stPadX = (int) (12 * stScaleFactor);
-            int stPadY = (int) (8 * stScaleFactor);
+            int stPadX = (int) (6 * stScaleFactor);
+            int stPadY = (int) (4 * stScaleFactor);
 
             int bgX = stCenterX - maxLineWidth / 2 - stPadX;
             int bgY = stCenterY - totalTextHeight / 2 - stPadY;
@@ -1080,10 +1087,11 @@ public class GifSlideShowApp extends JFrame {
 
             if (slideTextBgOpacity > 0) {
                 int alpha = (int) (slideTextBgOpacity / 100.0 * 255);
+                Color bgc = slideTextBgColor != null ? slideTextBgColor : Color.BLACK;
                 Graphics2D g2st = (Graphics2D) g.create();
                 g2st.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2st.setColor(new Color(0, 0, 0, alpha));
-                int arc = (int) (14 * stScaleFactor);
+                g2st.setColor(new Color(bgc.getRed(), bgc.getGreen(), bgc.getBlue(), alpha));
+                int arc = (int) (10 * stScaleFactor);
                 g2st.fillRoundRect(bgX, bgY, bgW, bgH, arc, arc);
                 g2st.dispose();
             }
@@ -1291,7 +1299,8 @@ public class GifSlideShowApp extends JFrame {
                     row.getSlideNumberSize(), row.getSlideNumberColor(),
                     row.isShowSlideText(), row.getSlideText(), row.getSlideTextFontName(),
                     row.getSlideTextFontSize(), row.getSlideTextFontStyle(), row.getSlideTextColor(),
-                    row.getSlideTextX(), row.getSlideTextY(), row.getSlideTextBgOpacity()));
+                    row.getSlideTextX(), row.getSlideTextY(), row.getSlideTextBgOpacity(),
+                    row.getSlideTextBgColor()));
         }
         if (slides.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Add at least one slide.", "No Slides", JOptionPane.WARNING_MESSAGE);
@@ -1354,7 +1363,8 @@ public class GifSlideShowApp extends JFrame {
                     s.slideNumberSize, s.slideNumberColor,
                     s.showSlideText, s.slideText, s.slideTextFontName,
                     s.slideTextFontSize, s.slideTextFontStyle, s.slideTextColor,
-                    s.slideTextX, s.slideTextY, s.slideTextBgOpacity);
+                    s.slideTextX, s.slideTextY, s.slideTextBgOpacity,
+                    s.slideTextBgColor);
             frames.add(frame);
             int pct = (int) ((i + 1.0) / slides.size() * maxPct);
             SwingUtilities.invokeLater(() -> progressBar.setValue(pct));
@@ -1573,7 +1583,8 @@ public class GifSlideShowApp extends JFrame {
                                 s.slideNumberSize, s.slideNumberColor,
                                 s.showSlideText, s.slideText, s.slideTextFontName,
                                 s.slideTextFontSize, s.slideTextFontStyle, s.slideTextColor,
-                                s.slideTextX, s.slideTextY, s.slideTextBgOpacity);
+                                s.slideTextX, s.slideTextY, s.slideTextBgOpacity,
+                    s.slideTextBgColor);
 
                         for (int d = 0; d < framesPerSlide; d++) {
                             ImageIO.write(frame, "png",
@@ -1761,7 +1772,8 @@ public class GifSlideShowApp extends JFrame {
                                     s.slideNumberSize, s.slideNumberColor,
                                     s.showSlideText, s.slideText, s.slideTextFontName,
                                     s.slideTextFontSize, s.slideTextFontStyle, s.slideTextColor,
-                                    s.slideTextX, s.slideTextY, s.slideTextBgOpacity);
+                                    s.slideTextX, s.slideTextY, s.slideTextBgOpacity,
+                    s.slideTextBgColor);
                             ImageIO.write(frame, "png",
                                     new File(tempDir, String.format("frame_%04d.png", i)));
                         }
@@ -1891,6 +1903,7 @@ public class GifSlideShowApp extends JFrame {
         final int slideTextX;
         final int slideTextY;
         final int slideTextBgOpacity;
+        final Color slideTextBgColor;
 
         SlideData(BufferedImage image, String text, String fontName, int fontSize,
                   int fontStyle, Color fontColor, int alignment, boolean showPin, String displayMode,
@@ -1900,7 +1913,8 @@ public class GifSlideShowApp extends JFrame {
                   int slideNumberSize, Color slideNumberColor,
                   boolean showSlideText, String slideText, String slideTextFontName,
                   int slideTextFontSize, int slideTextFontStyle, Color slideTextColor,
-                  int slideTextX, int slideTextY, int slideTextBgOpacity) {
+                  int slideTextX, int slideTextY, int slideTextBgOpacity,
+                  Color slideTextBgColor) {
             this.image = image;
             this.text = text;
             this.fontName = fontName;
@@ -1928,6 +1942,7 @@ public class GifSlideShowApp extends JFrame {
             this.slideTextX = slideTextX;
             this.slideTextY = slideTextY;
             this.slideTextBgOpacity = slideTextBgOpacity;
+            this.slideTextBgColor = slideTextBgColor;
         }
     }
 
@@ -1962,6 +1977,8 @@ public class GifSlideShowApp extends JFrame {
         private final JToggleButton slideTextItalicBtn;
         private final JButton slideTextColorBtn;
         private Color slideTextColor = Color.YELLOW;
+        private final JButton slideTextBgColorBtn;
+        private Color slideTextBgColor = Color.BLACK;
         private final JSpinner slideTextXSpinner;
         private final JSpinner slideTextYSpinner;
         private final JSpinner slideTextBgSpinner;
@@ -2273,12 +2290,18 @@ public class GifSlideShowApp extends JFrame {
             slideTextScroll.setPreferredSize(new Dimension(140, 48));
             slideTextScroll.setBorder(BorderFactory.createLineBorder(new Color(60, 63, 68)));
 
-            slideTextFontCombo = new JComboBox<>(GraphicsEnvironment.getLocalGraphicsEnvironment()
-                    .getAvailableFontFamilyNames());
-            slideTextFontCombo.setSelectedItem("Segoe UI");
+            // Build font list: loaded fonts from current/parent directory first, then system fonts
+            String[] systemFonts = GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
+            java.util.List<String> allFonts = new java.util.ArrayList<>();
+            for (String fn : loadedFontNames) allFonts.add(fn);
+            for (String fn : systemFonts) {
+                if (!allFonts.contains(fn)) allFonts.add(fn);
+            }
+            slideTextFontCombo = new JComboBox<>(allFonts.toArray(new String[0]));
+            slideTextFontCombo.setSelectedItem(loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI");
             slideTextFontCombo.setPreferredSize(new Dimension(105, 28));
             slideTextFontCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            slideTextFontCombo.setToolTipText("Slide text font");
+            slideTextFontCombo.setToolTipText("Slide text font (loaded fonts listed first)");
             slideTextFontCombo.addActionListener(e -> onFormatChanged());
 
             slideTextSizeSpinner = new JSpinner(new SpinnerNumberModel(40, 8, 500, 2));
@@ -2330,6 +2353,21 @@ public class GifSlideShowApp extends JFrame {
             slideTextBgSpinner.setToolTipText("Slide text background opacity (0=transparent, 100=solid)");
             slideTextBgSpinner.addChangeListener(e -> onFormatChanged());
 
+            slideTextBgColorBtn = new JButton("■");
+            slideTextBgColorBtn.setForeground(slideTextBgColor);
+            slideTextBgColorBtn.setFont(new Font("Segoe UI", Font.PLAIN, 18));
+            slideTextBgColorBtn.setPreferredSize(new Dimension(36, 28));
+            slideTextBgColorBtn.setFocusPainted(false);
+            slideTextBgColorBtn.setToolTipText("Slide Text Background Color");
+            slideTextBgColorBtn.addActionListener(e -> {
+                Color c = JColorChooser.showDialog(panel, "Slide Text BG Color", slideTextBgColor);
+                if (c != null) {
+                    slideTextBgColor = c;
+                    slideTextBgColorBtn.setForeground(c);
+                    onFormatChanged();
+                }
+            });
+
             toolbar4a.add(slideTextCheckBox);
             toolbar4a.add(slideTextScroll);
             toolbar4a.add(slideTextFontCombo);
@@ -2346,6 +2384,7 @@ public class GifSlideShowApp extends JFrame {
             toolbar4b.add(slideTextYSpinner);
             toolbar4b.add(styledLabel("BG%:"));
             toolbar4b.add(slideTextBgSpinner);
+            toolbar4b.add(slideTextBgColorBtn);
 
             textArea = new JTextArea(6, 20);
             textArea.setFont(new Font("Segoe UI", Font.PLAIN, 14));
@@ -2439,7 +2478,7 @@ public class GifSlideShowApp extends JFrame {
                              boolean showSlideText, String slideTextFontName,
                              int slideTextFontSize, int slideTextFontStyle,
                              Color slideTextColor, int slideTextX, int slideTextY,
-                             int slideTextBgOpacity) {
+                             int slideTextBgOpacity, Color slideTextBgColor) {
             fontCombo.setSelectedItem(fontName);
             sizeSpinner.setValue(fontSize);
             boldBtn.setSelected((fontStyle & Font.BOLD) != 0);
@@ -2476,6 +2515,8 @@ public class GifSlideShowApp extends JFrame {
             slideTextXSpinner.setValue(slideTextX);
             slideTextYSpinner.setValue(slideTextY);
             slideTextBgSpinner.setValue(slideTextBgOpacity);
+            this.slideTextBgColor = slideTextBgColor;
+            slideTextBgColorBtn.setForeground(slideTextBgColor);
 
             updateTextAreaStyle();
             schedulePreview();
@@ -2516,7 +2557,8 @@ public class GifSlideShowApp extends JFrame {
                     getSlideNumberSize(), getSlideNumberColor(),
                     isShowSlideText(), getSlideText(), getSlideTextFontName(),
                     getSlideTextFontSize(), getSlideTextFontStyle(), getSlideTextColor(),
-                    getSlideTextX(), getSlideTextY(), getSlideTextBgOpacity());
+                    getSlideTextX(), getSlideTextY(), getSlideTextBgOpacity(),
+                    getSlideTextBgColor());
 
             int lw = livePreviewLabel.getWidth();
             int lh = livePreviewLabel.getHeight();
@@ -2645,6 +2687,7 @@ public class GifSlideShowApp extends JFrame {
         int getSlideTextX() { return (int) slideTextXSpinner.getValue(); }
         int getSlideTextY() { return (int) slideTextYSpinner.getValue(); }
         int getSlideTextBgOpacity() { return (int) slideTextBgSpinner.getValue(); }
+        Color getSlideTextBgColor() { return slideTextBgColor; }
     }
 
     // ==================== Main ====================
