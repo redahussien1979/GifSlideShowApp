@@ -1628,8 +1628,14 @@ public class GifSlideShowApp extends JFrame {
                     ffmpegCmd.add("-i");
                     ffmpegCmd.add(new File(tempDir, "frame_%05d.png").getAbsolutePath());
                     if (finalAudioFile != null) {
+                        ffmpegCmd.add("-ss");
+                        ffmpegCmd.add("0");
                         ffmpegCmd.add("-i");
                         ffmpegCmd.add(finalAudioFile.getAbsolutePath());
+                        ffmpegCmd.add("-map");
+                        ffmpegCmd.add("0:v:0");
+                        ffmpegCmd.add("-map");
+                        ffmpegCmd.add("1:a:0");
                     }
                     ffmpegCmd.add("-c:v");
                     ffmpegCmd.add("libx264");
@@ -1644,6 +1650,8 @@ public class GifSlideShowApp extends JFrame {
                         ffmpegCmd.add("aac");
                         ffmpegCmd.add("-b:a");
                         ffmpegCmd.add("192k");
+                        ffmpegCmd.add("-async");
+                        ffmpegCmd.add("1");
                         ffmpegCmd.add("-shortest");
                     }
                     ffmpegCmd.add("-movflags");
