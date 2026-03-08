@@ -61,6 +61,30 @@ public class GifSlideShowApp extends JFrame {
 
     private boolean isSyncingFormat = false;
 
+    // Orientation: "Landscape" or "Portrait"
+    private JComboBox<String> orientationCombo;
+    private JLabel header;
+
+    private boolean isPortrait() {
+        return orientationCombo != null && "Portrait (1080×1920)".equals(orientationCombo.getSelectedItem());
+    }
+
+    private int getOutputWidth() {
+        return isPortrait() ? GIF_HEIGHT : GIF_WIDTH; // 1080 or 1920
+    }
+
+    private int getOutputHeight() {
+        return isPortrait() ? GIF_WIDTH : GIF_HEIGHT; // 1920 or 1080
+    }
+
+    private int getPreviewWidth() {
+        return isPortrait() ? PREVIEW_HEIGHT : PREVIEW_WIDTH; // 360 or 640
+    }
+
+    private int getPreviewHeight() {
+        return isPortrait() ? PREVIEW_WIDTH : PREVIEW_HEIGHT; // 640 or 360
+    }
+
     public GifSlideShowApp() {
         super("GIF/Video Slide Show Creator — YouTube HD (1920×1080)");
         setDefaultCloseOperation(EXIT_ON_CLOSE);
@@ -72,7 +96,7 @@ public class GifSlideShowApp extends JFrame {
         mainPanel.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
         mainPanel.setBackground(new Color(30, 30, 30));
 
-        JLabel header = new JLabel("GIF / Video Slide Show Creator — YouTube HD (1920×1080)", SwingConstants.CENTER);
+        header = new JLabel("GIF / Video Slide Show Creator — YouTube HD (1920×1080)", SwingConstants.CENTER);
         header.setFont(new Font("Segoe UI", Font.BOLD, 22));
         header.setForeground(new Color(29, 161, 242));
         header.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
@@ -110,6 +134,27 @@ public class GifSlideShowApp extends JFrame {
         JButton mp4Btn = createStyledButton("🎬 Create MP4", new Color(220, 60, 60));
         mp4Btn.addActionListener(e -> createMp4());
 
+        // Orientation selector
+        JLabel orientLabel = new JLabel("Orientation:");
+        orientLabel.setForeground(Color.LIGHT_GRAY);
+        orientLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        orientationCombo = new JComboBox<>(new String[]{
+                "Landscape (1920×1080)", "Portrait (1080×1920)"});
+        orientationCombo.setPreferredSize(new Dimension(170, 30));
+        orientationCombo.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        orientationCombo.addActionListener(e -> {
+            String dims = isPortrait() ? "1080×1920" : "1920×1080";
+            String orientText = isPortrait() ? "Portrait" : "Landscape";
+            setTitle("GIF/Video Slide Show Creator — YouTube HD " + orientText + " (" + dims + ")");
+            header.setText("GIF / Video Slide Show Creator — YouTube HD " + orientText + " (" + dims + ")");
+            // Refresh all live previews
+            for (SlideRow row : slideRows) {
+                row.schedulePreview();
+            }
+        });
+
+        bottomPanel.add(orientLabel);
+        bottomPanel.add(orientationCombo);
         bottomPanel.add(addBtn);
         bottomPanel.add(bulkBtn);
         bottomPanel.add(bulkTextBtn);
@@ -161,7 +206,7 @@ public class GifSlideShowApp extends JFrame {
         if (chosen == null) return;
         int layoutIndex = Integer.parseInt(chosen.substring(0, chosen.indexOf('.')).trim());
 
-        BufferedImage gridImage = generateGridImage(images, GIF_WIDTH, GIF_HEIGHT, layoutIndex);
+        BufferedImage gridImage = generateGridImage(images, getOutputWidth(), getOutputHeight(), layoutIndex);
 
         slideRows.removeIf(r -> r.isTitleGridSlide);
 
@@ -1016,7 +1061,7 @@ public class GifSlideShowApp extends JFrame {
 
         // ========== SLIDE NUMBER OVERLAY ==========
         if (showSlideNumber && slideNumberText != null && !slideNumberText.isEmpty()) {
-            float numScaleFactor = targetW / 1920.0f;
+            float numScaleFactor = Math.max(targetW, targetH) / 1920.0f;
             int scaledNumSize = Math.max(10, (int) (slideNumberSize * numScaleFactor));
 
             // Resolve font from loaded fonts map
@@ -1053,7 +1098,7 @@ public class GifSlideShowApp extends JFrame {
 
         // ========== SLIDE TEXT OVERLAY ==========
         if (showSlideText && slideText != null && !slideText.isEmpty()) {
-            float stScaleFactor = targetW / 1920.0f;
+            float stScaleFactor = Math.max(targetW, targetH) / 1920.0f;
             int scaledStSize = Math.max(8, (int) (slideTextFontSize * stScaleFactor));
             Font stFont;
             if (loadedFonts.containsKey(slideTextFontName)) {
@@ -1287,7 +1332,7 @@ public class GifSlideShowApp extends JFrame {
             BufferedImage slideImage = row.getImage();
             String slideDisplayMode = row.getDisplayMode();
             if (row.isTitleGridSlide && row.gridSourceImages != null) {
-                slideImage = row.regenerateGridImage(GIF_WIDTH, GIF_HEIGHT);
+                slideImage = row.regenerateGridImage(getOutputWidth(), getOutputHeight());
                 slideDisplayMode = "Direct";
             }
             slides.add(new SlideData(slideImage, row.getSubtitleText(),
@@ -1412,11 +1457,20 @@ public class GifSlideShowApp extends JFrame {
             @Override
             protected Void doInBackground() {
                 try {
-                    int[][] resolutions = {
+                    int[][] resolutions;
+                    if (isPortrait()) {
+                        resolutions = new int[][] {
+                            {1080, 1920},
+                            {720, 1280},
+                            {480, 854},
+                        };
+                    } else {
+                        resolutions = new int[][] {
                             {1920, 1080},
                             {1280, 720},
                             {854, 480},
-                    };
+                        };
+                    }
 
                     for (int[] res : resolutions) {
                         int w = res[0];
@@ -1507,7 +1561,12 @@ public class GifSlideShowApp extends JFrame {
         int duration = askDuration();
         if (duration < 0) return;
 
-        String[] resOptions = {"1920×1080 (Full HD)", "2560×1440 (2K QHD)", "3840×2160 (4K UHD)"};
+        String[] resOptions;
+        if (isPortrait()) {
+            resOptions = new String[]{"1080×1920 (Full HD Portrait)", "1440×2560 (2K QHD Portrait)", "2160×3840 (4K UHD Portrait)"};
+        } else {
+            resOptions = new String[]{"1920×1080 (Full HD)", "2560×1440 (2K QHD)", "3840×2160 (4K UHD)"};
+        }
         int resChoice = JOptionPane.showOptionDialog(this,
                 "Choose video resolution:",
                 "MP4 Resolution", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
@@ -1515,10 +1574,18 @@ public class GifSlideShowApp extends JFrame {
         if (resChoice < 0) return;
 
         final int videoW, videoH;
-        switch (resChoice) {
-            case 1:  videoW = 2560; videoH = 1440; break;
-            case 2:  videoW = 3840; videoH = 2160; break;
-            default: videoW = 1920; videoH = 1080; break;
+        if (isPortrait()) {
+            switch (resChoice) {
+                case 1:  videoW = 1440; videoH = 2560; break;
+                case 2:  videoW = 2160; videoH = 3840; break;
+                default: videoW = 1080; videoH = 1920; break;
+            }
+        } else {
+            switch (resChoice) {
+                case 1:  videoW = 2560; videoH = 1440; break;
+                case 2:  videoW = 3840; videoH = 2160; break;
+                default: videoW = 1920; videoH = 1080; break;
+            }
         }
 
         String[] qualityOptions = {"High Quality (CRF 18)", "Medium Quality (CRF 23)", "Small File (CRF 28)"};
@@ -1805,7 +1872,9 @@ public class GifSlideShowApp extends JFrame {
 
     private boolean tryAggressiveFfmpeg(List<SlideData> slides, int duration, File output, long maxSize) {
         try {
-            int[][] attempts = {{1280, 720}, {960, 540}, {640, 360}};
+            int[][] attempts = isPortrait()
+                    ? new int[][] {{720, 1280}, {540, 960}, {360, 640}}
+                    : new int[][] {{1280, 720}, {960, 540}, {640, 360}};
             int[] colors = {192, 128, 96};
 
             for (int[] res : attempts) {
@@ -2508,7 +2577,7 @@ public class GifSlideShowApp extends JFrame {
             return l;
         }
 
-        private void schedulePreview() {
+        void schedulePreview() {
             previewTimer.restart();
         }
 
@@ -2596,13 +2665,13 @@ public class GifSlideShowApp extends JFrame {
             }
             BufferedImage frameImage = loadedImage;
             if (isTitleGridSlide && gridSourceImages != null) {
-                frameImage = regenerateGridImage(PREVIEW_WIDTH, PREVIEW_HEIGHT);
+                frameImage = regenerateGridImage(getPreviewWidth(), getPreviewHeight());
             }
             BufferedImage preview = renderFrame(
                     frameImage, textArea.getText(),
                     getSelectedFont(), getFontSize(), getFontStyle(),
                     getFontColor(), getTextAlignment(), isShowPin(),
-                    PREVIEW_WIDTH, PREVIEW_HEIGHT,
+                    getPreviewWidth(), getPreviewHeight(),
                     isTitleGridSlide ? "Direct" : getDisplayMode(), getSubtitleY(),
                     getSubtitleBgOpacity(),
                     isShowSlideNumber(), getSlideNumberText(), getSlideNumberFontName(),
