@@ -1535,6 +1535,25 @@ public class GifSlideShowApp extends JFrame {
             default: crf = 18; break;
         }
 
+        // Optional audio file
+        int audioChoice = JOptionPane.showOptionDialog(this,
+                "Add audio to the video?",
+                "Audio Track", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
+                null, new String[]{"No Audio", "Choose Audio File"}, "No Audio");
+
+        File audioFile = null;
+        if (audioChoice == 1) {
+            JFileChooser audioChooser = new JFileChooser();
+            audioChooser.setFileFilter(new FileNameExtensionFilter(
+                    "Audio Files (mp3, wav, aac, ogg, m4a, flac, wma)",
+                    "mp3", "wav", "aac", "ogg", "m4a", "flac", "wma"));
+            audioChooser.setDialogTitle("Select Audio File");
+            if (audioChooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+                audioFile = audioChooser.getSelectedFile();
+            }
+        }
+        final File finalAudioFile = audioFile;
+
         JFileChooser chooser = new JFileChooser();
         chooser.setSelectedFile(new File("slideshow.mp4"));
         chooser.setFileFilter(new FileNameExtensionFilter("MP4 Video", "mp4"));
@@ -1601,16 +1620,37 @@ public class GifSlideShowApp extends JFrame {
                     publish("Encoding MP4 at " + videoW + "×" + videoH + " (CRF " + crf + ")...");
                     SwingUtilities.invokeLater(() -> progressBar.setValue(65));
 
-                    ProcessBuilder pb = new ProcessBuilder(
-                            "ffmpeg", "-y",
-                            "-framerate", String.valueOf(fps),
-                            "-i", new File(tempDir, "frame_%05d.png").getAbsolutePath(),
-                            "-c:v", "libx264",
-                            "-preset", "slow",
-                            "-crf", String.valueOf(crf),
-                            "-pix_fmt", "yuv420p",
-                            "-movflags", "+faststart",
-                            finalOut.getAbsolutePath());
+                    java.util.List<String> ffmpegCmd = new java.util.ArrayList<>();
+                    ffmpegCmd.add("ffmpeg");
+                    ffmpegCmd.add("-y");
+                    ffmpegCmd.add("-framerate");
+                    ffmpegCmd.add(String.valueOf(fps));
+                    ffmpegCmd.add("-i");
+                    ffmpegCmd.add(new File(tempDir, "frame_%05d.png").getAbsolutePath());
+                    if (finalAudioFile != null) {
+                        ffmpegCmd.add("-i");
+                        ffmpegCmd.add(finalAudioFile.getAbsolutePath());
+                    }
+                    ffmpegCmd.add("-c:v");
+                    ffmpegCmd.add("libx264");
+                    ffmpegCmd.add("-preset");
+                    ffmpegCmd.add("slow");
+                    ffmpegCmd.add("-crf");
+                    ffmpegCmd.add(String.valueOf(crf));
+                    ffmpegCmd.add("-pix_fmt");
+                    ffmpegCmd.add("yuv420p");
+                    if (finalAudioFile != null) {
+                        ffmpegCmd.add("-c:a");
+                        ffmpegCmd.add("aac");
+                        ffmpegCmd.add("-b:a");
+                        ffmpegCmd.add("192k");
+                        ffmpegCmd.add("-shortest");
+                    }
+                    ffmpegCmd.add("-movflags");
+                    ffmpegCmd.add("+faststart");
+                    ffmpegCmd.add(finalOut.getAbsolutePath());
+
+                    ProcessBuilder pb = new ProcessBuilder(ffmpegCmd);
                     pb.redirectErrorStream(true);
                     Process proc = pb.start();
 
@@ -1640,18 +1680,23 @@ public class GifSlideShowApp extends JFrame {
                     double sizeMB = fileSize / (1024.0 * 1024.0);
                     double totalDurationSec = (slides.size() * duration) / 1000.0;
 
+                    String audioInfo = finalAudioFile != null
+                            ? "Audio: " + finalAudioFile.getName() + " (AAC 192k)\n"
+                            : "Audio: None\n";
+
                     finalInfo = String.format(
                             "✅ MP4 Video created successfully!\n\n" +
                                     "Resolution: %d×%d\n" +
                                     "Quality: CRF %d\n" +
                                     "Size: %.2f MB\n" +
                                     "Slides: %d (%d frames at %d fps)\n" +
-                                    "Duration: %.1f seconds\n\n" +
+                                    "Duration: %.1f seconds\n" +
+                                    "%s\n" +
                                     "File: %s\n\n" +
                                     "Upload to Twitter/X for fullscreen playback!",
                             videoW, videoH, crf, sizeMB, slides.size(),
                             totalFrames, fps, totalDurationSec,
-                            finalOut.getAbsolutePath());
+                            audioInfo, finalOut.getAbsolutePath());
 
                 } catch (Exception ex) {
                     errorMsg = ex.getMessage();
