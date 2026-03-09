@@ -1417,6 +1417,93 @@ public class GifSlideShowApp extends JFrame {
         return frames;
     }
 
+    // ==================== Scroll Direction ====================
+
+    private static final String SCROLL_NONE  = "None (Static)";
+    private static final String SCROLL_LEFT  = "Scroll Left";
+    private static final String SCROLL_RIGHT = "Scroll Right";
+    private static final String SCROLL_UP    = "Scroll Up";
+    private static final String SCROLL_DOWN  = "Scroll Down";
+
+    private String askScrollDirection() {
+        String[] options = { SCROLL_NONE, SCROLL_LEFT, SCROLL_RIGHT, SCROLL_UP, SCROLL_DOWN };
+        int choice = JOptionPane.showOptionDialog(this,
+                "Choose slide scroll direction:\n"
+                + "• None: Static slides (no scrolling)\n"
+                + "• Left/Right: Slides scroll horizontally\n"
+                + "• Up/Down: Slides scroll vertically",
+                "Slide Scroll", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
+                null, options, options[0]);
+        if (choice < 0) return null;
+        return options[choice];
+    }
+
+    /**
+     * Renders a single scroll frame by compositing two adjacent rendered slides.
+     * @param renderedSlides pre-rendered slide images at target resolution
+     * @param scrollDir scroll direction
+     * @param frameIndex current frame index (0-based across entire video)
+     * @param totalFrames total number of frames in video
+     * @param w output width
+     * @param h output height
+     */
+    private static BufferedImage renderScrollFrame(List<BufferedImage> renderedSlides,
+                                                   String scrollDir, int frameIndex,
+                                                   int totalFrames, int w, int h) {
+        int numSlides = renderedSlides.size();
+        if (numSlides == 1) return renderedSlides.get(0);
+
+        // progress goes from 0.0 (start of first slide) to numSlides-1 (start of last slide)
+        // but we want the last slide to be fully visible at the end
+        double progress = (double) frameIndex / (totalFrames - 1) * (numSlides - 1);
+        progress = Math.max(0, Math.min(numSlides - 1, progress));
+
+        int slideA = (int) Math.floor(progress);
+        if (slideA >= numSlides - 1) slideA = numSlides - 1;
+        int slideB = Math.min(slideA + 1, numSlides - 1);
+        double t = progress - slideA; // 0.0 to 1.0 between slideA and slideB
+
+        BufferedImage imgA = renderedSlides.get(slideA);
+
+        // If exactly on a slide boundary, just return that slide
+        if (slideA == slideB || t < 0.001) return imgA;
+
+        BufferedImage imgB = renderedSlides.get(slideB);
+        BufferedImage frame = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = frame.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+
+        boolean horizontal = SCROLL_LEFT.equals(scrollDir) || SCROLL_RIGHT.equals(scrollDir);
+        int dim = horizontal ? w : h;
+        int offset = (int) Math.round(t * dim);
+
+        switch (scrollDir) {
+            case SCROLL_LEFT:
+                // Slides enter from the right, exit to the left
+                g.drawImage(imgA, -offset, 0, null);
+                g.drawImage(imgB, w - offset, 0, null);
+                break;
+            case SCROLL_RIGHT:
+                // Slides enter from the left, exit to the right
+                g.drawImage(imgA, offset, 0, null);
+                g.drawImage(imgB, -(w - offset), 0, null);
+                break;
+            case SCROLL_UP:
+                // Slides enter from the bottom, exit to the top
+                g.drawImage(imgA, 0, -offset, null);
+                g.drawImage(imgB, 0, h - offset, null);
+                break;
+            case SCROLL_DOWN:
+                // Slides enter from the top, exit to the bottom
+                g.drawImage(imgA, 0, offset, null);
+                g.drawImage(imgB, 0, -(h - offset), null);
+                break;
+        }
+
+        g.dispose();
+        return frame;
+    }
+
     // ==================== GIF Creation ====================
 
     private void createGif() {
@@ -1425,6 +1512,12 @@ public class GifSlideShowApp extends JFrame {
 
         int duration = askDuration();
         if (duration < 0) return;
+
+        // Scroll direction
+        String scrollDir = askScrollDirection();
+        if (scrollDir == null) return;
+        final String gifScrollDir = scrollDir;
+        final boolean gifScrollEnabled = !SCROLL_NONE.equals(scrollDir);
 
         String[] options = {"High-Quality GIF (ImageIO)", "Ultra-Quality GIF (ffmpeg)"};
         int method = JOptionPane.showOptionDialog(this,
@@ -1477,15 +1570,36 @@ public class GifSlideShowApp extends JFrame {
                         int h = res[1];
                         publish("Rendering at " + w + "×" + h + "...");
 
-                        List<BufferedImage> frames = renderAllFrames(slides, w, h, progressBar, 60);
+                        List<BufferedImage> frames;
+                        int gifDelayMs;
+
+                        if (gifScrollEnabled) {
+                            // Pre-render all slides, then generate scroll frames
+                            List<BufferedImage> renderedSlides = renderAllFrames(slides, w, h, progressBar, 40);
+                            int gifFps = 15; // reasonable for GIF
+                            int framesPerSlide = Math.max(1, (int) Math.round(duration / 1000.0 * gifFps));
+                            int totalGifFrames = slides.size() * framesPerSlide;
+                            gifDelayMs = Math.max(20, 1000 / gifFps);
+                            frames = new ArrayList<>();
+                            publish("Generating scroll frames (" + gifScrollDir + ")...");
+                            for (int f = 0; f < totalGifFrames; f++) {
+                                frames.add(renderScrollFrame(renderedSlides, gifScrollDir, f, totalGifFrames, w, h));
+                                int pct = 40 + (int) ((f + 1.0) / totalGifFrames * 20);
+                                final int p = pct;
+                                SwingUtilities.invokeLater(() -> progressBar.setValue(p));
+                            }
+                        } else {
+                            frames = renderAllFrames(slides, w, h, progressBar, 60);
+                            gifDelayMs = duration;
+                        }
 
                         publish("Encoding GIF at " + w + "×" + h + "...");
                         SwingUtilities.invokeLater(() -> progressBar.setValue(70));
 
                         if (finalMethod == 1) {
-                            writeGifWithFfmpeg(frames, duration, finalOut);
+                            writeGifWithFfmpeg(frames, gifDelayMs, finalOut);
                         } else {
-                            writeAnimatedGif(frames, duration, finalOut);
+                            writeAnimatedGif(frames, gifDelayMs, finalOut);
                         }
 
                         SwingUtilities.invokeLater(() -> progressBar.setValue(90));
@@ -1602,6 +1716,12 @@ public class GifSlideShowApp extends JFrame {
             default: crf = 18; break;
         }
 
+        // Scroll direction
+        String scrollDir = askScrollDirection();
+        if (scrollDir == null) return;
+        final String finalScrollDir = scrollDir;
+        final boolean scrollEnabled = !SCROLL_NONE.equals(scrollDir);
+
         // Optional audio file
         int audioChoice = JOptionPane.showOptionDialog(this,
                 "Add audio to the video?",
@@ -1658,30 +1778,70 @@ public class GifSlideShowApp extends JFrame {
                     int totalFrames = slides.size() * framesPerSlide;
                     int frameIndex = 0;
 
-                    for (int i = 0; i < slides.size(); i++) {
-                        SlideData s = slides.get(i);
-                        BufferedImage frame = renderFrame(
-                                s.image, s.text, s.fontName, s.fontSize,
-                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
-                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
-                                s.slideNumberX, s.slideNumberY,
-                                s.slideNumberSize, s.slideNumberColor,
-                                s.showSlideText, s.slideText, s.slideTextFontName,
-                                s.slideTextFontSize, s.slideTextFontStyle, s.slideTextColor,
-                                s.slideTextX, s.slideTextY, s.slideTextBgOpacity,
-                    s.slideTextBgColor);
-
-                        for (int d = 0; d < framesPerSlide; d++) {
-                            ImageIO.write(frame, "png",
-                                    new File(tempDir, String.format("frame_%05d.png", frameIndex)));
-                            frameIndex++;
+                    if (scrollEnabled) {
+                        // Pre-render all slides first
+                        publish("Pre-rendering all slides...");
+                        List<BufferedImage> renderedSlides = new ArrayList<>();
+                        for (int i = 0; i < slides.size(); i++) {
+                            SlideData s = slides.get(i);
+                            renderedSlides.add(renderFrame(
+                                    s.image, s.text, s.fontName, s.fontSize,
+                                    s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                    videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                    s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                    s.slideNumberX, s.slideNumberY,
+                                    s.slideNumberSize, s.slideNumberColor,
+                                    s.showSlideText, s.slideText, s.slideTextFontName,
+                                    s.slideTextFontSize, s.slideTextFontStyle, s.slideTextColor,
+                                    s.slideTextX, s.slideTextY, s.slideTextBgOpacity,
+                                    s.slideTextBgColor));
+                            int pct = (int) ((i + 1.0) / slides.size() * 30);
+                            final int p = pct;
+                            SwingUtilities.invokeLater(() -> progressBar.setValue(p));
+                            publish("Rendered slide " + (i + 1) + "/" + slides.size());
                         }
 
-                        int pct = (int) ((i + 1.0) / slides.size() * 60);
-                        final int p = pct;
-                        SwingUtilities.invokeLater(() -> progressBar.setValue(p));
-                        publish("Rendered slide " + (i + 1) + "/" + slides.size());
+                        // Generate scroll frames
+                        publish("Generating scroll frames (" + finalScrollDir + ")...");
+                        for (int f = 0; f < totalFrames; f++) {
+                            BufferedImage scrollFrame = renderScrollFrame(
+                                    renderedSlides, finalScrollDir, f, totalFrames, videoW, videoH);
+                            ImageIO.write(scrollFrame, "png",
+                                    new File(tempDir, String.format("frame_%05d.png", f)));
+                            int pct = 30 + (int) ((f + 1.0) / totalFrames * 30);
+                            final int p = pct;
+                            SwingUtilities.invokeLater(() -> progressBar.setValue(p));
+                            if (f % fps == 0) {
+                                publish("Scroll frame " + (f + 1) + "/" + totalFrames);
+                            }
+                        }
+                        frameIndex = totalFrames;
+                    } else {
+                        for (int i = 0; i < slides.size(); i++) {
+                            SlideData s = slides.get(i);
+                            BufferedImage frame = renderFrame(
+                                    s.image, s.text, s.fontName, s.fontSize,
+                                    s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                    videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                    s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                    s.slideNumberX, s.slideNumberY,
+                                    s.slideNumberSize, s.slideNumberColor,
+                                    s.showSlideText, s.slideText, s.slideTextFontName,
+                                    s.slideTextFontSize, s.slideTextFontStyle, s.slideTextColor,
+                                    s.slideTextX, s.slideTextY, s.slideTextBgOpacity,
+                                    s.slideTextBgColor);
+
+                            for (int d = 0; d < framesPerSlide; d++) {
+                                ImageIO.write(frame, "png",
+                                        new File(tempDir, String.format("frame_%05d.png", frameIndex)));
+                                frameIndex++;
+                            }
+
+                            int pct = (int) ((i + 1.0) / slides.size() * 60);
+                            final int p = pct;
+                            SwingUtilities.invokeLater(() -> progressBar.setValue(p));
+                            publish("Rendered slide " + (i + 1) + "/" + slides.size());
+                        }
                     }
 
                     publish("Encoding MP4 at " + videoW + "×" + videoH + " (CRF " + crf + ")...");
@@ -1759,6 +1919,10 @@ public class GifSlideShowApp extends JFrame {
                             ? "Audio: " + finalAudioFile.getName() + " (AAC 192k)\n"
                             : "Audio: None\n";
 
+                    String scrollInfo = scrollEnabled
+                            ? "Scroll: " + finalScrollDir + "\n"
+                            : "";
+
                     finalInfo = String.format(
                             "✅ MP4 Video created successfully!\n\n" +
                                     "Resolution: %d×%d\n" +
@@ -1766,12 +1930,12 @@ public class GifSlideShowApp extends JFrame {
                                     "Size: %.2f MB\n" +
                                     "Slides: %d (%d frames at %d fps)\n" +
                                     "Duration: %.1f seconds\n" +
-                                    "%s\n" +
+                                    "%s%s\n" +
                                     "File: %s\n\n" +
                                     "Upload to Twitter/X for fullscreen playback!",
                             videoW, videoH, crf, sizeMB, slides.size(),
                             totalFrames, fps, totalDurationSec,
-                            audioInfo, finalOut.getAbsolutePath());
+                            scrollInfo, audioInfo, finalOut.getAbsolutePath());
 
                 } catch (Exception ex) {
                     errorMsg = ex.getMessage();
