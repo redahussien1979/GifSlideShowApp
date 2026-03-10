@@ -243,7 +243,8 @@ public class GifSlideShowApp extends JFrame {
         titleRow.applyFormatting("Segoe UI", 48, Font.BOLD,
                 Color.WHITE, SwingConstants.CENTER, false, "Blur-Fit", 5, 78,
                 false, loadedFontNames[0], 50, 10, 80, Color.WHITE,
-                false, "Segoe UI", 40, Font.PLAIN, Color.YELLOW, 50, 50, 0, Color.BLACK);
+                false, "Segoe UI", 40, Font.PLAIN, Color.YELLOW, 50, 50, 0, Color.BLACK,
+                false, 60, false, false, false, false, false, false);
 
         slideRows.add(0, titleRow);
         rebuildSlidesPanel();
@@ -780,6 +781,14 @@ public class GifSlideShowApp extends JFrame {
         int slideTextY = source.getSlideTextY();
         int slideTextBgOpacity = source.getSlideTextBgOpacity();
         Color slideTextBgColor = source.getSlideTextBgColor();
+        boolean fxRoundCorners = source.isFxRoundCorners();
+        int fxCornerRadius = source.getFxCornerRadius();
+        boolean fxVignette = source.isFxVignette();
+        boolean fxSepia = source.isFxSepia();
+        boolean fxGrain = source.isFxGrain();
+        boolean fxWaterRipple = source.isFxWaterRipple();
+        boolean fxGlitch = source.isFxGlitch();
+        boolean fxShake = source.isFxShake();
 
         isSyncingFormat = true;
         try {
@@ -787,7 +796,8 @@ public class GifSlideShowApp extends JFrame {
                 if (row == source || row.isTitleGridSlide) continue;
                 row.applyFormatting(fontName, fontSize, fontStyle, fontColor, alignment, showPin, displayMode, subtitleY, subtitleBgOpacity,
                         showSlideNumber, slideNumberFontName, slideNumberX, slideNumberY, slideNumberSize, slideNumberColor,
-                        showSlideText, slideTextFontName, slideTextFontSize, slideTextFontStyle, stColor, slideTextX, slideTextY, slideTextBgOpacity, slideTextBgColor);
+                        showSlideText, slideTextFontName, slideTextFontSize, slideTextFontStyle, stColor, slideTextX, slideTextY, slideTextBgOpacity, slideTextBgColor,
+                        fxRoundCorners, fxCornerRadius, fxVignette, fxSepia, fxGrain, fxWaterRipple, fxGlitch, fxShake);
             }
         } finally {
             isSyncingFormat = false;
@@ -962,7 +972,8 @@ public class GifSlideShowApp extends JFrame {
         return renderFrame(image, text, fontName, fontSize, fontStyle,
                 fontColor, alignment, showPin, targetW, targetH, "Blur-Fit", 5, 78,
                 false, null, null, 0, 0, 0, null,
-                false, null, null, 0, 0, null, 0, 0, 0, null);
+                false, null, null, 0, 0, null, 0, 0, 0, null,
+                false, 0, false, false, false, false, false, false);
     }
 
     static BufferedImage renderFrame(BufferedImage image, String text,
@@ -973,7 +984,8 @@ public class GifSlideShowApp extends JFrame {
         return renderFrame(image, text, fontName, fontSize, fontStyle,
                 fontColor, alignment, showPin, targetW, targetH, displayMode, 5, 78,
                 false, null, null, 0, 0, 0, null,
-                false, null, null, 0, 0, null, 0, 0, 0, null);
+                false, null, null, 0, 0, null, 0, 0, 0, null,
+                false, 0, false, false, false, false, false, false);
     }
 
     static BufferedImage renderFrame(BufferedImage image, String text,
@@ -990,7 +1002,11 @@ public class GifSlideShowApp extends JFrame {
                                      int slideTextFontStyle, Color slideTextColor,
                                      int slideTextX, int slideTextY,
                                      int slideTextBgOpacity,
-                                     Color slideTextBgColor) {
+                                     Color slideTextBgColor,
+                                     boolean fxRoundCorners, int fxCornerRadius,
+                                     boolean fxVignette, boolean fxSepia,
+                                     boolean fxGrain, boolean fxWaterRipple,
+                                     boolean fxGlitch, boolean fxShake) {
         BufferedImage frame = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = frame.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -1082,6 +1098,131 @@ public class GifSlideShowApp extends JFrame {
                 g.drawImage(image, (targetW - dw) / 2, (targetH - dh) / 2, dw, dh, null);
                 break;
             }
+        }
+
+        // ========== APPLY IMAGE EFFECTS ==========
+        if (fxSepia) {
+            int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+            for (int i = 0; i < px.length; i++) {
+                int r = (px[i] >> 16) & 0xFF;
+                int gr = (px[i] >> 8) & 0xFF;
+                int b = px[i] & 0xFF;
+                int tr = Math.min(255, (int)(0.393 * r + 0.769 * gr + 0.189 * b));
+                int tg = Math.min(255, (int)(0.349 * r + 0.686 * gr + 0.168 * b));
+                int tb = Math.min(255, (int)(0.272 * r + 0.534 * gr + 0.131 * b));
+                px[i] = (0xFF << 24) | (tr << 16) | (tg << 8) | tb;
+            }
+            frame.setRGB(0, 0, targetW, targetH, px, 0, targetW);
+        }
+
+        if (fxWaterRipple) {
+            int[] src = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+            int[] dst = new int[src.length];
+            double amplitude = targetH * 0.006;
+            double frequency = 2.0 * Math.PI / (targetH * 0.12);
+            for (int y = 0; y < targetH; y++) {
+                int xOff = (int)(amplitude * Math.sin(frequency * y));
+                for (int x = 0; x < targetW; x++) {
+                    int sx = Math.max(0, Math.min(targetW - 1, x + xOff));
+                    dst[y * targetW + x] = src[y * targetW + sx];
+                }
+            }
+            frame.setRGB(0, 0, targetW, targetH, dst, 0, targetW);
+        }
+
+        if (fxGlitch) {
+            int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+            Random glitchRng = new Random(137);
+            int numBands = 8 + glitchRng.nextInt(8);
+            for (int band = 0; band < numBands; band++) {
+                int bandY = glitchRng.nextInt(targetH);
+                int bandH = 2 + glitchRng.nextInt(Math.max(1, targetH / 40));
+                int shift = glitchRng.nextInt(Math.max(1, targetW / 10)) - targetW / 20;
+                for (int y = bandY; y < Math.min(targetH, bandY + bandH); y++) {
+                    int[] row = new int[targetW];
+                    for (int x = 0; x < targetW; x++) {
+                        row[x] = px[y * targetW + ((x + shift + targetW) % targetW)];
+                    }
+                    System.arraycopy(row, 0, px, y * targetW, targetW);
+                }
+            }
+            int rShift = Math.max(1, targetW / 80);
+            int[] result = new int[px.length];
+            for (int y = 0; y < targetH; y++) {
+                for (int x = 0; x < targetW; x++) {
+                    int idx = y * targetW + x;
+                    int rIdx = y * targetW + Math.min(targetW - 1, x + rShift);
+                    int bIdx = y * targetW + Math.max(0, x - rShift);
+                    int rv = (px[rIdx] >> 16) & 0xFF;
+                    int gv = (px[idx] >> 8) & 0xFF;
+                    int bv = px[bIdx] & 0xFF;
+                    result[idx] = (0xFF << 24) | (rv << 16) | (gv << 8) | bv;
+                }
+            }
+            frame.setRGB(0, 0, targetW, targetH, result, 0, targetW);
+        }
+
+        if (fxGrain) {
+            int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+            Random grainRng = new Random(42);
+            for (int i = 0; i < px.length; i++) {
+                int noise = grainRng.nextInt(60) - 30;
+                int r = Math.max(0, Math.min(255, ((px[i] >> 16) & 0xFF) + noise));
+                int gv = Math.max(0, Math.min(255, ((px[i] >> 8) & 0xFF) + noise));
+                int b = Math.max(0, Math.min(255, (px[i] & 0xFF) + noise));
+                px[i] = (0xFF << 24) | (r << 16) | (gv << 8) | b;
+            }
+            frame.setRGB(0, 0, targetW, targetH, px, 0, targetW);
+        }
+
+        if (fxShake) {
+            BufferedImage shaken = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
+            Graphics2D sg = shaken.createGraphics();
+            sg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+            sg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            sg.setColor(new Color(21, 32, 43));
+            sg.fillRect(0, 0, targetW, targetH);
+            AffineTransform at = new AffineTransform();
+            at.translate(targetW / 2.0, targetH / 2.0);
+            at.rotate(Math.toRadians(1.5));
+            at.translate(targetW * 0.008, targetH * 0.006);
+            at.translate(-targetW / 2.0, -targetH / 2.0);
+            sg.drawImage(frame, at, null);
+            sg.dispose();
+            Graphics2D fg = frame.createGraphics();
+            fg.drawImage(shaken, 0, 0, null);
+            fg.dispose();
+        }
+
+        if (fxRoundCorners && fxCornerRadius > 0) {
+            float rcScale = Math.max(targetW, targetH) / 1920.0f;
+            int radius = Math.max(1, (int)(fxCornerRadius * rcScale));
+            BufferedImage rounded = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D rg = rounded.createGraphics();
+            rg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            rg.setClip(new RoundRectangle2D.Double(0, 0, targetW, targetH, radius * 2, radius * 2));
+            rg.drawImage(frame, 0, 0, null);
+            rg.dispose();
+            Graphics2D fg = frame.createGraphics();
+            fg.setColor(new Color(21, 32, 43));
+            fg.fillRect(0, 0, targetW, targetH);
+            fg.drawImage(rounded, 0, 0, null);
+            fg.dispose();
+        }
+
+        if (fxVignette) {
+            Graphics2D vg = (Graphics2D) g.create();
+            float cx = targetW / 2.0f, cy = targetH / 2.0f;
+            float vRadius = (float) Math.sqrt(cx * cx + cy * cy);
+            RadialGradientPaint vPaint = new RadialGradientPaint(
+                cx, cy, vRadius,
+                new float[]{0.0f, 0.45f, 0.85f, 1.0f},
+                new Color[]{new Color(0,0,0,0), new Color(0,0,0,0),
+                            new Color(0,0,0,100), new Color(0,0,0,200)}
+            );
+            vg.setPaint(vPaint);
+            vg.fillRect(0, 0, targetW, targetH);
+            vg.dispose();
         }
 
         // ========== SLIDE NUMBER OVERLAY ==========
@@ -1372,7 +1513,10 @@ public class GifSlideShowApp extends JFrame {
                     row.isShowSlideText(), row.getSlideText(), row.getSlideTextFontName(),
                     row.getSlideTextFontSize(), row.getSlideTextFontStyle(), row.getSlideTextColor(),
                     row.getSlideTextX(), row.getSlideTextY(), row.getSlideTextBgOpacity(),
-                    row.getSlideTextBgColor()));
+                    row.getSlideTextBgColor(),
+                    row.isFxRoundCorners(), row.getFxCornerRadius(),
+                    row.isFxVignette(), row.isFxSepia(), row.isFxGrain(),
+                    row.isFxWaterRipple(), row.isFxGlitch(), row.isFxShake()));
         }
         if (slides.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Add at least one slide.", "No Slides", JOptionPane.WARNING_MESSAGE);
@@ -1436,7 +1580,10 @@ public class GifSlideShowApp extends JFrame {
                     s.showSlideText, s.slideText, s.slideTextFontName,
                     s.slideTextFontSize, s.slideTextFontStyle, s.slideTextColor,
                     s.slideTextX, s.slideTextY, s.slideTextBgOpacity,
-                    s.slideTextBgColor);
+                    s.slideTextBgColor,
+                    s.fxRoundCorners, s.fxCornerRadius,
+                    s.fxVignette, s.fxSepia, s.fxGrain,
+                    s.fxWaterRipple, s.fxGlitch, s.fxShake);
             frames.add(frame);
             int pct = (int) ((i + 1.0) / slides.size() * maxPct);
             SwingUtilities.invokeLater(() -> progressBar.setValue(pct));
@@ -1821,7 +1968,10 @@ public class GifSlideShowApp extends JFrame {
                                     s.showSlideText, s.slideText, s.slideTextFontName,
                                     s.slideTextFontSize, s.slideTextFontStyle, s.slideTextColor,
                                     s.slideTextX, s.slideTextY, s.slideTextBgOpacity,
-                                    s.slideTextBgColor));
+                                    s.slideTextBgColor,
+                                    s.fxRoundCorners, s.fxCornerRadius,
+                                    s.fxVignette, s.fxSepia, s.fxGrain,
+                                    s.fxWaterRipple, s.fxGlitch, s.fxShake));
                             int pct = (int) ((i + 1.0) / slides.size() * 30);
                             final int p = pct;
                             SwingUtilities.invokeLater(() -> progressBar.setValue(p));
@@ -1856,7 +2006,10 @@ public class GifSlideShowApp extends JFrame {
                                     s.showSlideText, s.slideText, s.slideTextFontName,
                                     s.slideTextFontSize, s.slideTextFontStyle, s.slideTextColor,
                                     s.slideTextX, s.slideTextY, s.slideTextBgOpacity,
-                                    s.slideTextBgColor);
+                                    s.slideTextBgColor,
+                                    s.fxRoundCorners, s.fxCornerRadius,
+                                    s.fxVignette, s.fxSepia, s.fxGrain,
+                                    s.fxWaterRipple, s.fxGlitch, s.fxShake);
 
                             for (int d = 0; d < framesPerSlide; d++) {
                                 ImageIO.write(frame, "png",
@@ -2086,7 +2239,10 @@ public class GifSlideShowApp extends JFrame {
                                     s.showSlideText, s.slideText, s.slideTextFontName,
                                     s.slideTextFontSize, s.slideTextFontStyle, s.slideTextColor,
                                     s.slideTextX, s.slideTextY, s.slideTextBgOpacity,
-                    s.slideTextBgColor);
+                                    s.slideTextBgColor,
+                                    s.fxRoundCorners, s.fxCornerRadius,
+                                    s.fxVignette, s.fxSepia, s.fxGrain,
+                                    s.fxWaterRipple, s.fxGlitch, s.fxShake);
                             ImageIO.write(frame, "png",
                                     new File(tempDir, String.format("frame_%04d.png", i)));
                         }
@@ -2217,6 +2373,14 @@ public class GifSlideShowApp extends JFrame {
         final int slideTextY;
         final int slideTextBgOpacity;
         final Color slideTextBgColor;
+        final boolean fxRoundCorners;
+        final int fxCornerRadius;
+        final boolean fxVignette;
+        final boolean fxSepia;
+        final boolean fxGrain;
+        final boolean fxWaterRipple;
+        final boolean fxGlitch;
+        final boolean fxShake;
 
         SlideData(BufferedImage image, String text, String fontName, int fontSize,
                   int fontStyle, Color fontColor, int alignment, boolean showPin, String displayMode,
@@ -2227,7 +2391,10 @@ public class GifSlideShowApp extends JFrame {
                   boolean showSlideText, String slideText, String slideTextFontName,
                   int slideTextFontSize, int slideTextFontStyle, Color slideTextColor,
                   int slideTextX, int slideTextY, int slideTextBgOpacity,
-                  Color slideTextBgColor) {
+                  Color slideTextBgColor,
+                  boolean fxRoundCorners, int fxCornerRadius,
+                  boolean fxVignette, boolean fxSepia, boolean fxGrain,
+                  boolean fxWaterRipple, boolean fxGlitch, boolean fxShake) {
             this.image = image;
             this.text = text;
             this.fontName = fontName;
@@ -2256,6 +2423,14 @@ public class GifSlideShowApp extends JFrame {
             this.slideTextY = slideTextY;
             this.slideTextBgOpacity = slideTextBgOpacity;
             this.slideTextBgColor = slideTextBgColor;
+            this.fxRoundCorners = fxRoundCorners;
+            this.fxCornerRadius = fxCornerRadius;
+            this.fxVignette = fxVignette;
+            this.fxSepia = fxSepia;
+            this.fxGrain = fxGrain;
+            this.fxWaterRipple = fxWaterRipple;
+            this.fxGlitch = fxGlitch;
+            this.fxShake = fxShake;
         }
     }
 
@@ -2297,6 +2472,14 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner slideTextBgSpinner;
         private final JSpinner subtitleYSpinner;
         private final JSpinner subtitleBgOpacitySpinner;
+        private final JCheckBox fxRoundCornersCheck;
+        private final JSpinner fxCornerRadiusSpinner;
+        private final JCheckBox fxVignetteCheck;
+        private final JCheckBox fxSepiaCheck;
+        private final JCheckBox fxGrainCheck;
+        private final JCheckBox fxWaterRippleCheck;
+        private final JCheckBox fxGlitchCheck;
+        private final JCheckBox fxShakeCheck;
         private final JLabel livePreviewLabel;
         private BufferedImage loadedImage;
         private Color selectedColor = Color.WHITE;
@@ -2321,8 +2504,8 @@ public class GifSlideShowApp extends JFrame {
             panel.setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createLineBorder(new Color(60, 63, 68), 1, true),
                     BorderFactory.createEmptyBorder(10, 10, 10, 10)));
-            panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 380));
-            panel.setPreferredSize(new Dimension(1100, 370));
+            panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 450));
+            panel.setPreferredSize(new Dimension(1100, 440));
 
             previewTimer = new Timer(150, e -> updateLivePreview());
             previewTimer.setRepeats(false);
@@ -2700,6 +2883,83 @@ public class GifSlideShowApp extends JFrame {
             toolbar4b.add(slideTextBgSpinner);
             toolbar4b.add(slideTextBgColorBtn);
 
+            // ===== Toolbar Row 5: Image Effects =====
+            JPanel toolbar5a = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            toolbar5a.setBackground(new Color(44, 47, 51));
+            JPanel toolbar5b = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            toolbar5b.setBackground(new Color(44, 47, 51));
+
+            JLabel fxLabel = styledLabel("\u2728 Effects:");
+            fxLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            fxLabel.setForeground(new Color(220, 120, 255));
+
+            fxRoundCornersCheck = new JCheckBox("Round Corners", false);
+            fxRoundCornersCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            fxRoundCornersCheck.setForeground(Color.LIGHT_GRAY);
+            fxRoundCornersCheck.setBackground(new Color(44, 47, 51));
+            fxRoundCornersCheck.setFocusPainted(false);
+            fxRoundCornersCheck.addActionListener(e -> onFormatChanged());
+
+            fxCornerRadiusSpinner = new JSpinner(new SpinnerNumberModel(60, 5, 500, 5));
+            fxCornerRadiusSpinner.setPreferredSize(new Dimension(55, 28));
+            fxCornerRadiusSpinner.setToolTipText("Corner radius (pixels at 1920p)");
+            fxCornerRadiusSpinner.addChangeListener(e -> onFormatChanged());
+
+            fxVignetteCheck = new JCheckBox("Vignette", false);
+            fxVignetteCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            fxVignetteCheck.setForeground(Color.LIGHT_GRAY);
+            fxVignetteCheck.setBackground(new Color(44, 47, 51));
+            fxVignetteCheck.setFocusPainted(false);
+            fxVignetteCheck.addActionListener(e -> onFormatChanged());
+
+            fxSepiaCheck = new JCheckBox("Sepia", false);
+            fxSepiaCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            fxSepiaCheck.setForeground(Color.LIGHT_GRAY);
+            fxSepiaCheck.setBackground(new Color(44, 47, 51));
+            fxSepiaCheck.setFocusPainted(false);
+            fxSepiaCheck.addActionListener(e -> onFormatChanged());
+
+            fxGrainCheck = new JCheckBox("Grain", false);
+            fxGrainCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            fxGrainCheck.setForeground(Color.LIGHT_GRAY);
+            fxGrainCheck.setBackground(new Color(44, 47, 51));
+            fxGrainCheck.setFocusPainted(false);
+            fxGrainCheck.addActionListener(e -> onFormatChanged());
+
+            fxWaterRippleCheck = new JCheckBox("Water Ripple", false);
+            fxWaterRippleCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            fxWaterRippleCheck.setForeground(Color.LIGHT_GRAY);
+            fxWaterRippleCheck.setBackground(new Color(44, 47, 51));
+            fxWaterRippleCheck.setFocusPainted(false);
+            fxWaterRippleCheck.addActionListener(e -> onFormatChanged());
+
+            fxGlitchCheck = new JCheckBox("Glitch", false);
+            fxGlitchCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            fxGlitchCheck.setForeground(Color.LIGHT_GRAY);
+            fxGlitchCheck.setBackground(new Color(44, 47, 51));
+            fxGlitchCheck.setFocusPainted(false);
+            fxGlitchCheck.addActionListener(e -> onFormatChanged());
+
+            fxShakeCheck = new JCheckBox("Shake", false);
+            fxShakeCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            fxShakeCheck.setForeground(Color.LIGHT_GRAY);
+            fxShakeCheck.setBackground(new Color(44, 47, 51));
+            fxShakeCheck.setFocusPainted(false);
+            fxShakeCheck.addActionListener(e -> onFormatChanged());
+
+            toolbar5a.add(fxLabel);
+            toolbar5a.add(fxRoundCornersCheck);
+            toolbar5a.add(styledLabel("Radius:"));
+            toolbar5a.add(fxCornerRadiusSpinner);
+            toolbar5a.add(fxVignetteCheck);
+            toolbar5a.add(fxSepiaCheck);
+
+            toolbar5b.add(styledLabel("  "));
+            toolbar5b.add(fxGrainCheck);
+            toolbar5b.add(fxWaterRippleCheck);
+            toolbar5b.add(fxGlitchCheck);
+            toolbar5b.add(fxShakeCheck);
+
             textArea = new JTextArea(6, 20);
             textArea.setFont(new Font("Segoe UI", Font.PLAIN, 14));
             textArea.setLineWrap(true);
@@ -2729,6 +2989,9 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar4a);
             toolbarsPanel.add(toolbar4b);
+            toolbarsPanel.add(createToolbarSeparator());
+            toolbarsPanel.add(toolbar5a);
+            toolbarsPanel.add(toolbar5b);
 
             rightPanel.add(toolbarsPanel, BorderLayout.NORTH);
             rightPanel.add(textScroll, BorderLayout.CENTER);
@@ -2792,7 +3055,10 @@ public class GifSlideShowApp extends JFrame {
                              boolean showSlideText, String slideTextFontName,
                              int slideTextFontSize, int slideTextFontStyle,
                              Color slideTextColor, int slideTextX, int slideTextY,
-                             int slideTextBgOpacity, Color slideTextBgColor) {
+                             int slideTextBgOpacity, Color slideTextBgColor,
+                             boolean fxRoundCorners, int fxCornerRadius,
+                             boolean fxVignette, boolean fxSepia, boolean fxGrain,
+                             boolean fxWaterRipple, boolean fxGlitch, boolean fxShake) {
             fontCombo.setSelectedItem(fontName);
             sizeSpinner.setValue(fontSize);
             boldBtn.setSelected((fontStyle & Font.BOLD) != 0);
@@ -2831,6 +3097,15 @@ public class GifSlideShowApp extends JFrame {
             slideTextBgSpinner.setValue(slideTextBgOpacity);
             this.slideTextBgColor = slideTextBgColor;
             slideTextBgColorBtn.setForeground(slideTextBgColor);
+
+            fxRoundCornersCheck.setSelected(fxRoundCorners);
+            fxCornerRadiusSpinner.setValue(fxCornerRadius);
+            fxVignetteCheck.setSelected(fxVignette);
+            fxSepiaCheck.setSelected(fxSepia);
+            fxGrainCheck.setSelected(fxGrain);
+            fxWaterRippleCheck.setSelected(fxWaterRipple);
+            fxGlitchCheck.setSelected(fxGlitch);
+            fxShakeCheck.setSelected(fxShake);
 
             updateTextAreaStyle();
             schedulePreview();
@@ -2887,7 +3162,10 @@ public class GifSlideShowApp extends JFrame {
                     isShowSlideText(), getSlideText(), getSlideTextFontName(),
                     getSlideTextFontSize(), getSlideTextFontStyle(), getSlideTextColor(),
                     getSlideTextX(), getSlideTextY(), getSlideTextBgOpacity(),
-                    getSlideTextBgColor());
+                    getSlideTextBgColor(),
+                    isFxRoundCorners(), getFxCornerRadius(),
+                    isFxVignette(), isFxSepia(), isFxGrain(),
+                    isFxWaterRipple(), isFxGlitch(), isFxShake());
 
             int lw = livePreviewLabel.getWidth();
             int lh = livePreviewLabel.getHeight();
@@ -3024,6 +3302,15 @@ public class GifSlideShowApp extends JFrame {
         int getSlideTextY() { return (int) slideTextYSpinner.getValue(); }
         int getSlideTextBgOpacity() { return (int) slideTextBgSpinner.getValue(); }
         Color getSlideTextBgColor() { return slideTextBgColor; }
+
+        boolean isFxRoundCorners() { return fxRoundCornersCheck.isSelected(); }
+        int getFxCornerRadius() { return (int) fxCornerRadiusSpinner.getValue(); }
+        boolean isFxVignette() { return fxVignetteCheck.isSelected(); }
+        boolean isFxSepia() { return fxSepiaCheck.isSelected(); }
+        boolean isFxGrain() { return fxGrainCheck.isSelected(); }
+        boolean isFxWaterRipple() { return fxWaterRippleCheck.isSelected(); }
+        boolean isFxGlitch() { return fxGlitchCheck.isSelected(); }
+        boolean isFxShake() { return fxShakeCheck.isSelected(); }
     }
 
     // ==================== Main ====================
