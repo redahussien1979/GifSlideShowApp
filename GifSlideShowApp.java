@@ -1358,7 +1358,9 @@ public class GifSlideShowApp extends JFrame {
             String slideDisplayMode = row.getDisplayMode();
             if (row.isTitleGridSlide && row.gridSourceImages != null) {
                 slideImage = row.composeTitleGridFrame(getOutputWidth(), getOutputHeight());
-                slideDisplayMode = "Direct";
+                if (row.titleBgImage == null) {
+                    slideDisplayMode = "Direct";
+                }
             }
             slides.add(new SlideData(slideImage, row.getSubtitleText(),
                     row.getSelectedFont(), row.getFontSize(), row.getFontStyle(),
@@ -2851,30 +2853,15 @@ public class GifSlideShowApp extends JFrame {
         }
 
         /**
-         * Composes a title grid frame: if a background image is set, renders
-         * it with the selected display mode effect and overlays the grid on top.
-         * If no background image, returns the grid image directly.
+         * Returns the image to use for the title grid frame.
+         * If a background image is set, returns it (display mode effect
+         * will be applied by renderFrame). Otherwise returns the grid image.
          */
         BufferedImage composeTitleGridFrame(int w, int h) {
-            BufferedImage gridImage = regenerateGridImage(w, h);
-            if (titleBgImage == null) {
-                return gridImage;
+            if (titleBgImage != null) {
+                return titleBgImage;
             }
-            // Render the background image with the selected display mode effect
-            BufferedImage bgRendered = renderFrame(
-                    titleBgImage, "",
-                    "Segoe UI", 28, Font.PLAIN,
-                    Color.WHITE, SwingConstants.LEFT, false,
-                    w, h, getDisplayMode(), 5, 0,
-                    false, null, null, 0, 0, 0, Color.WHITE,
-                    false, null, null, 0, 0, Color.WHITE, 0, 0, 0, Color.BLACK);
-            // Overlay the grid image with transparency
-            Graphics2D g = bgRendered.createGraphics();
-            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.85f));
-            g.drawImage(gridImage, 0, 0, w, h, null);
-            g.dispose();
-            return bgRendered;
+            return regenerateGridImage(w, h);
         }
 
         private void updateLivePreview() {
@@ -2892,7 +2879,7 @@ public class GifSlideShowApp extends JFrame {
                     getSelectedFont(), getFontSize(), getFontStyle(),
                     getFontColor(), getTextAlignment(), isShowPin(),
                     getPreviewWidth(), getPreviewHeight(),
-                    isTitleGridSlide ? "Direct" : getDisplayMode(), getSubtitleY(),
+                    (isTitleGridSlide && titleBgImage == null) ? "Direct" : getDisplayMode(), getSubtitleY(),
                     getSubtitleBgOpacity(),
                     isShowSlideNumber(), getSlideNumberText(), getSlideNumberFontName(),
                     getSlideNumberX(), getSlideNumberY(),
