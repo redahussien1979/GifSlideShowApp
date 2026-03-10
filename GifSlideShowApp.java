@@ -208,13 +208,37 @@ public class GifSlideShowApp extends JFrame {
 
         BufferedImage gridImage = generateGridImage(images, getOutputWidth(), getOutputHeight(), layoutIndex);
 
+        // Optionally pick a background image
+        BufferedImage bgImage = null;
+        int bgChoice = JOptionPane.showConfirmDialog(this,
+                "Would you like to add a background image?\n" +
+                "The selected display mode effect (Blur-Fit, Fill Crop, etc.)\nwill be applied to it behind the grid.",
+                "Background Image", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+        if (bgChoice == JOptionPane.YES_OPTION) {
+            JFileChooser fc = new JFileChooser();
+            fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                    "Images (jpg, png, gif, bmp, webp, avif, heif)",
+                    "jpg", "jpeg", "png", "gif", "bmp", "webp", "avif", "heif", "heic"));
+            if (fc.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+                try {
+                    bgImage = loadImageFile(fc.getSelectedFile());
+                } catch (IOException ex) {
+                    JOptionPane.showMessageDialog(this, "Error loading background: " + ex.getMessage(),
+                            "Error", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }
+
         slideRows.removeIf(r -> r.isTitleGridSlide);
 
         SlideRow titleRow = new SlideRow(1);
         titleRow.isTitleGridSlide = true;
         titleRow.gridLayoutIndex = layoutIndex;
         titleRow.gridSourceImages = new ArrayList<>(images);
-        titleRow.setImageDirectly(gridImage, "📸 Layout " + layoutIndex + " (" + images.size() + " images)");
+        titleRow.titleBgImage = bgImage;
+        titleRow.setImageDirectly(gridImage, bgImage != null ?
+                "📸 Layout " + layoutIndex + " + BG image" :
+                "📸 Layout " + layoutIndex + " (" + images.size() + " images)");
         titleRow.setSubtitleText(titleText);
         titleRow.applyFormatting("Segoe UI", 48, Font.BOLD,
                 Color.WHITE, SwingConstants.CENTER, false, "Blur-Fit", 5, 78,
@@ -224,8 +248,9 @@ public class GifSlideShowApp extends JFrame {
         slideRows.add(0, titleRow);
         rebuildSlidesPanel();
 
+        String bgMsg = bgImage != null ? "\nBackground image added — change effect via the display mode dropdown." : "";
         JOptionPane.showMessageDialog(this,
-                "Title grid slide created with layout #" + layoutIndex + " and " + images.size() + " images!",
+                "Title grid slide created with layout #" + layoutIndex + " and " + images.size() + " images!" + bgMsg,
                 "Title Grid Slide", JOptionPane.INFORMATION_MESSAGE);
     }
 
@@ -1332,7 +1357,7 @@ public class GifSlideShowApp extends JFrame {
             BufferedImage slideImage = row.getImage();
             String slideDisplayMode = row.getDisplayMode();
             if (row.isTitleGridSlide && row.gridSourceImages != null) {
-                slideImage = row.regenerateGridImage(getOutputWidth(), getOutputHeight());
+                slideImage = row.composeTitleGridFrame(getOutputWidth(), getOutputHeight());
                 slideDisplayMode = "Direct";
             }
             slides.add(new SlideData(slideImage, row.getSubtitleText(),
@@ -2278,6 +2303,7 @@ public class GifSlideShowApp extends JFrame {
         boolean isTitleGridSlide = false;
         private int gridLayoutIndex = 1;
         private List<BufferedImage> gridSourceImages = null;
+        private BufferedImage titleBgImage = null;
 
 
 
@@ -2814,11 +2840,41 @@ public class GifSlideShowApp extends JFrame {
                     BorderFactory.createLineBorder(new Color(60, 160, 200), 2, true),
                     BorderFactory.createEmptyBorder(10, 10, 10, 10)));
             numberLabel.setForeground(new Color(60, 160, 200));
+            if (titleBgImage == null && loadedImage != null) {
+                imagePreview.setText("Drop image here for background");
+            }
         }
 
         BufferedImage regenerateGridImage(int w, int h) {
             if (gridSourceImages == null || gridSourceImages.isEmpty()) return loadedImage;
             return generateGridImage(gridSourceImages, w, h, gridLayoutIndex);
+        }
+
+        /**
+         * Composes a title grid frame: if a background image is set, renders
+         * it with the selected display mode effect and overlays the grid on top.
+         * If no background image, returns the grid image directly.
+         */
+        BufferedImage composeTitleGridFrame(int w, int h) {
+            BufferedImage gridImage = regenerateGridImage(w, h);
+            if (titleBgImage == null) {
+                return gridImage;
+            }
+            // Render the background image with the selected display mode effect
+            BufferedImage bgRendered = renderFrame(
+                    titleBgImage, null,
+                    "Segoe UI", 28, Font.PLAIN,
+                    Color.WHITE, SwingConstants.LEFT, false,
+                    w, h, getDisplayMode(), 5, 0,
+                    false, null, null, 0, 0, 0, Color.WHITE,
+                    false, null, null, 0, 0, Color.WHITE, 0, 0, 0, Color.BLACK);
+            // Overlay the grid image with transparency
+            Graphics2D g = bgRendered.createGraphics();
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.85f));
+            g.drawImage(gridImage, 0, 0, w, h, null);
+            g.dispose();
+            return bgRendered;
         }
 
         private void updateLivePreview() {
@@ -2829,7 +2885,7 @@ public class GifSlideShowApp extends JFrame {
             }
             BufferedImage frameImage = loadedImage;
             if (isTitleGridSlide && gridSourceImages != null) {
-                frameImage = regenerateGridImage(getPreviewWidth(), getPreviewHeight());
+                frameImage = composeTitleGridFrame(getPreviewWidth(), getPreviewHeight());
             }
             BufferedImage preview = renderFrame(
                     frameImage, textArea.getText(),
@@ -2881,13 +2937,19 @@ public class GifSlideShowApp extends JFrame {
 
         private void loadImage(File file) {
             try {
-                loadedImage = loadImageFile(file);
-                if (loadedImage == null) {
+                BufferedImage img = loadImageFile(file);
+                if (img == null) {
                     JOptionPane.showMessageDialog(panel, "Cannot read: " + file.getName(),
                             "Error", JOptionPane.ERROR_MESSAGE);
                     return;
                 }
-                updateImagePreviewThumb(file.getName());
+                if (isTitleGridSlide) {
+                    titleBgImage = img;
+                    updateImagePreviewThumb("BG: " + file.getName());
+                } else {
+                    loadedImage = img;
+                    updateImagePreviewThumb(file.getName());
+                }
                 schedulePreview();
             } catch (IOException ex) {
                 JOptionPane.showMessageDialog(panel, "Error:\n" + ex.getMessage(),
@@ -2902,15 +2964,16 @@ public class GifSlideShowApp extends JFrame {
         }
 
         private void updateImagePreviewThumb(String fileName) {
-            if (loadedImage == null) return;
+            BufferedImage thumbSource = (isTitleGridSlide && titleBgImage != null) ? titleBgImage : loadedImage;
+            if (thumbSource == null) return;
             int pw = imagePreview.getWidth() - 16;
             int ph = imagePreview.getHeight() - 16;
             if (pw < 50) pw = 240;
             if (ph < 50) ph = 130;
-            double sc = Math.min((double) pw / loadedImage.getWidth(), (double) ph / loadedImage.getHeight());
-            Image thumb = loadedImage.getScaledInstance(
-                    Math.max(1, (int) (loadedImage.getWidth() * sc)),
-                    Math.max(1, (int) (loadedImage.getHeight() * sc)),
+            double sc = Math.min((double) pw / thumbSource.getWidth(), (double) ph / thumbSource.getHeight());
+            Image thumb = thumbSource.getScaledInstance(
+                    Math.max(1, (int) (thumbSource.getWidth() * sc)),
+                    Math.max(1, (int) (thumbSource.getHeight() * sc)),
                     Image.SCALE_SMOOTH);
             imagePreview.setIcon(new ImageIcon(thumb));
             imagePreview.setText(fileName);
