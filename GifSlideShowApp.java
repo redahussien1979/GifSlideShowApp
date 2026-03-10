@@ -973,7 +973,7 @@ public class GifSlideShowApp extends JFrame {
                 fontColor, alignment, showPin, targetW, targetH, "Blur-Fit", 5, 78,
                 false, null, null, 0, 0, 0, null,
                 false, null, null, 0, 0, null, 0, 0, 0, null,
-                false, 0, false, false, false, false, false, false);
+                false, 0, false, false, false, false, false, false, 0);
     }
 
     static BufferedImage renderFrame(BufferedImage image, String text,
@@ -985,7 +985,7 @@ public class GifSlideShowApp extends JFrame {
                 fontColor, alignment, showPin, targetW, targetH, displayMode, 5, 78,
                 false, null, null, 0, 0, 0, null,
                 false, null, null, 0, 0, null, 0, 0, 0, null,
-                false, 0, false, false, false, false, false, false);
+                false, 0, false, false, false, false, false, false, 0);
     }
 
     static BufferedImage renderFrame(BufferedImage image, String text,
@@ -1007,6 +1007,38 @@ public class GifSlideShowApp extends JFrame {
                                      boolean fxVignette, boolean fxSepia,
                                      boolean fxGrain, boolean fxWaterRipple,
                                      boolean fxGlitch, boolean fxShake) {
+        return renderFrame(image, text, fontName, fontSize, fontStyle,
+                fontColor, alignment, showPin, targetW, targetH, displayMode,
+                subtitleY, subtitleBgOpacity,
+                showSlideNumber, slideNumberText, slideNumberFontName,
+                slideNumberX, slideNumberY, slideNumberSize, slideNumberColor,
+                showSlideText, slideText, slideTextFontName, slideTextFontSize,
+                slideTextFontStyle, slideTextColor, slideTextX, slideTextY,
+                slideTextBgOpacity, slideTextBgColor,
+                fxRoundCorners, fxCornerRadius, fxVignette, fxSepia,
+                fxGrain, fxWaterRipple, fxGlitch, fxShake, 0);
+    }
+
+    static BufferedImage renderFrame(BufferedImage image, String text,
+                                     String fontName, int fontSize, int fontStyle,
+                                     Color fontColor, int alignment,
+                                     boolean showPin, int targetW, int targetH,
+                                     String displayMode, int subtitleY, int subtitleBgOpacity,
+                                     boolean showSlideNumber, String slideNumberText,
+                                     String slideNumberFontName,
+                                     int slideNumberX, int slideNumberY,
+                                     int slideNumberSize, Color slideNumberColor,
+                                     boolean showSlideText, String slideText,
+                                     String slideTextFontName, int slideTextFontSize,
+                                     int slideTextFontStyle, Color slideTextColor,
+                                     int slideTextX, int slideTextY,
+                                     int slideTextBgOpacity,
+                                     Color slideTextBgColor,
+                                     boolean fxRoundCorners, int fxCornerRadius,
+                                     boolean fxVignette, boolean fxSepia,
+                                     boolean fxGrain, boolean fxWaterRipple,
+                                     boolean fxGlitch, boolean fxShake,
+                                     int animFrameIndex) {
         BufferedImage frame = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = frame.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -1120,8 +1152,9 @@ public class GifSlideShowApp extends JFrame {
             int[] dst = new int[src.length];
             double amplitude = targetH * 0.006;
             double frequency = 2.0 * Math.PI / (targetH * 0.12);
+            double phase = animFrameIndex * 0.15;
             for (int y = 0; y < targetH; y++) {
-                int xOff = (int)(amplitude * Math.sin(frequency * y));
+                int xOff = (int)(amplitude * Math.sin(frequency * y + phase));
                 for (int x = 0; x < targetW; x++) {
                     int sx = Math.max(0, Math.min(targetW - 1, x + xOff));
                     dst[y * targetW + x] = src[y * targetW + sx];
@@ -1132,7 +1165,7 @@ public class GifSlideShowApp extends JFrame {
 
         if (fxGlitch) {
             int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
-            Random glitchRng = new Random(137);
+            Random glitchRng = new Random(137L + animFrameIndex * 31L);
             int numBands = 8 + glitchRng.nextInt(8);
             for (int band = 0; band < numBands; band++) {
                 int bandY = glitchRng.nextInt(targetH);
@@ -1147,12 +1180,15 @@ public class GifSlideShowApp extends JFrame {
                 }
             }
             int rShift = Math.max(1, targetW / 80);
+            int channelPhase = (animFrameIndex % 3);
             int[] result = new int[px.length];
             for (int y = 0; y < targetH; y++) {
                 for (int x = 0; x < targetW; x++) {
                     int idx = y * targetW + x;
-                    int rIdx = y * targetW + Math.min(targetW - 1, x + rShift);
-                    int bIdx = y * targetW + Math.max(0, x - rShift);
+                    int rOff = channelPhase == 0 ? rShift : (channelPhase == 1 ? -rShift : rShift / 2);
+                    int bOff = channelPhase == 0 ? -rShift : (channelPhase == 1 ? rShift : -rShift / 2);
+                    int rIdx = y * targetW + Math.min(targetW - 1, Math.max(0, x + rOff));
+                    int bIdx = y * targetW + Math.min(targetW - 1, Math.max(0, x + bOff));
                     int rv = (px[rIdx] >> 16) & 0xFF;
                     int gv = (px[idx] >> 8) & 0xFF;
                     int bv = px[bIdx] & 0xFF;
@@ -1164,7 +1200,7 @@ public class GifSlideShowApp extends JFrame {
 
         if (fxGrain) {
             int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
-            Random grainRng = new Random(42);
+            Random grainRng = new Random(42L + animFrameIndex * 17L);
             for (int i = 0; i < px.length; i++) {
                 int noise = grainRng.nextInt(60) - 30;
                 int r = Math.max(0, Math.min(255, ((px[i] >> 16) & 0xFF) + noise));
@@ -1182,10 +1218,13 @@ public class GifSlideShowApp extends JFrame {
             sg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             sg.setColor(new Color(21, 32, 43));
             sg.fillRect(0, 0, targetW, targetH);
+            double shakeAngle = Math.toRadians(1.8 * Math.sin(animFrameIndex * 0.7));
+            double shakeOffX = targetW * 0.01 * Math.sin(animFrameIndex * 1.1);
+            double shakeOffY = targetH * 0.008 * Math.cos(animFrameIndex * 0.9);
             AffineTransform at = new AffineTransform();
             at.translate(targetW / 2.0, targetH / 2.0);
-            at.rotate(Math.toRadians(1.5));
-            at.translate(targetW * 0.008, targetH * 0.006);
+            at.rotate(shakeAngle);
+            at.translate(shakeOffX, shakeOffY);
             at.translate(-targetW / 2.0, -targetH / 2.0);
             sg.drawImage(frame, at, null);
             sg.dispose();
@@ -1996,25 +2035,50 @@ public class GifSlideShowApp extends JFrame {
                     } else {
                         for (int i = 0; i < slides.size(); i++) {
                             SlideData s = slides.get(i);
-                            BufferedImage frame = renderFrame(
-                                    s.image, s.text, s.fontName, s.fontSize,
-                                    s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                    videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
-                                    s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
-                                    s.slideNumberX, s.slideNumberY,
-                                    s.slideNumberSize, s.slideNumberColor,
-                                    s.showSlideText, s.slideText, s.slideTextFontName,
-                                    s.slideTextFontSize, s.slideTextFontStyle, s.slideTextColor,
-                                    s.slideTextX, s.slideTextY, s.slideTextBgOpacity,
-                                    s.slideTextBgColor,
-                                    s.fxRoundCorners, s.fxCornerRadius,
-                                    s.fxVignette, s.fxSepia, s.fxGrain,
-                                    s.fxWaterRipple, s.fxGlitch, s.fxShake);
+                            boolean hasAnimatedFx = s.fxGrain || s.fxWaterRipple || s.fxGlitch || s.fxShake;
 
-                            for (int d = 0; d < framesPerSlide; d++) {
-                                ImageIO.write(frame, "png",
-                                        new File(tempDir, String.format("frame_%05d.png", frameIndex)));
-                                frameIndex++;
+                            if (hasAnimatedFx) {
+                                // Render each frame individually for animated effects
+                                for (int d = 0; d < framesPerSlide; d++) {
+                                    BufferedImage frame = renderFrame(
+                                            s.image, s.text, s.fontName, s.fontSize,
+                                            s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                            videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                            s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                            s.slideNumberX, s.slideNumberY,
+                                            s.slideNumberSize, s.slideNumberColor,
+                                            s.showSlideText, s.slideText, s.slideTextFontName,
+                                            s.slideTextFontSize, s.slideTextFontStyle, s.slideTextColor,
+                                            s.slideTextX, s.slideTextY, s.slideTextBgOpacity,
+                                            s.slideTextBgColor,
+                                            s.fxRoundCorners, s.fxCornerRadius,
+                                            s.fxVignette, s.fxSepia, s.fxGrain,
+                                            s.fxWaterRipple, s.fxGlitch, s.fxShake, d);
+                                    ImageIO.write(frame, "png",
+                                            new File(tempDir, String.format("frame_%05d.png", frameIndex)));
+                                    frameIndex++;
+                                }
+                            } else {
+                                // No animated effects — render once and duplicate
+                                BufferedImage frame = renderFrame(
+                                        s.image, s.text, s.fontName, s.fontSize,
+                                        s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                        videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                        s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                        s.slideNumberX, s.slideNumberY,
+                                        s.slideNumberSize, s.slideNumberColor,
+                                        s.showSlideText, s.slideText, s.slideTextFontName,
+                                        s.slideTextFontSize, s.slideTextFontStyle, s.slideTextColor,
+                                        s.slideTextX, s.slideTextY, s.slideTextBgOpacity,
+                                        s.slideTextBgColor,
+                                        s.fxRoundCorners, s.fxCornerRadius,
+                                        s.fxVignette, s.fxSepia, s.fxGrain,
+                                        s.fxWaterRipple, s.fxGlitch, s.fxShake);
+                                for (int d = 0; d < framesPerSlide; d++) {
+                                    ImageIO.write(frame, "png",
+                                            new File(tempDir, String.format("frame_%05d.png", frameIndex)));
+                                    frameIndex++;
+                                }
                             }
 
                             int pct = (int) ((i + 1.0) / slides.size() * 60);
