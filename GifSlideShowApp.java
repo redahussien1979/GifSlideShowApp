@@ -2862,7 +2862,7 @@ public class GifSlideShowApp extends JFrame {
             }
             // Render the background image with the selected display mode effect
             BufferedImage bgRendered = renderFrame(
-                    titleBgImage, null,
+                    titleBgImage, "",
                     "Segoe UI", 28, Font.PLAIN,
                     Color.WHITE, SwingConstants.LEFT, false,
                     w, h, getDisplayMode(), 5, 0,
