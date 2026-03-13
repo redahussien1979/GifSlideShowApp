@@ -1051,6 +1051,20 @@ public class GifSlideShowApp extends JFrame {
 
         if (displayMode == null) displayMode = "Blur-Fit";
 
+        // Apply round corners to source image BEFORE display mode rendering
+        if (fxRoundCorners && fxCornerRadius > 0) {
+            int iw = image.getWidth(), ih = image.getHeight();
+            float rcScale = Math.max(iw, ih) / 1920.0f;
+            int radius = Math.max(2, (int)(fxCornerRadius * Math.max(rcScale, 0.5f)));
+            BufferedImage srcRounded = new BufferedImage(iw, ih, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D rg = srcRounded.createGraphics();
+            rg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            rg.setClip(new RoundRectangle2D.Double(0, 0, iw, ih, radius * 2, radius * 2));
+            rg.drawImage(image, 0, 0, null);
+            rg.dispose();
+            image = srcRounded;
+        }
+
         switch (displayMode) {
             case "Direct": {
                 g.drawImage(image, 0, 0, targetW, targetH, null);
@@ -1230,22 +1244,6 @@ public class GifSlideShowApp extends JFrame {
             sg.dispose();
             Graphics2D fg = frame.createGraphics();
             fg.drawImage(shaken, 0, 0, null);
-            fg.dispose();
-        }
-
-        if (fxRoundCorners && fxCornerRadius > 0) {
-            float rcScale = Math.max(targetW, targetH) / 1920.0f;
-            int radius = Math.max(1, (int)(fxCornerRadius * rcScale));
-            BufferedImage rounded = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D rg = rounded.createGraphics();
-            rg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            rg.setClip(new RoundRectangle2D.Double(0, 0, targetW, targetH, radius * 2, radius * 2));
-            rg.drawImage(frame, 0, 0, null);
-            rg.dispose();
-            Graphics2D fg = frame.createGraphics();
-            fg.setColor(new Color(21, 32, 43));
-            fg.fillRect(0, 0, targetW, targetH);
-            fg.drawImage(rounded, 0, 0, null);
             fg.dispose();
         }
 
