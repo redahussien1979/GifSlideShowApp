@@ -244,6 +244,7 @@ public class GifSlideShowApp extends JFrame {
                 Color.WHITE, SwingConstants.CENTER, false, "Blur-Fit", 5, 78,
                 false, loadedFontNames[0], 50, 10, 80, Color.WHITE,
                 false, "Segoe UI", 40, Font.PLAIN, Color.YELLOW, 50, 50, 0, Color.BLACK,
+                false, 100, 0,
                 false, 60, false, 50, false, 100, false, 50, false, 50, false, 50, false, 50,
                 "Rectangular", "Blur", new Color(21, 32, 43), 50, 50, 20,
                 false, 100, "", new Color(255, 255, 0, 180), 0);
@@ -783,6 +784,9 @@ public class GifSlideShowApp extends JFrame {
         int slideTextY = source.getSlideTextY();
         int slideTextBgOpacity = source.getSlideTextBgOpacity();
         Color slideTextBgColor = source.getSlideTextBgColor();
+        boolean slideTextJustify = source.isSlideTextJustify();
+        int slideTextWidthPct = source.getSlideTextWidthPct();
+        int slideTextShiftX = source.getSlideTextShiftX();
         boolean fxRoundCorners = source.isFxRoundCorners();
         int fxCornerRadius = source.getFxCornerRadius();
         boolean fxVignetteOn = source.fxVignetteCheck.isSelected();
@@ -816,6 +820,7 @@ public class GifSlideShowApp extends JFrame {
                 row.applyFormatting(fontName, fontSize, fontStyle, fontColor, alignment, showPin, displayMode, subtitleY, subtitleBgOpacity,
                         showSlideNumber, slideNumberFontName, slideNumberX, slideNumberY, slideNumberSize, slideNumberColor,
                         showSlideText, slideTextFontName, slideTextFontSize, slideTextFontStyle, stColor, slideTextX, slideTextY, slideTextBgOpacity, slideTextBgColor,
+                        slideTextJustify, slideTextWidthPct, slideTextShiftX,
                         fxRoundCorners, fxCornerRadius,
                         fxVignetteOn, fxVignetteVal, fxSepiaOn, fxSepiaVal,
                         fxGrainOn, fxGrainVal, fxWaterRippleOn, fxWaterRippleVal,
@@ -998,6 +1003,7 @@ public class GifSlideShowApp extends JFrame {
                 fontColor, alignment, showPin, targetW, targetH, "Blur-Fit", 5, 78,
                 false, null, null, 0, 0, 0, null,
                 false, null, null, 0, 0, null, 0, 0, 0, null,
+                false, 100, 0,
                 false, 0, 0, 0, 0, 0, 0, 0,
                 false, null, null, null, 0, 0, 0, 0,
                 false, 100, null, null, 0);
@@ -1012,6 +1018,7 @@ public class GifSlideShowApp extends JFrame {
                 fontColor, alignment, showPin, targetW, targetH, displayMode, 5, 78,
                 false, null, null, 0, 0, 0, null,
                 false, null, null, 0, 0, null, 0, 0, 0, null,
+                false, 100, 0,
                 false, 0, 0, 0, 0, 0, 0, 0,
                 false, null, null, null, 0, 0, 0, 0,
                 false, 100, null, null, 0);
@@ -1044,6 +1051,7 @@ public class GifSlideShowApp extends JFrame {
                 showSlideText, slideText, slideTextFontName, slideTextFontSize,
                 slideTextFontStyle, slideTextColor, slideTextX, slideTextY,
                 slideTextBgOpacity, slideTextBgColor,
+                false, 100, 0,
                 fxRoundCorners, fxCornerRadius, fxVignette, fxSepia,
                 fxGrain, fxWaterRipple, fxGlitch, fxShake,
                 false, null, null, null, 0, 0, 0,
@@ -1066,6 +1074,7 @@ public class GifSlideShowApp extends JFrame {
                                      int slideTextX, int slideTextY,
                                      int slideTextBgOpacity,
                                      Color slideTextBgColor,
+                                     boolean slideTextJustify, int slideTextWidthPct, int slideTextShiftX,
                                      boolean fxRoundCorners, int fxCornerRadius,
                                      int fxVignette, int fxSepia,
                                      int fxGrain, int fxWaterRipple,
@@ -1440,25 +1449,41 @@ public class GifSlideShowApp extends JFrame {
             g.setFont(stFont);
             FontMetrics stFm = g.getFontMetrics();
 
-            String[] stLines = slideText.split("\n");
+            // Apply width constraint and word-wrap
+            int stMaxWrapWidth = targetW;
+            if (slideTextWidthPct > 0 && slideTextWidthPct < 100) {
+                stMaxWrapWidth = (int) (targetW * slideTextWidthPct / 100.0);
+            }
+
+            List<String> stWrappedLines = new ArrayList<>();
+            for (String paragraph : slideText.split("\n")) {
+                if (paragraph.isEmpty()) { stWrappedLines.add(""); continue; }
+                List<String> wrapped = wrapTextStatic(paragraph, stFm, stMaxWrapWidth);
+                stWrappedLines.addAll(wrapped);
+            }
+
             int stLineHeight = stFm.getHeight();
             int stAscent = stFm.getAscent();
 
             int stCenterX = (int) (slideTextX / 100.0 * targetW);
             int stCenterY = (int) (slideTextY / 100.0 * targetH);
 
-            int totalTextHeight = stAscent + stFm.getDescent() + stLineHeight * (stLines.length - 1);
-            int maxLineWidth = 0;
-            for (String line : stLines) {
-                maxLineWidth = Math.max(maxLineWidth, stFm.stringWidth(line));
+            // Apply horizontal shift
+            int stShiftPx = (int) (slideTextShiftX / 100.0 * targetW);
+            stCenterX += stShiftPx;
+
+            int totalTextHeight = stAscent + stFm.getDescent() + stLineHeight * (stWrappedLines.size() - 1);
+            int stMaxLineWidth = 0;
+            for (String line : stWrappedLines) {
+                stMaxLineWidth = Math.max(stMaxLineWidth, stFm.stringWidth(line));
             }
 
             int stPadX = (int) (6 * stScaleFactor);
             int stPadY = (int) (4 * stScaleFactor);
 
-            int bgX = stCenterX - maxLineWidth / 2 - stPadX;
+            int bgX = stCenterX - stMaxLineWidth / 2 - stPadX;
             int bgY = stCenterY - totalTextHeight / 2 - stPadY;
-            int bgW = maxLineWidth + stPadX * 2;
+            int bgW = stMaxLineWidth + stPadX * 2;
             int bgH = totalTextHeight + stPadY * 2;
 
             if (slideTextBgOpacity > 0) {
@@ -1474,9 +1499,31 @@ public class GifSlideShowApp extends JFrame {
 
             g.setColor(slideTextColor != null ? slideTextColor : Color.YELLOW);
             int lineY = stCenterY - totalTextHeight / 2 + stAscent;
-            for (String line : stLines) {
+            for (int li = 0; li < stWrappedLines.size(); li++) {
+                String line = stWrappedLines.get(li);
                 int lineW = stFm.stringWidth(line);
                 int lineX = stCenterX - lineW / 2;
+
+                // Justify: distribute extra space (not for last line)
+                boolean isLastLine = (li == stWrappedLines.size() - 1);
+                if (slideTextJustify && !isLastLine && stMaxLineWidth > 0) {
+                    String[] words = line.split(" ");
+                    if (words.length > 1) {
+                        int totalWordsWidth = 0;
+                        for (String w : words) {
+                            totalWordsWidth += stFm.stringWidth(w);
+                        }
+                        double extraSpace = (double) (stMaxLineWidth - totalWordsWidth) / (words.length - 1);
+                        double drawX = stCenterX - stMaxLineWidth / 2.0;
+                        for (int wi = 0; wi < words.length; wi++) {
+                            g.drawString(words[wi], (int) drawX, lineY);
+                            drawX += stFm.stringWidth(words[wi]) + extraSpace;
+                        }
+                        lineY += stLineHeight;
+                        continue;
+                    }
+                }
+
                 g.drawString(line, lineX, lineY);
                 lineY += stLineHeight;
             }
@@ -1734,6 +1781,7 @@ public class GifSlideShowApp extends JFrame {
                     row.getSlideTextFontSize(), row.getSlideTextFontStyle(), row.getSlideTextColor(),
                     row.getSlideTextX(), row.getSlideTextY(), row.getSlideTextBgOpacity(),
                     row.getSlideTextBgColor(),
+                    row.isSlideTextJustify(), row.getSlideTextWidthPct(), row.getSlideTextShiftX(),
                     row.isFxRoundCorners(), row.getFxCornerRadius(),
                     row.getFxVignette(), row.getFxSepia(), row.getFxGrain(),
                     row.getFxWaterRipple(), row.getFxGlitch(), row.getFxShake(),
@@ -1808,6 +1856,7 @@ public class GifSlideShowApp extends JFrame {
                     s.slideTextFontSize, s.slideTextFontStyle, s.slideTextColor,
                     s.slideTextX, s.slideTextY, s.slideTextBgOpacity,
                     s.slideTextBgColor,
+                    s.slideTextJustify, s.slideTextWidthPct, s.slideTextShiftX,
                     s.fxRoundCorners, s.fxCornerRadius,
                     s.fxVignette, s.fxSepia, s.fxGrain,
                     s.fxWaterRipple, s.fxGlitch, s.fxShake,
@@ -2199,6 +2248,7 @@ public class GifSlideShowApp extends JFrame {
                                     s.slideTextFontSize, s.slideTextFontStyle, s.slideTextColor,
                                     s.slideTextX, s.slideTextY, s.slideTextBgOpacity,
                                     s.slideTextBgColor,
+                                    s.slideTextJustify, s.slideTextWidthPct, s.slideTextShiftX,
                                     s.fxRoundCorners, s.fxCornerRadius,
                                     s.fxVignette, s.fxSepia, s.fxGrain,
                                     s.fxWaterRipple, s.fxGlitch, s.fxShake,
@@ -2245,6 +2295,7 @@ public class GifSlideShowApp extends JFrame {
                                             s.slideTextFontSize, s.slideTextFontStyle, s.slideTextColor,
                                             s.slideTextX, s.slideTextY, s.slideTextBgOpacity,
                                             s.slideTextBgColor,
+                                            s.slideTextJustify, s.slideTextWidthPct, s.slideTextShiftX,
                                             s.fxRoundCorners, s.fxCornerRadius,
                                             s.fxVignette, s.fxSepia, s.fxGrain,
                                             s.fxWaterRipple, s.fxGlitch, s.fxShake,
@@ -2268,6 +2319,7 @@ public class GifSlideShowApp extends JFrame {
                                         s.slideTextFontSize, s.slideTextFontStyle, s.slideTextColor,
                                         s.slideTextX, s.slideTextY, s.slideTextBgOpacity,
                                         s.slideTextBgColor,
+                                        s.slideTextJustify, s.slideTextWidthPct, s.slideTextShiftX,
                                         s.fxRoundCorners, s.fxCornerRadius,
                                         s.fxVignette, s.fxSepia, s.fxGrain,
                                         s.fxWaterRipple, s.fxGlitch, s.fxShake,
@@ -2504,6 +2556,7 @@ public class GifSlideShowApp extends JFrame {
                                     s.slideTextFontSize, s.slideTextFontStyle, s.slideTextColor,
                                     s.slideTextX, s.slideTextY, s.slideTextBgOpacity,
                                     s.slideTextBgColor,
+                                    s.slideTextJustify, s.slideTextWidthPct, s.slideTextShiftX,
                                     s.fxRoundCorners, s.fxCornerRadius,
                                     s.fxVignette, s.fxSepia, s.fxGrain,
                                     s.fxWaterRipple, s.fxGlitch, s.fxShake,
@@ -2640,6 +2693,9 @@ public class GifSlideShowApp extends JFrame {
         final int slideTextY;
         final int slideTextBgOpacity;
         final Color slideTextBgColor;
+        final boolean slideTextJustify;
+        final int slideTextWidthPct;
+        final int slideTextShiftX;
         final boolean fxRoundCorners;
         final int fxCornerRadius;
         final int fxVignette;
@@ -2671,6 +2727,7 @@ public class GifSlideShowApp extends JFrame {
                   int slideTextFontSize, int slideTextFontStyle, Color slideTextColor,
                   int slideTextX, int slideTextY, int slideTextBgOpacity,
                   Color slideTextBgColor,
+                  boolean slideTextJustify, int slideTextWidthPct, int slideTextShiftX,
                   boolean fxRoundCorners, int fxCornerRadius,
                   int fxVignette, int fxSepia, int fxGrain,
                   int fxWaterRipple, int fxGlitch, int fxShake,
@@ -2708,6 +2765,9 @@ public class GifSlideShowApp extends JFrame {
             this.slideTextY = slideTextY;
             this.slideTextBgOpacity = slideTextBgOpacity;
             this.slideTextBgColor = slideTextBgColor;
+            this.slideTextJustify = slideTextJustify;
+            this.slideTextWidthPct = slideTextWidthPct;
+            this.slideTextShiftX = slideTextShiftX;
             this.fxRoundCorners = fxRoundCorners;
             this.fxCornerRadius = fxCornerRadius;
             this.fxVignette = fxVignette;
@@ -2767,6 +2827,9 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner slideTextXSpinner;
         private final JSpinner slideTextYSpinner;
         private final JSpinner slideTextBgSpinner;
+        private final JCheckBox slideTextJustifyCheck;
+        private final JSpinner slideTextWidthSpinner;
+        private final JSpinner slideTextShiftXSpinner;
         private final JSpinner subtitleYSpinner;
         private final JSpinner subtitleBgOpacitySpinner;
         private final JCheckBox fxRoundCornersCheck;
@@ -3248,6 +3311,24 @@ public class GifSlideShowApp extends JFrame {
             toolbar4a.add(slideTextItalicBtn);
             toolbar4a.add(slideTextColorBtn);
 
+            slideTextJustifyCheck = new JCheckBox("Justify", false);
+            slideTextJustifyCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextJustifyCheck.setForeground(Color.LIGHT_GRAY);
+            slideTextJustifyCheck.setBackground(new Color(44, 47, 51));
+            slideTextJustifyCheck.setFocusPainted(false);
+            slideTextJustifyCheck.setToolTipText("Justify slide text: make all lines same width");
+            slideTextJustifyCheck.addActionListener(e -> onFormatChanged());
+
+            slideTextWidthSpinner = new JSpinner(new SpinnerNumberModel(100, 20, 100, 5));
+            slideTextWidthSpinner.setPreferredSize(new Dimension(50, 24));
+            slideTextWidthSpinner.setToolTipText("Slide text width % of frame");
+            slideTextWidthSpinner.addChangeListener(e -> onFormatChanged());
+
+            slideTextShiftXSpinner = new JSpinner(new SpinnerNumberModel(0, -50, 50, 1));
+            slideTextShiftXSpinner.setPreferredSize(new Dimension(50, 24));
+            slideTextShiftXSpinner.setToolTipText("Shift slide text left/right (% of frame width)");
+            slideTextShiftXSpinner.addChangeListener(e -> onFormatChanged());
+
             toolbar4b.add(styledLabel("  "));
             toolbar4b.add(styledLabel("X%:"));
             toolbar4b.add(slideTextXSpinner);
@@ -3256,6 +3337,11 @@ public class GifSlideShowApp extends JFrame {
             toolbar4b.add(styledLabel("BG%:"));
             toolbar4b.add(slideTextBgSpinner);
             toolbar4b.add(slideTextBgColorBtn);
+            toolbar4b.add(slideTextJustifyCheck);
+            toolbar4b.add(styledLabel("W%:"));
+            toolbar4b.add(slideTextWidthSpinner);
+            toolbar4b.add(styledLabel("Shift:"));
+            toolbar4b.add(slideTextShiftXSpinner);
 
             // ===== Toolbar Row 5: Image Effects (3 rows) =====
             JPanel toolbar5a = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
@@ -3553,6 +3639,7 @@ public class GifSlideShowApp extends JFrame {
                              int slideTextFontSize, int slideTextFontStyle,
                              Color slideTextColor, int slideTextX, int slideTextY,
                              int slideTextBgOpacity, Color slideTextBgColor,
+                             boolean slideTextJustify, int slideTextWidthPct, int slideTextShiftX,
                              boolean fxRoundCorners, int fxCornerRadius,
                              boolean fxVignetteOn, int fxVignetteVal,
                              boolean fxSepiaOn, int fxSepiaVal,
@@ -3603,6 +3690,10 @@ public class GifSlideShowApp extends JFrame {
             slideTextBgSpinner.setValue(slideTextBgOpacity);
             this.slideTextBgColor = slideTextBgColor;
             slideTextBgColorBtn.setForeground(slideTextBgColor);
+
+            slideTextJustifyCheck.setSelected(slideTextJustify);
+            slideTextWidthSpinner.setValue(slideTextWidthPct);
+            slideTextShiftXSpinner.setValue(slideTextShiftX);
 
             fxRoundCornersCheck.setSelected(fxRoundCorners);
             fxCornerRadiusSpinner.setValue(fxCornerRadius);
@@ -3690,6 +3781,7 @@ public class GifSlideShowApp extends JFrame {
                     getSlideTextFontSize(), getSlideTextFontStyle(), getSlideTextColor(),
                     getSlideTextX(), getSlideTextY(), getSlideTextBgOpacity(),
                     getSlideTextBgColor(),
+                    isSlideTextJustify(), getSlideTextWidthPct(), getSlideTextShiftX(),
                     isFxRoundCorners(), getFxCornerRadius(),
                     getFxVignette(), getFxSepia(), getFxGrain(),
                     getFxWaterRipple(), getFxGlitch(), getFxShake(),
@@ -3836,6 +3928,9 @@ public class GifSlideShowApp extends JFrame {
         int getSlideTextY() { return (int) slideTextYSpinner.getValue(); }
         int getSlideTextBgOpacity() { return (int) slideTextBgSpinner.getValue(); }
         Color getSlideTextBgColor() { return slideTextBgColor; }
+        boolean isSlideTextJustify() { return slideTextJustifyCheck.isSelected(); }
+        int getSlideTextWidthPct() { return (int) slideTextWidthSpinner.getValue(); }
+        int getSlideTextShiftX() { return (int) slideTextShiftXSpinner.getValue(); }
 
         boolean isFxRoundCorners() { return fxRoundCornersCheck.isSelected(); }
         int getFxCornerRadius() { return (int) fxCornerRadiusSpinner.getValue(); }
