@@ -245,7 +245,8 @@ public class GifSlideShowApp extends JFrame {
                 false, loadedFontNames[0], 50, 10, 80, Color.WHITE,
                 false, "Segoe UI", 40, Font.PLAIN, Color.YELLOW, 50, 50, 0, Color.BLACK,
                 false, 60, false, 50, false, 100, false, 50, false, 50, false, 50, false, 50,
-                "Rectangular", "Blur", new Color(21, 32, 43), 50, 50, 20);
+                "Rectangular", "Blur", new Color(21, 32, 43), 50, 50, 20,
+                false, 100, "", new Color(255, 255, 0, 180));
 
         slideRows.add(0, titleRow);
         rebuildSlidesPanel();
@@ -802,6 +803,10 @@ public class GifSlideShowApp extends JFrame {
         int overlayX = source.getOverlayX();
         int overlayY = source.getOverlayY();
         int overlaySize = source.getOverlaySize();
+        boolean textJustify = source.isTextJustify();
+        int textWidthPct = source.getTextWidthPct();
+        String highlightText = source.getHighlightText();
+        Color hlColor = source.getHighlightColor();
 
         isSyncingFormat = true;
         try {
@@ -814,7 +819,8 @@ public class GifSlideShowApp extends JFrame {
                         fxVignetteOn, fxVignetteVal, fxSepiaOn, fxSepiaVal,
                         fxGrainOn, fxGrainVal, fxWaterRippleOn, fxWaterRippleVal,
                         fxGlitchOn, fxGlitchVal, fxShakeOn, fxShakeVal,
-                        overlayShape, overlayBgMode, ovBgColor, overlayX, overlayY, overlaySize);
+                        overlayShape, overlayBgMode, ovBgColor, overlayX, overlayY, overlaySize,
+                        textJustify, textWidthPct, highlightText, hlColor);
             }
         } finally {
             isSyncingFormat = false;
@@ -991,7 +997,8 @@ public class GifSlideShowApp extends JFrame {
                 false, null, null, 0, 0, 0, null,
                 false, null, null, 0, 0, null, 0, 0, 0, null,
                 false, 0, 0, 0, 0, 0, 0, 0,
-                false, null, null, null, 0, 0, 0, 0);
+                false, null, null, null, 0, 0, 0, 0,
+                false, 100, null, null);
     }
 
     static BufferedImage renderFrame(BufferedImage image, String text,
@@ -1004,7 +1011,8 @@ public class GifSlideShowApp extends JFrame {
                 false, null, null, 0, 0, 0, null,
                 false, null, null, 0, 0, null, 0, 0, 0, null,
                 false, 0, 0, 0, 0, 0, 0, 0,
-                false, null, null, null, 0, 0, 0, 0);
+                false, null, null, null, 0, 0, 0, 0,
+                false, 100, null, null);
     }
 
     static BufferedImage renderFrame(BufferedImage image, String text,
@@ -1037,7 +1045,8 @@ public class GifSlideShowApp extends JFrame {
                 fxRoundCorners, fxCornerRadius, fxVignette, fxSepia,
                 fxGrain, fxWaterRipple, fxGlitch, fxShake,
                 false, null, null, null, 0, 0, 0,
-                0);
+                0,
+                false, 100, null, null);
     }
 
     static BufferedImage renderFrame(BufferedImage image, String text,
@@ -1062,7 +1071,9 @@ public class GifSlideShowApp extends JFrame {
                                      boolean overlayEnabled,
                                      String overlayShape, String overlayBgMode, Color overlayBgColor,
                                      int overlayX, int overlayY, int overlaySize,
-                                     int animFrameIndex) {
+                                     int animFrameIndex,
+                                     boolean textJustify, int textWidthPct,
+                                     String highlightText, Color highlightColor) {
         BufferedImage frame = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = frame.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -1483,7 +1494,13 @@ public class GifSlideShowApp extends JFrame {
             int pinGap = (int) (8 * scaleFactor);
             int textOffsetX = showPin ? pinSize + pinGap : 0;
 
-            List<String> lines = wrapTextStatic(subtitle, fm, targetW - paddingX * 2 - textOffsetX - paddingX);
+            // Apply text width percentage to limit wrapping area
+            int maxWrapWidth = targetW - paddingX * 2 - textOffsetX - paddingX;
+            if (textWidthPct > 0 && textWidthPct < 100) {
+                maxWrapWidth = (int) (maxWrapWidth * textWidthPct / 100.0);
+            }
+
+            List<String> lines = wrapTextStatic(subtitle, fm, maxWrapWidth);
 
             int lineHeight = fm.getHeight() + (int) (3 * scaleFactor);
             int blockHeight = lines.size() * lineHeight + paddingY * 2;
@@ -1531,7 +1548,8 @@ public class GifSlideShowApp extends JFrame {
 
             g.setColor(fontColor);
             int lineY = textStartY;
-            for (String line : lines) {
+            for (int li = 0; li < lines.size(); li++) {
+                String line = lines.get(li);
                 int lx;
                 if (alignment == SwingConstants.CENTER) {
                     lx = (targetW - fm.stringWidth(line)) / 2;
@@ -1540,6 +1558,50 @@ public class GifSlideShowApp extends JFrame {
                 } else {
                     lx = blockX + paddingX + textOffsetX;
                 }
+
+                // Highlight matching text
+                if (highlightText != null && !highlightText.isEmpty()) {
+                    String lineLower = line.toLowerCase();
+                    String hlLower = highlightText.toLowerCase();
+                    int searchFrom = 0;
+                    while (searchFrom < lineLower.length()) {
+                        int hlIdx = lineLower.indexOf(hlLower, searchFrom);
+                        if (hlIdx < 0) break;
+                        String before = line.substring(0, hlIdx);
+                        String match = line.substring(hlIdx, hlIdx + highlightText.length());
+                        int hlX = lx + fm.stringWidth(before);
+                        int hlW = fm.stringWidth(match);
+                        Color hlC = highlightColor != null ? highlightColor : new Color(255, 255, 0, 180);
+                        g.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()));
+                        int hlPad = (int) (2 * scaleFactor);
+                        g.fillRoundRect(hlX - hlPad, lineY - fm.getAscent() - hlPad,
+                                hlW + hlPad * 2, fm.getHeight() + hlPad * 2,
+                                (int) (4 * scaleFactor), (int) (4 * scaleFactor));
+                        searchFrom = hlIdx + highlightText.length();
+                    }
+                    g.setColor(fontColor);
+                }
+
+                // Justify: distribute extra space between words (not for last line)
+                boolean isLastLine = (li == lines.size() - 1);
+                if (textJustify && !isLastLine && maxLineWidth > 0) {
+                    String[] words = line.split(" ");
+                    if (words.length > 1) {
+                        int totalWordsWidth = 0;
+                        for (String w : words) {
+                            totalWordsWidth += fm.stringWidth(w);
+                        }
+                        double extraSpace = (double) (maxLineWidth - totalWordsWidth) / (words.length - 1);
+                        double drawX = lx;
+                        for (int wi = 0; wi < words.length; wi++) {
+                            g.drawString(words[wi], (int) drawX, lineY);
+                            drawX += fm.stringWidth(words[wi]) + extraSpace;
+                        }
+                        lineY += lineHeight;
+                        continue;
+                    }
+                }
+
                 g.drawString(line, lx, lineY);
                 lineY += lineHeight;
             }
@@ -1671,7 +1733,9 @@ public class GifSlideShowApp extends JFrame {
                     row.isOverlayEnabled(),
                     row.getOverlayShape(), row.getOverlayBgMode(), row.getOverlayBgColor(),
                     row.getOverlayX(), row.getOverlayY(),
-                    row.getOverlaySize()));
+                    row.getOverlaySize(),
+                    row.isTextJustify(), row.getTextWidthPct(),
+                    row.getHighlightText(), row.getHighlightColor()));
         }
         if (slides.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Add at least one slide.", "No Slides", JOptionPane.WARNING_MESSAGE);
@@ -1740,7 +1804,8 @@ public class GifSlideShowApp extends JFrame {
                     s.fxVignette, s.fxSepia, s.fxGrain,
                     s.fxWaterRipple, s.fxGlitch, s.fxShake,
                     s.overlayEnabled,
-                    s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0);
+                    s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                    s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor);
             frames.add(frame);
             int pct = (int) ((i + 1.0) / slides.size() * maxPct);
             SwingUtilities.invokeLater(() -> progressBar.setValue(pct));
@@ -2130,7 +2195,8 @@ public class GifSlideShowApp extends JFrame {
                                     s.fxVignette, s.fxSepia, s.fxGrain,
                                     s.fxWaterRipple, s.fxGlitch, s.fxShake,
                                     s.overlayEnabled,
-                                    s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0));
+                                    s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                    s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor));
                             int pct = (int) ((i + 1.0) / slides.size() * 30);
                             final int p = pct;
                             SwingUtilities.invokeLater(() -> progressBar.setValue(p));
@@ -2175,7 +2241,8 @@ public class GifSlideShowApp extends JFrame {
                                             s.fxVignette, s.fxSepia, s.fxGrain,
                                             s.fxWaterRipple, s.fxGlitch, s.fxShake,
                                             s.overlayEnabled,
-                                            s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d);
+                                            s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
+                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor);
                                     ImageIO.write(frame, "png",
                                             new File(tempDir, String.format("frame_%05d.png", frameIndex)));
                                     frameIndex++;
@@ -2197,7 +2264,8 @@ public class GifSlideShowApp extends JFrame {
                                         s.fxVignette, s.fxSepia, s.fxGrain,
                                         s.fxWaterRipple, s.fxGlitch, s.fxShake,
                                         s.overlayEnabled,
-                                        s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0);
+                                        s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                    s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor);
                                 for (int d = 0; d < framesPerSlide; d++) {
                                     ImageIO.write(frame, "png",
                                             new File(tempDir, String.format("frame_%05d.png", frameIndex)));
@@ -2432,7 +2500,8 @@ public class GifSlideShowApp extends JFrame {
                                     s.fxVignette, s.fxSepia, s.fxGrain,
                                     s.fxWaterRipple, s.fxGlitch, s.fxShake,
                                     s.overlayEnabled,
-                                    s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0);
+                                    s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                    s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor);
                             ImageIO.write(frame, "png",
                                     new File(tempDir, String.format("frame_%04d.png", i)));
                         }
@@ -2578,6 +2647,10 @@ public class GifSlideShowApp extends JFrame {
         final int overlayX;
         final int overlayY;
         final int overlaySize;
+        final boolean textJustify;
+        final int textWidthPct;
+        final String highlightText;
+        final Color highlightColor;
 
         SlideData(BufferedImage image, String text, String fontName, int fontSize,
                   int fontStyle, Color fontColor, int alignment, boolean showPin, String displayMode,
@@ -2594,7 +2667,9 @@ public class GifSlideShowApp extends JFrame {
                   int fxWaterRipple, int fxGlitch, int fxShake,
                   boolean overlayEnabled,
                   String overlayShape, String overlayBgMode, Color overlayBgColor,
-                  int overlayX, int overlayY, int overlaySize) {
+                  int overlayX, int overlayY, int overlaySize,
+                  boolean textJustify, int textWidthPct,
+                  String highlightText, Color highlightColor) {
             this.image = image;
             this.text = text;
             this.fontName = fontName;
@@ -2638,6 +2713,10 @@ public class GifSlideShowApp extends JFrame {
             this.overlayX = overlayX;
             this.overlayY = overlayY;
             this.overlaySize = overlaySize;
+            this.textJustify = textJustify;
+            this.textWidthPct = textWidthPct;
+            this.highlightText = highlightText;
+            this.highlightColor = highlightColor;
         }
     }
 
@@ -2701,6 +2780,11 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner overlayXSpinner;
         private final JSpinner overlayYSpinner;
         private final JSpinner overlaySizeSpinner;
+        private final JCheckBox justifyCheckBox;
+        private final JSpinner textWidthSpinner;
+        private final JTextField highlightField;
+        private final JButton highlightColorBtn;
+        private Color highlightColor = new Color(255, 255, 0, 180);
         private final JLabel livePreviewLabel;
         private BufferedImage loadedImage;
         private Color selectedColor = Color.WHITE;
@@ -2885,6 +2969,56 @@ public class GifSlideShowApp extends JFrame {
             toolbar1.add(colorBtn);
             toolbar1.add(alignCombo);
             toolbar1.add(pinCheckBox);
+
+            // ===== Toolbar Row 1b: Justify, Width, Highlight =====
+            JPanel toolbar1b = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            toolbar1b.setBackground(new Color(44, 47, 51));
+
+            justifyCheckBox = new JCheckBox("Justify", false);
+            justifyCheckBox.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            justifyCheckBox.setForeground(Color.LIGHT_GRAY);
+            justifyCheckBox.setBackground(new Color(44, 47, 51));
+            justifyCheckBox.setFocusPainted(false);
+            justifyCheckBox.setToolTipText("Justify text: make all lines the same width by spacing words");
+            justifyCheckBox.addActionListener(e -> onFormatChanged());
+
+            textWidthSpinner = new JSpinner(new SpinnerNumberModel(100, 20, 100, 5));
+            textWidthSpinner.setPreferredSize(new Dimension(50, 24));
+            textWidthSpinner.setToolTipText("Text width % of frame (narrower = more wrapping)");
+            textWidthSpinner.addChangeListener(e -> onFormatChanged());
+
+            highlightField = new JTextField(10);
+            highlightField.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            highlightField.setPreferredSize(new Dimension(90, 24));
+            highlightField.setToolTipText("Word or phrase to highlight");
+            highlightField.getDocument().addDocumentListener(new DocumentListener() {
+                @Override public void insertUpdate(DocumentEvent e) { onFormatChanged(); }
+                @Override public void removeUpdate(DocumentEvent e) { onFormatChanged(); }
+                @Override public void changedUpdate(DocumentEvent e) { onFormatChanged(); }
+            });
+
+            highlightColorBtn = new JButton("\u25A0");
+            highlightColorBtn.setForeground(highlightColor);
+            highlightColorBtn.setFont(new Font("Segoe UI", Font.PLAIN, 16));
+            highlightColorBtn.setPreferredSize(new Dimension(32, 24));
+            highlightColorBtn.setFocusPainted(false);
+            highlightColorBtn.setToolTipText("Highlight color");
+            highlightColorBtn.addActionListener(e -> {
+                Color c = JColorChooser.showDialog(panel, "Highlight Color", highlightColor);
+                if (c != null) {
+                    highlightColor = new Color(c.getRed(), c.getGreen(), c.getBlue(), 180);
+                    highlightColorBtn.setForeground(highlightColor);
+                    onFormatChanged();
+                }
+            });
+
+            toolbar1b.add(styledLabel("      "));
+            toolbar1b.add(justifyCheckBox);
+            toolbar1b.add(styledLabel("Width%:"));
+            toolbar1b.add(textWidthSpinner);
+            toolbar1b.add(styledLabel("Highlight:"));
+            toolbar1b.add(highlightField);
+            toolbar1b.add(highlightColorBtn);
 
             // ===== Toolbar Row 2: Image display mode =====
             JPanel toolbar2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
@@ -3321,6 +3455,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.setLayout(new BoxLayout(toolbarsPanel, BoxLayout.Y_AXIS));
             toolbarsPanel.setBackground(new Color(44, 47, 51));
             toolbarsPanel.add(toolbar1);
+            toolbarsPanel.add(toolbar1b);
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar2);
             toolbarsPanel.add(createToolbarSeparator());
@@ -3407,7 +3542,9 @@ public class GifSlideShowApp extends JFrame {
                              boolean fxGlitchOn, int fxGlitchVal,
                              boolean fxShakeOn, int fxShakeVal,
                              String overlayShape, String overlayBgMode, Color overlayBgColor,
-                             int overlayX, int overlayY, int overlaySize) {
+                             int overlayX, int overlayY, int overlaySize,
+                             boolean textJustify, int textWidthPct,
+                             String highlightText, Color highlightColor) {
             fontCombo.setSelectedItem(fontName);
             sizeSpinner.setValue(fontSize);
             boldBtn.setSelected((fontStyle & Font.BOLD) != 0);
@@ -3470,6 +3607,12 @@ public class GifSlideShowApp extends JFrame {
             overlayYSpinner.setValue(overlayY);
             overlaySizeSpinner.setValue(overlaySize);
 
+            justifyCheckBox.setSelected(textJustify);
+            textWidthSpinner.setValue(textWidthPct);
+            highlightField.setText(highlightText);
+            this.highlightColor = highlightColor;
+            highlightColorBtn.setForeground(highlightColor);
+
             updateTextAreaStyle();
             schedulePreview();
         }
@@ -3531,7 +3674,9 @@ public class GifSlideShowApp extends JFrame {
                     getFxWaterRipple(), getFxGlitch(), getFxShake(),
                     isOverlayEnabled(),
                     getOverlayShape(), getOverlayBgMode(), getOverlayBgColor(),
-                    getOverlayX(), getOverlayY(), getOverlaySize(), 0);
+                    getOverlayX(), getOverlayY(), getOverlaySize(), 0,
+                    isTextJustify(), getTextWidthPct(),
+                    getHighlightText(), getHighlightColor());
 
             int lw = livePreviewLabel.getWidth();
             int lh = livePreviewLabel.getHeight();
@@ -3691,6 +3836,10 @@ public class GifSlideShowApp extends JFrame {
         int getOverlayX() { return (int) overlayXSpinner.getValue(); }
         int getOverlayY() { return (int) overlayYSpinner.getValue(); }
         int getOverlaySize() { return (int) overlaySizeSpinner.getValue(); }
+        boolean isTextJustify() { return justifyCheckBox.isSelected(); }
+        int getTextWidthPct() { return (int) textWidthSpinner.getValue(); }
+        String getHighlightText() { return highlightField.getText(); }
+        Color getHighlightColor() { return highlightColor; }
     }
 
     // ==================== Main ====================
