@@ -3223,9 +3223,11 @@ public class GifSlideShowApp extends JFrame {
             toolbar5c.add(fxShakeCheck);
             toolbar5c.add(fxShakeSpinner);
 
-            // ===== Toolbar Row 6: Image Overlay =====
-            JPanel toolbar6 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
-            toolbar6.setBackground(new Color(44, 47, 51));
+            // ===== Toolbar Row 6: Image Shape (2 rows) =====
+            JPanel toolbar6a = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
+            toolbar6a.setBackground(new Color(44, 47, 51));
+            JPanel toolbar6b = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
+            toolbar6b.setBackground(new Color(44, 47, 51));
 
             JLabel overlayLabel = styledLabel("\uD83D\uDDBC Image Shape:");
             overlayLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
@@ -3279,19 +3281,23 @@ public class GifSlideShowApp extends JFrame {
             overlaySizeSpinner.setToolTipText("Image size % of frame");
             overlaySizeSpinner.addChangeListener(e -> onFormatChanged());
 
-            toolbar6.add(overlayLabel);
-            toolbar6.add(overlayCheckBox);
-            toolbar6.add(styledLabel("Shape:"));
-            toolbar6.add(overlayShapeCombo);
-            toolbar6.add(styledLabel("BG:"));
-            toolbar6.add(overlayBgCombo);
-            toolbar6.add(overlayBgColorBtn);
-            toolbar6.add(styledLabel("X%:"));
-            toolbar6.add(overlayXSpinner);
-            toolbar6.add(styledLabel("Y%:"));
-            toolbar6.add(overlayYSpinner);
-            toolbar6.add(styledLabel("Size%:"));
-            toolbar6.add(overlaySizeSpinner);
+            // Row 6a: Enable + Shape + BG
+            toolbar6a.add(overlayLabel);
+            toolbar6a.add(overlayCheckBox);
+            toolbar6a.add(styledLabel("Shape:"));
+            toolbar6a.add(overlayShapeCombo);
+            toolbar6a.add(styledLabel("BG:"));
+            toolbar6a.add(overlayBgCombo);
+            toolbar6a.add(overlayBgColorBtn);
+
+            // Row 6b: Position + Size
+            toolbar6b.add(styledLabel("      "));
+            toolbar6b.add(styledLabel("X%:"));
+            toolbar6b.add(overlayXSpinner);
+            toolbar6b.add(styledLabel("Y%:"));
+            toolbar6b.add(overlayYSpinner);
+            toolbar6b.add(styledLabel("Size%:"));
+            toolbar6b.add(overlaySizeSpinner);
 
             textArea = new JTextArea(6, 20);
             textArea.setFont(new Font("Segoe UI", Font.PLAIN, 14));
@@ -3327,7 +3333,8 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(toolbar5b);
             toolbarsPanel.add(toolbar5c);
             toolbarsPanel.add(createToolbarSeparator());
-            toolbarsPanel.add(toolbar6);
+            toolbarsPanel.add(toolbar6a);
+            toolbarsPanel.add(toolbar6b);
 
             rightPanel.add(toolbarsPanel, BorderLayout.NORTH);
             rightPanel.add(textScroll, BorderLayout.CENTER);
