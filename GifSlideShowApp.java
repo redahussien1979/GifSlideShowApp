@@ -245,7 +245,7 @@ public class GifSlideShowApp extends JFrame {
                 false, loadedFontNames[0], 50, 10, 80, Color.WHITE,
                 false, "Segoe UI", 40, Font.PLAIN, Color.YELLOW, 50, 50, 0, Color.BLACK,
                 false, 60, false, 50, false, 100, false, 50, false, 50, false, 50, false, 50,
-                "Rectangular", 50, 50, 20);
+                "Rectangular", "Blur", new Color(21, 32, 43), 50, 50, 20);
 
         slideRows.add(0, titleRow);
         rebuildSlidesPanel();
@@ -797,6 +797,8 @@ public class GifSlideShowApp extends JFrame {
         boolean fxShakeOn = source.fxShakeCheck.isSelected();
         int fxShakeVal = source.getFxShakeRaw();
         String overlayShape = source.getOverlayShape();
+        String overlayBgMode = source.getOverlayBgMode();
+        Color ovBgColor = source.getOverlayBgColor();
         int overlayX = source.getOverlayX();
         int overlayY = source.getOverlayY();
         int overlaySize = source.getOverlaySize();
@@ -812,7 +814,7 @@ public class GifSlideShowApp extends JFrame {
                         fxVignetteOn, fxVignetteVal, fxSepiaOn, fxSepiaVal,
                         fxGrainOn, fxGrainVal, fxWaterRippleOn, fxWaterRippleVal,
                         fxGlitchOn, fxGlitchVal, fxShakeOn, fxShakeVal,
-                        overlayShape, overlayX, overlayY, overlaySize);
+                        overlayShape, overlayBgMode, ovBgColor, overlayX, overlayY, overlaySize);
             }
         } finally {
             isSyncingFormat = false;
@@ -989,7 +991,7 @@ public class GifSlideShowApp extends JFrame {
                 false, null, null, 0, 0, 0, null,
                 false, null, null, 0, 0, null, 0, 0, 0, null,
                 false, 0, 0, 0, 0, 0, 0, 0,
-                false, null, 0, 0, 0, 0);
+                false, null, null, null, 0, 0, 0, 0);
     }
 
     static BufferedImage renderFrame(BufferedImage image, String text,
@@ -1002,7 +1004,7 @@ public class GifSlideShowApp extends JFrame {
                 false, null, null, 0, 0, 0, null,
                 false, null, null, 0, 0, null, 0, 0, 0, null,
                 false, 0, 0, 0, 0, 0, 0, 0,
-                false, null, 0, 0, 0, 0);
+                false, null, null, null, 0, 0, 0, 0);
     }
 
     static BufferedImage renderFrame(BufferedImage image, String text,
@@ -1034,7 +1036,7 @@ public class GifSlideShowApp extends JFrame {
                 slideTextBgOpacity, slideTextBgColor,
                 fxRoundCorners, fxCornerRadius, fxVignette, fxSepia,
                 fxGrain, fxWaterRipple, fxGlitch, fxShake,
-                false, null, 0, 0, 0,
+                false, null, null, null, 0, 0, 0,
                 0);
     }
 
@@ -1058,7 +1060,8 @@ public class GifSlideShowApp extends JFrame {
                                      int fxGrain, int fxWaterRipple,
                                      int fxGlitch, int fxShake,
                                      boolean overlayEnabled,
-                                     String overlayShape, int overlayX, int overlayY, int overlaySize,
+                                     String overlayShape, String overlayBgMode, Color overlayBgColor,
+                                     int overlayX, int overlayY, int overlaySize,
                                      int animFrameIndex) {
         BufferedImage frame = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = frame.createGraphics();
@@ -1088,21 +1091,26 @@ public class GifSlideShowApp extends JFrame {
 
         // ========== IMAGE SHAPE MODE (floating shaped image on blurred background) ==========
         if (overlayEnabled && overlaySize > 0) {
-            // Draw blurred background
-            double coverScale = Math.max((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
-            int bgW = (int) (image.getWidth() * coverScale);
-            int bgH = (int) (image.getHeight() * coverScale);
-            BufferedImage bgScaled = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
-            Graphics2D bgG = bgScaled.createGraphics();
-            bgG.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            bgG.drawImage(image, (targetW - bgW) / 2, (targetH - bgH) / 2, bgW, bgH, null);
-            bgG.dispose();
-            BufferedImage blurred = applyStackBlur(bgScaled, 60);
-            Graphics2D blurG = blurred.createGraphics();
-            blurG.setColor(new Color(0, 0, 0, 100));
-            blurG.fillRect(0, 0, targetW, targetH);
-            blurG.dispose();
-            g.drawImage(blurred, 0, 0, null);
+            // Draw background
+            if ("Color".equals(overlayBgMode) && overlayBgColor != null) {
+                g.setColor(overlayBgColor);
+                g.fillRect(0, 0, targetW, targetH);
+            } else {
+                double coverScale = Math.max((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
+                int bgW = (int) (image.getWidth() * coverScale);
+                int bgH = (int) (image.getHeight() * coverScale);
+                BufferedImage bgScaled = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
+                Graphics2D bgG = bgScaled.createGraphics();
+                bgG.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                bgG.drawImage(image, (targetW - bgW) / 2, (targetH - bgH) / 2, bgW, bgH, null);
+                bgG.dispose();
+                BufferedImage blurred = applyStackBlur(bgScaled, 60);
+                Graphics2D blurG = blurred.createGraphics();
+                blurG.setColor(new Color(0, 0, 0, 100));
+                blurG.fillRect(0, 0, targetW, targetH);
+                blurG.dispose();
+                g.drawImage(blurred, 0, 0, null);
+            }
 
             // Calculate shaped image size and position
             int maxDim = Math.max(targetW, targetH);
@@ -1661,7 +1669,8 @@ public class GifSlideShowApp extends JFrame {
                     row.getFxVignette(), row.getFxSepia(), row.getFxGrain(),
                     row.getFxWaterRipple(), row.getFxGlitch(), row.getFxShake(),
                     row.isOverlayEnabled(),
-                    row.getOverlayShape(), row.getOverlayX(), row.getOverlayY(),
+                    row.getOverlayShape(), row.getOverlayBgMode(), row.getOverlayBgColor(),
+                    row.getOverlayX(), row.getOverlayY(),
                     row.getOverlaySize()));
         }
         if (slides.isEmpty()) {
@@ -1731,7 +1740,7 @@ public class GifSlideShowApp extends JFrame {
                     s.fxVignette, s.fxSepia, s.fxGrain,
                     s.fxWaterRipple, s.fxGlitch, s.fxShake,
                     s.overlayEnabled,
-                    s.overlayShape, s.overlayX, s.overlayY, s.overlaySize, 0);
+                    s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0);
             frames.add(frame);
             int pct = (int) ((i + 1.0) / slides.size() * maxPct);
             SwingUtilities.invokeLater(() -> progressBar.setValue(pct));
@@ -2121,7 +2130,7 @@ public class GifSlideShowApp extends JFrame {
                                     s.fxVignette, s.fxSepia, s.fxGrain,
                                     s.fxWaterRipple, s.fxGlitch, s.fxShake,
                                     s.overlayEnabled,
-                                    s.overlayShape, s.overlayX, s.overlayY, s.overlaySize, 0));
+                                    s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0));
                             int pct = (int) ((i + 1.0) / slides.size() * 30);
                             final int p = pct;
                             SwingUtilities.invokeLater(() -> progressBar.setValue(p));
@@ -2166,7 +2175,7 @@ public class GifSlideShowApp extends JFrame {
                                             s.fxVignette, s.fxSepia, s.fxGrain,
                                             s.fxWaterRipple, s.fxGlitch, s.fxShake,
                                             s.overlayEnabled,
-                                            s.overlayShape, s.overlayX, s.overlayY, s.overlaySize, d);
+                                            s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d);
                                     ImageIO.write(frame, "png",
                                             new File(tempDir, String.format("frame_%05d.png", frameIndex)));
                                     frameIndex++;
@@ -2188,7 +2197,7 @@ public class GifSlideShowApp extends JFrame {
                                         s.fxVignette, s.fxSepia, s.fxGrain,
                                         s.fxWaterRipple, s.fxGlitch, s.fxShake,
                                         s.overlayEnabled,
-                                        s.overlayShape, s.overlayX, s.overlayY, s.overlaySize, 0);
+                                        s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0);
                                 for (int d = 0; d < framesPerSlide; d++) {
                                     ImageIO.write(frame, "png",
                                             new File(tempDir, String.format("frame_%05d.png", frameIndex)));
@@ -2423,7 +2432,7 @@ public class GifSlideShowApp extends JFrame {
                                     s.fxVignette, s.fxSepia, s.fxGrain,
                                     s.fxWaterRipple, s.fxGlitch, s.fxShake,
                                     s.overlayEnabled,
-                                    s.overlayShape, s.overlayX, s.overlayY, s.overlaySize, 0);
+                                    s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0);
                             ImageIO.write(frame, "png",
                                     new File(tempDir, String.format("frame_%04d.png", i)));
                         }
@@ -2564,6 +2573,8 @@ public class GifSlideShowApp extends JFrame {
         final int fxShake;
         final boolean overlayEnabled;
         final String overlayShape;
+        final String overlayBgMode;
+        final Color overlayBgColor;
         final int overlayX;
         final int overlayY;
         final int overlaySize;
@@ -2582,7 +2593,8 @@ public class GifSlideShowApp extends JFrame {
                   int fxVignette, int fxSepia, int fxGrain,
                   int fxWaterRipple, int fxGlitch, int fxShake,
                   boolean overlayEnabled,
-                  String overlayShape, int overlayX, int overlayY, int overlaySize) {
+                  String overlayShape, String overlayBgMode, Color overlayBgColor,
+                  int overlayX, int overlayY, int overlaySize) {
             this.image = image;
             this.text = text;
             this.fontName = fontName;
@@ -2621,6 +2633,8 @@ public class GifSlideShowApp extends JFrame {
             this.fxShake = fxShake;
             this.overlayEnabled = overlayEnabled;
             this.overlayShape = overlayShape;
+            this.overlayBgMode = overlayBgMode;
+            this.overlayBgColor = overlayBgColor;
             this.overlayX = overlayX;
             this.overlayY = overlayY;
             this.overlaySize = overlaySize;
@@ -2681,6 +2695,9 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner fxShakeSpinner;
         private final JCheckBox overlayCheckBox;
         private final JComboBox<String> overlayShapeCombo;
+        private final JComboBox<String> overlayBgCombo;
+        private final JButton overlayBgColorBtn;
+        private Color overlayBgColor = new Color(21, 32, 43);
         private final JSpinner overlayXSpinner;
         private final JSpinner overlayYSpinner;
         private final JSpinner overlaySizeSpinner;
@@ -3237,6 +3254,26 @@ public class GifSlideShowApp extends JFrame {
             overlayYSpinner.setToolTipText("Image Y position %");
             overlayYSpinner.addChangeListener(e -> onFormatChanged());
 
+            overlayBgCombo = new JComboBox<>(new String[]{"Blur", "Color"});
+            overlayBgCombo.setPreferredSize(new Dimension(65, 24));
+            overlayBgCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            overlayBgCombo.addActionListener(e -> onFormatChanged());
+
+            overlayBgColorBtn = new JButton("\u25A0");
+            overlayBgColorBtn.setForeground(overlayBgColor);
+            overlayBgColorBtn.setFont(new Font("Segoe UI", Font.PLAIN, 18));
+            overlayBgColorBtn.setPreferredSize(new Dimension(36, 24));
+            overlayBgColorBtn.setFocusPainted(false);
+            overlayBgColorBtn.setToolTipText("Background color");
+            overlayBgColorBtn.addActionListener(e -> {
+                Color c = JColorChooser.showDialog(panel, "Background Color", overlayBgColor);
+                if (c != null) {
+                    overlayBgColor = c;
+                    overlayBgColorBtn.setForeground(c);
+                    onFormatChanged();
+                }
+            });
+
             overlaySizeSpinner = new JSpinner(new SpinnerNumberModel(50, 5, 100, 1));
             overlaySizeSpinner.setPreferredSize(new Dimension(45, 24));
             overlaySizeSpinner.setToolTipText("Image size % of frame");
@@ -3246,6 +3283,9 @@ public class GifSlideShowApp extends JFrame {
             toolbar6.add(overlayCheckBox);
             toolbar6.add(styledLabel("Shape:"));
             toolbar6.add(overlayShapeCombo);
+            toolbar6.add(styledLabel("BG:"));
+            toolbar6.add(overlayBgCombo);
+            toolbar6.add(overlayBgColorBtn);
             toolbar6.add(styledLabel("X%:"));
             toolbar6.add(overlayXSpinner);
             toolbar6.add(styledLabel("Y%:"));
@@ -3359,7 +3399,8 @@ public class GifSlideShowApp extends JFrame {
                              boolean fxWaterRippleOn, int fxWaterRippleVal,
                              boolean fxGlitchOn, int fxGlitchVal,
                              boolean fxShakeOn, int fxShakeVal,
-                             String overlayShape, int overlayX, int overlayY, int overlaySize) {
+                             String overlayShape, String overlayBgMode, Color overlayBgColor,
+                             int overlayX, int overlayY, int overlaySize) {
             fontCombo.setSelectedItem(fontName);
             sizeSpinner.setValue(fontSize);
             boldBtn.setSelected((fontStyle & Font.BOLD) != 0);
@@ -3415,6 +3456,9 @@ public class GifSlideShowApp extends JFrame {
             fxShakeSpinner.setValue(fxShakeVal);
 
             overlayShapeCombo.setSelectedItem(overlayShape);
+            overlayBgCombo.setSelectedItem(overlayBgMode);
+            this.overlayBgColor = overlayBgColor;
+            overlayBgColorBtn.setForeground(overlayBgColor);
             overlayXSpinner.setValue(overlayX);
             overlayYSpinner.setValue(overlayY);
             overlaySizeSpinner.setValue(overlaySize);
@@ -3479,7 +3523,8 @@ public class GifSlideShowApp extends JFrame {
                     getFxVignette(), getFxSepia(), getFxGrain(),
                     getFxWaterRipple(), getFxGlitch(), getFxShake(),
                     isOverlayEnabled(),
-                    getOverlayShape(), getOverlayX(), getOverlayY(), getOverlaySize(), 0);
+                    getOverlayShape(), getOverlayBgMode(), getOverlayBgColor(),
+                    getOverlayX(), getOverlayY(), getOverlaySize(), 0);
 
             int lw = livePreviewLabel.getWidth();
             int lh = livePreviewLabel.getHeight();
@@ -3634,6 +3679,8 @@ public class GifSlideShowApp extends JFrame {
         int getFxShakeRaw() { return (int) fxShakeSpinner.getValue(); }
         boolean isOverlayEnabled() { return overlayCheckBox.isSelected(); }
         String getOverlayShape() { return (String) overlayShapeCombo.getSelectedItem(); }
+        String getOverlayBgMode() { return (String) overlayBgCombo.getSelectedItem(); }
+        Color getOverlayBgColor() { return overlayBgColor; }
         int getOverlayX() { return (int) overlayXSpinner.getValue(); }
         int getOverlayY() { return (int) overlayYSpinner.getValue(); }
         int getOverlaySize() { return (int) overlaySizeSpinner.getValue(); }
