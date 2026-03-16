@@ -655,6 +655,18 @@ public class GifSlideShowApp extends JFrame {
     // ==================== Bulk Import Text ====================
 
     private void bulkImportText() {
+        // First ask: import to Subtitle Text or Slide Text?
+        String[] targetOptions = {"Subtitle Text (Normal)", "Slide Text"};
+        int targetChoice = JOptionPane.showOptionDialog(this,
+                "Where do you want to import the text?",
+                "Bulk Import Text", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
+                null, targetOptions, targetOptions[0]);
+
+        if (targetChoice < 0) return;
+
+        boolean importToSlideText = (targetChoice == 1);
+
+        // Then ask: from file or clipboard?
         String[] options = {"From File (.txt)", "From Clipboard / Paste"};
         int choice = JOptionPane.showOptionDialog(this,
                 "Import text lines (one line per slide).\nLine 1 → Slide 1, Line 2 → Slide 2, etc.\n(Title grid slide is skipped)",
@@ -725,10 +737,18 @@ public class GifSlideShowApp extends JFrame {
         for (int i = 0; i < lines.size(); i++) {
             String line = lines.get(i).trim();
             if (i < targetSlides.size()) {
-                targetSlides.get(i).setSubtitleText(line);
+                if (importToSlideText) {
+                    targetSlides.get(i).setSlideText(line);
+                } else {
+                    targetSlides.get(i).setSubtitleText(line);
+                }
             } else {
                 SlideRow row = new SlideRow(slideRows.size() + 1);
-                row.setSubtitleText(line);
+                if (importToSlideText) {
+                    row.setSlideText(line);
+                } else {
+                    row.setSubtitleText(line);
+                }
                 slideRows.add(row);
                 slidesPanel.add(row.getPanel());
                 slidesPanel.add(Box.createRigidArea(new Dimension(0, 10)));
@@ -740,8 +760,9 @@ public class GifSlideShowApp extends JFrame {
         slidesPanel.revalidate();
         slidesPanel.repaint();
 
+        String targetLabel = importToSlideText ? "slide text" : "subtitle text";
         JOptionPane.showMessageDialog(this,
-                assigned + " lines assigned to slides.\nSlides: " + slideRows.size() + " total.",
+                assigned + " lines assigned to " + targetLabel + ".\nSlides: " + slideRows.size() + " total.",
                 "Bulk Text Import", JOptionPane.INFORMATION_MESSAGE);
     }
 
@@ -3924,6 +3945,11 @@ public class GifSlideShowApp extends JFrame {
 
         void setSubtitleText(String text) {
             textArea.setText(text);
+        }
+
+        void setSlideText(String text) {
+            slideTextArea.setText(text);
+            slideTextCheckBox.setSelected(true);
         }
 
         void updateNumber(int n) {
