@@ -2397,41 +2397,29 @@ public class GifSlideShowApp extends JFrame {
                     publish("Encoding MP4 at " + videoW + "×" + videoH + " (CRF " + crf + ")...");
                     SwingUtilities.invokeLater(() -> progressBar.setValue(65));
 
-                    java.util.List<String> ffmpegCmd = new java.util.ArrayList<>();
-                    ffmpegCmd.add("ffmpeg");
-                    ffmpegCmd.add("-y");
-                    ffmpegCmd.add("-framerate");
-                    ffmpegCmd.add(String.valueOf(fps));
-                    ffmpegCmd.add("-i");
-                    ffmpegCmd.add(new File(tempDir, "frame_%05d.png").getAbsolutePath());
-                    if (finalAudioFile != null) {
-                        ffmpegCmd.add("-i");
-                        ffmpegCmd.add(finalAudioFile.getAbsolutePath());
-                        ffmpegCmd.add("-map");
-                        ffmpegCmd.add("0:v:0");
-                        ffmpegCmd.add("-map");
-                        ffmpegCmd.add("1:a:0");
-                    }
-                    ffmpegCmd.add("-c:v");
-                    ffmpegCmd.add("libx264");
-                    ffmpegCmd.add("-preset");
-                    ffmpegCmd.add("slow");
-                    ffmpegCmd.add("-crf");
-                    ffmpegCmd.add(String.valueOf(crf));
-                    ffmpegCmd.add("-pix_fmt");
-                    ffmpegCmd.add("yuv420p");
-                    if (finalAudioFile != null) {
-                        ffmpegCmd.add("-c:a");
-                        ffmpegCmd.add("aac");
-                        ffmpegCmd.add("-b:a");
-                        ffmpegCmd.add("192k");
-                        ffmpegCmd.add("-shortest");
-                    }
-                    ffmpegCmd.add("-movflags");
-                    ffmpegCmd.add("+faststart");
-                    ffmpegCmd.add(finalOut.getAbsolutePath());
+                    // Step 1: Create video-only MP4
+                    File videoOnly = new File(tempDir, "video_only.mp4");
+                    java.util.List<String> videoCmd = new java.util.ArrayList<>();
+                    videoCmd.add("ffmpeg");
+                    videoCmd.add("-y");
+                    videoCmd.add("-framerate");
+                    videoCmd.add(String.valueOf(fps));
+                    videoCmd.add("-i");
+                    videoCmd.add(new File(tempDir, "frame_%05d.png").getAbsolutePath());
+                    videoCmd.add("-c:v");
+                    videoCmd.add("libx264");
+                    videoCmd.add("-preset");
+                    videoCmd.add("slow");
+                    videoCmd.add("-crf");
+                    videoCmd.add(String.valueOf(crf));
+                    videoCmd.add("-pix_fmt");
+                    videoCmd.add("yuv420p");
+                    videoCmd.add("-movflags");
+                    videoCmd.add("+faststart");
+                    videoCmd.add(videoOnly.getAbsolutePath());
 
-                    ProcessBuilder pb = new ProcessBuilder(ffmpegCmd);
+                    publish("Encoding video...");
+                    ProcessBuilder pb = new ProcessBuilder(videoCmd);
                     pb.redirectErrorStream(true);
                     Process proc = pb.start();
 
@@ -2447,8 +2435,6 @@ public class GifSlideShowApp extends JFrame {
                         }
                     }
 
-                    SwingUtilities.invokeLater(() -> progressBar.setValue(90));
-
                     int exit = proc.waitFor();
                     if (exit != 0) {
                         String lastLines = ffmpegLog.toString();
@@ -2456,11 +2442,71 @@ public class GifSlideShowApp extends JFrame {
                             lastLines = lastLines.substring(lastLines.length() - 1500);
                         }
                         throw new IOException(
-                                "ffmpeg failed (exit " + exit + ").\n" +
-                                        "Ensure ffmpeg is installed with H.264 (libx264) and AAC support.\n" +
+                                "ffmpeg video encoding failed (exit " + exit + ").\n" +
+                                        "Ensure ffmpeg is installed with H.264 (libx264) support.\n" +
                                         "Download: https://ffmpeg.org/download.html\n\n" +
                                         "FFmpeg output:\n" + lastLines);
                     }
+
+                    SwingUtilities.invokeLater(() -> progressBar.setValue(80));
+
+                    // Step 2: Mux audio into the video (separate pass)
+                    if (finalAudioFile != null && finalAudioFile.exists()) {
+                        publish("Adding audio: " + finalAudioFile.getName() + "...");
+                        java.util.List<String> muxCmd = new java.util.ArrayList<>();
+                        muxCmd.add("ffmpeg");
+                        muxCmd.add("-y");
+                        muxCmd.add("-i");
+                        muxCmd.add(videoOnly.getAbsolutePath());
+                        muxCmd.add("-i");
+                        muxCmd.add(finalAudioFile.getAbsolutePath());
+                        muxCmd.add("-c:v");
+                        muxCmd.add("copy");
+                        muxCmd.add("-c:a");
+                        muxCmd.add("aac");
+                        muxCmd.add("-b:a");
+                        muxCmd.add("192k");
+                        muxCmd.add("-shortest");
+                        muxCmd.add("-movflags");
+                        muxCmd.add("+faststart");
+                        muxCmd.add(finalOut.getAbsolutePath());
+
+                        ProcessBuilder muxPb = new ProcessBuilder(muxCmd);
+                        muxPb.redirectErrorStream(true);
+                        Process muxProc = muxPb.start();
+
+                        StringBuilder muxLog = new StringBuilder();
+                        try (BufferedReader br = new BufferedReader(
+                                new InputStreamReader(muxProc.getInputStream()))) {
+                            String line;
+                            while ((line = br.readLine()) != null) {
+                                muxLog.append(line).append("\n");
+                            }
+                        }
+
+                        int muxExit = muxProc.waitFor();
+                        if (muxExit != 0) {
+                            String lastLines = muxLog.toString();
+                            if (lastLines.length() > 1500) {
+                                lastLines = lastLines.substring(lastLines.length() - 1500);
+                            }
+                            throw new IOException(
+                                    "ffmpeg audio muxing failed (exit " + muxExit + ").\n" +
+                                            "Audio file: " + finalAudioFile.getAbsolutePath() + "\n\n" +
+                                            "FFmpeg output:\n" + lastLines);
+                        }
+                        videoOnly.delete();
+                    } else {
+                        // No audio — just rename video-only file to final output
+                        if (!videoOnly.renameTo(finalOut)) {
+                            // renameTo can fail across filesystems, fall back to copy
+                            java.nio.file.Files.copy(videoOnly.toPath(), finalOut.toPath(),
+                                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                            videoOnly.delete();
+                        }
+                    }
+
+                    SwingUtilities.invokeLater(() -> progressBar.setValue(90));
 
                     SwingUtilities.invokeLater(() -> progressBar.setValue(100));
 
