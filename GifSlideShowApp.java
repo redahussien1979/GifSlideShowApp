@@ -2463,16 +2463,156 @@ public class GifSlideShowApp extends JFrame {
 
                     SwingUtilities.invokeLater(() -> progressBar.setValue(80));
 
-                    // Step 2: Mux audio into the video (separate pass)
-                    if (finalAudioFile != null && finalAudioFile.exists()) {
-                        publish("Adding audio: " + finalAudioFile.getName() + "...");
+                    // Step 2: Merge individual slide audio files into one track (if any)
+                    File mergedSlideAudio = null;
+                    boolean hasSlideAudio = false;
+                    for (SlideData s : slides) {
+                        if (s.audioFile != null && s.audioFile.exists()) {
+                            hasSlideAudio = true;
+                            break;
+                        }
+                    }
+
+                    if (hasSlideAudio) {
+                        publish("Merging slide audio tracks...");
+                        mergedSlideAudio = new File(tempDir, "merged_slide_audio.m4a");
+
+                        // Build ffmpeg filter_complex: delay each slide's audio to its correct offset, then amix
+                        java.util.List<String> mergeCmd = new java.util.ArrayList<>();
+                        mergeCmd.add("ffmpeg");
+                        mergeCmd.add("-y");
+
+                        // Calculate each slide's start time and add audio inputs
+                        int inputIdx = 0;
+                        java.util.List<Integer> audioInputIndices = new java.util.ArrayList<>();
+                        java.util.List<Long> audioDelays = new java.util.ArrayList<>();
+                        long offsetMs = 0;
+
+                        for (SlideData s : slides) {
+                            int slideDur = (s.audioDurationMs > 0) ? s.audioDurationMs : duration;
+                            if (s.audioFile != null && s.audioFile.exists()) {
+                                mergeCmd.add("-i");
+                                mergeCmd.add(s.audioFile.getAbsolutePath());
+                                audioInputIndices.add(inputIdx);
+                                audioDelays.add(offsetMs);
+                                inputIdx++;
+                            }
+                            offsetMs += slideDur;
+                        }
+
+                        // Build filter_complex string
+                        StringBuilder filterComplex = new StringBuilder();
+                        for (int ai = 0; ai < audioInputIndices.size(); ai++) {
+                            int idx = audioInputIndices.get(ai);
+                            long delayMs = audioDelays.get(ai);
+                            // adelay takes delay in ms, pad with silence after audio ends
+                            filterComplex.append("[").append(idx).append(":a]adelay=")
+                                    .append(delayMs).append("|").append(delayMs)
+                                    .append("[a").append(ai).append("];");
+                        }
+                        // amix all delayed streams
+                        for (int ai = 0; ai < audioInputIndices.size(); ai++) {
+                            filterComplex.append("[a").append(ai).append("]");
+                        }
+                        filterComplex.append("amix=inputs=").append(audioInputIndices.size())
+                                .append(":duration=longest:dropout_transition=0[aout]");
+
+                        mergeCmd.add("-filter_complex");
+                        mergeCmd.add(filterComplex.toString());
+                        mergeCmd.add("-map");
+                        mergeCmd.add("[aout]");
+                        mergeCmd.add("-c:a");
+                        mergeCmd.add("aac");
+                        mergeCmd.add("-b:a");
+                        mergeCmd.add("192k");
+                        mergeCmd.add(mergedSlideAudio.getAbsolutePath());
+
+                        ProcessBuilder mergePb = new ProcessBuilder(mergeCmd);
+                        mergePb.redirectErrorStream(true);
+                        Process mergeProc = mergePb.start();
+
+                        StringBuilder mergeLog = new StringBuilder();
+                        try (BufferedReader br = new BufferedReader(
+                                new InputStreamReader(mergeProc.getInputStream()))) {
+                            String line;
+                            while ((line = br.readLine()) != null) {
+                                mergeLog.append(line).append("\n");
+                            }
+                        }
+
+                        int mergeExit = mergeProc.waitFor();
+                        if (mergeExit != 0) {
+                            String lastLines = mergeLog.toString();
+                            if (lastLines.length() > 1500) {
+                                lastLines = lastLines.substring(lastLines.length() - 1500);
+                            }
+                            publish("Warning: slide audio merge failed, continuing without slide audio.");
+                            System.err.println("Slide audio merge failed (exit " + mergeExit + "):\n" + lastLines);
+                            mergedSlideAudio = null;
+                        }
+                    }
+
+                    // Determine the effective audio file to mux into the video
+                    // Priority: if both slide audio and global audio exist, mix them together
+                    File effectiveAudioFile = null;
+                    File mixedAudioFile = null;
+
+                    if (mergedSlideAudio != null && mergedSlideAudio.exists()
+                            && finalAudioFile != null && finalAudioFile.exists()) {
+                        // Mix slide audio and global audio together
+                        publish("Mixing slide audio with global audio...");
+                        mixedAudioFile = new File(tempDir, "mixed_audio.m4a");
+                        java.util.List<String> mixCmd = new java.util.ArrayList<>();
+                        mixCmd.add("ffmpeg");
+                        mixCmd.add("-y");
+                        mixCmd.add("-i");
+                        mixCmd.add(mergedSlideAudio.getAbsolutePath());
+                        mixCmd.add("-i");
+                        mixCmd.add(finalAudioFile.getAbsolutePath());
+                        mixCmd.add("-filter_complex");
+                        mixCmd.add("[0:a][1:a]amix=inputs=2:duration=longest:dropout_transition=0[aout]");
+                        mixCmd.add("-map");
+                        mixCmd.add("[aout]");
+                        mixCmd.add("-c:a");
+                        mixCmd.add("aac");
+                        mixCmd.add("-b:a");
+                        mixCmd.add("192k");
+                        mixCmd.add(mixedAudioFile.getAbsolutePath());
+
+                        ProcessBuilder mixPb = new ProcessBuilder(mixCmd);
+                        mixPb.redirectErrorStream(true);
+                        Process mixProc = mixPb.start();
+                        StringBuilder mixLog = new StringBuilder();
+                        try (BufferedReader br = new BufferedReader(
+                                new InputStreamReader(mixProc.getInputStream()))) {
+                            String line;
+                            while ((line = br.readLine()) != null) {
+                                mixLog.append(line).append("\n");
+                            }
+                        }
+                        int mixExit = mixProc.waitFor();
+                        if (mixExit == 0) {
+                            effectiveAudioFile = mixedAudioFile;
+                        } else {
+                            publish("Warning: audio mixing failed, using slide audio only.");
+                            effectiveAudioFile = mergedSlideAudio;
+                        }
+                    } else if (mergedSlideAudio != null && mergedSlideAudio.exists()) {
+                        effectiveAudioFile = mergedSlideAudio;
+                    } else if (finalAudioFile != null && finalAudioFile.exists()) {
+                        effectiveAudioFile = finalAudioFile;
+                    }
+
+                    // Step 3: Mux audio into the video (separate pass)
+                    if (effectiveAudioFile != null && effectiveAudioFile.exists()) {
+                        publish("Adding audio to video...");
                         java.util.List<String> muxCmd = new java.util.ArrayList<>();
                         muxCmd.add("ffmpeg");
                         muxCmd.add("-y");
                         muxCmd.add("-i");
                         muxCmd.add(videoOnly.getAbsolutePath());
                         muxCmd.add("-i");
-                        muxCmd.add(finalAudioFile.getAbsolutePath());
+                        muxCmd.add(effectiveAudioFile.getAbsolutePath());
                         muxCmd.add("-c:v");
                         muxCmd.add("copy");
                         muxCmd.add("-c:a");
@@ -2505,7 +2645,6 @@ public class GifSlideShowApp extends JFrame {
                             }
                             throw new IOException(
                                     "ffmpeg audio muxing failed (exit " + muxExit + ").\n" +
-                                            "Audio file: " + finalAudioFile.getAbsolutePath() + "\n\n" +
                                             "FFmpeg output:\n" + lastLines);
                         }
                         videoOnly.delete();
@@ -2530,9 +2669,20 @@ public class GifSlideShowApp extends JFrame {
                         totalDurationSec += ((s.audioDurationMs > 0) ? s.audioDurationMs : duration) / 1000.0;
                     }
 
-                    String audioInfo = finalAudioFile != null
-                            ? "Audio: " + finalAudioFile.getName() + " (AAC 192k)\n"
-                            : "Audio: None\n";
+                    int slideAudioCount = 0;
+                    for (SlideData s : slides) {
+                        if (s.audioFile != null && s.audioFile.exists()) slideAudioCount++;
+                    }
+                    String audioInfo;
+                    if (slideAudioCount > 0 && finalAudioFile != null) {
+                        audioInfo = "Audio: " + slideAudioCount + " slide audio(s) + " + finalAudioFile.getName() + " (AAC 192k)\n";
+                    } else if (slideAudioCount > 0) {
+                        audioInfo = "Audio: " + slideAudioCount + " slide audio(s) (AAC 192k)\n";
+                    } else if (finalAudioFile != null) {
+                        audioInfo = "Audio: " + finalAudioFile.getName() + " (AAC 192k)\n";
+                    } else {
+                        audioInfo = "Audio: None\n";
+                    }
 
                     String scrollInfo = scrollEnabled
                             ? "Scroll: " + finalScrollDir + "\n"
