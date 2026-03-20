@@ -2160,8 +2160,16 @@ public class GifSlideShowApp extends JFrame {
                     int ch = JOptionPane.showOptionDialog(GifSlideShowApp.this,
                             finalInfo, "Result", JOptionPane.DEFAULT_OPTION,
                             JOptionPane.INFORMATION_MESSAGE,
-                            null, new String[]{"Preview", "OK"}, "Preview");
-                    if (ch == 0) showPreview(finalOut);
+                            null, new String[]{"Play Video", "OK"}, "Play Video");
+                    if (ch == 0) {
+                        try {
+                            java.awt.Desktop.getDesktop().open(finalOut);
+                        } catch (Exception ex) {
+                            JOptionPane.showMessageDialog(GifSlideShowApp.this,
+                                    "Could not open video player.\nFile saved at: " + finalOut.getAbsolutePath(),
+                                    "Preview", JOptionPane.INFORMATION_MESSAGE);
+                        }
+                    }
                 }
             }
         };
