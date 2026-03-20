@@ -2410,8 +2410,6 @@ public class GifSlideShowApp extends JFrame {
                     ffmpegCmd.add("-i");
                     ffmpegCmd.add(new File(tempDir, "frame_%05d.png").getAbsolutePath());
                     if (finalAudioFile != null) {
-                        ffmpegCmd.add("-ss");
-                        ffmpegCmd.add("0");
                         ffmpegCmd.add("-i");
                         ffmpegCmd.add(finalAudioFile.getAbsolutePath());
                         ffmpegCmd.add("-map");
@@ -2432,8 +2430,6 @@ public class GifSlideShowApp extends JFrame {
                         ffmpegCmd.add("aac");
                         ffmpegCmd.add("-b:a");
                         ffmpegCmd.add("192k");
-                        ffmpegCmd.add("-async");
-                        ffmpegCmd.add("1");
                         ffmpegCmd.add("-shortest");
                     }
                     ffmpegCmd.add("-movflags");
@@ -2444,10 +2440,12 @@ public class GifSlideShowApp extends JFrame {
                     pb.redirectErrorStream(true);
                     Process proc = pb.start();
 
+                    StringBuilder ffmpegLog = new StringBuilder();
                     try (BufferedReader br = new BufferedReader(
                             new InputStreamReader(proc.getInputStream()))) {
                         String line;
                         while ((line = br.readLine()) != null) {
+                            ffmpegLog.append(line).append("\n");
                             if (line.contains("frame=")) {
                                 publish("Encoding: " + line.trim());
                             }
@@ -2458,10 +2456,15 @@ public class GifSlideShowApp extends JFrame {
 
                     int exit = proc.waitFor();
                     if (exit != 0) {
+                        String lastLines = ffmpegLog.toString();
+                        if (lastLines.length() > 1500) {
+                            lastLines = lastLines.substring(lastLines.length() - 1500);
+                        }
                         throw new IOException(
                                 "ffmpeg failed (exit " + exit + ").\n" +
-                                        "Ensure ffmpeg is installed with H.264 (libx264) support.\n" +
-                                        "Download: https://ffmpeg.org/download.html");
+                                        "Ensure ffmpeg is installed with H.264 (libx264) and AAC support.\n" +
+                                        "Download: https://ffmpeg.org/download.html\n\n" +
+                                        "FFmpeg output:\n" + lastLines);
                     }
 
                     SwingUtilities.invokeLater(() -> progressBar.setValue(100));
