@@ -1833,7 +1833,8 @@ public class GifSlideShowApp extends JFrame {
                     row.getOverlaySize(),
                     row.isTextJustify(), row.getTextWidthPct(),
                     row.getHighlightText(), row.getHighlightColor(),
-                    row.getTextShiftX()));
+                    row.getTextShiftX(),
+                    row.getSlideAudioDurationMs(), row.getSlideAudioFile()));
         }
         if (slides.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Add at least one slide.", "No Slides", JOptionPane.WARNING_MESSAGE);
@@ -2067,7 +2068,7 @@ public class GifSlideShowApp extends JFrame {
                         publish("Rendering at " + w + "×" + h + "...");
 
                         List<BufferedImage> frames;
-                        int gifDelayMs;
+                        List<Integer> frameDelays;
 
                         if (gifScrollEnabled) {
                             // Pre-render all slides, then generate scroll frames
@@ -2075,27 +2076,33 @@ public class GifSlideShowApp extends JFrame {
                             int gifFps = 15; // reasonable for GIF
                             int framesPerSlide = Math.max(1, (int) Math.round(duration / 1000.0 * gifFps));
                             int totalGifFrames = slides.size() * framesPerSlide;
-                            gifDelayMs = Math.max(20, 1000 / gifFps);
+                            int gifDelayMs = Math.max(20, 1000 / gifFps);
                             frames = new ArrayList<>();
+                            frameDelays = new ArrayList<>();
                             publish("Generating scroll frames (" + gifScrollDir + ")...");
                             for (int f = 0; f < totalGifFrames; f++) {
                                 frames.add(renderScrollFrame(renderedSlides, gifScrollDir, f, totalGifFrames, w, h));
+                                frameDelays.add(gifDelayMs);
                                 int pct = 40 + (int) ((f + 1.0) / totalGifFrames * 20);
                                 final int p = pct;
                                 SwingUtilities.invokeLater(() -> progressBar.setValue(p));
                             }
                         } else {
                             frames = renderAllFrames(slides, w, h, progressBar, 60);
-                            gifDelayMs = duration;
+                            frameDelays = new ArrayList<>();
+                            for (SlideData s : slides) {
+                                int delay = (s.audioDurationMs > 0) ? s.audioDurationMs : duration;
+                                frameDelays.add(delay);
+                            }
                         }
 
                         publish("Encoding GIF at " + w + "×" + h + "...");
                         SwingUtilities.invokeLater(() -> progressBar.setValue(70));
 
                         if (finalMethod == 1) {
-                            writeGifWithFfmpeg(frames, gifDelayMs, finalOut);
+                            writeGifWithFfmpeg(frames, frameDelays, finalOut);
                         } else {
-                            writeAnimatedGif(frames, gifDelayMs, finalOut);
+                            writeAnimatedGif(frames, frameDelays, finalOut);
                         }
 
                         SwingUtilities.invokeLater(() -> progressBar.setValue(90));
@@ -2267,11 +2274,15 @@ public class GifSlideShowApp extends JFrame {
                     }
 
                     int fps = 30;
-                    int framesPerSlide = Math.max(1, (int) Math.round(duration / 1000.0 * fps));
+                    int defaultFramesPerSlide = Math.max(1, (int) Math.round(duration / 1000.0 * fps));
 
                     publish("Rendering " + slides.size() + " slides at " + videoW + "×" + videoH + "...");
 
-                    int totalFrames = slides.size() * framesPerSlide;
+                    int totalFrames = 0;
+                    for (SlideData s : slides) {
+                        int slideDur = (s.audioDurationMs > 0) ? s.audioDurationMs : duration;
+                        totalFrames += Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
+                    }
                     int frameIndex = 0;
 
                     if (scrollEnabled) {
@@ -2323,11 +2334,13 @@ public class GifSlideShowApp extends JFrame {
                     } else {
                         for (int i = 0; i < slides.size(); i++) {
                             SlideData s = slides.get(i);
+                            int slideDur = (s.audioDurationMs > 0) ? s.audioDurationMs : duration;
+                            int slideFrames = Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
                             boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0;
 
                             if (hasAnimatedFx) {
                                 // Render each frame individually for animated effects
-                                for (int d = 0; d < framesPerSlide; d++) {
+                                for (int d = 0; d < slideFrames; d++) {
                                     BufferedImage frame = renderFrame(
                                             s.image, s.text, s.fontName, s.fontSize,
                                             s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -2372,7 +2385,7 @@ public class GifSlideShowApp extends JFrame {
                                         s.overlayEnabled,
                                         s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
                                     s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
-                                for (int d = 0; d < framesPerSlide; d++) {
+                                for (int d = 0; d < slideFrames; d++) {
                                     ImageIO.write(frame, "png",
                                             new File(tempDir, String.format("frame_%05d.png", frameIndex)));
                                     frameIndex++;
@@ -2455,7 +2468,10 @@ public class GifSlideShowApp extends JFrame {
 
                     long fileSize = finalOut.length();
                     double sizeMB = fileSize / (1024.0 * 1024.0);
-                    double totalDurationSec = (slides.size() * duration) / 1000.0;
+                    double totalDurationSec = 0;
+                    for (SlideData s : slides) {
+                        totalDurationSec += ((s.audioDurationMs > 0) ? s.audioDurationMs : duration) / 1000.0;
+                    }
 
                     String audioInfo = finalAudioFile != null
                             ? "Audio: " + finalAudioFile.getName() + " (AAC 192k)\n"
@@ -2524,7 +2540,7 @@ public class GifSlideShowApp extends JFrame {
 
     // ==================== GIF Encoding ====================
 
-    private void writeAnimatedGif(List<BufferedImage> frames, int delayMs, File output) throws IOException {
+    private void writeAnimatedGif(List<BufferedImage> frames, List<Integer> delaysMs, File output) throws IOException {
         ImageWriter writer = ImageIO.getImageWritersByFormatName("gif").next();
         try (ImageOutputStream ios = ImageIO.createImageOutputStream(output)) {
             writer.setOutput(ios);
@@ -2535,6 +2551,7 @@ public class GifSlideShowApp extends JFrame {
                 ImageWriteParam param = writer.getDefaultWriteParam();
                 IIOMetadata metadata = writer.getDefaultImageMetadata(
                         new ImageTypeSpecifier(indexed), param);
+                int delayMs = delaysMs.get(Math.min(i, delaysMs.size() - 1));
                 configureGifMetadata(metadata, delayMs / 10, i == 0);
                 writer.writeToSequence(new IIOImage(indexed, null, metadata), param);
             }
@@ -2544,20 +2561,36 @@ public class GifSlideShowApp extends JFrame {
         }
     }
 
-    private void writeGifWithFfmpeg(List<BufferedImage> frames, int delayMs, File output) throws IOException {
+    private void writeGifWithFfmpeg(List<BufferedImage> frames, List<Integer> delaysMs, File output) throws IOException {
         File tempDir = new File(System.getProperty("java.io.tmpdir"), "gif_frames_" + System.currentTimeMillis());
         if (!tempDir.mkdirs() && !tempDir.exists()) {
             throw new IOException("Failed to create temp directory: " + tempDir);
         }
         try {
+            // Use concat demuxer to support per-frame durations
+            int ffmpegFps = 25;
+            StringBuilder concatList = new StringBuilder();
+            int outIdx = 0;
             for (int i = 0; i < frames.size(); i++) {
-                ImageIO.write(frames.get(i), "png", new File(tempDir, String.format("frame_%04d.png", i)));
+                String fname = String.format("frame_%04d.png", i);
+                ImageIO.write(frames.get(i), "png", new File(tempDir, fname));
+                int delayMs = delaysMs.get(Math.min(i, delaysMs.size() - 1));
+                double durationSec = delayMs / 1000.0;
+                concatList.append("file '").append(fname).append("'\n");
+                concatList.append("duration ").append(String.format("%.4f", durationSec)).append("\n");
             }
-            double fps = 1000.0 / delayMs;
+            // ffmpeg concat requires last file repeated without duration
+            if (!frames.isEmpty()) {
+                concatList.append("file '").append(String.format("frame_%04d.png", frames.size() - 1)).append("'\n");
+            }
+            File concatFile = new File(tempDir, "concat.txt");
+            try (java.io.PrintWriter pw = new java.io.PrintWriter(concatFile)) {
+                pw.print(concatList);
+            }
             ProcessBuilder pb = new ProcessBuilder(
                     "ffmpeg", "-y",
-                    "-framerate", String.valueOf(fps),
-                    "-i", new File(tempDir, "frame_%04d.png").getAbsolutePath(),
+                    "-f", "concat", "-safe", "0",
+                    "-i", concatFile.getAbsolutePath(),
                     "-vf", "split[s0][s1];[s0]palettegen=max_colors=256:stats_mode=full[p];[s1][p]paletteuse=dither=floyd_steinberg",
                     "-loop", "0",
                     output.getAbsolutePath());
@@ -2643,6 +2676,28 @@ public class GifSlideShowApp extends JFrame {
             e.printStackTrace();
         }
         return false;
+    }
+
+    private static int probeAudioDurationMs(File audioFile) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    "ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+                    "-of", "default=noprint_wrappers=1:nokey=1",
+                    audioFile.getAbsolutePath());
+            pb.redirectErrorStream(true);
+            Process proc = pb.start();
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(proc.getInputStream()))) {
+                String line = br.readLine();
+                if (line != null && !line.isEmpty()) {
+                    double seconds = Double.parseDouble(line.trim());
+                    return (int) (seconds * 1000);
+                }
+            }
+            proc.waitFor();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return -1;
     }
 
     private static void cleanupTempDir(File dir) {
@@ -2764,6 +2819,8 @@ public class GifSlideShowApp extends JFrame {
         final String highlightText;
         final Color highlightColor;
         final int textShiftX;
+        final int audioDurationMs;
+        final File audioFile;
 
         SlideData(BufferedImage image, String text, String fontName, int fontSize,
                   int fontStyle, Color fontColor, int alignment, boolean showPin, String displayMode,
@@ -2785,7 +2842,8 @@ public class GifSlideShowApp extends JFrame {
                   int overlayX, int overlayY, int overlaySize,
                   boolean textJustify, int textWidthPct,
                   String highlightText, Color highlightColor,
-                  int textShiftX) {
+                  int textShiftX,
+                  int audioDurationMs, File audioFile) {
             this.image = image;
             this.text = text;
             this.fontName = fontName;
@@ -2838,6 +2896,8 @@ public class GifSlideShowApp extends JFrame {
             this.highlightText = highlightText;
             this.highlightColor = highlightColor;
             this.textShiftX = textShiftX;
+            this.audioDurationMs = audioDurationMs;
+            this.audioFile = audioFile;
         }
     }
 
@@ -2921,6 +2981,12 @@ public class GifSlideShowApp extends JFrame {
         private List<BufferedImage> gridSourceImages = null;
         private BufferedImage titleBgImage = null;
 
+        private File slideAudioFile;
+        private int slideAudioDurationMs = -1;
+        private final JButton audioBtn;
+        private final JLabel audioFileLabel;
+        private final JLabel audioDurationLabel;
+        private final JButton audioClearBtn;
 
 
 
@@ -3602,6 +3668,44 @@ public class GifSlideShowApp extends JFrame {
             toolbar6b.add(styledLabel("Size%:"));
             toolbar6b.add(overlaySizeSpinner);
 
+            // ===== Toolbar Row 7: Slide Audio =====
+            JPanel toolbar7 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
+            toolbar7.setBackground(new Color(44, 47, 51));
+
+            JLabel audioLabel = styledLabel("\uD83D\uDD0A Audio:");
+            audioLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            audioLabel.setForeground(new Color(100, 180, 220));
+
+            audioBtn = new JButton("Browse...");
+            audioBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            audioBtn.setPreferredSize(new Dimension(75, 24));
+            audioBtn.setFocusPainted(false);
+            audioBtn.setToolTipText("Attach audio to this slide (duration overrides global slide duration)");
+            audioBtn.addActionListener(e -> browseSlideAudio());
+
+            audioFileLabel = new JLabel("No audio");
+            audioFileLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            audioFileLabel.setForeground(Color.GRAY);
+            audioFileLabel.setPreferredSize(new Dimension(150, 20));
+
+            audioDurationLabel = new JLabel("");
+            audioDurationLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            audioDurationLabel.setForeground(new Color(180, 220, 180));
+
+            audioClearBtn = new JButton("\u2716");
+            audioClearBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            audioClearBtn.setPreferredSize(new Dimension(36, 24));
+            audioClearBtn.setFocusPainted(false);
+            audioClearBtn.setToolTipText("Remove audio from this slide");
+            audioClearBtn.setVisible(false);
+            audioClearBtn.addActionListener(e -> clearSlideAudio());
+
+            toolbar7.add(audioLabel);
+            toolbar7.add(audioBtn);
+            toolbar7.add(audioFileLabel);
+            toolbar7.add(audioDurationLabel);
+            toolbar7.add(audioClearBtn);
+
             textArea = new JTextArea(6, 20);
             textArea.setFont(new Font("Segoe UI", Font.PLAIN, 14));
             textArea.setLineWrap(true);
@@ -3640,6 +3744,8 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar6a);
             toolbarsPanel.add(toolbar6b);
+            toolbarsPanel.add(createToolbarSeparator());
+            toolbarsPanel.add(toolbar7);
 
             rightPanel.add(toolbarsPanel, BorderLayout.NORTH);
             rightPanel.add(textScroll, BorderLayout.CENTER);
@@ -4043,6 +4149,41 @@ public class GifSlideShowApp extends JFrame {
         String getHighlightText() { return highlightField.getText(); }
         Color getHighlightColor() { return highlightColor; }
         int getTextShiftX() { return (int) textShiftXSpinner.getValue(); }
+
+        File getSlideAudioFile() { return slideAudioFile; }
+        int getSlideAudioDurationMs() { return slideAudioDurationMs; }
+
+        private void browseSlideAudio() {
+            JFileChooser chooser = new JFileChooser();
+            chooser.setFileFilter(new FileNameExtensionFilter(
+                    "Audio Files", "mp3", "wav", "aac", "ogg", "m4a", "flac", "wma"));
+            if (chooser.showOpenDialog(panel) == JFileChooser.APPROVE_OPTION) {
+                File file = chooser.getSelectedFile();
+                int durationMs = probeAudioDurationMs(file);
+                if (durationMs <= 0) {
+                    JOptionPane.showMessageDialog(panel,
+                            "Could not read audio duration.\nMake sure ffprobe is installed.",
+                            "Audio Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                slideAudioFile = file;
+                slideAudioDurationMs = durationMs;
+                audioFileLabel.setText(file.getName());
+                audioFileLabel.setForeground(Color.WHITE);
+                audioDurationLabel.setText(String.format("(%d.%ds)",
+                        durationMs / 1000, (durationMs % 1000) / 100));
+                audioClearBtn.setVisible(true);
+            }
+        }
+
+        private void clearSlideAudio() {
+            slideAudioFile = null;
+            slideAudioDurationMs = -1;
+            audioFileLabel.setText("No audio");
+            audioFileLabel.setForeground(Color.GRAY);
+            audioDurationLabel.setText("");
+            audioClearBtn.setVisible(false);
+        }
     }
 
     // ==================== Main ====================
