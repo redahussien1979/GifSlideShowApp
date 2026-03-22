@@ -2530,6 +2530,7 @@ public class GifSlideShowApp extends JFrame {
                     int fps = 30;
                     int defaultFramesPerSlide = Math.max(1, (int) Math.round(duration / 1000.0 * fps));
                     boolean useConcatDemuxer = false;
+                    boolean usePipeEncoding = false;
                     File concatFile = null;
 
                     publish("Rendering " + slides.size() + " slides at " + videoW + "×" + videoH + "...");
@@ -2653,27 +2654,111 @@ public class GifSlideShowApp extends JFrame {
                                 fw.write(concatContent.toString());
                             }
                         } else {
-                            // ANIMATED PATH: At least one slide has animated effects — must render per-frame
+                            // ANIMATED PATH: At least one slide has animated effects.
+                            // Optimization: render base frame once (without animated fx), then clone + apply effects per frame.
+                            // Also pipe raw pixels to FFmpeg instead of writing PNG files to disk.
+                            usePipeEncoding = true;
+
+                            // Start FFmpeg process that reads raw RGB from stdin
+                            File videoOnly2 = new File(tempDir, "video_only.mp4");
+                            java.util.List<String> pipeCmdList = new java.util.ArrayList<>();
+                            pipeCmdList.add("ffmpeg");
+                            pipeCmdList.add("-y");
+                            pipeCmdList.add("-f");
+                            pipeCmdList.add("rawvideo");
+                            pipeCmdList.add("-pixel_format");
+                            pipeCmdList.add("rgb24");
+                            pipeCmdList.add("-video_size");
+                            pipeCmdList.add(videoW + "x" + videoH);
+                            pipeCmdList.add("-framerate");
+                            pipeCmdList.add(String.valueOf(fps));
+                            pipeCmdList.add("-i");
+                            pipeCmdList.add("-");
+                            pipeCmdList.add("-c:v");
+                            pipeCmdList.add("libx264");
+                            pipeCmdList.add("-preset");
+                            pipeCmdList.add("medium");
+                            pipeCmdList.add("-threads");
+                            pipeCmdList.add("0");
+                            pipeCmdList.add("-crf");
+                            pipeCmdList.add(String.valueOf(crf));
+                            pipeCmdList.add("-pix_fmt");
+                            pipeCmdList.add("yuv420p");
+                            pipeCmdList.add(videoOnly2.getAbsolutePath());
+
+                            ProcessBuilder pipePb = new ProcessBuilder(pipeCmdList);
+                            pipePb.redirectErrorStream(true);
+                            Process pipeProc = pipePb.start();
+                            java.io.OutputStream ffmpegStdin = new java.io.BufferedOutputStream(pipeProc.getOutputStream(), 1024 * 1024);
+
+                            // Read FFmpeg output in background thread
+                            StringBuilder pipeLog = new StringBuilder();
+                            Thread convergenceReader = new Thread(() -> {
+                                try (BufferedReader br = new BufferedReader(new InputStreamReader(pipeProc.getInputStream()))) {
+                                    String line2;
+                                    while ((line2 = br.readLine()) != null) {
+                                        pipeLog.append(line2).append("\n");
+                                    }
+                                } catch (IOException ignored) {}
+                            });
+                            convergenceReader.setDaemon(true);
+                            convergenceReader.start();
+
+                            // Pre-allocate reusable byte buffer for raw RGB pixel data
+                            byte[] rgbBytes = new byte[videoW * videoH * 3];
+
                             for (int i = 0; i < slides.size(); i++) {
                                 SlideData s = slides.get(i);
                                 int slideDur = (s.audioDurationMs > 0) ? s.audioDurationMs : duration;
                                 int slideFrames = Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
                                 boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0;
-                                if (!hasAnimatedFx && s.slideTexts != null) {
+                                boolean hasAnimatedText = false;
+                                if (s.slideTexts != null) {
                                     for (SlideTextData stx : s.slideTexts) {
                                         if (stx.show && stx.textEffect != null) {
                                             String fx = stx.textEffect;
                                             if (fx.equals("Water Ripple") || fx.equals("Fire") || fx.equals("Ice")
                                                     || fx.equals("Rainbow") || fx.equals("Typewriter")) {
-                                                hasAnimatedFx = true;
+                                                hasAnimatedText = true;
                                                 break;
                                             }
                                         }
                                     }
                                 }
 
-                                if (hasAnimatedFx) {
-                                    // Render each frame individually for animated effects
+                                if (hasAnimatedFx && !hasAnimatedText) {
+                                    // Render base frame ONCE without animated effects, then clone + apply effects
+                                    publish("Rendering slide " + (i + 1) + " base + " + slideFrames + " effect frames...");
+                                    BufferedImage baseFrame = renderFrame(
+                                            s.image, s.text, s.fontName, s.fontSize,
+                                            s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                            videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                            s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                            s.slideNumberX, s.slideNumberY,
+                                            s.slideNumberSize, s.slideNumberColor,
+                                            s.slideTexts,
+                                            s.fxRoundCorners, s.fxCornerRadius,
+                                            s.fxVignette, s.fxSepia, 0, 0, 0, 0,  // zero out animated fx
+                                            s.overlayEnabled,
+                                            s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                    // Cache base pixel data for fast cloning
+                                    int[] basePixels = baseFrame.getRGB(0, 0, videoW, videoH, null, 0, videoW);
+
+                                    for (int d = 0; d < slideFrames; d++) {
+                                        // Clone base pixels into frame
+                                        BufferedImage animFrame = new BufferedImage(videoW, videoH, BufferedImage.TYPE_INT_RGB);
+                                        animFrame.setRGB(0, 0, videoW, videoH, basePixels, 0, videoW);
+                                        // Apply only animated effects
+                                        applyAnimatedEffects(animFrame, videoW, videoH,
+                                                s.fxWaterRipple, s.fxGlitch, s.fxGrain, s.fxShake, d);
+                                        // Write raw RGB to FFmpeg stdin
+                                        writeRawRGB(animFrame, videoW, videoH, rgbBytes, ffmpegStdin);
+                                        frameIndex++;
+                                    }
+                                } else if (hasAnimatedFx || hasAnimatedText) {
+                                    // Has animated text effects — must render full frame each time
+                                    publish("Rendering slide " + (i + 1) + " with " + slideFrames + " animated frames...");
                                     for (int d = 0; d < slideFrames; d++) {
                                         BufferedImage frame = renderFrame(
                                                 s.image, s.text, s.fontName, s.fontSize,
@@ -2689,12 +2774,11 @@ public class GifSlideShowApp extends JFrame {
                                                 s.overlayEnabled,
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
                                                 s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
-                                        ImageIO.write(frame, "png",
-                                                new File(tempDir, String.format("frame_%05d.png", frameIndex)));
+                                        writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
                                         frameIndex++;
                                     }
                                 } else {
-                                    // No animated effects — render once, copy for duplicates
+                                    // Static slide — render once, write same pixels for all frames
                                     BufferedImage frame = renderFrame(
                                             s.image, s.text, s.fontName, s.fontSize,
                                             s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -2704,19 +2788,16 @@ public class GifSlideShowApp extends JFrame {
                                             s.slideNumberSize, s.slideNumberColor,
                                             s.slideTexts,
                                             s.fxRoundCorners, s.fxCornerRadius,
-                                            s.fxVignette, s.fxSepia, s.fxGrain,
-                                            s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                            s.fxVignette, s.fxSepia, 0, 0, 0, 0,
                                             s.overlayEnabled,
                                             s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
                                             s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
-                                    File firstFrameFile = new File(tempDir, String.format("frame_%05d.png", frameIndex));
-                                    ImageIO.write(frame, "png", firstFrameFile);
-                                    frameIndex++;
+                                    writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
                                     for (int d = 1; d < slideFrames; d++) {
-                                        java.nio.file.Files.copy(firstFrameFile.toPath(),
-                                                new File(tempDir, String.format("frame_%05d.png", frameIndex)).toPath());
+                                        ffmpegStdin.write(rgbBytes);  // same bytes, no re-render
                                         frameIndex++;
                                     }
+                                    frameIndex++;
                                 }
 
                                 int pct = (int) ((i + 1.0) / slides.size() * 60);
@@ -2724,82 +2805,104 @@ public class GifSlideShowApp extends JFrame {
                                 SwingUtilities.invokeLater(() -> progressBar.setValue(p));
                                 publish("Rendered slide " + (i + 1) + "/" + slides.size());
                             }
-                        }
-                    }
 
-                    publish("Encoding MP4 at " + videoW + "×" + videoH + " (CRF " + crf + ")...");
-                    SwingUtilities.invokeLater(() -> progressBar.setValue(65));
-
-                    // Step 1: Create video-only MP4
-                    File videoOnly = new File(tempDir, "video_only.mp4");
-                    java.util.List<String> videoCmd = new java.util.ArrayList<>();
-                    videoCmd.add("ffmpeg");
-                    videoCmd.add("-y");
-                    if (useConcatDemuxer) {
-                        // Fast path: use concat demuxer (1 PNG per slide instead of thousands of frames)
-                        videoCmd.add("-f");
-                        videoCmd.add("concat");
-                        videoCmd.add("-safe");
-                        videoCmd.add("0");
-                        videoCmd.add("-i");
-                        videoCmd.add(concatFile.getAbsolutePath());
-                    } else {
-                        // Frame sequence input
-                        videoCmd.add("-framerate");
-                        videoCmd.add(String.valueOf(fps));
-                        videoCmd.add("-i");
-                        videoCmd.add(new File(tempDir, "frame_%05d.png").getAbsolutePath());
-                    }
-                    if (useConcatDemuxer) {
-                        // Set output framerate for concat demuxer input
-                        videoCmd.add("-r");
-                        videoCmd.add(String.valueOf(fps));
-                    }
-                    videoCmd.add("-c:v");
-                    videoCmd.add("libx264");
-                    videoCmd.add("-preset");
-                    videoCmd.add("medium");
-                    videoCmd.add("-threads");
-                    videoCmd.add("0");
-                    videoCmd.add("-crf");
-                    videoCmd.add(String.valueOf(crf));
-                    videoCmd.add("-pix_fmt");
-                    videoCmd.add("yuv420p");
-                    videoCmd.add("-movflags");
-                    videoCmd.add("+faststart");
-                    videoCmd.add(videoOnly.getAbsolutePath());
-
-                    publish("Encoding video...");
-                    ProcessBuilder pb = new ProcessBuilder(videoCmd);
-                    pb.redirectErrorStream(true);
-                    Process proc = pb.start();
-
-                    StringBuilder ffmpegLog = new StringBuilder();
-                    try (BufferedReader br = new BufferedReader(
-                            new InputStreamReader(proc.getInputStream()))) {
-                        String line;
-                        while ((line = br.readLine()) != null) {
-                            ffmpegLog.append(line).append("\n");
-                            if (line.contains("frame=")) {
-                                publish("Encoding: " + line.trim());
+                            // Close stdin and wait for FFmpeg to finish
+                            ffmpegStdin.close();
+                            int pipeExit = pipeProc.waitFor();
+                            convergenceReader.join(5000);
+                            if (pipeExit != 0) {
+                                String lastLines = pipeLog.toString();
+                                if (lastLines.length() > 1500) {
+                                    lastLines = lastLines.substring(lastLines.length() - 1500);
+                                }
+                                throw new IOException(
+                                        "ffmpeg video encoding failed (exit " + pipeExit + ").\n" +
+                                                "FFmpeg output:\n" + lastLines);
                             }
                         }
                     }
 
-                    int exit = proc.waitFor();
-                    if (exit != 0) {
-                        String lastLines = ffmpegLog.toString();
-                        if (lastLines.length() > 1500) {
-                            lastLines = lastLines.substring(lastLines.length() - 1500);
-                        }
-                        throw new IOException(
-                                "ffmpeg video encoding failed (exit " + exit + ").\n" +
-                                        "Ensure ffmpeg is installed with H.264 (libx264) support.\n" +
-                                        "Download: https://ffmpeg.org/download.html\n\n" +
-                                        "FFmpeg output:\n" + lastLines);
-                    }
+                    // Step 1: Create video-only MP4
+                    File videoOnly;
+                    if (usePipeEncoding) {
+                        // Pipe encoding already created the video file
+                        videoOnly = new File(tempDir, "video_only.mp4");
+                        publish("Video encoding completed via pipe.");
+                        SwingUtilities.invokeLater(() -> progressBar.setValue(80));
+                    } else {
+                        publish("Encoding MP4 at " + videoW + "×" + videoH + " (CRF " + crf + ")...");
+                        SwingUtilities.invokeLater(() -> progressBar.setValue(65));
 
-                    SwingUtilities.invokeLater(() -> progressBar.setValue(80));
+                        videoOnly = new File(tempDir, "video_only.mp4");
+                        java.util.List<String> videoCmd = new java.util.ArrayList<>();
+                        videoCmd.add("ffmpeg");
+                        videoCmd.add("-y");
+                        if (useConcatDemuxer) {
+                            // Fast path: use concat demuxer (1 PNG per slide instead of thousands of frames)
+                            videoCmd.add("-f");
+                            videoCmd.add("concat");
+                            videoCmd.add("-safe");
+                            videoCmd.add("0");
+                            videoCmd.add("-i");
+                            videoCmd.add(concatFile.getAbsolutePath());
+                        } else {
+                            // Frame sequence input
+                            videoCmd.add("-framerate");
+                            videoCmd.add(String.valueOf(fps));
+                            videoCmd.add("-i");
+                            videoCmd.add(new File(tempDir, "frame_%05d.png").getAbsolutePath());
+                        }
+                        if (useConcatDemuxer) {
+                            // Set output framerate for concat demuxer input
+                            videoCmd.add("-r");
+                            videoCmd.add(String.valueOf(fps));
+                        }
+                        videoCmd.add("-c:v");
+                        videoCmd.add("libx264");
+                        videoCmd.add("-preset");
+                        videoCmd.add("medium");
+                        videoCmd.add("-threads");
+                        videoCmd.add("0");
+                        videoCmd.add("-crf");
+                        videoCmd.add(String.valueOf(crf));
+                        videoCmd.add("-pix_fmt");
+                        videoCmd.add("yuv420p");
+                        videoCmd.add("-movflags");
+                        videoCmd.add("+faststart");
+                        videoCmd.add(videoOnly.getAbsolutePath());
+
+                        publish("Encoding video...");
+                        ProcessBuilder pb = new ProcessBuilder(videoCmd);
+                        pb.redirectErrorStream(true);
+                        Process proc = pb.start();
+
+                        StringBuilder ffmpegLog = new StringBuilder();
+                        try (BufferedReader br = new BufferedReader(
+                                new InputStreamReader(proc.getInputStream()))) {
+                            String line;
+                            while ((line = br.readLine()) != null) {
+                                ffmpegLog.append(line).append("\n");
+                                if (line.contains("frame=")) {
+                                    publish("Encoding: " + line.trim());
+                                }
+                            }
+                        }
+
+                        int exit = proc.waitFor();
+                        if (exit != 0) {
+                            String lastLines = ffmpegLog.toString();
+                            if (lastLines.length() > 1500) {
+                                lastLines = lastLines.substring(lastLines.length() - 1500);
+                            }
+                            throw new IOException(
+                                    "ffmpeg video encoding failed (exit " + exit + ").\n" +
+                                            "Ensure ffmpeg is installed with H.264 (libx264) support.\n" +
+                                            "Download: https://ffmpeg.org/download.html\n\n" +
+                                            "FFmpeg output:\n" + lastLines);
+                        }
+
+                        SwingUtilities.invokeLater(() -> progressBar.setValue(80));
+                    }
 
                     // Step 2: Merge individual slide audio files into one track (if any)
                     File mergedSlideAudio = null;
@@ -3216,6 +3319,119 @@ public class GifSlideShowApp extends JFrame {
             e.printStackTrace();
         }
         return false;
+    }
+
+    /**
+     * Write a BufferedImage as raw RGB24 bytes to an OutputStream (for piping to FFmpeg).
+     * Reuses the provided byte array to avoid allocation per frame.
+     */
+    static void writeRawRGB(BufferedImage img, int w, int h, byte[] rgbBytes, java.io.OutputStream out) throws IOException {
+        int[] pixels = img.getRGB(0, 0, w, h, null, 0, w);
+        for (int i = 0; i < pixels.length; i++) {
+            rgbBytes[i * 3]     = (byte) ((pixels[i] >> 16) & 0xFF); // R
+            rgbBytes[i * 3 + 1] = (byte) ((pixels[i] >> 8) & 0xFF);  // G
+            rgbBytes[i * 3 + 2] = (byte) (pixels[i] & 0xFF);          // B
+        }
+        out.write(rgbBytes);
+    }
+
+    /**
+     * Apply only the animated effects (water ripple, glitch, grain, shake) to a frame.
+     * Used to avoid re-rendering the entire base image for every animation frame.
+     */
+    static void applyAnimatedEffects(BufferedImage frame, int targetW, int targetH,
+                                     int fxWaterRipple, int fxGlitch, int fxGrain, int fxShake,
+                                     int animFrameIndex) {
+        if (fxWaterRipple > 0) {
+            double strength = fxWaterRipple / 50.0;
+            int[] src = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+            int[] dst = new int[src.length];
+            double amplitude = targetH * 0.006 * strength;
+            double frequency = 2.0 * Math.PI / (targetH * 0.12);
+            double phase = animFrameIndex * 0.15;
+            for (int y = 0; y < targetH; y++) {
+                int xOff = (int)(amplitude * Math.sin(frequency * y + phase));
+                for (int x = 0; x < targetW; x++) {
+                    int sx = Math.max(0, Math.min(targetW - 1, x + xOff));
+                    dst[y * targetW + x] = src[y * targetW + sx];
+                }
+            }
+            frame.setRGB(0, 0, targetW, targetH, dst, 0, targetW);
+        }
+
+        if (fxGlitch > 0) {
+            double strength = fxGlitch / 50.0;
+            int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+            Random glitchRng = new Random(137L + animFrameIndex * 31L);
+            int numBands = (int)((4 + glitchRng.nextInt(6)) * strength);
+            int maxShift = Math.max(1, (int)(targetW / 10 * strength));
+            for (int band = 0; band < numBands; band++) {
+                int bandY = glitchRng.nextInt(targetH);
+                int bandH2 = (int)((2 + glitchRng.nextInt(Math.max(1, targetH / 40))) * strength);
+                int shift = glitchRng.nextInt(Math.max(1, maxShift)) - maxShift / 2;
+                for (int y = bandY; y < Math.min(targetH, bandY + bandH2); y++) {
+                    int[] row = new int[targetW];
+                    for (int x = 0; x < targetW; x++) {
+                        row[x] = px[y * targetW + ((x + shift + targetW) % targetW)];
+                    }
+                    System.arraycopy(row, 0, px, y * targetW, targetW);
+                }
+            }
+            int rShift = Math.max(1, (int)(targetW / 80 * strength));
+            int channelPhase = (animFrameIndex % 3);
+            int[] result = new int[px.length];
+            for (int y = 0; y < targetH; y++) {
+                for (int x = 0; x < targetW; x++) {
+                    int idx = y * targetW + x;
+                    int rOff = channelPhase == 0 ? rShift : (channelPhase == 1 ? -rShift : rShift / 2);
+                    int bOff = channelPhase == 0 ? -rShift : (channelPhase == 1 ? rShift : -rShift / 2);
+                    int rIdx = y * targetW + Math.min(targetW - 1, Math.max(0, x + rOff));
+                    int bIdx = y * targetW + Math.min(targetW - 1, Math.max(0, x + bOff));
+                    int rv = (px[rIdx] >> 16) & 0xFF;
+                    int gv = (px[idx] >> 8) & 0xFF;
+                    int bv = px[bIdx] & 0xFF;
+                    result[idx] = (0xFF << 24) | (rv << 16) | (gv << 8) | bv;
+                }
+            }
+            frame.setRGB(0, 0, targetW, targetH, result, 0, targetW);
+        }
+
+        if (fxGrain > 0) {
+            int range = (int)(60 * fxGrain / 50.0);
+            int half = range / 2;
+            int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+            Random grainRng = new Random(42L + animFrameIndex * 17L);
+            for (int i = 0; i < px.length; i++) {
+                int noise = grainRng.nextInt(Math.max(1, range)) - half;
+                int r = Math.max(0, Math.min(255, ((px[i] >> 16) & 0xFF) + noise));
+                int gv = Math.max(0, Math.min(255, ((px[i] >> 8) & 0xFF) + noise));
+                int b = Math.max(0, Math.min(255, (px[i] & 0xFF) + noise));
+                px[i] = (0xFF << 24) | (r << 16) | (gv << 8) | b;
+            }
+            frame.setRGB(0, 0, targetW, targetH, px, 0, targetW);
+        }
+
+        if (fxShake > 0) {
+            double strength = fxShake / 50.0;
+            BufferedImage shaken = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
+            Graphics2D sg = shaken.createGraphics();
+            sg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            sg.setColor(new Color(21, 32, 43));
+            sg.fillRect(0, 0, targetW, targetH);
+            double shakeAngle = Math.toRadians(1.8 * strength * Math.sin(animFrameIndex * 0.7));
+            double shakeOffX = targetW * 0.01 * strength * Math.sin(animFrameIndex * 1.1);
+            double shakeOffY = targetH * 0.008 * strength * Math.cos(animFrameIndex * 0.9);
+            AffineTransform at = new AffineTransform();
+            at.translate(targetW / 2.0, targetH / 2.0);
+            at.rotate(shakeAngle);
+            at.translate(shakeOffX, shakeOffY);
+            at.translate(-targetW / 2.0, -targetH / 2.0);
+            sg.drawImage(frame, at, null);
+            sg.dispose();
+            Graphics2D fg = frame.createGraphics();
+            fg.drawImage(shaken, 0, 0, null);
+            fg.dispose();
+        }
     }
 
     private static int probeAudioDurationMs(File audioFile) {
