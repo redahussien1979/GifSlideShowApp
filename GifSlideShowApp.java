@@ -3498,9 +3498,14 @@ public class GifSlideShowApp extends JFrame {
                 saveCurrentSlideTextToItem();
                 slideTextItems.add(new SlideTextData(false, "", loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI",
                         40, Font.PLAIN, Color.YELLOW, 50, 50, 0, Color.BLACK, false, 100, 0, SwingConstants.CENTER));
-                rebuildSlideTextSelector();
                 currentSlideTextIndex = slideTextItems.size() - 1;
-                slideTextSelector.setSelectedIndex(currentSlideTextIndex);
+                isLoadingSlideText = true;
+                try {
+                    rebuildSlideTextSelector();
+                    slideTextSelector.setSelectedIndex(currentSlideTextIndex);
+                } finally {
+                    isLoadingSlideText = false;
+                }
                 loadSlideTextFromItem(currentSlideTextIndex);
                 onFormatChanged();
             });
@@ -3516,8 +3521,13 @@ public class GifSlideShowApp extends JFrame {
                 if (currentSlideTextIndex >= slideTextItems.size()) {
                     currentSlideTextIndex = slideTextItems.size() - 1;
                 }
-                rebuildSlideTextSelector();
-                slideTextSelector.setSelectedIndex(currentSlideTextIndex);
+                isLoadingSlideText = true;
+                try {
+                    rebuildSlideTextSelector();
+                    slideTextSelector.setSelectedIndex(currentSlideTextIndex);
+                } finally {
+                    isLoadingSlideText = false;
+                }
                 loadSlideTextFromItem(currentSlideTextIndex);
                 onFormatChanged();
             });
@@ -4017,14 +4027,9 @@ public class GifSlideShowApp extends JFrame {
         }
 
         private void rebuildSlideTextSelector() {
-            isLoadingSlideText = true;
-            try {
-                slideTextSelector.removeAllItems();
-                for (int i = 0; i < slideTextItems.size(); i++) {
-                    slideTextSelector.addItem("Text " + (i + 1));
-                }
-            } finally {
-                isLoadingSlideText = false;
+            slideTextSelector.removeAllItems();
+            for (int i = 0; i < slideTextItems.size(); i++) {
+                slideTextSelector.addItem("Text " + (i + 1));
             }
         }
 
