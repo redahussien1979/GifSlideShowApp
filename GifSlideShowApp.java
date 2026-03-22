@@ -2567,6 +2567,18 @@ public class GifSlideShowApp extends JFrame {
                             int slideDur = (s.audioDurationMs > 0) ? s.audioDurationMs : duration;
                             int slideFrames = Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
                             boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0;
+                            if (!hasAnimatedFx && s.slideTexts != null) {
+                                for (SlideTextData stx : s.slideTexts) {
+                                    if (stx.show && stx.textEffect != null) {
+                                        String fx = stx.textEffect;
+                                        if (fx.equals("Water Ripple") || fx.equals("Fire") || fx.equals("Ice")
+                                                || fx.equals("Rainbow") || fx.equals("Typewriter")) {
+                                            hasAnimatedFx = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
 
                             if (hasAnimatedFx) {
                                 // Render each frame individually for animated effects
