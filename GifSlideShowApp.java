@@ -3192,7 +3192,7 @@ public class GifSlideShowApp extends JFrame {
             imagePreview = new JLabel("Drag image here or click to browse", SwingConstants.CENTER);
             imagePreview.setFont(new Font("Segoe UI", Font.PLAIN, 12));
             imagePreview.setForeground(new Color(160, 170, 180));
-            imagePreview.setPreferredSize(new Dimension(260, 150));
+            imagePreview.setPreferredSize(new Dimension(180, 90));
             imagePreview.setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createDashedBorder(new Color(80, 90, 100), 2, 6, 4, true),
                     BorderFactory.createEmptyBorder(6, 6, 6, 6)));
@@ -3225,7 +3225,7 @@ public class GifSlideShowApp extends JFrame {
             livePreviewLabel = new JLabel("Live Preview", SwingConstants.CENTER);
             livePreviewLabel.setFont(new Font("Segoe UI", Font.ITALIC, 10));
             livePreviewLabel.setForeground(new Color(120, 130, 140));
-            livePreviewLabel.setPreferredSize(new Dimension(260, 146));
+            livePreviewLabel.setPreferredSize(new Dimension(180, 120));
             livePreviewLabel.setBorder(BorderFactory.createLineBorder(new Color(60, 63, 68)));
             livePreviewLabel.setOpaque(true);
             livePreviewLabel.setBackground(new Color(21, 32, 43));
