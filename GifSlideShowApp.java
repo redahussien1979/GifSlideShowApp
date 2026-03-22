@@ -1492,7 +1492,10 @@ public class GifSlideShowApp extends JFrame {
 
                 int stBlockLeft = stCenterX - stMaxLineWidth / 2;
 
-                g.setColor(st.color != null ? st.color : Color.YELLOW);
+                Color stColor = st.color != null ? st.color : Color.YELLOW;
+                String effect = st.textEffect != null ? st.textEffect : "None";
+                double intensity = st.textEffectIntensity / 100.0;
+
                 int lineY = stCenterY - totalTextHeight / 2 + stAscent;
                 for (int li = 0; li < stWrappedLines.size(); li++) {
                     String line = stWrappedLines.get(li);
@@ -1507,25 +1510,289 @@ public class GifSlideShowApp extends JFrame {
                     }
 
                     boolean isLastLine = (li == stWrappedLines.size() - 1);
+                    boolean justified = false;
+                    String[] justifyWords = null;
+                    double justifyExtraSpace = 0;
                     if (st.justify && !isLastLine && stMaxLineWidth > 0) {
-                        String[] words = line.split(" ");
-                        if (words.length > 1) {
+                        justifyWords = line.split(" ");
+                        if (justifyWords.length > 1) {
                             int totalWordsWidth = 0;
-                            for (String w : words) {
-                                totalWordsWidth += stFm.stringWidth(w);
-                            }
-                            double extraSpace = (double) (stMaxLineWidth - totalWordsWidth) / (words.length - 1);
-                            double drawX = stBlockLeft;
-                            for (int wi = 0; wi < words.length; wi++) {
-                                g.drawString(words[wi], (int) drawX, lineY);
-                                drawX += stFm.stringWidth(words[wi]) + extraSpace;
-                            }
-                            lineY += stLineHeight;
-                            continue;
+                            for (String w : justifyWords) totalWordsWidth += stFm.stringWidth(w);
+                            justifyExtraSpace = (double) (stMaxLineWidth - totalWordsWidth) / (justifyWords.length - 1);
+                            justified = true;
                         }
                     }
 
-                    g.drawString(line, lineX, lineY);
+                    // === Typewriter: limit visible characters ===
+                    String visibleLine = line;
+                    if (effect.equals("Typewriter")) {
+                        int totalChars = 0;
+                        for (int tli = 0; tli < stWrappedLines.size(); tli++) totalChars += stWrappedLines.get(tli).length();
+                        int charsPerFrame = Math.max(1, (int) (2 + 6 * intensity));
+                        int visibleChars = Math.min(totalChars, animFrameIndex * charsPerFrame);
+                        int charsBefore = 0;
+                        for (int tli = 0; tli < li; tli++) charsBefore += stWrappedLines.get(tli).length();
+                        int charsForLine = Math.max(0, Math.min(line.length(), visibleChars - charsBefore));
+                        visibleLine = line.substring(0, charsForLine);
+                        if (visibleLine.isEmpty()) { lineY += stLineHeight; continue; }
+                        if (justified) {
+                            // recalc justified words for partial line
+                            justifyWords = visibleLine.split(" ");
+                            if (justifyWords.length <= 1) justified = false;
+                            else {
+                                int tw = 0; for (String w : justifyWords) tw += stFm.stringWidth(w);
+                                justifyExtraSpace = (double) (stMaxLineWidth - tw) / (justifyWords.length - 1);
+                            }
+                        }
+                    }
+
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                    g2.setFont(stFont);
+
+                    switch (effect) {
+                        case "Shadow": {
+                            int off = Math.max(1, (int) (scaledStSize * 0.06 * intensity));
+                            g2.setColor(new Color(0, 0, 0, (int) (180 * intensity)));
+                            if (justified) drawJustified(g2, justifyWords, stBlockLeft + off, lineY + off, justifyExtraSpace, stFm);
+                            else g2.drawString(visibleLine, lineX + off, lineY + off);
+                            g2.setColor(stColor);
+                            if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
+                            else g2.drawString(visibleLine, lineX, lineY);
+                            break;
+                        }
+                        case "Glow": {
+                            int layers = 3 + (int) (5 * intensity);
+                            for (int gl = layers; gl >= 1; gl--) {
+                                float spread = gl * scaledStSize * 0.04f * (float) intensity;
+                                int alpha = (int) (40 * intensity / gl);
+                                g2.setColor(new Color(stColor.getRed(), stColor.getGreen(), stColor.getBlue(), Math.min(255, alpha)));
+                                Font glowFont = stFont.deriveFont((float) (scaledStSize + spread));
+                                g2.setFont(glowFont);
+                                FontMetrics gfm = g2.getFontMetrics();
+                                int offY = lineY - (gfm.getAscent() - stAscent) / 2;
+                                if (justified) {
+                                    double dx = stBlockLeft;
+                                    for (String w : justifyWords) {
+                                        int origW = stFm.stringWidth(w);
+                                        int offX = (int) dx - (gfm.stringWidth(w) - origW) / 2;
+                                        g2.drawString(w, offX, offY);
+                                        dx += origW + justifyExtraSpace;
+                                    }
+                                } else {
+                                    int glowLineW = gfm.stringWidth(visibleLine);
+                                    int offX = lineX - (glowLineW - lineW) / 2;
+                                    g2.drawString(visibleLine, offX, offY);
+                                }
+                            }
+                            g2.setFont(stFont);
+                            g2.setColor(Color.WHITE);
+                            if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
+                            else g2.drawString(visibleLine, lineX, lineY);
+                            break;
+                        }
+                        case "Neon": {
+                            int layers = 4 + (int) (4 * intensity);
+                            for (int nl = layers; nl >= 1; nl--) {
+                                float spread = nl * scaledStSize * 0.05f * (float) intensity;
+                                int alpha = (int) (60 * intensity / nl);
+                                Color neonC = new Color(stColor.getRed(), stColor.getGreen(), stColor.getBlue(), Math.min(255, alpha));
+                                g2.setColor(neonC);
+                                Font nf = stFont.deriveFont((float) (scaledStSize + spread));
+                                g2.setFont(nf);
+                                FontMetrics nfm = g2.getFontMetrics();
+                                int offY = lineY - (nfm.getAscent() - stAscent) / 2;
+                                if (justified) {
+                                    double dx = stBlockLeft;
+                                    for (String w : justifyWords) {
+                                        int origW = stFm.stringWidth(w);
+                                        int offX = (int) dx - (nfm.stringWidth(w) - origW) / 2;
+                                        g2.drawString(w, offX, offY);
+                                        dx += origW + justifyExtraSpace;
+                                    }
+                                } else {
+                                    int nLineW = nfm.stringWidth(visibleLine);
+                                    int offX = lineX - (nLineW - lineW) / 2;
+                                    g2.drawString(visibleLine, offX, offY);
+                                }
+                            }
+                            g2.setFont(stFont);
+                            g2.setColor(new Color(255, 255, 255, (int) (200 + 55 * intensity)));
+                            if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
+                            else g2.drawString(visibleLine, lineX, lineY);
+                            break;
+                        }
+                        case "Outline": {
+                            float strokeW = Math.max(1, (float) (scaledStSize * 0.08 * intensity));
+                            g2.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                            g2.setColor(new Color(0, 0, 0, (int) (220 * intensity)));
+                            if (justified) {
+                                double dx = stBlockLeft;
+                                for (String w : justifyWords) {
+                                    java.awt.font.GlyphVector gv = stFont.createGlyphVector(g2.getFontRenderContext(), w);
+                                    Shape shape = gv.getOutline((int) dx, lineY);
+                                    g2.draw(shape);
+                                    dx += stFm.stringWidth(w) + justifyExtraSpace;
+                                }
+                            } else {
+                                java.awt.font.GlyphVector gv = stFont.createGlyphVector(g2.getFontRenderContext(), visibleLine);
+                                Shape shape = gv.getOutline(lineX, lineY);
+                                g2.draw(shape);
+                            }
+                            g2.setColor(stColor);
+                            if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
+                            else g2.drawString(visibleLine, lineX, lineY);
+                            break;
+                        }
+                        case "Emboss": {
+                            int off = Math.max(1, (int) (scaledStSize * 0.04 * intensity));
+                            g2.setColor(new Color(255, 255, 255, (int) (120 * intensity)));
+                            if (justified) drawJustified(g2, justifyWords, stBlockLeft - off, lineY - off, justifyExtraSpace, stFm);
+                            else g2.drawString(visibleLine, lineX - off, lineY - off);
+                            g2.setColor(new Color(0, 0, 0, (int) (150 * intensity)));
+                            if (justified) drawJustified(g2, justifyWords, stBlockLeft + off, lineY + off, justifyExtraSpace, stFm);
+                            else g2.drawString(visibleLine, lineX + off, lineY + off);
+                            g2.setColor(stColor);
+                            if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
+                            else g2.drawString(visibleLine, lineX, lineY);
+                            break;
+                        }
+                        case "Water Ripple": {
+                            double amplitude = scaledStSize * 0.15 * intensity;
+                            double freq = 2.0 * Math.PI / (scaledStSize * 3.0);
+                            double phase = animFrameIndex * 0.2;
+                            if (justified) {
+                                double dx = stBlockLeft;
+                                for (String w : justifyWords) {
+                                    for (int ci = 0; ci < w.length(); ci++) {
+                                        String ch = String.valueOf(w.charAt(ci));
+                                        int cx = (int) dx + stFm.stringWidth(w.substring(0, ci));
+                                        double waveY = amplitude * Math.sin(freq * cx + phase);
+                                        double waveX = amplitude * 0.3 * Math.cos(freq * lineY + phase * 1.3);
+                                        g2.setColor(stColor);
+                                        g2.drawString(ch, (int) (cx + waveX), (int) (lineY + waveY));
+                                    }
+                                    dx += stFm.stringWidth(w) + justifyExtraSpace;
+                                }
+                            } else {
+                                for (int ci = 0; ci < visibleLine.length(); ci++) {
+                                    String ch = String.valueOf(visibleLine.charAt(ci));
+                                    int cx = lineX + stFm.stringWidth(visibleLine.substring(0, ci));
+                                    double waveY = amplitude * Math.sin(freq * cx + phase);
+                                    double waveX = amplitude * 0.3 * Math.cos(freq * lineY + phase * 1.3);
+                                    g2.setColor(stColor);
+                                    g2.drawString(ch, (int) (cx + waveX), (int) (lineY + waveY));
+                                }
+                            }
+                            break;
+                        }
+                        case "Fire": {
+                            int layers = 3 + (int) (4 * intensity);
+                            Color[] fireColors = {
+                                new Color(255, 60, 0, (int) (60 * intensity)),
+                                new Color(255, 120, 0, (int) (80 * intensity)),
+                                new Color(255, 200, 0, (int) (100 * intensity)),
+                                new Color(255, 240, 100, (int) (120 * intensity))
+                            };
+                            for (int fl = layers; fl >= 1; fl--) {
+                                float rise = fl * scaledStSize * 0.03f * (float) intensity;
+                                double flicker = rise * 0.4 * Math.sin(animFrameIndex * 0.3 + fl * 1.7);
+                                Color fc = fireColors[Math.min(fl - 1, fireColors.length - 1)];
+                                g2.setColor(fc);
+                                float fSize = scaledStSize + fl * scaledStSize * 0.02f * (float) intensity;
+                                Font ff = stFont.deriveFont(fSize);
+                                g2.setFont(ff);
+                                FontMetrics ffm = g2.getFontMetrics();
+                                int offY = (int) (lineY - rise + flicker) - (ffm.getAscent() - stAscent) / 2;
+                                if (justified) {
+                                    double dx = stBlockLeft;
+                                    for (String w : justifyWords) {
+                                        int origW = stFm.stringWidth(w);
+                                        int offX = (int) dx - (ffm.stringWidth(w) - origW) / 2;
+                                        g2.drawString(w, offX, offY);
+                                        dx += origW + justifyExtraSpace;
+                                    }
+                                } else {
+                                    int fLineW = ffm.stringWidth(visibleLine);
+                                    int offX = lineX - (fLineW - lineW) / 2;
+                                    g2.drawString(visibleLine, offX, offY);
+                                }
+                            }
+                            g2.setFont(stFont);
+                            g2.setColor(new Color(255, 255, 200));
+                            if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
+                            else g2.drawString(visibleLine, lineX, lineY);
+                            break;
+                        }
+                        case "Ice": {
+                            int layers = 3 + (int) (3 * intensity);
+                            for (int il = layers; il >= 1; il--) {
+                                float spread = il * scaledStSize * 0.03f * (float) intensity;
+                                double shimmer = spread * 0.2 * Math.sin(animFrameIndex * 0.15 + il);
+                                int alpha = (int) (50 * intensity / il);
+                                g2.setColor(new Color(150, 200, 255, Math.min(255, alpha)));
+                                Font iFont = stFont.deriveFont((float) (scaledStSize + spread + shimmer));
+                                g2.setFont(iFont);
+                                FontMetrics ifm = g2.getFontMetrics();
+                                int offY = lineY - (ifm.getAscent() - stAscent) / 2;
+                                if (justified) {
+                                    double dx = stBlockLeft;
+                                    for (String w : justifyWords) {
+                                        int origW = stFm.stringWidth(w);
+                                        int offX = (int) dx - (ifm.stringWidth(w) - origW) / 2;
+                                        g2.drawString(w, offX, offY);
+                                        dx += origW + justifyExtraSpace;
+                                    }
+                                } else {
+                                    int iLineW = ifm.stringWidth(visibleLine);
+                                    int offX = lineX - (iLineW - lineW) / 2;
+                                    g2.drawString(visibleLine, offX, offY);
+                                }
+                            }
+                            g2.setFont(stFont);
+                            g2.setColor(new Color(220, 240, 255));
+                            if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
+                            else g2.drawString(visibleLine, lineX, lineY);
+                            break;
+                        }
+                        case "Rainbow": {
+                            if (justified) {
+                                double dx = stBlockLeft;
+                                int charIdx = 0;
+                                for (String w : justifyWords) {
+                                    for (int ci = 0; ci < w.length(); ci++) {
+                                        float hue = ((charIdx + animFrameIndex * 3) % 360) / 360.0f;
+                                        g2.setColor(Color.getHSBColor(hue, 0.8f + 0.2f * (float) intensity, 1.0f));
+                                        String ch = String.valueOf(w.charAt(ci));
+                                        int cx = (int) dx + stFm.stringWidth(w.substring(0, ci));
+                                        g2.drawString(ch, cx, lineY);
+                                        charIdx += 8;
+                                    }
+                                    dx += stFm.stringWidth(w) + justifyExtraSpace;
+                                }
+                            } else {
+                                int charIdx = 0;
+                                for (int ci = 0; ci < visibleLine.length(); ci++) {
+                                    float hue = ((charIdx + animFrameIndex * 3) % 360) / 360.0f;
+                                    g2.setColor(Color.getHSBColor(hue, 0.8f + 0.2f * (float) intensity, 1.0f));
+                                    String ch = String.valueOf(visibleLine.charAt(ci));
+                                    int cx = lineX + stFm.stringWidth(visibleLine.substring(0, ci));
+                                    g2.drawString(ch, cx, lineY);
+                                    charIdx += 8;
+                                }
+                            }
+                            break;
+                        }
+                        default: { // "None" and "Typewriter" (typewriter just limits chars above)
+                            g2.setColor(stColor);
+                            if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
+                            else g2.drawString(visibleLine, lineX, lineY);
+                            break;
+                        }
+                    }
+                    g2.dispose();
+
                     lineY += stLineHeight;
                 }
             }
@@ -1751,6 +2018,15 @@ public class GifSlideShowApp extends JFrame {
             if (current.length() > 0) lines.add(current.toString());
         }
         return lines;
+    }
+
+    private static void drawJustified(Graphics2D g, String[] words, int startX, int y,
+                                       double extraSpace, FontMetrics fm) {
+        double dx = startX;
+        for (String w : words) {
+            g.drawString(w, (int) dx, y);
+            dx += fm.stringWidth(w) + extraSpace;
+        }
     }
 
     // ==================== Collect Slides & Ask Duration ====================
@@ -2904,6 +3180,11 @@ public class GifSlideShowApp extends JFrame {
 
     // ==================== SlideTextData ====================
 
+    static final String[] TEXT_EFFECTS = {
+        "None", "Shadow", "Glow", "Neon", "Outline", "Emboss",
+        "Water Ripple", "Fire", "Ice", "Rainbow", "Typewriter"
+    };
+
     static class SlideTextData {
         final boolean show;
         final String text;
@@ -2919,11 +3200,21 @@ public class GifSlideShowApp extends JFrame {
         final int widthPct;
         final int shiftX;
         final int alignment;
+        final String textEffect;
+        final int textEffectIntensity;
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
                       int fontStyle, Color color, int x, int y, int bgOpacity,
                       Color bgColor, boolean justify, int widthPct, int shiftX,
                       int alignment) {
+            this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
+                    bgColor, justify, widthPct, shiftX, alignment, "None", 50);
+        }
+
+        SlideTextData(boolean show, String text, String fontName, int fontSize,
+                      int fontStyle, Color color, int x, int y, int bgOpacity,
+                      Color bgColor, boolean justify, int widthPct, int shiftX,
+                      int alignment, String textEffect, int textEffectIntensity) {
             this.show = show;
             this.text = text;
             this.fontName = fontName;
@@ -2938,6 +3229,8 @@ public class GifSlideShowApp extends JFrame {
             this.widthPct = widthPct;
             this.shiftX = shiftX;
             this.alignment = alignment;
+            this.textEffect = textEffect != null ? textEffect : "None";
+            this.textEffectIntensity = textEffectIntensity;
         }
     }
 
@@ -3092,6 +3385,8 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner slideTextWidthSpinner;
         private final JSpinner slideTextShiftXSpinner;
         private final JComboBox<String> slideTextAlignCombo;
+        private final JComboBox<String> slideTextEffectCombo;
+        private final JSpinner slideTextEffectIntensitySpinner;
         private final JSpinner subtitleYSpinner;
         private final JSpinner subtitleBgOpacitySpinner;
         private final JCheckBox fxRoundCornersCheck;
@@ -3681,9 +3976,25 @@ public class GifSlideShowApp extends JFrame {
             slideTextAlignCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             slideTextAlignCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
+            slideTextEffectCombo = new JComboBox<>(TEXT_EFFECTS);
+            slideTextEffectCombo.setPreferredSize(new Dimension(105, 24));
+            slideTextEffectCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextEffectCombo.setToolTipText("Text visual effect");
+            slideTextEffectCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextEffectIntensitySpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 5));
+            slideTextEffectIntensitySpinner.setPreferredSize(new Dimension(50, 24));
+            slideTextEffectIntensitySpinner.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextEffectIntensitySpinner.setToolTipText("Effect intensity (0-100)");
+            slideTextEffectIntensitySpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
             toolbar4c.add(styledLabel("      "));
             toolbar4c.add(styledLabel("Align:"));
             toolbar4c.add(slideTextAlignCombo);
+            toolbar4c.add(styledLabel("  Effect:"));
+            toolbar4c.add(slideTextEffectCombo);
+            toolbar4c.add(styledLabel("Power:"));
+            toolbar4c.add(slideTextEffectIntensitySpinner);
 
             // ===== Toolbar Row 5: Image Effects (3 rows) =====
             JPanel toolbar5a = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
@@ -3992,7 +4303,9 @@ public class GifSlideShowApp extends JFrame {
                     (int) slideTextXSpinner.getValue(), (int) slideTextYSpinner.getValue(),
                     (int) slideTextBgSpinner.getValue(), slideTextBgColor,
                     slideTextJustifyCheck.isSelected(), (int) slideTextWidthSpinner.getValue(),
-                    (int) slideTextShiftXSpinner.getValue(), alignment));
+                    (int) slideTextShiftXSpinner.getValue(), alignment,
+                    (String) slideTextEffectCombo.getSelectedItem(),
+                    (int) slideTextEffectIntensitySpinner.getValue()));
         }
 
         private void loadSlideTextFromItem(int index) {
@@ -4021,6 +4334,8 @@ public class GifSlideShowApp extends JFrame {
                     case SwingConstants.RIGHT: slideTextAlignCombo.setSelectedIndex(2); break;
                     default: slideTextAlignCombo.setSelectedIndex(0); break;
                 }
+                slideTextEffectCombo.setSelectedItem(item.textEffect);
+                slideTextEffectIntensitySpinner.setValue(item.textEffectIntensity);
             } finally {
                 isLoadingSlideText = false;
             }
@@ -4056,7 +4371,8 @@ public class GifSlideShowApp extends JFrame {
                 String existingText = slideTextItems.get(i).text;
                 slideTextItems.set(i, new SlideTextData(fmt.show, existingText, fmt.fontName, fmt.fontSize,
                         fmt.fontStyle, fmt.color, fmt.x, fmt.y, fmt.bgOpacity,
-                        fmt.bgColor, fmt.justify, fmt.widthPct, fmt.shiftX, fmt.alignment));
+                        fmt.bgColor, fmt.justify, fmt.widthPct, fmt.shiftX, fmt.alignment,
+                        fmt.textEffect, fmt.textEffectIntensity));
             }
             if (currentSlideTextIndex >= slideTextItems.size()) {
                 currentSlideTextIndex = 0;
@@ -4077,7 +4393,8 @@ public class GifSlideShowApp extends JFrame {
                 SlideTextData old = slideTextItems.get(0);
                 slideTextItems.set(0, new SlideTextData(true, text, old.fontName, old.fontSize,
                         old.fontStyle, old.color, old.x, old.y, old.bgOpacity,
-                        old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment));
+                        old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
+                        old.textEffect, old.textEffectIntensity));
                 if (currentSlideTextIndex == 0) {
                     loadSlideTextFromItem(0);
                 }
