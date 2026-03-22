@@ -3070,8 +3070,28 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner slideNumberSizeSpinner;
         private final JButton slideNumberColorBtn;
         private Color slideNumberColor = Color.WHITE;
-        private final List<SlideTextEntry> slideTextEntries = new ArrayList<>();
-        private final JPanel slideTextsContainer;
+        private final List<SlideTextData> slideTextItems = new ArrayList<>();
+        private int currentSlideTextIndex = 0;
+        private boolean isLoadingSlideText = false;
+        private final JComboBox<String> slideTextSelector;
+        // Shared slide text UI controls
+        private final JCheckBox slideTextCheckBox;
+        private final JTextArea slideTextArea;
+        private final JComboBox<String> slideTextFontCombo;
+        private final JSpinner slideTextSizeSpinner;
+        private final JToggleButton slideTextBoldBtn;
+        private final JToggleButton slideTextItalicBtn;
+        private final JButton slideTextColorBtn;
+        private Color slideTextColor = Color.YELLOW;
+        private final JButton slideTextBgColorBtn;
+        private Color slideTextBgColor = Color.BLACK;
+        private final JSpinner slideTextXSpinner;
+        private final JSpinner slideTextYSpinner;
+        private final JSpinner slideTextBgSpinner;
+        private final JCheckBox slideTextJustifyCheck;
+        private final JSpinner slideTextWidthSpinner;
+        private final JSpinner slideTextShiftXSpinner;
+        private final JComboBox<String> slideTextAlignCombo;
         private final JSpinner subtitleYSpinner;
         private final JSpinner subtitleBgOpacitySpinner;
         private final JCheckBox fxRoundCornersCheck;
@@ -3443,32 +3463,217 @@ public class GifSlideShowApp extends JFrame {
             toolbar3.add(styledLabel("Size:"));
             toolbar3.add(slideNumberSizeSpinner);
 
-            // ===== Toolbar Row 4: Slide text overlays (multiple) =====
-            slideTextsContainer = new JPanel();
-            slideTextsContainer.setLayout(new BoxLayout(slideTextsContainer, BoxLayout.Y_AXIS));
-            slideTextsContainer.setBackground(new Color(44, 47, 51));
+            // ===== Toolbar Row 4: Slide text overlays (multiple via dropdown) =====
+            JPanel toolbar4a = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
+            toolbar4a.setBackground(new Color(44, 47, 51));
+            JPanel toolbar4b = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
+            toolbar4b.setBackground(new Color(44, 47, 51));
+            JPanel toolbar4c = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
+            toolbar4c.setBackground(new Color(44, 47, 51));
 
-            // Header with "Slide Texts" label and "+" button
-            JPanel slideTextHeader = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
-            slideTextHeader.setBackground(new Color(44, 47, 51));
-            JLabel stHeaderLabel = styledLabel("Slide Texts:");
-            stHeaderLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            stHeaderLabel.setForeground(new Color(100, 220, 100));
+            // Initialize with one default slide text item
+            slideTextItems.add(new SlideTextData(false, "", loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI",
+                    40, Font.PLAIN, Color.YELLOW, 50, 50, 0, Color.BLACK, false, 100, 0, SwingConstants.CENTER));
+
+            slideTextSelector = new JComboBox<>(new String[]{"Text 1"});
+            slideTextSelector.setPreferredSize(new Dimension(70, 24));
+            slideTextSelector.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextSelector.setToolTipText("Select which slide text to edit");
+            slideTextSelector.addActionListener(e -> {
+                if (isLoadingSlideText) return;
+                int newIndex = slideTextSelector.getSelectedIndex();
+                if (newIndex >= 0 && newIndex < slideTextItems.size()) {
+                    saveCurrentSlideTextToItem();
+                    currentSlideTextIndex = newIndex;
+                    loadSlideTextFromItem(currentSlideTextIndex);
+                }
+            });
+
             JButton addSlideTextBtn = new JButton("+");
             addSlideTextBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
-            addSlideTextBtn.setPreferredSize(new Dimension(36, 24));
+            addSlideTextBtn.setPreferredSize(new Dimension(28, 24));
             addSlideTextBtn.setFocusPainted(false);
             addSlideTextBtn.setToolTipText("Add another slide text overlay");
             addSlideTextBtn.addActionListener(e -> {
-                addSlideTextEntry();
+                saveCurrentSlideTextToItem();
+                slideTextItems.add(new SlideTextData(false, "", loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI",
+                        40, Font.PLAIN, Color.YELLOW, 50, 50, 0, Color.BLACK, false, 100, 0, SwingConstants.CENTER));
+                rebuildSlideTextSelector();
+                currentSlideTextIndex = slideTextItems.size() - 1;
+                slideTextSelector.setSelectedIndex(currentSlideTextIndex);
+                loadSlideTextFromItem(currentSlideTextIndex);
                 onFormatChanged();
             });
-            slideTextHeader.add(stHeaderLabel);
-            slideTextHeader.add(addSlideTextBtn);
-            slideTextsContainer.add(slideTextHeader);
 
-            // Add one default slide text entry
-            addSlideTextEntry();
+            JButton removeSlideTextBtn = new JButton("\u2212");
+            removeSlideTextBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            removeSlideTextBtn.setPreferredSize(new Dimension(28, 24));
+            removeSlideTextBtn.setFocusPainted(false);
+            removeSlideTextBtn.setToolTipText("Remove current slide text overlay");
+            removeSlideTextBtn.addActionListener(e -> {
+                if (slideTextItems.size() <= 1) return;
+                slideTextItems.remove(currentSlideTextIndex);
+                if (currentSlideTextIndex >= slideTextItems.size()) {
+                    currentSlideTextIndex = slideTextItems.size() - 1;
+                }
+                rebuildSlideTextSelector();
+                slideTextSelector.setSelectedIndex(currentSlideTextIndex);
+                loadSlideTextFromItem(currentSlideTextIndex);
+                onFormatChanged();
+            });
+
+            slideTextCheckBox = new JCheckBox("Slide Text", false);
+            slideTextCheckBox.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            slideTextCheckBox.setForeground(new Color(100, 220, 100));
+            slideTextCheckBox.setBackground(new Color(44, 47, 51));
+            slideTextCheckBox.setFocusPainted(false);
+            slideTextCheckBox.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextArea = new JTextArea("", 2, 10);
+            slideTextArea.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            slideTextArea.setLineWrap(false);
+            slideTextArea.setBackground(new Color(35, 38, 42));
+            slideTextArea.setForeground(Color.YELLOW);
+            slideTextArea.setCaretColor(Color.WHITE);
+            slideTextArea.setToolTipText("Text to display on slide (multiline)");
+            slideTextArea.getDocument().addDocumentListener(new DocumentListener() {
+                @Override public void insertUpdate(DocumentEvent e) { if (!isLoadingSlideText) schedulePreview(); }
+                @Override public void removeUpdate(DocumentEvent e) { if (!isLoadingSlideText) schedulePreview(); }
+                @Override public void changedUpdate(DocumentEvent e) { if (!isLoadingSlideText) schedulePreview(); }
+            });
+            JScrollPane slideTextScroll = new JScrollPane(slideTextArea);
+            slideTextScroll.setPreferredSize(new Dimension(140, 48));
+            slideTextScroll.setBorder(BorderFactory.createLineBorder(new Color(60, 63, 68)));
+
+            String[] systemFonts = GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
+            java.util.List<String> allFonts = new java.util.ArrayList<>();
+            for (String fn : loadedFontNames) allFonts.add(fn);
+            for (String fn : systemFonts) {
+                if (!allFonts.contains(fn)) allFonts.add(fn);
+            }
+            slideTextFontCombo = new JComboBox<>(allFonts.toArray(new String[0]));
+            slideTextFontCombo.setSelectedItem(loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI");
+            slideTextFontCombo.setPreferredSize(new Dimension(105, 28));
+            slideTextFontCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextFontCombo.setToolTipText("Slide text font (loaded fonts listed first)");
+            slideTextFontCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextSizeSpinner = new JSpinner(new SpinnerNumberModel(40, 8, 500, 2));
+            slideTextSizeSpinner.setPreferredSize(new Dimension(55, 28));
+            slideTextSizeSpinner.setToolTipText("Slide text font size");
+            slideTextSizeSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextBoldBtn = new JToggleButton("B");
+            slideTextBoldBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            slideTextBoldBtn.setPreferredSize(new Dimension(32, 28));
+            slideTextBoldBtn.setFocusPainted(false);
+            slideTextBoldBtn.setToolTipText("Bold");
+            slideTextBoldBtn.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextItalicBtn = new JToggleButton("I");
+            slideTextItalicBtn.setFont(new Font("Segoe UI", Font.ITALIC, 12));
+            slideTextItalicBtn.setPreferredSize(new Dimension(32, 28));
+            slideTextItalicBtn.setFocusPainted(false);
+            slideTextItalicBtn.setToolTipText("Italic");
+            slideTextItalicBtn.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextColorBtn = new JButton("\u25a0");
+            slideTextColorBtn.setForeground(slideTextColor);
+            slideTextColorBtn.setFont(new Font("Segoe UI", Font.PLAIN, 18));
+            slideTextColorBtn.setPreferredSize(new Dimension(36, 28));
+            slideTextColorBtn.setFocusPainted(false);
+            slideTextColorBtn.setToolTipText("Slide Text Color");
+            slideTextColorBtn.addActionListener(e -> {
+                Color c = JColorChooser.showDialog(panel, "Slide Text Color", slideTextColor);
+                if (c != null) {
+                    slideTextColor = c;
+                    slideTextColorBtn.setForeground(c);
+                    onFormatChanged();
+                }
+            });
+
+            toolbar4a.add(slideTextSelector);
+            toolbar4a.add(addSlideTextBtn);
+            toolbar4a.add(removeSlideTextBtn);
+            toolbar4a.add(slideTextCheckBox);
+            toolbar4a.add(slideTextScroll);
+            toolbar4a.add(slideTextFontCombo);
+            toolbar4a.add(styledLabel("Size:"));
+            toolbar4a.add(slideTextSizeSpinner);
+            toolbar4a.add(slideTextBoldBtn);
+            toolbar4a.add(slideTextItalicBtn);
+            toolbar4a.add(slideTextColorBtn);
+
+            slideTextXSpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
+            slideTextXSpinner.setPreferredSize(new Dimension(50, 28));
+            slideTextXSpinner.setToolTipText("X position (% of width)");
+            slideTextXSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextYSpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
+            slideTextYSpinner.setPreferredSize(new Dimension(50, 28));
+            slideTextYSpinner.setToolTipText("Y position (% of height)");
+            slideTextYSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextBgSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 100, 5));
+            slideTextBgSpinner.setPreferredSize(new Dimension(50, 28));
+            slideTextBgSpinner.setToolTipText("Slide text background opacity (0=transparent, 100=solid)");
+            slideTextBgSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextBgColorBtn = new JButton("\u25a0");
+            slideTextBgColorBtn.setForeground(slideTextBgColor);
+            slideTextBgColorBtn.setFont(new Font("Segoe UI", Font.PLAIN, 18));
+            slideTextBgColorBtn.setPreferredSize(new Dimension(36, 28));
+            slideTextBgColorBtn.setFocusPainted(false);
+            slideTextBgColorBtn.setToolTipText("Slide Text Background Color");
+            slideTextBgColorBtn.addActionListener(e -> {
+                Color c = JColorChooser.showDialog(panel, "Slide Text BG Color", slideTextBgColor);
+                if (c != null) {
+                    slideTextBgColor = c;
+                    slideTextBgColorBtn.setForeground(c);
+                    onFormatChanged();
+                }
+            });
+
+            slideTextJustifyCheck = new JCheckBox("Justify", false);
+            slideTextJustifyCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextJustifyCheck.setForeground(Color.LIGHT_GRAY);
+            slideTextJustifyCheck.setBackground(new Color(44, 47, 51));
+            slideTextJustifyCheck.setFocusPainted(false);
+            slideTextJustifyCheck.setToolTipText("Justify slide text: make all lines same width");
+            slideTextJustifyCheck.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextWidthSpinner = new JSpinner(new SpinnerNumberModel(100, 20, 100, 5));
+            slideTextWidthSpinner.setPreferredSize(new Dimension(50, 24));
+            slideTextWidthSpinner.setToolTipText("Slide text width % of frame");
+            slideTextWidthSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextShiftXSpinner = new JSpinner(new SpinnerNumberModel(0, -50, 50, 1));
+            slideTextShiftXSpinner.setPreferredSize(new Dimension(50, 24));
+            slideTextShiftXSpinner.setToolTipText("Shift slide text left/right (% of frame width)");
+            slideTextShiftXSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            toolbar4b.add(styledLabel("  "));
+            toolbar4b.add(styledLabel("X%:"));
+            toolbar4b.add(slideTextXSpinner);
+            toolbar4b.add(styledLabel("Y%:"));
+            toolbar4b.add(slideTextYSpinner);
+            toolbar4b.add(styledLabel("BG%:"));
+            toolbar4b.add(slideTextBgSpinner);
+            toolbar4b.add(slideTextBgColorBtn);
+            toolbar4b.add(slideTextJustifyCheck);
+            toolbar4b.add(styledLabel("W%:"));
+            toolbar4b.add(slideTextWidthSpinner);
+            toolbar4b.add(styledLabel("Shift:"));
+            toolbar4b.add(slideTextShiftXSpinner);
+
+            slideTextAlignCombo = new JComboBox<>(new String[]{"Center", "Left", "Right"});
+            slideTextAlignCombo.setPreferredSize(new Dimension(75, 24));
+            slideTextAlignCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextAlignCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            toolbar4c.add(styledLabel("      "));
+            toolbar4c.add(styledLabel("Align:"));
+            toolbar4c.add(slideTextAlignCombo);
 
             // ===== Toolbar Row 5: Image Effects (3 rows) =====
             JPanel toolbar5a = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
@@ -3731,7 +3936,9 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar3);
             toolbarsPanel.add(createToolbarSeparator());
-            toolbarsPanel.add(slideTextsContainer);
+            toolbarsPanel.add(toolbar4a);
+            toolbarsPanel.add(toolbar4b);
+            toolbarsPanel.add(toolbar4c);
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar5a);
             toolbarsPanel.add(toolbar5b);
@@ -3750,319 +3957,115 @@ public class GifSlideShowApp extends JFrame {
             panel.add(rightPanel, BorderLayout.EAST);
         }
 
-        // ===== SlideTextEntry: one slide text overlay with its own UI =====
-        private class SlideTextEntry {
-            final JPanel entryPanel;
-            final JCheckBox checkBox;
-            final JTextArea textArea;
-            final JComboBox<String> fontCombo;
-            final JSpinner sizeSpinner;
-            final JToggleButton boldBtn;
-            final JToggleButton italicBtn;
-            final JButton colorBtn;
-            Color textColor = Color.YELLOW;
-            final JButton bgColorBtn;
-            Color bgColor = Color.BLACK;
-            final JSpinner xSpinner;
-            final JSpinner ySpinner;
-            final JSpinner bgSpinner;
-            final JCheckBox justifyCheck;
-            final JSpinner widthSpinner;
-            final JSpinner shiftXSpinner;
-            final JComboBox<String> alignCombo;
+        // ===== Slide text dropdown helpers =====
 
-            SlideTextEntry(int index) {
-                entryPanel = new JPanel();
-                entryPanel.setLayout(new BoxLayout(entryPanel, BoxLayout.Y_AXIS));
-                entryPanel.setBackground(new Color(44, 47, 51));
+        private void saveCurrentSlideTextToItem() {
+            if (currentSlideTextIndex < 0 || currentSlideTextIndex >= slideTextItems.size()) return;
+            int fontStyle = Font.PLAIN;
+            if (slideTextBoldBtn.isSelected()) fontStyle |= Font.BOLD;
+            if (slideTextItalicBtn.isSelected()) fontStyle |= Font.ITALIC;
+            int alignment;
+            switch (slideTextAlignCombo.getSelectedIndex()) {
+                case 1: alignment = SwingConstants.LEFT; break;
+                case 2: alignment = SwingConstants.RIGHT; break;
+                default: alignment = SwingConstants.CENTER; break;
+            }
+            slideTextItems.set(currentSlideTextIndex, new SlideTextData(
+                    slideTextCheckBox.isSelected(), slideTextArea.getText(),
+                    (String) slideTextFontCombo.getSelectedItem(), (int) slideTextSizeSpinner.getValue(),
+                    fontStyle, slideTextColor,
+                    (int) slideTextXSpinner.getValue(), (int) slideTextYSpinner.getValue(),
+                    (int) slideTextBgSpinner.getValue(), slideTextBgColor,
+                    slideTextJustifyCheck.isSelected(), (int) slideTextWidthSpinner.getValue(),
+                    (int) slideTextShiftXSpinner.getValue(), alignment));
+        }
 
-                JPanel row1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
-                row1.setBackground(new Color(44, 47, 51));
-                JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
-                row2.setBackground(new Color(44, 47, 51));
-
-                checkBox = new JCheckBox("Text " + (index + 1), false);
-                checkBox.setFont(new Font("Segoe UI", Font.BOLD, 11));
-                checkBox.setForeground(new Color(100, 220, 100));
-                checkBox.setBackground(new Color(44, 47, 51));
-                checkBox.setFocusPainted(false);
-                checkBox.addActionListener(e -> onFormatChanged());
-
-                textArea = new JTextArea("", 2, 10);
-                textArea.setFont(new Font("Segoe UI", Font.BOLD, 12));
-                textArea.setLineWrap(false);
-                textArea.setBackground(new Color(35, 38, 42));
-                textArea.setForeground(Color.YELLOW);
-                textArea.setCaretColor(Color.WHITE);
-                textArea.setToolTipText("Text to display on slide (multiline)");
-                textArea.getDocument().addDocumentListener(new DocumentListener() {
-                    @Override public void insertUpdate(DocumentEvent e) { schedulePreview(); }
-                    @Override public void removeUpdate(DocumentEvent e) { schedulePreview(); }
-                    @Override public void changedUpdate(DocumentEvent e) { schedulePreview(); }
-                });
-                JScrollPane textScroll = new JScrollPane(textArea);
-                textScroll.setPreferredSize(new Dimension(140, 48));
-                textScroll.setBorder(BorderFactory.createLineBorder(new Color(60, 63, 68)));
-
-                String[] systemFonts = GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
-                java.util.List<String> allFonts = new java.util.ArrayList<>();
-                for (String fn : loadedFontNames) allFonts.add(fn);
-                for (String fn : systemFonts) {
-                    if (!allFonts.contains(fn)) allFonts.add(fn);
+        private void loadSlideTextFromItem(int index) {
+            if (index < 0 || index >= slideTextItems.size()) return;
+            isLoadingSlideText = true;
+            try {
+                SlideTextData item = slideTextItems.get(index);
+                slideTextCheckBox.setSelected(item.show);
+                slideTextArea.setText(item.text);
+                slideTextFontCombo.setSelectedItem(item.fontName);
+                slideTextSizeSpinner.setValue(item.fontSize);
+                slideTextBoldBtn.setSelected((item.fontStyle & Font.BOLD) != 0);
+                slideTextItalicBtn.setSelected((item.fontStyle & Font.ITALIC) != 0);
+                slideTextColor = item.color;
+                slideTextColorBtn.setForeground(item.color);
+                slideTextXSpinner.setValue(item.x);
+                slideTextYSpinner.setValue(item.y);
+                slideTextBgSpinner.setValue(item.bgOpacity);
+                slideTextBgColor = item.bgColor;
+                slideTextBgColorBtn.setForeground(item.bgColor);
+                slideTextJustifyCheck.setSelected(item.justify);
+                slideTextWidthSpinner.setValue(item.widthPct);
+                slideTextShiftXSpinner.setValue(item.shiftX);
+                switch (item.alignment) {
+                    case SwingConstants.LEFT: slideTextAlignCombo.setSelectedIndex(1); break;
+                    case SwingConstants.RIGHT: slideTextAlignCombo.setSelectedIndex(2); break;
+                    default: slideTextAlignCombo.setSelectedIndex(0); break;
                 }
-                fontCombo = new JComboBox<>(allFonts.toArray(new String[0]));
-                fontCombo.setSelectedItem(loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI");
-                fontCombo.setPreferredSize(new Dimension(105, 28));
-                fontCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-                fontCombo.setToolTipText("Slide text font");
-                fontCombo.addActionListener(e -> onFormatChanged());
-
-                sizeSpinner = new JSpinner(new SpinnerNumberModel(40, 8, 500, 2));
-                sizeSpinner.setPreferredSize(new Dimension(55, 28));
-                sizeSpinner.setToolTipText("Slide text font size");
-                sizeSpinner.addChangeListener(e -> onFormatChanged());
-
-                boldBtn = new JToggleButton("B");
-                boldBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
-                boldBtn.setPreferredSize(new Dimension(32, 28));
-                boldBtn.setFocusPainted(false);
-                boldBtn.setToolTipText("Bold");
-                boldBtn.addActionListener(e -> onFormatChanged());
-
-                italicBtn = new JToggleButton("I");
-                italicBtn.setFont(new Font("Segoe UI", Font.ITALIC, 12));
-                italicBtn.setPreferredSize(new Dimension(32, 28));
-                italicBtn.setFocusPainted(false);
-                italicBtn.setToolTipText("Italic");
-                italicBtn.addActionListener(e -> onFormatChanged());
-
-                colorBtn = new JButton("\u25a0");
-                colorBtn.setForeground(textColor);
-                colorBtn.setFont(new Font("Segoe UI", Font.PLAIN, 18));
-                colorBtn.setPreferredSize(new Dimension(36, 28));
-                colorBtn.setFocusPainted(false);
-                colorBtn.setToolTipText("Text Color");
-                colorBtn.addActionListener(e -> {
-                    Color c = JColorChooser.showDialog(panel, "Slide Text Color", textColor);
-                    if (c != null) {
-                        textColor = c;
-                        colorBtn.setForeground(c);
-                        onFormatChanged();
-                    }
-                });
-
-                JButton removeBtn = new JButton("x");
-                removeBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
-                removeBtn.setPreferredSize(new Dimension(28, 28));
-                removeBtn.setFocusPainted(false);
-                removeBtn.setToolTipText("Remove this slide text");
-                removeBtn.addActionListener(e -> {
-                    removeSlideTextEntry(this);
-                    onFormatChanged();
-                });
-
-                row1.add(checkBox);
-                row1.add(textScroll);
-                row1.add(fontCombo);
-                row1.add(styledLabel("Size:"));
-                row1.add(sizeSpinner);
-                row1.add(boldBtn);
-                row1.add(italicBtn);
-                row1.add(colorBtn);
-                row1.add(removeBtn);
-
-                xSpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
-                xSpinner.setPreferredSize(new Dimension(50, 28));
-                xSpinner.setToolTipText("X position (% of width)");
-                xSpinner.addChangeListener(e -> onFormatChanged());
-
-                ySpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
-                ySpinner.setPreferredSize(new Dimension(50, 28));
-                ySpinner.setToolTipText("Y position (% of height)");
-                ySpinner.addChangeListener(e -> onFormatChanged());
-
-                bgSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 100, 5));
-                bgSpinner.setPreferredSize(new Dimension(50, 28));
-                bgSpinner.setToolTipText("Background opacity (0=transparent, 100=solid)");
-                bgSpinner.addChangeListener(e -> onFormatChanged());
-
-                bgColorBtn = new JButton("\u25a0");
-                bgColorBtn.setForeground(bgColor);
-                bgColorBtn.setFont(new Font("Segoe UI", Font.PLAIN, 18));
-                bgColorBtn.setPreferredSize(new Dimension(36, 28));
-                bgColorBtn.setFocusPainted(false);
-                bgColorBtn.setToolTipText("Background Color");
-                bgColorBtn.addActionListener(e -> {
-                    Color c = JColorChooser.showDialog(panel, "Slide Text BG Color", bgColor);
-                    if (c != null) {
-                        bgColor = c;
-                        bgColorBtn.setForeground(c);
-                        onFormatChanged();
-                    }
-                });
-
-                justifyCheck = new JCheckBox("Justify", false);
-                justifyCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-                justifyCheck.setForeground(Color.LIGHT_GRAY);
-                justifyCheck.setBackground(new Color(44, 47, 51));
-                justifyCheck.setFocusPainted(false);
-                justifyCheck.addActionListener(e -> onFormatChanged());
-
-                widthSpinner = new JSpinner(new SpinnerNumberModel(100, 20, 100, 5));
-                widthSpinner.setPreferredSize(new Dimension(50, 24));
-                widthSpinner.setToolTipText("Text width % of frame");
-                widthSpinner.addChangeListener(e -> onFormatChanged());
-
-                shiftXSpinner = new JSpinner(new SpinnerNumberModel(0, -50, 50, 1));
-                shiftXSpinner.setPreferredSize(new Dimension(50, 24));
-                shiftXSpinner.setToolTipText("Shift left/right (% of frame width)");
-                shiftXSpinner.addChangeListener(e -> onFormatChanged());
-
-                alignCombo = new JComboBox<>(new String[]{"Center", "Left", "Right"});
-                alignCombo.setPreferredSize(new Dimension(75, 24));
-                alignCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-                alignCombo.addActionListener(e -> onFormatChanged());
-
-                row2.add(styledLabel("  "));
-                row2.add(styledLabel("X%:"));
-                row2.add(xSpinner);
-                row2.add(styledLabel("Y%:"));
-                row2.add(ySpinner);
-                row2.add(styledLabel("BG%:"));
-                row2.add(bgSpinner);
-                row2.add(bgColorBtn);
-                row2.add(justifyCheck);
-                row2.add(styledLabel("W%:"));
-                row2.add(widthSpinner);
-                row2.add(styledLabel("Shift:"));
-                row2.add(shiftXSpinner);
-                row2.add(styledLabel("Align:"));
-                row2.add(alignCombo);
-
-                entryPanel.add(row1);
-                entryPanel.add(row2);
-            }
-
-            boolean isShow() { return checkBox.isSelected(); }
-            String getText() { return textArea.getText(); }
-            String getFontName() { return (String) fontCombo.getSelectedItem(); }
-            int getFontSize() { return (int) sizeSpinner.getValue(); }
-            int getFontStyle() {
-                int s = Font.PLAIN;
-                if (boldBtn.isSelected()) s |= Font.BOLD;
-                if (italicBtn.isSelected()) s |= Font.ITALIC;
-                return s;
-            }
-            Color getTextColor() { return textColor; }
-            int getX() { return (int) xSpinner.getValue(); }
-            int getY() { return (int) ySpinner.getValue(); }
-            int getBgOpacity() { return (int) bgSpinner.getValue(); }
-            Color getBgColor() { return bgColor; }
-            boolean isJustify() { return justifyCheck.isSelected(); }
-            int getWidthPct() { return (int) widthSpinner.getValue(); }
-            int getShiftX() { return (int) shiftXSpinner.getValue(); }
-            int getAlignment() {
-                switch (alignCombo.getSelectedIndex()) {
-                    case 1: return SwingConstants.LEFT;
-                    case 2: return SwingConstants.RIGHT;
-                    default: return SwingConstants.CENTER;
-                }
-            }
-
-            SlideTextData toData() {
-                return new SlideTextData(isShow(), getText(), getFontName(), getFontSize(),
-                        getFontStyle(), getTextColor(), getX(), getY(), getBgOpacity(),
-                        getBgColor(), isJustify(), getWidthPct(), getShiftX(), getAlignment());
-            }
-
-            void applyFormat(SlideTextData fmt) {
-                checkBox.setSelected(fmt.show);
-                fontCombo.setSelectedItem(fmt.fontName);
-                sizeSpinner.setValue(fmt.fontSize);
-                boldBtn.setSelected((fmt.fontStyle & Font.BOLD) != 0);
-                italicBtn.setSelected((fmt.fontStyle & Font.ITALIC) != 0);
-                textColor = fmt.color;
-                colorBtn.setForeground(fmt.color);
-                xSpinner.setValue(fmt.x);
-                ySpinner.setValue(fmt.y);
-                bgSpinner.setValue(fmt.bgOpacity);
-                bgColor = fmt.bgColor;
-                bgColorBtn.setForeground(fmt.bgColor);
-                justifyCheck.setSelected(fmt.justify);
-                widthSpinner.setValue(fmt.widthPct);
-                shiftXSpinner.setValue(fmt.shiftX);
-                switch (fmt.alignment) {
-                    case SwingConstants.LEFT: alignCombo.setSelectedIndex(1); break;
-                    case SwingConstants.RIGHT: alignCombo.setSelectedIndex(2); break;
-                    default: alignCombo.setSelectedIndex(0); break;
-                }
-            }
-
-            void setText(String text) {
-                textArea.setText(text);
-                checkBox.setSelected(true);
-            }
-
-            void updateLabel(int idx) {
-                checkBox.setText("Text " + (idx + 1));
+            } finally {
+                isLoadingSlideText = false;
             }
         }
 
-        private void addSlideTextEntry() {
-            SlideTextEntry entry = new SlideTextEntry(slideTextEntries.size());
-            slideTextEntries.add(entry);
-            slideTextsContainer.add(entry.entryPanel);
-            slideTextsContainer.revalidate();
-            slideTextsContainer.repaint();
-        }
-
-        private void removeSlideTextEntry(SlideTextEntry entry) {
-            if (slideTextEntries.size() <= 1) return; // keep at least one
-            slideTextEntries.remove(entry);
-            slideTextsContainer.remove(entry.entryPanel);
-            // Re-number remaining entries
-            for (int i = 0; i < slideTextEntries.size(); i++) {
-                slideTextEntries.get(i).updateLabel(i);
+        private void rebuildSlideTextSelector() {
+            isLoadingSlideText = true;
+            try {
+                slideTextSelector.removeAllItems();
+                for (int i = 0; i < slideTextItems.size(); i++) {
+                    slideTextSelector.addItem("Text " + (i + 1));
+                }
+            } finally {
+                isLoadingSlideText = false;
             }
-            slideTextsContainer.revalidate();
-            slideTextsContainer.repaint();
         }
 
         List<SlideTextData> getSlideTextDataList() {
-            List<SlideTextData> list = new ArrayList<>();
-            for (SlideTextEntry entry : slideTextEntries) {
-                list.add(entry.toData());
-            }
-            return list;
+            saveCurrentSlideTextToItem();
+            return new ArrayList<>(slideTextItems);
         }
 
         List<SlideTextData> getSlideTextFormats() {
-            // Returns format data (same as getSlideTextDataList but text preserved for format sync)
             return getSlideTextDataList();
         }
 
         void applySlideTextFormats(List<SlideTextData> formats) {
             if (formats == null || formats.isEmpty()) return;
-            // Ensure we have the right number of entries
-            while (slideTextEntries.size() < formats.size()) {
-                addSlideTextEntry();
+            // Rebuild items list, preserving each item's own text
+            while (slideTextItems.size() < formats.size()) {
+                slideTextItems.add(new SlideTextData(false, "", loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI",
+                        40, Font.PLAIN, Color.YELLOW, 50, 50, 0, Color.BLACK, false, 100, 0, SwingConstants.CENTER));
             }
-            while (slideTextEntries.size() > formats.size()) {
-                removeSlideTextEntry(slideTextEntries.get(slideTextEntries.size() - 1));
+            while (slideTextItems.size() > formats.size()) {
+                slideTextItems.remove(slideTextItems.size() - 1);
             }
             for (int i = 0; i < formats.size(); i++) {
                 SlideTextData fmt = formats.get(i);
-                SlideTextEntry entry = slideTextEntries.get(i);
-                // Apply formatting but preserve the entry's own text content
-                String currentText = entry.getText();
-                entry.applyFormat(fmt);
-                entry.textArea.setText(currentText);
+                String currentText = slideTextItems.get(i).text;
+                slideTextItems.set(i, new SlideTextData(fmt.show, currentText, fmt.fontName, fmt.fontSize,
+                        fmt.fontStyle, fmt.color, fmt.x, fmt.y, fmt.bgOpacity,
+                        fmt.bgColor, fmt.justify, fmt.widthPct, fmt.shiftX, fmt.alignment));
             }
+            if (currentSlideTextIndex >= slideTextItems.size()) {
+                currentSlideTextIndex = 0;
+            }
+            rebuildSlideTextSelector();
+            slideTextSelector.setSelectedIndex(currentSlideTextIndex);
+            loadSlideTextFromItem(currentSlideTextIndex);
         }
 
         void setSlideText(String text) {
-            if (!slideTextEntries.isEmpty()) {
-                slideTextEntries.get(0).setText(text);
+            if (!slideTextItems.isEmpty()) {
+                SlideTextData old = slideTextItems.get(0);
+                slideTextItems.set(0, new SlideTextData(true, text, old.fontName, old.fontSize,
+                        old.fontStyle, old.color, old.x, old.y, old.bgOpacity,
+                        old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment));
+                if (currentSlideTextIndex == 0) {
+                    loadSlideTextFromItem(0);
+                }
             }
         }
 
