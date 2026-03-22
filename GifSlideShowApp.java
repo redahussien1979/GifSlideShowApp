@@ -2529,6 +2529,8 @@ public class GifSlideShowApp extends JFrame {
 
                     int fps = 30;
                     int defaultFramesPerSlide = Math.max(1, (int) Math.round(duration / 1000.0 * fps));
+                    boolean useConcatDemuxer = false;
+                    File concatFile = null;
 
                     publish("Rendering " + slides.size() + " slides at " + videoW + "×" + videoH + "...");
 
@@ -2581,47 +2583,38 @@ public class GifSlideShowApp extends JFrame {
                         }
                         frameIndex = totalFrames;
                     } else {
-                        for (int i = 0; i < slides.size(); i++) {
-                            SlideData s = slides.get(i);
-                            int slideDur = (s.audioDurationMs > 0) ? s.audioDurationMs : duration;
-                            int slideFrames = Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
-                            boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0;
-                            if (!hasAnimatedFx && s.slideTexts != null) {
+                        // Check if ANY slide has animated effects (determines encoding strategy)
+                        boolean anyAnimatedFx = false;
+                        for (SlideData s : slides) {
+                            boolean hasAnim = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0;
+                            if (!hasAnim && s.slideTexts != null) {
                                 for (SlideTextData stx : s.slideTexts) {
                                     if (stx.show && stx.textEffect != null) {
                                         String fx = stx.textEffect;
                                         if (fx.equals("Water Ripple") || fx.equals("Fire") || fx.equals("Ice")
                                                 || fx.equals("Rainbow") || fx.equals("Typewriter")) {
-                                            hasAnimatedFx = true;
+                                            hasAnim = true;
                                             break;
                                         }
                                     }
                                 }
                             }
+                            if (hasAnim) { anyAnimatedFx = true; break; }
+                        }
 
-                            if (hasAnimatedFx) {
-                                // Render each frame individually for animated effects
-                                for (int d = 0; d < slideFrames; d++) {
-                                    BufferedImage frame = renderFrame(
-                                            s.image, s.text, s.fontName, s.fontSize,
-                                            s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                            videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
-                                            s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
-                                            s.slideNumberX, s.slideNumberY,
-                                            s.slideNumberSize, s.slideNumberColor,
-                                            s.slideTexts,
-                                            s.fxRoundCorners, s.fxCornerRadius,
-                                            s.fxVignette, s.fxSepia, s.fxGrain,
-                                            s.fxWaterRipple, s.fxGlitch, s.fxShake,
-                                            s.overlayEnabled,
-                                            s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
-                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
-                                    ImageIO.write(frame, "png",
-                                            new File(tempDir, String.format("frame_%05d.png", frameIndex)));
-                                    frameIndex++;
-                                }
-                            } else {
-                                // No animated effects — render once and copy file for duplicates
+                        if (!anyAnimatedFx) {
+                            // FAST PATH: No animated effects on any slide.
+                            // Render one PNG per slide and use FFmpeg concat demuxer with duration.
+                            // This avoids writing thousands of duplicate frame files (e.g. a 3-min audio = 1 PNG instead of 5400).
+                            useConcatDemuxer = true;
+                            concatFile = new File(tempDir, "concat.txt");
+                            StringBuilder concatContent = new StringBuilder();
+
+                            for (int i = 0; i < slides.size(); i++) {
+                                SlideData s = slides.get(i);
+                                int slideDur = (s.audioDurationMs > 0) ? s.audioDurationMs : duration;
+                                double slideDurSec = slideDur / 1000.0;
+
                                 BufferedImage frame = renderFrame(
                                         s.image, s.text, s.fontName, s.fontSize,
                                         s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -2635,22 +2628,102 @@ public class GifSlideShowApp extends JFrame {
                                         s.fxWaterRipple, s.fxGlitch, s.fxShake,
                                         s.overlayEnabled,
                                         s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                    s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
-                                // Write first frame as PNG, then copy file for duplicates (avoids re-encoding)
-                                File firstFrameFile = new File(tempDir, String.format("frame_%05d.png", frameIndex));
-                                ImageIO.write(frame, "png", firstFrameFile);
-                                frameIndex++;
-                                for (int d = 1; d < slideFrames; d++) {
-                                    java.nio.file.Files.copy(firstFrameFile.toPath(),
-                                            new File(tempDir, String.format("frame_%05d.png", frameIndex)).toPath());
-                                    frameIndex++;
-                                }
+                                        s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+
+                                File slideFile = new File(tempDir, String.format("slide_%03d.png", i));
+                                ImageIO.write(frame, "png", slideFile);
+
+                                concatContent.append("file '").append(slideFile.getAbsolutePath().replace("'", "'\\''")).append("'\n");
+                                concatContent.append("duration ").append(String.format("%.3f", slideDurSec)).append("\n");
+
+                                int pct = (int) ((i + 1.0) / slides.size() * 60);
+                                final int p = pct;
+                                SwingUtilities.invokeLater(() -> progressBar.setValue(p));
+                                publish("Rendered slide " + (i + 1) + "/" + slides.size());
+                            }
+                            // Concat demuxer requires last file repeated without duration
+                            if (slides.size() > 0) {
+                                concatContent.append("file '")
+                                        .append(new File(tempDir, String.format("slide_%03d.png", slides.size() - 1))
+                                                .getAbsolutePath().replace("'", "'\\''"))
+                                        .append("'\n");
                             }
 
-                            int pct = (int) ((i + 1.0) / slides.size() * 60);
-                            final int p = pct;
-                            SwingUtilities.invokeLater(() -> progressBar.setValue(p));
-                            publish("Rendered slide " + (i + 1) + "/" + slides.size());
+                            try (java.io.FileWriter fw = new java.io.FileWriter(concatFile)) {
+                                fw.write(concatContent.toString());
+                            }
+                        } else {
+                            // ANIMATED PATH: At least one slide has animated effects — must render per-frame
+                            for (int i = 0; i < slides.size(); i++) {
+                                SlideData s = slides.get(i);
+                                int slideDur = (s.audioDurationMs > 0) ? s.audioDurationMs : duration;
+                                int slideFrames = Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
+                                boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0;
+                                if (!hasAnimatedFx && s.slideTexts != null) {
+                                    for (SlideTextData stx : s.slideTexts) {
+                                        if (stx.show && stx.textEffect != null) {
+                                            String fx = stx.textEffect;
+                                            if (fx.equals("Water Ripple") || fx.equals("Fire") || fx.equals("Ice")
+                                                    || fx.equals("Rainbow") || fx.equals("Typewriter")) {
+                                                hasAnimatedFx = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (hasAnimatedFx) {
+                                    // Render each frame individually for animated effects
+                                    for (int d = 0; d < slideFrames; d++) {
+                                        BufferedImage frame = renderFrame(
+                                                s.image, s.text, s.fontName, s.fontSize,
+                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                s.slideNumberX, s.slideNumberY,
+                                                s.slideNumberSize, s.slideNumberColor,
+                                                s.slideTexts,
+                                                s.fxRoundCorners, s.fxCornerRadius,
+                                                s.fxVignette, s.fxSepia, s.fxGrain,
+                                                s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                                s.overlayEnabled,
+                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                        ImageIO.write(frame, "png",
+                                                new File(tempDir, String.format("frame_%05d.png", frameIndex)));
+                                        frameIndex++;
+                                    }
+                                } else {
+                                    // No animated effects — render once, copy for duplicates
+                                    BufferedImage frame = renderFrame(
+                                            s.image, s.text, s.fontName, s.fontSize,
+                                            s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                            videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                            s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                            s.slideNumberX, s.slideNumberY,
+                                            s.slideNumberSize, s.slideNumberColor,
+                                            s.slideTexts,
+                                            s.fxRoundCorners, s.fxCornerRadius,
+                                            s.fxVignette, s.fxSepia, s.fxGrain,
+                                            s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                            s.overlayEnabled,
+                                            s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                    File firstFrameFile = new File(tempDir, String.format("frame_%05d.png", frameIndex));
+                                    ImageIO.write(frame, "png", firstFrameFile);
+                                    frameIndex++;
+                                    for (int d = 1; d < slideFrames; d++) {
+                                        java.nio.file.Files.copy(firstFrameFile.toPath(),
+                                                new File(tempDir, String.format("frame_%05d.png", frameIndex)).toPath());
+                                        frameIndex++;
+                                    }
+                                }
+
+                                int pct = (int) ((i + 1.0) / slides.size() * 60);
+                                final int p = pct;
+                                SwingUtilities.invokeLater(() -> progressBar.setValue(p));
+                                publish("Rendered slide " + (i + 1) + "/" + slides.size());
+                            }
                         }
                     }
 
@@ -2662,10 +2735,26 @@ public class GifSlideShowApp extends JFrame {
                     java.util.List<String> videoCmd = new java.util.ArrayList<>();
                     videoCmd.add("ffmpeg");
                     videoCmd.add("-y");
-                    videoCmd.add("-framerate");
-                    videoCmd.add(String.valueOf(fps));
-                    videoCmd.add("-i");
-                    videoCmd.add(new File(tempDir, "frame_%05d.png").getAbsolutePath());
+                    if (useConcatDemuxer) {
+                        // Fast path: use concat demuxer (1 PNG per slide instead of thousands of frames)
+                        videoCmd.add("-f");
+                        videoCmd.add("concat");
+                        videoCmd.add("-safe");
+                        videoCmd.add("0");
+                        videoCmd.add("-i");
+                        videoCmd.add(concatFile.getAbsolutePath());
+                    } else {
+                        // Frame sequence input
+                        videoCmd.add("-framerate");
+                        videoCmd.add(String.valueOf(fps));
+                        videoCmd.add("-i");
+                        videoCmd.add(new File(tempDir, "frame_%05d.png").getAbsolutePath());
+                    }
+                    if (useConcatDemuxer) {
+                        // Set output framerate for concat demuxer input
+                        videoCmd.add("-r");
+                        videoCmd.add(String.valueOf(fps));
+                    }
                     videoCmd.add("-c:v");
                     videoCmd.add("libx264");
                     videoCmd.add("-preset");
