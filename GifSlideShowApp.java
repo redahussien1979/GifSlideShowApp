@@ -3239,7 +3239,7 @@ public class GifSlideShowApp extends JFrame {
             rightPanel.setBackground(new Color(44, 47, 51));
 
             JPanel toolbar1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-            toolbar1.setBackground(new Color(44, 47, 51));
+            toolbar1.setBackground(new Color(38, 42, 56));
 
             String[] fonts = GraphicsEnvironment.getLocalGraphicsEnvironment()
                     .getAvailableFontFamilyNames();
@@ -3315,7 +3315,7 @@ public class GifSlideShowApp extends JFrame {
 
             // ===== Toolbar Row 1b: Justify, Width, Highlight =====
             JPanel toolbar1b = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-            toolbar1b.setBackground(new Color(44, 47, 51));
+            toolbar1b.setBackground(new Color(38, 42, 56));
 
             justifyCheckBox = new JCheckBox("Justify", false);
             justifyCheckBox.setFont(new Font("Segoe UI", Font.PLAIN, 11));
@@ -3372,7 +3372,7 @@ public class GifSlideShowApp extends JFrame {
 
             // ===== Toolbar Row 2: Image display mode =====
             JPanel toolbar2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-            toolbar2.setBackground(new Color(44, 47, 51));
+            toolbar2.setBackground(new Color(36, 50, 50));
 
             JLabel displayLabel = styledLabel("🖼 Image Display:");
             displayLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
@@ -3397,7 +3397,7 @@ public class GifSlideShowApp extends JFrame {
 
             // ===== Toolbar Row 3: Slide number overlay =====
             JPanel toolbar3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
-            toolbar3.setBackground(new Color(44, 47, 51));
+            toolbar3.setBackground(new Color(48, 38, 56));
 
             slideNumberCheckBox = new JCheckBox("# Number", false);
             slideNumberCheckBox.setFont(new Font("Segoe UI", Font.BOLD, 11));
@@ -3465,11 +3465,11 @@ public class GifSlideShowApp extends JFrame {
 
             // ===== Toolbar Row 4: Slide text overlays (multiple via dropdown) =====
             JPanel toolbar4a = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
-            toolbar4a.setBackground(new Color(44, 47, 51));
+            toolbar4a.setBackground(new Color(36, 50, 40));
             JPanel toolbar4b = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
-            toolbar4b.setBackground(new Color(44, 47, 51));
+            toolbar4b.setBackground(new Color(36, 50, 40));
             JPanel toolbar4c = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
-            toolbar4c.setBackground(new Color(44, 47, 51));
+            toolbar4c.setBackground(new Color(36, 50, 40));
 
             // Initialize with one default slide text item
             slideTextItems.add(new SlideTextData(false, "", loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI",
@@ -3687,11 +3687,11 @@ public class GifSlideShowApp extends JFrame {
 
             // ===== Toolbar Row 5: Image Effects (3 rows) =====
             JPanel toolbar5a = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
-            toolbar5a.setBackground(new Color(44, 47, 51));
+            toolbar5a.setBackground(new Color(56, 44, 36));
             JPanel toolbar5b = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
-            toolbar5b.setBackground(new Color(44, 47, 51));
+            toolbar5b.setBackground(new Color(56, 44, 36));
             JPanel toolbar5c = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
-            toolbar5c.setBackground(new Color(44, 47, 51));
+            toolbar5c.setBackground(new Color(56, 44, 36));
 
             JLabel fxLabel = styledLabel("\u2728 FX:");
             fxLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
@@ -3806,9 +3806,9 @@ public class GifSlideShowApp extends JFrame {
 
             // ===== Toolbar Row 6: Image Shape (2 rows) =====
             JPanel toolbar6a = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
-            toolbar6a.setBackground(new Color(44, 47, 51));
+            toolbar6a.setBackground(new Color(56, 38, 40));
             JPanel toolbar6b = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
-            toolbar6b.setBackground(new Color(44, 47, 51));
+            toolbar6b.setBackground(new Color(56, 38, 40));
 
             JLabel overlayLabel = styledLabel("\uD83D\uDDBC Image Shape:");
             overlayLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
@@ -3882,7 +3882,7 @@ public class GifSlideShowApp extends JFrame {
 
             // ===== Toolbar Row 7: Slide Audio =====
             JPanel toolbar7 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
-            toolbar7.setBackground(new Color(44, 47, 51));
+            toolbar7.setBackground(new Color(50, 44, 38));
 
             JLabel audioLabel = styledLabel("\uD83D\uDD0A Audio:");
             audioLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
