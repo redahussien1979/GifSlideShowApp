@@ -4053,7 +4053,8 @@ public class GifSlideShowApp extends JFrame {
             }
             for (int i = 0; i < formats.size(); i++) {
                 SlideTextData fmt = formats.get(i);
-                slideTextItems.set(i, new SlideTextData(fmt.show, fmt.text, fmt.fontName, fmt.fontSize,
+                String existingText = slideTextItems.get(i).text;
+                slideTextItems.set(i, new SlideTextData(fmt.show, existingText, fmt.fontName, fmt.fontSize,
                         fmt.fontStyle, fmt.color, fmt.x, fmt.y, fmt.bgOpacity,
                         fmt.bgColor, fmt.justify, fmt.widthPct, fmt.shiftX, fmt.alignment));
             }
