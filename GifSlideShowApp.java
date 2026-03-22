@@ -3952,9 +3952,13 @@ public class GifSlideShowApp extends JFrame {
             rightPanel.add(toolbarsPanel, BorderLayout.NORTH);
             rightPanel.add(textScroll, BorderLayout.CENTER);
 
-            panel.add(leftCtrl, BorderLayout.WEST);
+            JPanel westPanel = new JPanel(new BorderLayout(4, 0));
+            westPanel.setBackground(new Color(44, 47, 51));
             centerPanel.setPreferredSize(new Dimension(170, 0));
-            panel.add(centerPanel, BorderLayout.WEST);
+            westPanel.add(leftCtrl, BorderLayout.WEST);
+            westPanel.add(centerPanel, BorderLayout.CENTER);
+
+            panel.add(westPanel, BorderLayout.WEST);
             panel.add(rightPanel, BorderLayout.CENTER);
         }
 
