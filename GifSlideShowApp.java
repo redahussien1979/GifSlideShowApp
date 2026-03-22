@@ -4039,7 +4039,6 @@ public class GifSlideShowApp extends JFrame {
 
         void applySlideTextFormats(List<SlideTextData> formats) {
             if (formats == null || formats.isEmpty()) return;
-            // Rebuild items list, preserving each item's own text
             while (slideTextItems.size() < formats.size()) {
                 slideTextItems.add(new SlideTextData(false, "", loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI",
                         40, Font.PLAIN, Color.YELLOW, 50, 50, 0, Color.BLACK, false, 100, 0, SwingConstants.CENTER));
@@ -4056,9 +4055,15 @@ public class GifSlideShowApp extends JFrame {
             if (currentSlideTextIndex >= slideTextItems.size()) {
                 currentSlideTextIndex = 0;
             }
-            rebuildSlideTextSelector();
-            slideTextSelector.setSelectedIndex(currentSlideTextIndex);
+            isLoadingSlideText = true;
+            try {
+                rebuildSlideTextSelector();
+                slideTextSelector.setSelectedIndex(currentSlideTextIndex);
+            } finally {
+                isLoadingSlideText = false;
+            }
             loadSlideTextFromItem(currentSlideTextIndex);
+            schedulePreview();
         }
 
         void setSlideText(String text) {
