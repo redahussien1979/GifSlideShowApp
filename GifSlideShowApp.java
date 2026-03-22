@@ -3192,7 +3192,8 @@ public class GifSlideShowApp extends JFrame {
             imagePreview = new JLabel("Drag image here or click to browse", SwingConstants.CENTER);
             imagePreview.setFont(new Font("Segoe UI", Font.PLAIN, 12));
             imagePreview.setForeground(new Color(160, 170, 180));
-            imagePreview.setPreferredSize(new Dimension(180, 90));
+            imagePreview.setPreferredSize(new Dimension(160, 70));
+            imagePreview.setMinimumSize(new Dimension(120, 50));
             imagePreview.setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createDashedBorder(new Color(80, 90, 100), 2, 6, 4, true),
                     BorderFactory.createEmptyBorder(6, 6, 6, 6)));
@@ -3225,18 +3226,17 @@ public class GifSlideShowApp extends JFrame {
             livePreviewLabel = new JLabel("Live Preview", SwingConstants.CENTER);
             livePreviewLabel.setFont(new Font("Segoe UI", Font.ITALIC, 10));
             livePreviewLabel.setForeground(new Color(120, 130, 140));
-            livePreviewLabel.setPreferredSize(new Dimension(180, 120));
+            livePreviewLabel.setPreferredSize(new Dimension(160, 140));
             livePreviewLabel.setBorder(BorderFactory.createLineBorder(new Color(60, 63, 68)));
             livePreviewLabel.setOpaque(true);
             livePreviewLabel.setBackground(new Color(21, 32, 43));
 
-            centerPanel.add(imagePreview, BorderLayout.CENTER);
-            centerPanel.add(livePreviewLabel, BorderLayout.SOUTH);
+            centerPanel.add(imagePreview, BorderLayout.NORTH);
+            centerPanel.add(livePreviewLabel, BorderLayout.CENTER);
 
             // RIGHT: formatting + text
             JPanel rightPanel = new JPanel(new BorderLayout(0, 6));
             rightPanel.setBackground(new Color(44, 47, 51));
-            rightPanel.setPreferredSize(new Dimension(570, 0));
 
             JPanel toolbar1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
             toolbar1.setBackground(new Color(44, 47, 51));
@@ -3953,8 +3953,9 @@ public class GifSlideShowApp extends JFrame {
             rightPanel.add(textScroll, BorderLayout.CENTER);
 
             panel.add(leftCtrl, BorderLayout.WEST);
-            panel.add(centerPanel, BorderLayout.CENTER);
-            panel.add(rightPanel, BorderLayout.EAST);
+            centerPanel.setPreferredSize(new Dimension(170, 0));
+            panel.add(centerPanel, BorderLayout.WEST);
+            panel.add(rightPanel, BorderLayout.CENTER);
         }
 
         // ===== Slide text dropdown helpers =====
