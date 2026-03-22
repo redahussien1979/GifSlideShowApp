@@ -3537,9 +3537,9 @@ public class GifSlideShowApp extends JFrame {
             slideTextArea.setCaretColor(Color.WHITE);
             slideTextArea.setToolTipText("Text to display on slide (multiline)");
             slideTextArea.getDocument().addDocumentListener(new DocumentListener() {
-                @Override public void insertUpdate(DocumentEvent e) { if (!isLoadingSlideText) schedulePreview(); }
-                @Override public void removeUpdate(DocumentEvent e) { if (!isLoadingSlideText) schedulePreview(); }
-                @Override public void changedUpdate(DocumentEvent e) { if (!isLoadingSlideText) schedulePreview(); }
+                @Override public void insertUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
+                @Override public void removeUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
+                @Override public void changedUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
             });
             JScrollPane slideTextScroll = new JScrollPane(slideTextArea);
             slideTextScroll.setPreferredSize(new Dimension(140, 48));
@@ -4049,8 +4049,7 @@ public class GifSlideShowApp extends JFrame {
             }
             for (int i = 0; i < formats.size(); i++) {
                 SlideTextData fmt = formats.get(i);
-                String currentText = slideTextItems.get(i).text;
-                slideTextItems.set(i, new SlideTextData(fmt.show, currentText, fmt.fontName, fmt.fontSize,
+                slideTextItems.set(i, new SlideTextData(fmt.show, fmt.text, fmt.fontName, fmt.fontSize,
                         fmt.fontStyle, fmt.color, fmt.x, fmt.y, fmt.bgOpacity,
                         fmt.bgColor, fmt.justify, fmt.widthPct, fmt.shiftX, fmt.alignment));
             }
