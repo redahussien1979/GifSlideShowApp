@@ -1784,6 +1784,45 @@ public class GifSlideShowApp extends JFrame {
                             }
                             break;
                         }
+                        case "Stone Engraving": {
+                            // Carved/chiseled text effect — text appears recessed into stone
+                            // Light source from top-left: shadow on top-left inner edge, highlight on bottom-right
+                            int off = Math.max(1, (int) (scaledStSize * 0.04 * intensity));
+                            int deepOff = Math.max(1, (int) (scaledStSize * 0.02 * intensity));
+
+                            // Layer 1: Dark inner shadow (top-left of carving — where light is blocked)
+                            g2.setColor(new Color(0, 0, 0, (int) (160 * intensity)));
+                            if (justified) drawJustified(g2, justifyWords, stBlockLeft - off, lineY - off, justifyExtraSpace, stFm);
+                            else g2.drawString(visibleLine, lineX - off, lineY - off);
+
+                            // Layer 2: Softer dark shadow (slightly less offset for depth)
+                            g2.setColor(new Color(40, 30, 20, (int) (100 * intensity)));
+                            if (justified) drawJustified(g2, justifyWords, stBlockLeft - deepOff, lineY - deepOff, justifyExtraSpace, stFm);
+                            else g2.drawString(visibleLine, lineX - deepOff, lineY - deepOff);
+
+                            // Layer 3: Light highlight (bottom-right edge catching light)
+                            g2.setColor(new Color(255, 250, 230, (int) (140 * intensity)));
+                            if (justified) drawJustified(g2, justifyWords, stBlockLeft + off, lineY + off, justifyExtraSpace, stFm);
+                            else g2.drawString(visibleLine, lineX + off, lineY + off);
+
+                            // Layer 4: Softer highlight
+                            g2.setColor(new Color(240, 230, 200, (int) (80 * intensity)));
+                            if (justified) drawJustified(g2, justifyWords, stBlockLeft + deepOff, lineY + deepOff, justifyExtraSpace, stFm);
+                            else g2.drawString(visibleLine, lineX + deepOff, lineY + deepOff);
+
+                            // Layer 5: Main text — the carved surface (darker than surroundings)
+                            int r = stColor.getRed(), gv = stColor.getGreen(), b = stColor.getBlue();
+                            int darkR = (int)(r * (0.55 + 0.25 * (1.0 - intensity)));
+                            int darkG = (int)(gv * (0.55 + 0.25 * (1.0 - intensity)));
+                            int darkB = (int)(b * (0.55 + 0.25 * (1.0 - intensity)));
+                            g2.setColor(new Color(
+                                    Math.max(0, Math.min(255, darkR)),
+                                    Math.max(0, Math.min(255, darkG)),
+                                    Math.max(0, Math.min(255, darkB))));
+                            if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
+                            else g2.drawString(visibleLine, lineX, lineY);
+                            break;
+                        }
                         default: { // "None" and "Typewriter" (typewriter just limits chars above)
                             g2.setColor(stColor);
                             if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
@@ -3524,7 +3563,7 @@ public class GifSlideShowApp extends JFrame {
 
     static final String[] TEXT_EFFECTS = {
         "None", "Shadow", "Glow", "Neon", "Outline", "Emboss",
-        "Water Ripple", "Fire", "Ice", "Rainbow", "Typewriter"
+        "Water Ripple", "Fire", "Ice", "Rainbow", "Typewriter", "Stone Engraving"
     };
 
     static class SlideTextData {
