@@ -6018,22 +6018,43 @@ public class GifSlideShowApp extends JFrame {
 
         void applySlideTextFormats(List<SlideTextData> formats) {
             if (formats == null || formats.isEmpty()) return;
+            // Ensure we have at least as many items as the source.
+            // Do NOT remove extra items — this slide may have more text items
+            // (e.g. from dictionary import) than the first slide.
             while (slideTextItems.size() < formats.size()) {
                 slideTextItems.add(new SlideTextData(false, "", loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI",
                         40, Font.PLAIN, Color.YELLOW, 50, 50, 0, Color.BLACK, false, 100, 0, SwingConstants.CENTER));
             }
-            while (slideTextItems.size() > formats.size()) {
-                slideTextItems.remove(slideTextItems.size() - 1);
-            }
+            // Apply formatting from source to each matching text item.
+            // Preserve this slide's own text content and show state.
+            // All formatting (including alignment) syncs from slide 1.
             for (int i = 0; i < formats.size(); i++) {
                 SlideTextData fmt = formats.get(i);
-                String existingText = slideTextItems.get(i).text;
-                slideTextItems.set(i, new SlideTextData(fmt.show, existingText, fmt.fontName, fmt.fontSize,
+                SlideTextData existing = slideTextItems.get(i);
+                String existingText = existing.text;
+                boolean show = (existingText != null && !existingText.isEmpty()) ? existing.show : fmt.show;
+                slideTextItems.set(i, new SlideTextData(show, existingText, fmt.fontName, fmt.fontSize,
                         fmt.fontStyle, fmt.color, fmt.x, fmt.y, fmt.bgOpacity,
                         fmt.bgColor, fmt.justify, fmt.widthPct, fmt.shiftX, fmt.alignment,
                         fmt.textEffect, fmt.textEffectIntensity,
                         fmt.highlightText, fmt.highlightColor, fmt.highlightStyle,
                         fmt.highlightTightness, fmt.underlineStyle, fmt.underlineText));
+            }
+            // For extra items beyond what the source has, apply formatting
+            // from the last source item so they get consistent styling
+            if (formats.size() > 0 && slideTextItems.size() > formats.size()) {
+                SlideTextData lastFmt = formats.get(formats.size() - 1);
+                for (int i = formats.size(); i < slideTextItems.size(); i++) {
+                    SlideTextData existing = slideTextItems.get(i);
+                    String existingText = existing.text;
+                    boolean show = (existingText != null && !existingText.isEmpty()) ? existing.show : false;
+                    slideTextItems.set(i, new SlideTextData(show, existingText, lastFmt.fontName, lastFmt.fontSize,
+                            lastFmt.fontStyle, lastFmt.color, lastFmt.x, lastFmt.y, lastFmt.bgOpacity,
+                            lastFmt.bgColor, lastFmt.justify, lastFmt.widthPct, lastFmt.shiftX, lastFmt.alignment,
+                            lastFmt.textEffect, lastFmt.textEffectIntensity,
+                            lastFmt.highlightText, lastFmt.highlightColor, lastFmt.highlightStyle,
+                            lastFmt.highlightTightness, lastFmt.underlineStyle, lastFmt.underlineText));
+                }
             }
             if (currentSlideTextIndex >= slideTextItems.size()) {
                 currentSlideTextIndex = 0;
