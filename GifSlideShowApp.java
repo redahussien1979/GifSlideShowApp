@@ -1881,15 +1881,10 @@ public class GifSlideShowApp extends JFrame {
                         }
                     }
 
-                    // === Slide text highlight ===
+                    // === Slide text highlight (supports comma-separated words) ===
                     if (st.highlightText != null && !st.highlightText.isEmpty()) {
                         String lineLower = line.toLowerCase();
-                        String hlLower = st.highlightText.toLowerCase();
                         // Tightness: positive = padding around text, negative = reduce height
-                        // -50: height shrunk to ~30% of font height (thin band)
-                        //   0: exact font height, no extra padding
-                        //  50: normal padding
-                        // 100: loose padding
                         int tightness = st.highlightTightness;
                         int hlPadX, hlPadY;
                         int heightShrink = 0;
@@ -1898,20 +1893,24 @@ public class GifSlideShowApp extends JFrame {
                             hlPadX = (int) (padFactor * 8 * stScaleFactor);
                             hlPadY = hlPadX;
                         } else {
-                            // Negative: no padding, shrink height. -50 = shrink to ~30%
                             hlPadX = 0;
                             hlPadY = 0;
-                            float shrinkFactor = Math.abs(tightness) / 50.0f; // 0..1
+                            float shrinkFactor = Math.abs(tightness) / 50.0f;
                             heightShrink = (int) (stFm.getHeight() * 0.7f * shrinkFactor);
                         }
-                        int searchFrom = 0;
-                        while (searchFrom < lineLower.length()) {
-                            int hlIdx = lineLower.indexOf(hlLower, searchFrom);
-                            if (hlIdx < 0) break;
-                            String before = line.substring(0, hlIdx);
-                            String match = line.substring(hlIdx, hlIdx + st.highlightText.length());
-                            int hlX = lineX + stFm.stringWidth(before);
-                            int hlW = stFm.stringWidth(match);
+                        String[] hlTerms = st.highlightText.split(",");
+                        for (String hlTerm : hlTerms) {
+                            hlTerm = hlTerm.trim();
+                            if (hlTerm.isEmpty()) continue;
+                            String hlLower = hlTerm.toLowerCase();
+                            int searchFrom = 0;
+                            while (searchFrom < lineLower.length()) {
+                                int hlIdx = lineLower.indexOf(hlLower, searchFrom);
+                                if (hlIdx < 0) break;
+                                String before = line.substring(0, hlIdx);
+                                String match = line.substring(hlIdx, hlIdx + hlTerm.length());
+                                int hlX = lineX + stFm.stringWidth(before);
+                                int hlW = stFm.stringWidth(match);
                             Color hlC = st.highlightColor != null ? st.highlightColor : new Color(255, 100, 150, 180);
                             Graphics2D gHL = (Graphics2D) g.create();
                             gHL.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -2067,8 +2066,9 @@ public class GifSlideShowApp extends JFrame {
                                     break;
                                 }
                             }
-                            gHL.dispose();
-                            searchFrom = hlIdx + st.highlightText.length();
+                                gHL.dispose();
+                                searchFrom = hlIdx + hlTerm.length();
+                            }
                         }
                     }
 
@@ -2076,20 +2076,24 @@ public class GifSlideShowApp extends JFrame {
                     String ulStyle = st.underlineStyle != null ? st.underlineStyle : "None";
                     if (!"None".equals(ulStyle)) {
                         // Use underlineText if set, otherwise fall back to highlightText
-                        String ulText = (st.underlineText != null && !st.underlineText.isEmpty())
+                        String ulTextRaw = (st.underlineText != null && !st.underlineText.isEmpty())
                                 ? st.underlineText : st.highlightText;
-                        if (ulText != null && !ulText.isEmpty()) {
+                        if (ulTextRaw != null && !ulTextRaw.isEmpty()) {
                             String lineLower = line.toLowerCase();
-                            String ulLower = ulText.toLowerCase();
                             Color hlC = st.highlightColor != null ? st.highlightColor : new Color(255, 100, 150, 180);
-                            int ulSearchFrom = 0;
-                            while (ulSearchFrom < lineLower.length()) {
-                                int ulIdx = lineLower.indexOf(ulLower, ulSearchFrom);
-                                if (ulIdx < 0) break;
-                                String ulBefore = line.substring(0, ulIdx);
-                                String ulMatch = line.substring(ulIdx, ulIdx + ulText.length());
-                                int ulMatchX = lineX + stFm.stringWidth(ulBefore);
-                                int ulMatchW = stFm.stringWidth(ulMatch);
+                            String[] ulTerms = ulTextRaw.split(",");
+                            for (String ulTerm : ulTerms) {
+                                ulTerm = ulTerm.trim();
+                                if (ulTerm.isEmpty()) continue;
+                                String ulLower = ulTerm.toLowerCase();
+                                int ulSearchFrom = 0;
+                                while (ulSearchFrom < lineLower.length()) {
+                                    int ulIdx = lineLower.indexOf(ulLower, ulSearchFrom);
+                                    if (ulIdx < 0) break;
+                                    String ulBefore = line.substring(0, ulIdx);
+                                    String ulMatch = line.substring(ulIdx, ulIdx + ulTerm.length());
+                                    int ulMatchX = lineX + stFm.stringWidth(ulBefore);
+                                    int ulMatchW = stFm.stringWidth(ulMatch);
                                 Graphics2D gUL = (Graphics2D) g.create();
                                 gUL.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                                 int ulY = lineY + stFm.getDescent() + (int) (1 * stScaleFactor);
@@ -2163,8 +2167,9 @@ public class GifSlideShowApp extends JFrame {
                                         break;
                                     }
                                 }
-                                gUL.dispose();
-                                ulSearchFrom = ulIdx + ulText.length();
+                                    gUL.dispose();
+                                    ulSearchFrom = ulIdx + ulTerm.length();
+                                }
                             }
                         }
                     }
@@ -5398,7 +5403,7 @@ public class GifSlideShowApp extends JFrame {
             slideTextHighlightField = new JTextField(8);
             slideTextHighlightField.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             slideTextHighlightField.setPreferredSize(new Dimension(80, 24));
-            slideTextHighlightField.setToolTipText("Word or phrase to highlight in slide text");
+            slideTextHighlightField.setToolTipText("Words to highlight (comma-separated for multiple, e.g. hello,world)");
             slideTextHighlightField.getDocument().addDocumentListener(new DocumentListener() {
                 @Override public void insertUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
                 @Override public void removeUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
@@ -5441,7 +5446,7 @@ public class GifSlideShowApp extends JFrame {
             slideTextUnderlineTextField = new JTextField(8);
             slideTextUnderlineTextField.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             slideTextUnderlineTextField.setPreferredSize(new Dimension(80, 24));
-            slideTextUnderlineTextField.setToolTipText("Word/phrase to underline (leave empty to use highlight text)");
+            slideTextUnderlineTextField.setToolTipText("Words to underline, comma-separated (leave empty to use highlight text)");
             slideTextUnderlineTextField.getDocument().addDocumentListener(new DocumentListener() {
                 @Override public void insertUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
                 @Override public void removeUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
