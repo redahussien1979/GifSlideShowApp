@@ -1885,9 +1885,25 @@ public class GifSlideShowApp extends JFrame {
                     if (st.highlightText != null && !st.highlightText.isEmpty()) {
                         String lineLower = line.toLowerCase();
                         String hlLower = st.highlightText.toLowerCase();
-                        // Tightness: -50=shrink/overlap, 0=tight, 50=normal, 100=loose
-                        float tightFactor = st.highlightTightness / 100.0f;
-                        int hlPad = (int) (tightFactor * 8 * stScaleFactor);
+                        // Tightness: positive = padding around text, negative = reduce height
+                        // -50: height shrunk to ~30% of font height (thin band)
+                        //   0: exact font height, no extra padding
+                        //  50: normal padding
+                        // 100: loose padding
+                        int tightness = st.highlightTightness;
+                        int hlPadX, hlPadY;
+                        int heightShrink = 0;
+                        if (tightness >= 0) {
+                            float padFactor = tightness / 100.0f;
+                            hlPadX = (int) (padFactor * 8 * stScaleFactor);
+                            hlPadY = hlPadX;
+                        } else {
+                            // Negative: no padding, shrink height. -50 = shrink to ~30%
+                            hlPadX = 0;
+                            hlPadY = 0;
+                            float shrinkFactor = Math.abs(tightness) / 50.0f; // 0..1
+                            heightShrink = (int) (stFm.getHeight() * 0.7f * shrinkFactor);
+                        }
                         int searchFrom = 0;
                         while (searchFrom < lineLower.length()) {
                             int hlIdx = lineLower.indexOf(hlLower, searchFrom);
@@ -1900,16 +1916,18 @@ public class GifSlideShowApp extends JFrame {
                             Graphics2D gHL = (Graphics2D) g.create();
                             gHL.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-                            int hlRectX = hlX - hlPad;
-                            int hlRectY = lineY - stFm.getAscent() - hlPad;
-                            int hlRectW = Math.max(1, hlW + hlPad * 2);
-                            int hlRectH = Math.max(1, stFm.getHeight() + hlPad * 2);
+                            int fullH = stFm.getHeight() + hlPadY * 2;
+                            int hlRectH = Math.max(2, fullH - heightShrink);
+                            int hlRectX = hlX - hlPadX;
+                            // Center the reduced-height rect vertically on the text
+                            int hlRectY = lineY - stFm.getAscent() - hlPadY + (fullH - hlRectH) / 2;
+                            int hlRectW = Math.max(1, hlW + hlPadX * 2);
                             int arc = (int) (4 * stScaleFactor);
                             String hlStyle = st.highlightStyle != null ? st.highlightStyle : "Regular";
 
                             switch (hlStyle) {
                                 case "Brush": {
-                                    int absPad = Math.max(0, hlPad);
+                                    int absPad = Math.max(0, hlPadX);
                                     int bh = hlRectH;
                                     int by = hlRectY;
                                     int bx = hlRectX - absPad;
@@ -1952,6 +1970,60 @@ public class GifSlideShowApp extends JFrame {
                                         gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), dotAlpha));
                                         gHL.fill(new java.awt.geom.Ellipse2D.Float(sx - dotR, sy - dotR, dotR * 2, dotR * 2));
                                     }
+                                    break;
+                                }
+                                case "Brush2": {
+                                    // Smooth, single-pass dry brush — fewer, wider strokes with
+                                    // feathered edges and slight wobble for a calligraphy feel
+                                    int bh = hlRectH;
+                                    int by = hlRectY;
+                                    int bx = hlRectX;
+                                    int bw = hlRectW;
+                                    long seed = (long) hlIdx * 53 + li * 1301;
+                                    Random b2Rng = new Random(seed);
+
+                                    // 2-3 wide sweeping strokes that cover the whole area
+                                    int strokes = 2 + (bh > (int)(20 * stScaleFactor) ? 1 : 0);
+                                    float strokeH = bh / (float) strokes;
+                                    for (int si = 0; si < strokes; si++) {
+                                        float cy = by + si * strokeH + strokeH / 2;
+                                        // Thick calligraphic stroke
+                                        float sw = strokeH * (0.85f + b2Rng.nextFloat() * 0.3f);
+                                        gHL.setStroke(new BasicStroke(sw, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                        int thisAlpha = Math.min(255, Math.max(0, hlC.getAlpha() - 20 + b2Rng.nextInt(40)));
+                                        gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), thisAlpha));
+
+                                        // Slight wobble via cubic curve
+                                        float wobble = strokeH * 0.15f;
+                                        float x1 = bx - (int)(2 * stScaleFactor);
+                                        float x2 = bx + bw + (int)(2 * stScaleFactor);
+                                        float cp1x = bx + bw * 0.3f + b2Rng.nextFloat() * bw * 0.1f;
+                                        float cp1y = cy + (b2Rng.nextFloat() - 0.5f) * wobble * 2;
+                                        float cp2x = bx + bw * 0.7f - b2Rng.nextFloat() * bw * 0.1f;
+                                        float cp2y = cy + (b2Rng.nextFloat() - 0.5f) * wobble * 2;
+                                        java.awt.geom.CubicCurve2D curve = new java.awt.geom.CubicCurve2D.Float(
+                                                x1, cy, cp1x, cp1y, cp2x, cp2y, x2, cy);
+                                        gHL.draw(curve);
+                                    }
+
+                                    // Feathered edge: a thin semi-transparent stroke at top and bottom
+                                    int featherAlpha = Math.min(255, hlC.getAlpha() / 3);
+                                    gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), featherAlpha));
+                                    float featherStroke = Math.max(1, 2 * stScaleFactor);
+                                    gHL.setStroke(new BasicStroke(featherStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                    float featherWobble = 2 * stScaleFactor;
+                                    // Top feather
+                                    float fcp1 = bx + bw * 0.25f;
+                                    float fcp2 = bx + bw * 0.75f;
+                                    gHL.draw(new java.awt.geom.CubicCurve2D.Float(
+                                            bx, by, fcp1, by - featherWobble * (0.5f + b2Rng.nextFloat()),
+                                            fcp2, by + featherWobble * (0.5f + b2Rng.nextFloat()),
+                                            bx + bw, by));
+                                    // Bottom feather
+                                    gHL.draw(new java.awt.geom.CubicCurve2D.Float(
+                                            bx, by + bh, fcp1, by + bh + featherWobble * (0.5f + b2Rng.nextFloat()),
+                                            fcp2, by + bh - featherWobble * (0.5f + b2Rng.nextFloat()),
+                                            bx + bw, by + bh));
                                     break;
                                 }
                                 case "Pill": {
@@ -4117,7 +4189,7 @@ public class GifSlideShowApp extends JFrame {
         "Water Ripple", "Fire", "Ice", "Rainbow", "Typewriter", "Stone Engraving"
     };
 
-    static final String[] HIGHLIGHT_STYLES = { "Regular", "Brush", "Pill", "Gradient", "Glow", "Box" };
+    static final String[] HIGHLIGHT_STYLES = { "Regular", "Brush", "Brush2", "Pill", "Gradient", "Glow", "Box" };
     static final String[] UNDERLINE_STYLES = { "None", "Straight", "Wavy", "Double", "Dotted", "Dashed", "Thick", "Zigzag" };
 
     static class SlideTextData {
