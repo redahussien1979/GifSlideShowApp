@@ -1998,6 +1998,10 @@ public class GifSlideShowApp extends JFrame {
                     g2st.dispose();
                 }
 
+                // Use wrap width as fixed reference for LEFT/RIGHT alignment
+                // so position doesn't shift with text content length.
+                int stAlignWidth = stMaxWrapWidth;
+                int stAlignLeft = stCenterX - stAlignWidth / 2;
                 int stBlockLeft = stCenterX - stMaxLineWidth / 2;
 
                 Color stColor = st.color != null ? st.color : Color.YELLOW;
@@ -2010,9 +2014,9 @@ public class GifSlideShowApp extends JFrame {
                     int lineW = stFm.stringWidth(line);
                     int lineX;
                     if (st.alignment == SwingConstants.LEFT) {
-                        lineX = stBlockLeft;
+                        lineX = stAlignLeft;
                     } else if (st.alignment == SwingConstants.RIGHT) {
-                        lineX = stBlockLeft + stMaxLineWidth - lineW;
+                        lineX = stAlignLeft + stAlignWidth - lineW;
                     } else {
                         lineX = stCenterX - lineW / 2;
                     }
