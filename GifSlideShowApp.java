@@ -5725,19 +5725,24 @@ public class GifSlideShowApp extends JFrame {
                         40, Font.PLAIN, Color.YELLOW, 50, 50, 0, Color.BLACK, false, 100, 0, SwingConstants.CENTER));
             }
             // Apply formatting from source to each matching text item.
-            // Preserve this slide's own text content and show state.
-            // All formatting (including alignment) syncs from slide 1.
+            // Preserve this slide's own text content, show state, highlight text, and underline text.
+            // All formatting/styling syncs from slide 1 (master).
+            // HL/UL text is per-slide (each slide highlights different words).
+            // HL/UL style/color/tightness syncs from master.
             for (int i = 0; i < formats.size(); i++) {
                 SlideTextData fmt = formats.get(i);
                 SlideTextData existing = slideTextItems.get(i);
                 String existingText = existing.text;
                 boolean show = (existingText != null && !existingText.isEmpty()) ? existing.show : fmt.show;
+                // Preserve per-slide HL/UL text if this slide has text content
+                String hlText = (existingText != null && !existingText.isEmpty()) ? existing.highlightText : fmt.highlightText;
+                String ulText = (existingText != null && !existingText.isEmpty()) ? existing.underlineText : fmt.underlineText;
                 slideTextItems.set(i, new SlideTextData(show, existingText, fmt.fontName, fmt.fontSize,
                         fmt.fontStyle, fmt.color, fmt.x, fmt.y, fmt.bgOpacity,
                         fmt.bgColor, fmt.justify, fmt.widthPct, fmt.shiftX, fmt.alignment,
                         fmt.textEffect, fmt.textEffectIntensity,
-                        fmt.highlightText, fmt.highlightColor, fmt.highlightStyle,
-                        fmt.highlightTightness, fmt.underlineStyle, fmt.underlineText));
+                        hlText, fmt.highlightColor, fmt.highlightStyle,
+                        fmt.highlightTightness, fmt.underlineStyle, ulText));
             }
             // For extra items beyond what the source has, apply formatting
             // from the last source item so they get consistent styling
@@ -5747,12 +5752,14 @@ public class GifSlideShowApp extends JFrame {
                     SlideTextData existing = slideTextItems.get(i);
                     String existingText = existing.text;
                     boolean show = (existingText != null && !existingText.isEmpty()) ? existing.show : false;
+                    String hlText = (existingText != null && !existingText.isEmpty()) ? existing.highlightText : lastFmt.highlightText;
+                    String ulText = (existingText != null && !existingText.isEmpty()) ? existing.underlineText : lastFmt.underlineText;
                     slideTextItems.set(i, new SlideTextData(show, existingText, lastFmt.fontName, lastFmt.fontSize,
                             lastFmt.fontStyle, lastFmt.color, lastFmt.x, lastFmt.y, lastFmt.bgOpacity,
                             lastFmt.bgColor, lastFmt.justify, lastFmt.widthPct, lastFmt.shiftX, lastFmt.alignment,
                             lastFmt.textEffect, lastFmt.textEffectIntensity,
-                            lastFmt.highlightText, lastFmt.highlightColor, lastFmt.highlightStyle,
-                            lastFmt.highlightTightness, lastFmt.underlineStyle, lastFmt.underlineText));
+                            hlText, lastFmt.highlightColor, lastFmt.highlightStyle,
+                            lastFmt.highlightTightness, lastFmt.underlineStyle, ulText));
                 }
             }
             if (currentSlideTextIndex >= slideTextItems.size()) {
@@ -5927,7 +5934,8 @@ public class GifSlideShowApp extends JFrame {
 
             justifyCheckBox.setSelected(textJustify);
             textWidthSpinner.setValue(textWidthPct);
-            highlightField.setText(highlightText);
+            // Don't overwrite per-slide highlight text — each slide highlights different words.
+            // Only sync the highlight color/style from master.
             this.highlightColor = highlightColor;
             highlightColorBtn.setForeground(highlightColor);
             textShiftXSpinner.setValue(textShiftX);
