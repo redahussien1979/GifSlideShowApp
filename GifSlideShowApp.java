@@ -117,35 +117,42 @@ public class GifSlideShowApp extends JFrame {
         scrollPane.getViewport().setBackground(new Color(30, 30, 30));
         mainPanel.add(scrollPane, BorderLayout.CENTER);
 
-        JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        JPanel bottomPanel = new JPanel();
+        bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.Y_AXIS));
         bottomPanel.setBackground(new Color(30, 30, 30));
+
+        JPanel topRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 4, 3));
+        topRow.setBackground(new Color(30, 30, 30));
+
+        JPanel botRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 4, 3));
+        botRow.setBackground(new Color(30, 30, 30));
 
         JButton addBtn = createStyledButton("+ Add Slide", new Color(29, 161, 242));
         addBtn.addActionListener(e -> addSlideRow());
 
-        JButton bulkBtn = createStyledButton("📁 Bulk Images", new Color(160, 100, 220));
+        JButton bulkBtn = createStyledButton("Bulk Images", new Color(160, 100, 220));
         bulkBtn.addActionListener(e -> bulkImport());
 
-        JButton bulkTextBtn = createStyledButton("📝 Bulk Text", new Color(220, 160, 50));
+        JButton bulkTextBtn = createStyledButton("Bulk Text", new Color(220, 160, 50));
         bulkTextBtn.addActionListener(e -> bulkImportText());
 
-        JButton titleGridBtn = createStyledButton("🖼 Title Grid Slide", new Color(60, 160, 200));
+        JButton titleGridBtn = createStyledButton("Title Grid", new Color(60, 160, 200));
         titleGridBtn.addActionListener(e -> addTitleGridSlide());
 
-        JButton gifBtn = createStyledButton("🎞 Create GIF", new Color(0, 186, 124));
+        JButton gifBtn = createStyledButton("Create GIF", new Color(0, 186, 124));
         gifBtn.addActionListener(e -> createGif());
 
-        JButton mp4Btn = createStyledButton("🎬 Create MP4", new Color(220, 60, 60));
+        JButton mp4Btn = createStyledButton("Create MP4", new Color(220, 60, 60));
         mp4Btn.addActionListener(e -> createMp4());
 
         // Orientation selector
         JLabel orientLabel = new JLabel("Orientation:");
         orientLabel.setForeground(Color.LIGHT_GRAY);
-        orientLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        orientLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
         orientationCombo = new JComboBox<>(new String[]{
                 "Landscape (1920×1080)", "Portrait (1080×1920)"});
-        orientationCombo.setPreferredSize(new Dimension(170, 30));
-        orientationCombo.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        orientationCombo.setPreferredSize(new Dimension(150, 26));
+        orientationCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         orientationCombo.addActionListener(e -> {
             String dims = isPortrait() ? "1080×1920" : "1920×1080";
             String orientText = isPortrait() ? "Portrait" : "Landscape";
@@ -157,38 +164,41 @@ public class GifSlideShowApp extends JFrame {
             }
         });
 
+        topRow.add(orientLabel);
+        topRow.add(orientationCombo);
+        topRow.add(addBtn);
+        topRow.add(bulkBtn);
+        topRow.add(bulkTextBtn);
+        topRow.add(titleGridBtn);
+        topRow.add(gifBtn);
+        topRow.add(mp4Btn);
+
         // Preset controls
         JLabel presetLabel = new JLabel("Preset:");
         presetLabel.setForeground(Color.LIGHT_GRAY);
-        presetLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        presetLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
         presetCombo = new JComboBox<>();
-        presetCombo.setPreferredSize(new Dimension(150, 30));
-        presetCombo.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        presetCombo.setPreferredSize(new Dimension(140, 26));
+        presetCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         refreshPresetCombo();
 
-        JButton presetSaveBtn = createStyledButton("💾 Save Preset", new Color(80, 140, 60));
+        JButton presetSaveBtn = createStyledButton("Save Preset", new Color(80, 140, 60));
         presetSaveBtn.addActionListener(e -> savePreset());
 
-        JButton presetLoadBtn = createStyledButton("📂 Load Preset", new Color(50, 120, 170));
+        JButton presetLoadBtn = createStyledButton("Load Preset", new Color(50, 120, 170));
         presetLoadBtn.addActionListener(e -> loadPreset());
 
-        JButton presetDeleteBtn = createStyledButton("🗑 Delete Preset", new Color(160, 60, 60));
+        JButton presetDeleteBtn = createStyledButton("Delete Preset", new Color(160, 60, 60));
         presetDeleteBtn.addActionListener(e -> deletePreset());
 
-        bottomPanel.add(orientLabel);
-        bottomPanel.add(orientationCombo);
-        bottomPanel.add(addBtn);
-        bottomPanel.add(bulkBtn);
-        bottomPanel.add(bulkTextBtn);
-        bottomPanel.add(titleGridBtn);
-        bottomPanel.add(gifBtn);
-        bottomPanel.add(mp4Btn);
-        bottomPanel.add(Box.createHorizontalStrut(12));
-        bottomPanel.add(presetLabel);
-        bottomPanel.add(presetCombo);
-        bottomPanel.add(presetSaveBtn);
-        bottomPanel.add(presetLoadBtn);
-        bottomPanel.add(presetDeleteBtn);
+        botRow.add(presetLabel);
+        botRow.add(presetCombo);
+        botRow.add(presetSaveBtn);
+        botRow.add(presetLoadBtn);
+        botRow.add(presetDeleteBtn);
+
+        bottomPanel.add(topRow);
+        bottomPanel.add(botRow);
         mainPanel.add(bottomPanel, BorderLayout.SOUTH);
 
         setContentPane(mainPanel);
@@ -1195,8 +1205,8 @@ public class GifSlideShowApp extends JFrame {
                 g2.dispose();
             }
         };
-        btn.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        btn.setPreferredSize(new Dimension(165, 40));
+        btn.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        btn.setPreferredSize(new Dimension(110, 30));
         btn.setContentAreaFilled(false);
         btn.setBorderPainted(false);
         btn.setFocusPainted(false);
