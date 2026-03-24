@@ -2788,6 +2788,18 @@ public class GifSlideShowApp extends JFrame {
     // ==================== MP4 Video Creation ====================
 
     private void createMp4() {
+        // First dialog: choose export mode
+        int modeChoice = JOptionPane.showOptionDialog(this,
+                "How would you like to export?",
+                "MP4 Export Mode", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
+                null, new String[]{"Normal Slideshow MP4", "Separate MP4 per Slide"}, "Normal Slideshow MP4");
+        if (modeChoice < 0) return;
+
+        if (modeChoice == 1) {
+            createMp4PerSlide();
+            return;
+        }
+
         List<SlideData> slides = collectSlides();
         if (slides == null) return;
 
@@ -3546,6 +3558,342 @@ public class GifSlideShowApp extends JFrame {
         };
         worker.execute();
         progressDialog.setVisible(true);
+    }
+
+    // ==================== Per-Slide MP4 Export ====================
+
+    private void createMp4PerSlide() {
+        List<SlideData> slides = collectSlides();
+        if (slides == null) return;
+
+        int duration = askDuration();
+        if (duration < 0) return;
+
+        String[] resOptions;
+        if (isPortrait()) {
+            resOptions = new String[]{"1080×1920 (Full HD Portrait)", "1440×2560 (2K QHD Portrait)", "2160×3840 (4K UHD Portrait)"};
+        } else {
+            resOptions = new String[]{"1920×1080 (Full HD)", "2560×1440 (2K QHD)", "3840×2160 (4K UHD)"};
+        }
+        int resChoice = JOptionPane.showOptionDialog(this,
+                "Choose video resolution:",
+                "MP4 Resolution", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
+                null, resOptions, resOptions[0]);
+        if (resChoice < 0) return;
+
+        final int videoW, videoH;
+        if (isPortrait()) {
+            switch (resChoice) {
+                case 1:  videoW = 1440; videoH = 2560; break;
+                case 2:  videoW = 2160; videoH = 3840; break;
+                default: videoW = 1080; videoH = 1920; break;
+            }
+        } else {
+            switch (resChoice) {
+                case 1:  videoW = 2560; videoH = 1440; break;
+                case 2:  videoW = 3840; videoH = 2160; break;
+                default: videoW = 1920; videoH = 1080; break;
+            }
+        }
+
+        String[] qualityOptions = {"High Quality (CRF 18)", "Medium Quality (CRF 23)", "Small File (CRF 28)"};
+        int qualityChoice = JOptionPane.showOptionDialog(this,
+                "Choose video quality:\n• High: Best quality, larger file\n• Medium: Balanced\n• Small: Smaller file, lower quality",
+                "MP4 Quality", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
+                null, qualityOptions, qualityOptions[0]);
+        if (qualityChoice < 0) return;
+
+        final int crf;
+        switch (qualityChoice) {
+            case 1:  crf = 23; break;
+            case 2:  crf = 28; break;
+            default: crf = 18; break;
+        }
+
+        // Choose output folder
+        JFileChooser folderChooser = new JFileChooser();
+        folderChooser.setDialogTitle("Select Output Folder for Slide Videos");
+        folderChooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        folderChooser.setAcceptAllFileFilterUsed(false);
+        if (folderChooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+
+        final File outFolder = folderChooser.getSelectedFile();
+        if (!outFolder.exists()) outFolder.mkdirs();
+
+        JDialog progressDialog = createProgressDialog("Exporting Slides as MP4...");
+        JProgressBar progressBar = getProgressBar(progressDialog);
+        JLabel progressLabel = getProgressLabel(progressDialog);
+
+        SwingWorker<Void, String> worker = new SwingWorker<>() {
+            String errorMsg = null;
+            String finalInfo = null;
+
+            @Override
+            protected Void doInBackground() {
+                try {
+                    int fps = 30;
+                    int totalSlides = slides.size();
+
+                    for (int si = 0; si < totalSlides; si++) {
+                        SlideData s = slides.get(si);
+                        int slideDur = (s.audioDurationMs > 0) ? s.audioDurationMs : duration;
+                        int slideFrames = Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
+
+                        String slideFileName = String.format("slide_%03d.mp4", si + 1);
+                        File slideOutFile = new File(outFolder, slideFileName);
+
+                        publish("Exporting slide " + (si + 1) + "/" + totalSlides + "...");
+
+                        File tempDir = new File(System.getProperty("java.io.tmpdir"),
+                                "gifslideshow_perslide_" + System.currentTimeMillis());
+                        if (!tempDir.mkdirs()) {
+                            throw new IOException("Failed to create temp directory: " + tempDir);
+                        }
+
+                        try {
+                            boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0;
+                            boolean hasAnimatedText = false;
+                            if (s.slideTexts != null) {
+                                for (SlideTextData stx : s.slideTexts) {
+                                    if (stx.show && stx.textEffect != null) {
+                                        String fx = stx.textEffect;
+                                        if (fx.equals("Water Ripple") || fx.equals("Fire") || fx.equals("Ice")
+                                                || fx.equals("Rainbow") || fx.equals("Typewriter")) {
+                                            hasAnimatedText = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (!hasAnimatedFx && !hasAnimatedText) {
+                                // Static slide — use concat demuxer (1 PNG, fast)
+                                BufferedImage frame = renderFrame(
+                                        s.image, s.text, s.fontName, s.fontSize,
+                                        s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                        videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                        s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                        s.slideNumberX, s.slideNumberY,
+                                        s.slideNumberSize, s.slideNumberColor,
+                                        s.slideTexts,
+                                        s.fxRoundCorners, s.fxCornerRadius,
+                                        s.fxVignette, s.fxSepia, 0, 0, 0, 0,
+                                        s.overlayEnabled,
+                                        s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                        s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+
+                                File imgFile = new File(tempDir, "slide.png");
+                                ImageIO.write(frame, "png", imgFile);
+
+                                double durSec = slideDur / 1000.0;
+                                File concatFile = new File(tempDir, "concat.txt");
+                                try (java.io.FileWriter fw = new java.io.FileWriter(concatFile)) {
+                                    fw.write("file '" + imgFile.getAbsolutePath().replace("'", "'\\''") + "'\n");
+                                    fw.write("duration " + String.format("%.3f", durSec) + "\n");
+                                    fw.write("file '" + imgFile.getAbsolutePath().replace("'", "'\\''") + "'\n");
+                                }
+
+                                java.util.List<String> cmd = new java.util.ArrayList<>();
+                                cmd.add("ffmpeg"); cmd.add("-y");
+                                cmd.add("-f"); cmd.add("concat");
+                                cmd.add("-safe"); cmd.add("0");
+                                cmd.add("-i"); cmd.add(concatFile.getAbsolutePath());
+                                cmd.add("-r"); cmd.add(String.valueOf(fps));
+                                cmd.add("-c:v"); cmd.add("libx264");
+                                cmd.add("-preset"); cmd.add("medium");
+                                cmd.add("-threads"); cmd.add("0");
+                                cmd.add("-crf"); cmd.add(String.valueOf(crf));
+                                cmd.add("-pix_fmt"); cmd.add("yuv420p");
+                                cmd.add("-movflags"); cmd.add("+faststart");
+
+                                // Mux slide audio if present
+                                File videoOnly = new File(tempDir, "video_only.mp4");
+                                cmd.add(videoOnly.getAbsolutePath());
+                                runFfmpeg(cmd);
+
+                                if (s.audioFile != null && s.audioFile.exists()) {
+                                    // Mux audio into video
+                                    java.util.List<String> muxCmd = new java.util.ArrayList<>();
+                                    muxCmd.add("ffmpeg"); muxCmd.add("-y");
+                                    muxCmd.add("-i"); muxCmd.add(videoOnly.getAbsolutePath());
+                                    muxCmd.add("-i"); muxCmd.add(s.audioFile.getAbsolutePath());
+                                    muxCmd.add("-c:v"); muxCmd.add("copy");
+                                    muxCmd.add("-c:a"); muxCmd.add("aac");
+                                    muxCmd.add("-b:a"); muxCmd.add("192k");
+                                    muxCmd.add("-shortest");
+                                    muxCmd.add("-movflags"); muxCmd.add("+faststart");
+                                    muxCmd.add(slideOutFile.getAbsolutePath());
+                                    runFfmpeg(muxCmd);
+                                } else {
+                                    java.nio.file.Files.copy(videoOnly.toPath(), slideOutFile.toPath(),
+                                            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                                }
+                            } else {
+                                // Animated slide — pipe frames to FFmpeg
+                                File videoOnly = new File(tempDir, "video_only.mp4");
+                                java.util.List<String> cmd = new java.util.ArrayList<>();
+                                cmd.add("ffmpeg"); cmd.add("-y");
+                                cmd.add("-f"); cmd.add("rawvideo");
+                                cmd.add("-pixel_format"); cmd.add("rgb24");
+                                cmd.add("-video_size"); cmd.add(videoW + "x" + videoH);
+                                cmd.add("-framerate"); cmd.add(String.valueOf(fps));
+                                cmd.add("-i"); cmd.add("-");
+                                cmd.add("-c:v"); cmd.add("libx264");
+                                cmd.add("-preset"); cmd.add("medium");
+                                cmd.add("-threads"); cmd.add("0");
+                                cmd.add("-crf"); cmd.add(String.valueOf(crf));
+                                cmd.add("-pix_fmt"); cmd.add("yuv420p");
+                                cmd.add("-movflags"); cmd.add("+faststart");
+                                cmd.add(videoOnly.getAbsolutePath());
+
+                                ProcessBuilder pb = new ProcessBuilder(cmd);
+                                pb.redirectErrorStream(true);
+                                Process proc = pb.start();
+                                java.io.OutputStream ffmpegStdin = new java.io.BufferedOutputStream(proc.getOutputStream(), 1024 * 1024);
+
+                                Thread convergenceReader = new Thread(() -> {
+                                    try (BufferedReader br = new BufferedReader(new InputStreamReader(proc.getInputStream()))) {
+                                        while (br.readLine() != null) {}
+                                    } catch (IOException ignored) {}
+                                });
+                                convergenceReader.setDaemon(true);
+                                convergenceReader.start();
+
+                                byte[] rgbBytes = new byte[videoW * videoH * 3];
+
+                                if (hasAnimatedFx && !hasAnimatedText) {
+                                    // Render base once, apply only effects per-frame
+                                    BufferedImage baseFrame = renderFrame(
+                                            s.image, s.text, s.fontName, s.fontSize,
+                                            s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                            videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                            s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                            s.slideNumberX, s.slideNumberY,
+                                            s.slideNumberSize, s.slideNumberColor,
+                                            s.slideTexts,
+                                            s.fxRoundCorners, s.fxCornerRadius,
+                                            s.fxVignette, s.fxSepia, 0, 0, 0, 0,
+                                            s.overlayEnabled,
+                                            s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                    int[] basePixels = baseFrame.getRGB(0, 0, videoW, videoH, null, 0, videoW);
+
+                                    for (int d = 0; d < slideFrames; d++) {
+                                        BufferedImage animFrame = new BufferedImage(videoW, videoH, BufferedImage.TYPE_INT_RGB);
+                                        animFrame.setRGB(0, 0, videoW, videoH, basePixels, 0, videoW);
+                                        applyAnimatedEffects(animFrame, videoW, videoH,
+                                                s.fxWaterRipple, s.fxGlitch, s.fxGrain, s.fxShake, d);
+                                        writeRawRGB(animFrame, videoW, videoH, rgbBytes, ffmpegStdin);
+                                    }
+                                } else {
+                                    // Full render per-frame
+                                    for (int d = 0; d < slideFrames; d++) {
+                                        BufferedImage frame = renderFrame(
+                                                s.image, s.text, s.fontName, s.fontSize,
+                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                s.slideNumberX, s.slideNumberY,
+                                                s.slideNumberSize, s.slideNumberColor,
+                                                s.slideTexts,
+                                                s.fxRoundCorners, s.fxCornerRadius,
+                                                s.fxVignette, s.fxSepia, s.fxGrain,
+                                                s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                                s.overlayEnabled,
+                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                        writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
+                                    }
+                                }
+
+                                ffmpegStdin.close();
+                                int exitCode = proc.waitFor();
+                                convergenceReader.join(5000);
+                                if (exitCode != 0) throw new IOException("FFmpeg encoding failed for slide " + (si + 1));
+
+                                if (s.audioFile != null && s.audioFile.exists()) {
+                                    java.util.List<String> muxCmd = new java.util.ArrayList<>();
+                                    muxCmd.add("ffmpeg"); muxCmd.add("-y");
+                                    muxCmd.add("-i"); muxCmd.add(videoOnly.getAbsolutePath());
+                                    muxCmd.add("-i"); muxCmd.add(s.audioFile.getAbsolutePath());
+                                    muxCmd.add("-c:v"); muxCmd.add("copy");
+                                    muxCmd.add("-c:a"); muxCmd.add("aac");
+                                    muxCmd.add("-b:a"); muxCmd.add("192k");
+                                    muxCmd.add("-shortest");
+                                    muxCmd.add("-movflags"); muxCmd.add("+faststart");
+                                    muxCmd.add(slideOutFile.getAbsolutePath());
+                                    runFfmpeg(muxCmd);
+                                } else {
+                                    java.nio.file.Files.copy(videoOnly.toPath(), slideOutFile.toPath(),
+                                            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                                }
+                            }
+                        } finally {
+                            // Clean up temp directory
+                            File[] tempFiles = tempDir.listFiles();
+                            if (tempFiles != null) for (File tf : tempFiles) tf.delete();
+                            tempDir.delete();
+                        }
+
+                        int pct = (int) ((si + 1.0) / totalSlides * 100);
+                        final int p = pct;
+                        SwingUtilities.invokeLater(() -> progressBar.setValue(p));
+                    }
+
+                    finalInfo = "Exported " + totalSlides + " slide(s) as individual MP4 files to:\n" + outFolder.getAbsolutePath();
+                } catch (Exception ex) {
+                    errorMsg = ex.getMessage();
+                    ex.printStackTrace();
+                }
+                return null;
+            }
+
+            @Override
+            protected void process(java.util.List<String> chunks) {
+                if (!chunks.isEmpty()) progressLabel.setText(chunks.get(chunks.size() - 1));
+            }
+
+            @Override
+            protected void done() {
+                progressDialog.dispose();
+                if (errorMsg != null) {
+                    JOptionPane.showMessageDialog(GifSlideShowApp.this,
+                            "Error: " + errorMsg, "MP4 Export Error", JOptionPane.ERROR_MESSAGE);
+                } else if (finalInfo != null) {
+                    int open = JOptionPane.showConfirmDialog(GifSlideShowApp.this,
+                            finalInfo + "\n\nOpen output folder?",
+                            "MP4 Export Complete", JOptionPane.YES_NO_OPTION, JOptionPane.INFORMATION_MESSAGE);
+                    if (open == JOptionPane.YES_OPTION) {
+                        try {
+                            Desktop.getDesktop().open(outFolder);
+                        } catch (IOException ex) {
+                            JOptionPane.showMessageDialog(GifSlideShowApp.this,
+                                    "Could not open folder.", "Error", JOptionPane.ERROR_MESSAGE);
+                        }
+                    }
+                }
+            }
+        };
+        worker.execute();
+        progressDialog.setVisible(true);
+    }
+
+    /** Run an FFmpeg command and throw IOException on failure. */
+    private static void runFfmpeg(java.util.List<String> cmd) throws IOException, InterruptedException {
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.redirectErrorStream(true);
+        Process proc = pb.start();
+        StringBuilder log = new StringBuilder();
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(proc.getInputStream()))) {
+            String line;
+            while ((line = br.readLine()) != null) log.append(line).append("\n");
+        }
+        int exit = proc.waitFor();
+        if (exit != 0) {
+            String lastLines = log.toString();
+            if (lastLines.length() > 1500) lastLines = lastLines.substring(lastLines.length() - 1500);
+            throw new IOException("FFmpeg failed (exit " + exit + "):\n" + lastLines);
+        }
     }
 
     // ==================== GIF Encoding ====================
