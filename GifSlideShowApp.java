@@ -2030,8 +2030,13 @@ public class GifSlideShowApp extends JFrame {
                         if (justifyWords.length > 1) {
                             int totalWordsWidth = 0;
                             for (String w : justifyWords) totalWordsWidth += stFm.stringWidth(w);
-                            justifyExtraSpace = (double) (stMaxLineWidth - totalWordsWidth) / (justifyWords.length - 1);
-                            justified = true;
+                            double avgGap = (double) (stMaxLineWidth - totalWordsWidth) / (justifyWords.length - 1);
+                            double normalSpace = stFm.stringWidth(" ");
+                            // Only justify if gaps won't exceed 3x normal space width
+                            if (avgGap <= normalSpace * 3) {
+                                justifyExtraSpace = avgGap;
+                                justified = true;
+                            }
                         }
                     }
 
@@ -2054,6 +2059,8 @@ public class GifSlideShowApp extends JFrame {
                             else {
                                 int tw = 0; for (String w : justifyWords) tw += stFm.stringWidth(w);
                                 justifyExtraSpace = (double) (stMaxLineWidth - tw) / (justifyWords.length - 1);
+                                double twNormalSpace = stFm.stringWidth(" ");
+                                if (justifyExtraSpace > twNormalSpace * 3) justified = false;
                             }
                         }
                     }
@@ -2759,13 +2766,17 @@ public class GifSlideShowApp extends JFrame {
                             totalWordsWidth += fm.stringWidth(w);
                         }
                         double extraSpace = (double) (maxLineWidth - totalWordsWidth) / (words.length - 1);
-                        double drawX = lx;
-                        for (int wi = 0; wi < words.length; wi++) {
-                            g.drawString(words[wi], (int) drawX, lineY);
-                            drawX += fm.stringWidth(words[wi]) + extraSpace;
+                        double normalSpace = fm.stringWidth(" ");
+                        // Skip justify if gaps would be too large (looks unprofessional)
+                        if (extraSpace <= normalSpace * 3) {
+                            double drawX = lx;
+                            for (int wi = 0; wi < words.length; wi++) {
+                                g.drawString(words[wi], (int) drawX, lineY);
+                                drawX += fm.stringWidth(words[wi]) + extraSpace;
+                            }
+                            lineY += lineHeight;
+                            continue;
                         }
-                        lineY += lineHeight;
-                        continue;
                     }
                 }
 
