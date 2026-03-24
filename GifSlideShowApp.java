@@ -65,6 +65,10 @@ public class GifSlideShowApp extends JFrame {
     private JComboBox<String> orientationCombo;
     private JLabel header;
 
+    // Presets
+    private static final File PRESETS_DIR = new File(new File(".").getAbsoluteFile().getParentFile(), "presets");
+    private JComboBox<String> presetCombo;
+
     private boolean isPortrait() {
         return orientationCombo != null && "Portrait (1080×1920)".equals(orientationCombo.getSelectedItem());
     }
@@ -153,6 +157,24 @@ public class GifSlideShowApp extends JFrame {
             }
         });
 
+        // Preset controls
+        JLabel presetLabel = new JLabel("Preset:");
+        presetLabel.setForeground(Color.LIGHT_GRAY);
+        presetLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        presetCombo = new JComboBox<>();
+        presetCombo.setPreferredSize(new Dimension(150, 30));
+        presetCombo.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        refreshPresetCombo();
+
+        JButton presetSaveBtn = createStyledButton("💾 Save Preset", new Color(80, 140, 60));
+        presetSaveBtn.addActionListener(e -> savePreset());
+
+        JButton presetLoadBtn = createStyledButton("📂 Load Preset", new Color(50, 120, 170));
+        presetLoadBtn.addActionListener(e -> loadPreset());
+
+        JButton presetDeleteBtn = createStyledButton("🗑 Delete Preset", new Color(160, 60, 60));
+        presetDeleteBtn.addActionListener(e -> deletePreset());
+
         bottomPanel.add(orientLabel);
         bottomPanel.add(orientationCombo);
         bottomPanel.add(addBtn);
@@ -161,10 +183,301 @@ public class GifSlideShowApp extends JFrame {
         bottomPanel.add(titleGridBtn);
         bottomPanel.add(gifBtn);
         bottomPanel.add(mp4Btn);
+        bottomPanel.add(Box.createHorizontalStrut(12));
+        bottomPanel.add(presetLabel);
+        bottomPanel.add(presetCombo);
+        bottomPanel.add(presetSaveBtn);
+        bottomPanel.add(presetLoadBtn);
+        bottomPanel.add(presetDeleteBtn);
         mainPanel.add(bottomPanel, BorderLayout.SOUTH);
 
         setContentPane(mainPanel);
         addSlideRow();
+    }
+
+    // ==================== Presets ====================
+
+    private void refreshPresetCombo() {
+        presetCombo.removeAllItems();
+        if (!PRESETS_DIR.isDirectory()) return;
+        File[] files = PRESETS_DIR.listFiles((d, n) -> n.endsWith(".preset"));
+        if (files == null) return;
+        Arrays.sort(files, Comparator.comparing(File::getName, String.CASE_INSENSITIVE_ORDER));
+        for (File f : files) {
+            presetCombo.addItem(f.getName().replace(".preset", ""));
+        }
+    }
+
+    private void savePreset() {
+        SlideRow source = null;
+        for (SlideRow row : slideRows) {
+            if (!row.isTitleGridSlide) { source = row; break; }
+        }
+        if (source == null) {
+            JOptionPane.showMessageDialog(this, "No slide available to save settings from.", "Save Preset", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        String name = JOptionPane.showInputDialog(this, "Enter preset name:", "Save Preset", JOptionPane.PLAIN_MESSAGE);
+        if (name == null || name.trim().isEmpty()) return;
+        name = name.trim().replaceAll("[^a-zA-Z0-9 _\\-]", "");
+        if (name.isEmpty()) return;
+
+        PRESETS_DIR.mkdirs();
+        Properties props = new Properties();
+
+        // Text formatting
+        props.setProperty("fontName", source.getSelectedFont());
+        props.setProperty("fontSize", String.valueOf(source.getFontSize()));
+        props.setProperty("fontStyle", String.valueOf(source.getFontStyle()));
+        props.setProperty("fontColor", colorToHex(source.getFontColor()));
+        props.setProperty("alignment", String.valueOf(source.getTextAlignment()));
+        props.setProperty("showPin", String.valueOf(source.isShowPin()));
+        props.setProperty("textJustify", String.valueOf(source.isTextJustify()));
+        props.setProperty("textWidthPct", String.valueOf(source.getTextWidthPct()));
+        props.setProperty("textShiftX", String.valueOf(source.getTextShiftX()));
+        props.setProperty("highlightText", source.getHighlightText());
+        props.setProperty("highlightColor", colorToHex(source.getHighlightColor()));
+
+        // Display
+        props.setProperty("displayMode", source.getDisplayMode());
+        props.setProperty("subtitleY", String.valueOf(source.getSubtitleY()));
+        props.setProperty("subtitleBgOpacity", String.valueOf(source.getSubtitleBgOpacity()));
+
+        // Slide number
+        props.setProperty("showSlideNumber", String.valueOf(source.isShowSlideNumber()));
+        props.setProperty("slideNumberFontName", source.getSlideNumberFontName());
+        props.setProperty("slideNumberX", String.valueOf(source.getSlideNumberX()));
+        props.setProperty("slideNumberY", String.valueOf(source.getSlideNumberY()));
+        props.setProperty("slideNumberSize", String.valueOf(source.getSlideNumberSize()));
+        props.setProperty("slideNumberColor", colorToHex(source.getSlideNumberColor()));
+
+        // Effects
+        props.setProperty("fxRoundCorners", String.valueOf(source.isFxRoundCorners()));
+        props.setProperty("fxCornerRadius", String.valueOf(source.getFxCornerRadius()));
+        props.setProperty("fxVignetteOn", String.valueOf(source.fxVignetteCheck.isSelected()));
+        props.setProperty("fxVignetteVal", String.valueOf(source.getFxVignetteRaw()));
+        props.setProperty("fxSepiaOn", String.valueOf(source.fxSepiaCheck.isSelected()));
+        props.setProperty("fxSepiaVal", String.valueOf(source.getFxSepiaRaw()));
+        props.setProperty("fxGrainOn", String.valueOf(source.fxGrainCheck.isSelected()));
+        props.setProperty("fxGrainVal", String.valueOf(source.getFxGrainRaw()));
+        props.setProperty("fxWaterRippleOn", String.valueOf(source.fxWaterRippleCheck.isSelected()));
+        props.setProperty("fxWaterRippleVal", String.valueOf(source.getFxWaterRippleRaw()));
+        props.setProperty("fxGlitchOn", String.valueOf(source.fxGlitchCheck.isSelected()));
+        props.setProperty("fxGlitchVal", String.valueOf(source.getFxGlitchRaw()));
+        props.setProperty("fxShakeOn", String.valueOf(source.fxShakeCheck.isSelected()));
+        props.setProperty("fxShakeVal", String.valueOf(source.getFxShakeRaw()));
+
+        // Overlay
+        props.setProperty("overlayEnabled", String.valueOf(source.isOverlayEnabled()));
+        props.setProperty("overlayShape", source.getOverlayShape());
+        props.setProperty("overlayBgMode", source.getOverlayBgMode());
+        props.setProperty("overlayBgColor", colorToHex(source.getOverlayBgColor()));
+        props.setProperty("overlayX", String.valueOf(source.getOverlayX()));
+        props.setProperty("overlayY", String.valueOf(source.getOverlayY()));
+        props.setProperty("overlaySize", String.valueOf(source.getOverlaySize()));
+
+        // Slide text layers
+        List<SlideTextData> texts = source.getSlideTextFormats();
+        props.setProperty("slideTextCount", String.valueOf(texts.size()));
+        for (int i = 0; i < texts.size(); i++) {
+            SlideTextData t = texts.get(i);
+            String p = "slideText." + i + ".";
+            props.setProperty(p + "show", String.valueOf(t.show));
+            props.setProperty(p + "fontName", t.fontName);
+            props.setProperty(p + "fontSize", String.valueOf(t.fontSize));
+            props.setProperty(p + "fontStyle", String.valueOf(t.fontStyle));
+            props.setProperty(p + "color", colorToHex(t.color));
+            props.setProperty(p + "x", String.valueOf(t.x));
+            props.setProperty(p + "y", String.valueOf(t.y));
+            props.setProperty(p + "bgOpacity", String.valueOf(t.bgOpacity));
+            props.setProperty(p + "bgColor", colorToHex(t.bgColor));
+            props.setProperty(p + "justify", String.valueOf(t.justify));
+            props.setProperty(p + "widthPct", String.valueOf(t.widthPct));
+            props.setProperty(p + "shiftX", String.valueOf(t.shiftX));
+            props.setProperty(p + "alignment", String.valueOf(t.alignment));
+            props.setProperty(p + "textEffect", t.textEffect);
+            props.setProperty(p + "textEffectIntensity", String.valueOf(t.textEffectIntensity));
+        }
+
+        // Orientation
+        props.setProperty("orientation", isPortrait() ? "Portrait" : "Landscape");
+
+        File file = new File(PRESETS_DIR, name + ".preset");
+        try (FileOutputStream fos = new FileOutputStream(file)) {
+            props.store(fos, "GifSlideShowApp Preset: " + name);
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this, "Failed to save preset: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        refreshPresetCombo();
+        presetCombo.setSelectedItem(name);
+        JOptionPane.showMessageDialog(this, "Preset \"" + name + "\" saved.", "Save Preset", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void loadPreset() {
+        String name = (String) presetCombo.getSelectedItem();
+        if (name == null || name.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "No preset selected.", "Load Preset", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        File file = new File(PRESETS_DIR, name + ".preset");
+        if (!file.exists()) {
+            JOptionPane.showMessageDialog(this, "Preset file not found.", "Load Preset", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        Properties props = new Properties();
+        try (FileInputStream fis = new FileInputStream(file)) {
+            props.load(fis);
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this, "Failed to load preset: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        // Parse values
+        String fontName = props.getProperty("fontName", "Segoe UI");
+        int fontSize = Integer.parseInt(props.getProperty("fontSize", "28"));
+        int fontStyle = Integer.parseInt(props.getProperty("fontStyle", "0"));
+        Color fontColor = hexToColor(props.getProperty("fontColor", "#FFFFFF"));
+        int alignment = Integer.parseInt(props.getProperty("alignment", String.valueOf(SwingConstants.LEFT)));
+        boolean showPin = Boolean.parseBoolean(props.getProperty("showPin", "false"));
+        boolean textJustify = Boolean.parseBoolean(props.getProperty("textJustify", "false"));
+        int textWidthPct = Integer.parseInt(props.getProperty("textWidthPct", "90"));
+        int textShiftX = Integer.parseInt(props.getProperty("textShiftX", "0"));
+        String highlightText = props.getProperty("highlightText", "");
+        Color highlightColor = hexToColor(props.getProperty("highlightColor", "#FFFF00B4"));
+
+        String displayMode = props.getProperty("displayMode", "Blur-Fit");
+        int subtitleY = Integer.parseInt(props.getProperty("subtitleY", "5"));
+        int subtitleBgOpacity = Integer.parseInt(props.getProperty("subtitleBgOpacity", "78"));
+
+        boolean showSlideNumber = Boolean.parseBoolean(props.getProperty("showSlideNumber", "false"));
+        String slideNumberFontName = props.getProperty("slideNumberFontName", loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI");
+        int slideNumberX = Integer.parseInt(props.getProperty("slideNumberX", "50"));
+        int slideNumberY = Integer.parseInt(props.getProperty("slideNumberY", "50"));
+        int slideNumberSize = Integer.parseInt(props.getProperty("slideNumberSize", "80"));
+        Color slideNumberColor = hexToColor(props.getProperty("slideNumberColor", "#FFFFFF"));
+
+        boolean fxRoundCorners = Boolean.parseBoolean(props.getProperty("fxRoundCorners", "false"));
+        int fxCornerRadius = Integer.parseInt(props.getProperty("fxCornerRadius", "40"));
+        boolean fxVignetteOn = Boolean.parseBoolean(props.getProperty("fxVignetteOn", "false"));
+        int fxVignetteVal = Integer.parseInt(props.getProperty("fxVignetteVal", "50"));
+        boolean fxSepiaOn = Boolean.parseBoolean(props.getProperty("fxSepiaOn", "false"));
+        int fxSepiaVal = Integer.parseInt(props.getProperty("fxSepiaVal", "50"));
+        boolean fxGrainOn = Boolean.parseBoolean(props.getProperty("fxGrainOn", "false"));
+        int fxGrainVal = Integer.parseInt(props.getProperty("fxGrainVal", "50"));
+        boolean fxWaterRippleOn = Boolean.parseBoolean(props.getProperty("fxWaterRippleOn", "false"));
+        int fxWaterRippleVal = Integer.parseInt(props.getProperty("fxWaterRippleVal", "50"));
+        boolean fxGlitchOn = Boolean.parseBoolean(props.getProperty("fxGlitchOn", "false"));
+        int fxGlitchVal = Integer.parseInt(props.getProperty("fxGlitchVal", "50"));
+        boolean fxShakeOn = Boolean.parseBoolean(props.getProperty("fxShakeOn", "false"));
+        int fxShakeVal = Integer.parseInt(props.getProperty("fxShakeVal", "50"));
+
+        String overlayShape = props.getProperty("overlayShape", "Rectangular");
+        String overlayBgMode = props.getProperty("overlayBgMode", "Blur");
+        Color overlayBgColor = hexToColor(props.getProperty("overlayBgColor", "#152B2B"));
+        int overlayX = Integer.parseInt(props.getProperty("overlayX", "50"));
+        int overlayY = Integer.parseInt(props.getProperty("overlayY", "50"));
+        int overlaySize = Integer.parseInt(props.getProperty("overlaySize", "80"));
+
+        // Slide text layers
+        int slideTextCount = Integer.parseInt(props.getProperty("slideTextCount", "1"));
+        List<SlideTextData> slideTextFormats = new ArrayList<>();
+        for (int i = 0; i < slideTextCount; i++) {
+            String p = "slideText." + i + ".";
+            slideTextFormats.add(new SlideTextData(
+                    Boolean.parseBoolean(props.getProperty(p + "show", "false")),
+                    "",  // text content not saved in presets
+                    props.getProperty(p + "fontName", loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI"),
+                    Integer.parseInt(props.getProperty(p + "fontSize", "40")),
+                    Integer.parseInt(props.getProperty(p + "fontStyle", "0")),
+                    hexToColor(props.getProperty(p + "color", "#FFFF00")),
+                    Integer.parseInt(props.getProperty(p + "x", "50")),
+                    Integer.parseInt(props.getProperty(p + "y", "50")),
+                    Integer.parseInt(props.getProperty(p + "bgOpacity", "0")),
+                    hexToColor(props.getProperty(p + "bgColor", "#000000")),
+                    Boolean.parseBoolean(props.getProperty(p + "justify", "false")),
+                    Integer.parseInt(props.getProperty(p + "widthPct", "100")),
+                    Integer.parseInt(props.getProperty(p + "shiftX", "0")),
+                    Integer.parseInt(props.getProperty(p + "alignment", String.valueOf(SwingConstants.CENTER))),
+                    props.getProperty(p + "textEffect", "None"),
+                    Integer.parseInt(props.getProperty(p + "textEffectIntensity", "50"))
+            ));
+        }
+
+        // Orientation
+        String orientation = props.getProperty("orientation", "Landscape");
+        if ("Portrait".equals(orientation)) {
+            orientationCombo.setSelectedItem("Portrait (1080×1920)");
+        } else {
+            orientationCombo.setSelectedItem("Landscape (1920×1080)");
+        }
+
+        // Apply to all non-title-grid slides
+        isSyncingFormat = true;
+        try {
+            for (SlideRow row : slideRows) {
+                if (row.isTitleGridSlide) continue;
+                row.applyFormatting(fontName, fontSize, fontStyle, fontColor, alignment, showPin, displayMode,
+                        subtitleY, subtitleBgOpacity,
+                        showSlideNumber, slideNumberFontName, slideNumberX, slideNumberY, slideNumberSize, slideNumberColor,
+                        slideTextFormats,
+                        fxRoundCorners, fxCornerRadius,
+                        fxVignetteOn, fxVignetteVal, fxSepiaOn, fxSepiaVal,
+                        fxGrainOn, fxGrainVal, fxWaterRippleOn, fxWaterRippleVal,
+                        fxGlitchOn, fxGlitchVal, fxShakeOn, fxShakeVal,
+                        overlayShape, overlayBgMode, overlayBgColor, overlayX, overlayY, overlaySize,
+                        textJustify, textWidthPct, highlightText, highlightColor,
+                        textShiftX);
+            }
+        } finally {
+            isSyncingFormat = false;
+        }
+
+        JOptionPane.showMessageDialog(this, "Preset \"" + name + "\" loaded.", "Load Preset", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void deletePreset() {
+        String name = (String) presetCombo.getSelectedItem();
+        if (name == null || name.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "No preset selected.", "Delete Preset", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        int confirm = JOptionPane.showConfirmDialog(this,
+                "Delete preset \"" + name + "\"?", "Delete Preset", JOptionPane.YES_NO_OPTION);
+        if (confirm != JOptionPane.YES_OPTION) return;
+
+        File file = new File(PRESETS_DIR, name + ".preset");
+        if (file.exists()) file.delete();
+        refreshPresetCombo();
+    }
+
+    private static String colorToHex(Color c) {
+        if (c.getAlpha() == 255) {
+            return String.format("#%02X%02X%02X", c.getRed(), c.getGreen(), c.getBlue());
+        }
+        return String.format("#%02X%02X%02X%02X", c.getRed(), c.getGreen(), c.getBlue(), c.getAlpha());
+    }
+
+    private static Color hexToColor(String hex) {
+        if (hex == null || hex.isEmpty()) return Color.WHITE;
+        hex = hex.startsWith("#") ? hex.substring(1) : hex;
+        try {
+            if (hex.length() == 6) {
+                return new Color(Integer.parseInt(hex, 16));
+            } else if (hex.length() == 8) {
+                int r = Integer.parseInt(hex.substring(0, 2), 16);
+                int g = Integer.parseInt(hex.substring(2, 4), 16);
+                int b = Integer.parseInt(hex.substring(4, 6), 16);
+                int a = Integer.parseInt(hex.substring(6, 8), 16);
+                return new Color(r, g, b, a);
+            }
+        } catch (NumberFormatException ignored) {}
+        return Color.WHITE;
     }
 
     // ==================== Title Grid Slide ====================
