@@ -1153,7 +1153,7 @@ public class GifSlideShowApp extends JFrame {
 
         if (choice < 0) return;
 
-        List<String> rawLines;
+        List<String> rawLines = null;
 
         if (choice == 0) {
             JFileChooser fc = new JFileChooser();
@@ -1162,7 +1162,39 @@ public class GifSlideShowApp extends JFrame {
             if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
 
             try {
-                rawLines = Files.readAllLines(fc.getSelectedFile().toPath(), StandardCharsets.UTF_8);
+                // Try UTF-8 first (handles BOM automatically via readAllLines)
+                byte[] fileBytes = Files.readAllBytes(fc.getSelectedFile().toPath());
+                // Strip UTF-8 BOM if present
+                int offset = 0;
+                if (fileBytes.length >= 3 && (fileBytes[0] & 0xFF) == 0xEF
+                        && (fileBytes[1] & 0xFF) == 0xBB && (fileBytes[2] & 0xFF) == 0xBF) {
+                    offset = 3;
+                }
+                // Strip UTF-16 LE BOM
+                else if (fileBytes.length >= 2 && (fileBytes[0] & 0xFF) == 0xFF && (fileBytes[1] & 0xFF) == 0xFE) {
+                    String content = new String(fileBytes, java.nio.charset.Charset.forName("UTF-16LE"));
+                    // Remove BOM character
+                    if (content.length() > 0 && content.charAt(0) == '\uFEFF') content = content.substring(1);
+                    rawLines = Arrays.asList(content.split("\\r?\\n"));
+                    offset = -1; // signal already decoded
+                }
+                // Strip UTF-16 BE BOM
+                else if (fileBytes.length >= 2 && (fileBytes[0] & 0xFF) == 0xFE && (fileBytes[1] & 0xFF) == 0xFF) {
+                    String content = new String(fileBytes, java.nio.charset.Charset.forName("UTF-16BE"));
+                    if (content.length() > 0 && content.charAt(0) == '\uFEFF') content = content.substring(1);
+                    rawLines = Arrays.asList(content.split("\\r?\\n"));
+                    offset = -1;
+                }
+                if (offset >= 0) {
+                    String content = new String(fileBytes, offset, fileBytes.length - offset, StandardCharsets.UTF_8);
+                    // Check if UTF-8 decoded cleanly (no replacement chars)
+                    if (content.contains("\uFFFD")) {
+                        // Try Windows-1252 (common Excel encoding) which supports accented chars
+                        content = new String(fileBytes, offset, fileBytes.length - offset,
+                                java.nio.charset.Charset.forName("windows-1252"));
+                    }
+                    rawLines = Arrays.asList(content.split("\\r?\\n"));
+                }
             } catch (IOException ex) {
                 try {
                     rawLines = Files.readAllLines(fc.getSelectedFile().toPath());
