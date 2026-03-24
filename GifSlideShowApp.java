@@ -1238,12 +1238,27 @@ public class GifSlideShowApp extends JFrame {
 
         // Ask whether first row is a header
         int headerChoice = JOptionPane.showOptionDialog(this,
-                "Does the first row contain column headers?\n(If yes, it will be skipped)",
+                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL column headers to import highlight/underline words.)",
                 "Dictionary Import", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,
                 null, new String[]{"Yes, skip first row", "No, first row is data"}, "No, first row is data");
 
+        // Detect HL/UL columns from header row
+        int hlColIndex = -1;
+        int ulColIndex = -1;
+        List<String> headerFields = null;
+
         List<String> dataLines;
         if (headerChoice == 0) {
+            headerFields = parseCsvLine(trimmed.get(0));
+            // Scan headers for HL and UL columns (case-insensitive)
+            for (int c = 0; c < headerFields.size(); c++) {
+                String h = headerFields.get(c).trim().toUpperCase();
+                if (h.equals("HL") || h.equals("HIGHLIGHT")) {
+                    hlColIndex = c;
+                } else if (h.equals("UL") || h.equals("UNDERLINE")) {
+                    ulColIndex = c;
+                }
+            }
             dataLines = trimmed.subList(1, trimmed.size());
         } else {
             dataLines = trimmed;
@@ -1254,13 +1269,22 @@ public class GifSlideShowApp extends JFrame {
             return;
         }
 
-        // Parse all rows
+        // Build list of text column indices (excluding HL/UL)
+        // Parse all rows first to determine max columns
         List<List<String>> allRows = new ArrayList<>();
         int maxCols = 0;
         for (String line : dataLines) {
             List<String> fields = parseCsvLine(line);
             allRows.add(fields);
             maxCols = Math.max(maxCols, fields.size());
+        }
+
+        // Determine which columns are text columns (not HL/UL)
+        List<Integer> textColIndices = new ArrayList<>();
+        for (int c = 0; c < maxCols; c++) {
+            if (c != hlColIndex && c != ulColIndex) {
+                textColIndices.add(c);
+            }
         }
 
         // Collect non-title-grid slides
@@ -1286,13 +1310,30 @@ public class GifSlideShowApp extends JFrame {
                 targetSlides.add(slide);
             }
 
-            // Assign each column to a slide text item
-            for (int col = 0; col < fields.size(); col++) {
-                String cellText = fields.get(col);
-                if (!cellText.isEmpty()) {
-                    slide.setSlideTextAt(col, cellText);
+            // Assign text columns to slide text items (skipping HL/UL columns)
+            for (int ti = 0; ti < textColIndices.size(); ti++) {
+                int col = textColIndices.get(ti);
+                if (col < fields.size()) {
+                    String cellText = fields.get(col);
+                    if (!cellText.isEmpty()) {
+                        slide.setSlideTextAt(ti, cellText);
+                    }
                 }
             }
+
+            // Apply HL text from CSV if column exists
+            if (hlColIndex >= 0 && hlColIndex < fields.size()) {
+                String hlText = fields.get(hlColIndex).trim();
+                slide.setHighlightText(hlText);
+                slide.setSlideTextHighlightText(hlText);
+            }
+
+            // Apply UL text from CSV if column exists
+            if (ulColIndex >= 0 && ulColIndex < fields.size()) {
+                String ulText = fields.get(ulColIndex).trim();
+                slide.setSlideTextUnderlineText(ulText);
+            }
+
             assigned++;
         }
 
@@ -1300,10 +1341,11 @@ public class GifSlideShowApp extends JFrame {
         slidesPanel.revalidate();
         slidesPanel.repaint();
 
-        JOptionPane.showMessageDialog(this,
-                assigned + " rows imported across " + maxCols + " text columns.\n"
-                + "Slides: " + slideRows.size() + " total.",
-                "Dictionary Import", JOptionPane.INFORMATION_MESSAGE);
+        String importMsg = assigned + " rows imported across " + textColIndices.size() + " text columns.";
+        if (hlColIndex >= 0) importMsg += "\nHL column detected — highlight words imported per slide.";
+        if (ulColIndex >= 0) importMsg += "\nUL column detected — underline words imported per slide.";
+        importMsg += "\nSlides: " + slideRows.size() + " total.";
+        JOptionPane.showMessageDialog(this, importMsg, "Dictionary Import", JOptionPane.INFORMATION_MESSAGE);
     }
 
     // ==================== Format Sync ====================
@@ -6162,6 +6204,43 @@ public class GifSlideShowApp extends JFrame {
             }
             if (currentSlideTextIndex == textIndex) {
                 loadSlideTextFromItem(textIndex);
+            }
+        }
+
+        /** Set the main overlay highlight text field for this slide. */
+        void setHighlightText(String text) {
+            highlightField.setText(text != null ? text : "");
+        }
+
+        /** Set highlight text on all slide text items for this slide. */
+        void setSlideTextHighlightText(String text) {
+            for (int i = 0; i < slideTextItems.size(); i++) {
+                SlideTextData old = slideTextItems.get(i);
+                slideTextItems.set(i, new SlideTextData(old.show, old.text, old.fontName, old.fontSize,
+                        old.fontStyle, old.color, old.x, old.y, old.bgOpacity,
+                        old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
+                        old.textEffect, old.textEffectIntensity,
+                        text != null ? text : "", old.highlightColor, old.highlightStyle,
+                        old.highlightTightness, old.underlineStyle, old.underlineText));
+            }
+            if (currentSlideTextIndex < slideTextItems.size()) {
+                loadSlideTextFromItem(currentSlideTextIndex);
+            }
+        }
+
+        /** Set underline text on all slide text items for this slide. */
+        void setSlideTextUnderlineText(String text) {
+            for (int i = 0; i < slideTextItems.size(); i++) {
+                SlideTextData old = slideTextItems.get(i);
+                slideTextItems.set(i, new SlideTextData(old.show, old.text, old.fontName, old.fontSize,
+                        old.fontStyle, old.color, old.x, old.y, old.bgOpacity,
+                        old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
+                        old.textEffect, old.textEffectIntensity,
+                        old.highlightText, old.highlightColor, old.highlightStyle,
+                        old.highlightTightness, old.underlineStyle, text != null ? text : ""));
+            }
+            if (currentSlideTextIndex < slideTextItems.size()) {
+                loadSlideTextFromItem(currentSlideTextIndex);
             }
         }
 
