@@ -5678,17 +5678,16 @@ public class GifSlideShowApp extends JFrame {
                         40, Font.PLAIN, Color.YELLOW, 50, 50, 0, Color.BLACK, false, 100, 0, SwingConstants.CENTER));
             }
             // Apply formatting from source to each matching text item.
-            // Preserve this slide's own: text content, show state, and alignment.
+            // Preserve this slide's own text content and show state.
+            // All formatting (including alignment) syncs from slide 1.
             for (int i = 0; i < formats.size(); i++) {
                 SlideTextData fmt = formats.get(i);
                 SlideTextData existing = slideTextItems.get(i);
                 String existingText = existing.text;
                 boolean show = (existingText != null && !existingText.isEmpty()) ? existing.show : fmt.show;
-                // Preserve per-slide alignment if this slide has text content
-                int alignment = (existingText != null && !existingText.isEmpty()) ? existing.alignment : fmt.alignment;
                 slideTextItems.set(i, new SlideTextData(show, existingText, fmt.fontName, fmt.fontSize,
                         fmt.fontStyle, fmt.color, fmt.x, fmt.y, fmt.bgOpacity,
-                        fmt.bgColor, fmt.justify, fmt.widthPct, fmt.shiftX, alignment,
+                        fmt.bgColor, fmt.justify, fmt.widthPct, fmt.shiftX, fmt.alignment,
                         fmt.textEffect, fmt.textEffectIntensity,
                         fmt.highlightText, fmt.highlightColor, fmt.highlightStyle,
                         fmt.highlightTightness, fmt.underlineStyle, fmt.underlineText));
@@ -5701,10 +5700,9 @@ public class GifSlideShowApp extends JFrame {
                     SlideTextData existing = slideTextItems.get(i);
                     String existingText = existing.text;
                     boolean show = (existingText != null && !existingText.isEmpty()) ? existing.show : false;
-                    int alignment = (existingText != null && !existingText.isEmpty()) ? existing.alignment : lastFmt.alignment;
                     slideTextItems.set(i, new SlideTextData(show, existingText, lastFmt.fontName, lastFmt.fontSize,
                             lastFmt.fontStyle, lastFmt.color, lastFmt.x, lastFmt.y, lastFmt.bgOpacity,
-                            lastFmt.bgColor, lastFmt.justify, lastFmt.widthPct, lastFmt.shiftX, alignment,
+                            lastFmt.bgColor, lastFmt.justify, lastFmt.widthPct, lastFmt.shiftX, lastFmt.alignment,
                             lastFmt.textEffect, lastFmt.textEffectIntensity,
                             lastFmt.highlightText, lastFmt.highlightColor, lastFmt.highlightStyle,
                             lastFmt.highlightTightness, lastFmt.underlineStyle, lastFmt.underlineText));
