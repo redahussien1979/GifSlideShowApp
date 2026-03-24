@@ -313,6 +313,7 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(p + "highlightStyle", t.highlightStyle);
             props.setProperty(p + "highlightTightness", String.valueOf(t.highlightTightness));
             props.setProperty(p + "underlineStyle", t.underlineStyle);
+            props.setProperty(p + "underlineText", t.underlineText);
         }
 
         // Orientation
@@ -424,7 +425,8 @@ public class GifSlideShowApp extends JFrame {
                     hexToColor(props.getProperty(p + "highlightColor", "#FF6496B4")),
                     props.getProperty(p + "highlightStyle", "Regular"),
                     Integer.parseInt(props.getProperty(p + "highlightTightness", "50")),
-                    props.getProperty(p + "underlineStyle", "None")
+                    props.getProperty(p + "underlineStyle", "None"),
+                    props.getProperty(p + "underlineText", "")
             ));
         }
 
@@ -1879,11 +1881,11 @@ public class GifSlideShowApp extends JFrame {
                         }
                     }
 
-                    // === Slide text highlight & underline ===
+                    // === Slide text highlight ===
                     if (st.highlightText != null && !st.highlightText.isEmpty()) {
                         String lineLower = line.toLowerCase();
                         String hlLower = st.highlightText.toLowerCase();
-                        // Tightness: 0=very tight (pad=0), 50=normal (pad=3*scale), 100=loose (pad=8*scale)
+                        // Tightness: -50=shrink/overlap, 0=tight, 50=normal, 100=loose
                         float tightFactor = st.highlightTightness / 100.0f;
                         int hlPad = (int) (tightFactor * 8 * stScaleFactor);
                         int searchFrom = 0;
@@ -1900,32 +1902,33 @@ public class GifSlideShowApp extends JFrame {
 
                             int hlRectX = hlX - hlPad;
                             int hlRectY = lineY - stFm.getAscent() - hlPad;
-                            int hlRectW = hlW + hlPad * 2;
-                            int hlRectH = stFm.getHeight() + hlPad * 2;
+                            int hlRectW = Math.max(1, hlW + hlPad * 2);
+                            int hlRectH = Math.max(1, stFm.getHeight() + hlPad * 2);
                             int arc = (int) (4 * stScaleFactor);
                             String hlStyle = st.highlightStyle != null ? st.highlightStyle : "Regular";
 
                             switch (hlStyle) {
                                 case "Brush": {
+                                    int absPad = Math.max(0, hlPad);
                                     int bh = hlRectH;
                                     int by = hlRectY;
-                                    int bx = hlRectX - hlPad;
-                                    int bw = hlRectW + hlPad * 2;
+                                    int bx = hlRectX - absPad;
+                                    int bw = hlRectW + absPad * 2;
                                     long seed = (long) hlIdx * 31 + li * 997;
                                     Random brushRng = new Random(seed);
-                                    int bands = 3 + (int) (bh / (6 * stScaleFactor));
+                                    int bands = Math.max(2, 3 + (int) (bh / (6 * stScaleFactor)));
                                     float bandH = bh / (float) bands;
                                     for (int bi = 0; bi < bands; bi++) {
                                         float yOff = by + bi * bandH;
-                                        int edgeVar = (int) (bw * 0.08);
-                                        int x1 = bx + brushRng.nextInt(Math.max(1, edgeVar)) - edgeVar / 2;
-                                        int x2 = bx + bw + brushRng.nextInt(Math.max(1, edgeVar)) - edgeVar / 2;
-                                        int yVar = (int) (bandH * 0.3);
-                                        float y1 = yOff + brushRng.nextInt(Math.max(1, yVar));
-                                        int thisAlpha = Math.min(255, hlC.getAlpha() + brushRng.nextInt(40) - 20);
-                                        gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), Math.max(0, thisAlpha)));
+                                        int edgeVar = Math.max(1, (int) (bw * 0.08));
+                                        int x1 = bx + brushRng.nextInt(edgeVar) - edgeVar / 2;
+                                        int x2 = bx + bw + brushRng.nextInt(edgeVar) - edgeVar / 2;
+                                        int yVar = Math.max(1, (int) (bandH * 0.3));
+                                        float y1 = yOff + brushRng.nextInt(yVar);
+                                        int thisAlpha = Math.min(255, Math.max(0, hlC.getAlpha() + brushRng.nextInt(40) - 20));
+                                        gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), thisAlpha));
                                         int cpx = (x1 + x2) / 2 + brushRng.nextInt(Math.max(1, edgeVar * 2)) - edgeVar;
-                                        float cpy = y1 + bandH / 2 + brushRng.nextInt(Math.max(1, yVar + 1)) - yVar / 2;
+                                        float cpy = y1 + bandH / 2 + brushRng.nextInt(yVar + 1) - yVar / 2;
                                         float strokeW = bandH * (0.7f + brushRng.nextFloat() * 0.6f);
                                         gHL.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
                                         java.awt.geom.QuadCurve2D curve = new java.awt.geom.QuadCurve2D.Float(
@@ -1938,9 +1941,9 @@ public class GifSlideShowApp extends JFrame {
                                         if (brushRng.nextBoolean()) {
                                             sx = brushRng.nextBoolean() ? bx - brushRng.nextInt((int)(6 * stScaleFactor) + 1)
                                                     : bx + bw + brushRng.nextInt((int)(6 * stScaleFactor) + 1);
-                                            sy = by + brushRng.nextInt(bh);
+                                            sy = by + brushRng.nextInt(Math.max(1, bh));
                                         } else {
-                                            sx = bx + brushRng.nextInt(bw);
+                                            sx = bx + brushRng.nextInt(Math.max(1, bw));
                                             sy = brushRng.nextBoolean() ? by - brushRng.nextInt((int)(3 * stScaleFactor) + 1)
                                                     : by + bh + brushRng.nextInt((int)(3 * stScaleFactor) + 1);
                                         }
@@ -1982,7 +1985,6 @@ public class GifSlideShowApp extends JFrame {
                                     gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()));
                                     gHL.setStroke(new BasicStroke(strokeW));
                                     gHL.drawRoundRect(hlRectX, hlRectY, hlRectW, hlRectH, arc, arc);
-                                    // Light fill
                                     gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), Math.min(255, hlC.getAlpha() / 4)));
                                     gHL.fillRoundRect(hlRectX, hlRectY, hlRectW, hlRectH, arc, arc);
                                     break;
@@ -1993,24 +1995,45 @@ public class GifSlideShowApp extends JFrame {
                                     break;
                                 }
                             }
+                            gHL.dispose();
+                            searchFrom = hlIdx + st.highlightText.length();
+                        }
+                    }
 
-                            // === Underline rendering ===
-                            String ulStyle = st.underlineStyle != null ? st.underlineStyle : "None";
-                            if (!"None".equals(ulStyle)) {
+                    // === Slide text underline (independent word matching) ===
+                    String ulStyle = st.underlineStyle != null ? st.underlineStyle : "None";
+                    if (!"None".equals(ulStyle)) {
+                        // Use underlineText if set, otherwise fall back to highlightText
+                        String ulText = (st.underlineText != null && !st.underlineText.isEmpty())
+                                ? st.underlineText : st.highlightText;
+                        if (ulText != null && !ulText.isEmpty()) {
+                            String lineLower = line.toLowerCase();
+                            String ulLower = ulText.toLowerCase();
+                            Color hlC = st.highlightColor != null ? st.highlightColor : new Color(255, 100, 150, 180);
+                            int ulSearchFrom = 0;
+                            while (ulSearchFrom < lineLower.length()) {
+                                int ulIdx = lineLower.indexOf(ulLower, ulSearchFrom);
+                                if (ulIdx < 0) break;
+                                String ulBefore = line.substring(0, ulIdx);
+                                String ulMatch = line.substring(ulIdx, ulIdx + ulText.length());
+                                int ulMatchX = lineX + stFm.stringWidth(ulBefore);
+                                int ulMatchW = stFm.stringWidth(ulMatch);
+                                Graphics2D gUL = (Graphics2D) g.create();
+                                gUL.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                                 int ulY = lineY + stFm.getDescent() + (int) (1 * stScaleFactor);
-                                int ulX1 = hlX;
-                                int ulX2 = hlX + hlW;
+                                int ulX1 = ulMatchX;
+                                int ulX2 = ulMatchX + ulMatchW;
                                 float baseStroke = Math.max(1, 2 * stScaleFactor);
-                                gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), Math.min(255, hlC.getAlpha() + 40)));
+                                gUL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), Math.min(255, hlC.getAlpha() + 40)));
 
                                 switch (ulStyle) {
                                     case "Straight": {
-                                        gHL.setStroke(new BasicStroke(baseStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                                        gHL.drawLine(ulX1, ulY, ulX2, ulY);
+                                        gUL.setStroke(new BasicStroke(baseStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                        gUL.drawLine(ulX1, ulY, ulX2, ulY);
                                         break;
                                     }
                                     case "Wavy": {
-                                        gHL.setStroke(new BasicStroke(baseStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                        gUL.setStroke(new BasicStroke(baseStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
                                         java.awt.geom.GeneralPath wavePath = new java.awt.geom.GeneralPath();
                                         float waveAmp = 3 * stScaleFactor;
                                         float waveLen = 8 * stScaleFactor;
@@ -2021,39 +2044,39 @@ public class GifSlideShowApp extends JFrame {
                                             float dir = ((int) ((wx - ulX1) / waveLen) % 2 == 0) ? -waveAmp : waveAmp;
                                             wavePath.quadTo(midX, ulY + dir, endX, ulY);
                                         }
-                                        gHL.draw(wavePath);
+                                        gUL.draw(wavePath);
                                         break;
                                     }
                                     case "Double": {
                                         float gap = 3 * stScaleFactor;
-                                        gHL.setStroke(new BasicStroke(baseStroke * 0.7f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                                        gHL.drawLine(ulX1, ulY, ulX2, ulY);
-                                        gHL.drawLine(ulX1, (int) (ulY + gap), ulX2, (int) (ulY + gap));
+                                        gUL.setStroke(new BasicStroke(baseStroke * 0.7f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                        gUL.drawLine(ulX1, ulY, ulX2, ulY);
+                                        gUL.drawLine(ulX1, (int) (ulY + gap), ulX2, (int) (ulY + gap));
                                         break;
                                     }
                                     case "Dotted": {
                                         float dotSize = 2 * stScaleFactor;
                                         float dotGap = 4 * stScaleFactor;
-                                        gHL.setStroke(new BasicStroke(baseStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
+                                        gUL.setStroke(new BasicStroke(baseStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
                                                 10.0f, new float[]{dotSize, dotGap}, 0.0f));
-                                        gHL.drawLine(ulX1, ulY, ulX2, ulY);
+                                        gUL.drawLine(ulX1, ulY, ulX2, ulY);
                                         break;
                                     }
                                     case "Dashed": {
                                         float dashLen = 8 * stScaleFactor;
                                         float dashGap = 4 * stScaleFactor;
-                                        gHL.setStroke(new BasicStroke(baseStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
+                                        gUL.setStroke(new BasicStroke(baseStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
                                                 10.0f, new float[]{dashLen, dashGap}, 0.0f));
-                                        gHL.drawLine(ulX1, ulY, ulX2, ulY);
+                                        gUL.drawLine(ulX1, ulY, ulX2, ulY);
                                         break;
                                     }
                                     case "Thick": {
-                                        gHL.setStroke(new BasicStroke(baseStroke * 3, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                                        gHL.drawLine(ulX1, ulY, ulX2, ulY);
+                                        gUL.setStroke(new BasicStroke(baseStroke * 3, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                        gUL.drawLine(ulX1, ulY, ulX2, ulY);
                                         break;
                                     }
                                     case "Zigzag": {
-                                        gHL.setStroke(new BasicStroke(baseStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                        gUL.setStroke(new BasicStroke(baseStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
                                         java.awt.geom.GeneralPath zigPath = new java.awt.geom.GeneralPath();
                                         float zigAmp = 3 * stScaleFactor;
                                         float zigLen = 6 * stScaleFactor;
@@ -2064,14 +2087,13 @@ public class GifSlideShowApp extends JFrame {
                                             zigPath.lineTo(endX, ulY + (up ? -zigAmp : zigAmp));
                                             up = !up;
                                         }
-                                        gHL.draw(zigPath);
+                                        gUL.draw(zigPath);
                                         break;
                                     }
                                 }
+                                gUL.dispose();
+                                ulSearchFrom = ulIdx + ulText.length();
                             }
-
-                            gHL.dispose();
-                            searchFrom = hlIdx + st.highlightText.length();
                         }
                     }
 
@@ -4120,6 +4142,7 @@ public class GifSlideShowApp extends JFrame {
         final String highlightStyle;
         final int highlightTightness;
         final String underlineStyle;
+        final String underlineText;
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
                       int fontStyle, Color color, int x, int y, int bgOpacity,
@@ -4127,7 +4150,7 @@ public class GifSlideShowApp extends JFrame {
                       int alignment) {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, "None", 50,
-                    "", new Color(255, 100, 150, 180), "Regular", 50, "None");
+                    "", new Color(255, 100, 150, 180), "Regular", 50, "None", "");
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -4136,7 +4159,7 @@ public class GifSlideShowApp extends JFrame {
                       int alignment, String textEffect, int textEffectIntensity) {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
-                    "", new Color(255, 100, 150, 180), "Regular", 50, "None");
+                    "", new Color(255, 100, 150, 180), "Regular", 50, "None", "");
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -4146,7 +4169,7 @@ public class GifSlideShowApp extends JFrame {
                       String highlightText, Color highlightColor, String highlightStyle) {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
-                    highlightText, highlightColor, highlightStyle, 50, "None");
+                    highlightText, highlightColor, highlightStyle, 50, "None", "");
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -4155,6 +4178,17 @@ public class GifSlideShowApp extends JFrame {
                       int alignment, String textEffect, int textEffectIntensity,
                       String highlightText, Color highlightColor, String highlightStyle,
                       int highlightTightness, String underlineStyle) {
+            this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
+                    bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
+                    highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, "");
+        }
+
+        SlideTextData(boolean show, String text, String fontName, int fontSize,
+                      int fontStyle, Color color, int x, int y, int bgOpacity,
+                      Color bgColor, boolean justify, int widthPct, int shiftX,
+                      int alignment, String textEffect, int textEffectIntensity,
+                      String highlightText, Color highlightColor, String highlightStyle,
+                      int highlightTightness, String underlineStyle, String underlineText) {
             this.show = show;
             this.text = text;
             this.fontName = fontName;
@@ -4176,6 +4210,7 @@ public class GifSlideShowApp extends JFrame {
             this.highlightStyle = highlightStyle != null ? highlightStyle : "Regular";
             this.highlightTightness = highlightTightness;
             this.underlineStyle = underlineStyle != null ? underlineStyle : "None";
+            this.underlineText = underlineText != null ? underlineText : "";
         }
     }
 
@@ -4338,6 +4373,7 @@ public class GifSlideShowApp extends JFrame {
         private final JComboBox<String> slideTextHighlightStyleCombo;
         private final JSpinner slideTextHighlightTightnessSpinner;
         private final JComboBox<String> slideTextUnderlineCombo;
+        private final JTextField slideTextUnderlineTextField;
         private final JSpinner subtitleYSpinner;
         private final JSpinner subtitleBgOpacitySpinner;
         private final JCheckBox fxRoundCornersCheck;
@@ -4970,17 +5006,27 @@ public class GifSlideShowApp extends JFrame {
             slideTextHighlightStyleCombo.setToolTipText("Highlight style");
             slideTextHighlightStyleCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
-            slideTextHighlightTightnessSpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 5));
-            slideTextHighlightTightnessSpinner.setPreferredSize(new Dimension(48, 24));
+            slideTextHighlightTightnessSpinner = new JSpinner(new SpinnerNumberModel(50, -50, 100, 5));
+            slideTextHighlightTightnessSpinner.setPreferredSize(new Dimension(52, 24));
             slideTextHighlightTightnessSpinner.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            slideTextHighlightTightnessSpinner.setToolTipText("Highlight tightness (0=very tight, 50=normal, 100=loose)");
+            slideTextHighlightTightnessSpinner.setToolTipText("Highlight tightness (-50=overlap/shrink, 0=tight, 50=normal, 100=loose)");
             slideTextHighlightTightnessSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
             slideTextUnderlineCombo = new JComboBox<>(UNDERLINE_STYLES);
             slideTextUnderlineCombo.setPreferredSize(new Dimension(80, 24));
             slideTextUnderlineCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            slideTextUnderlineCombo.setToolTipText("Underline style for highlighted text");
+            slideTextUnderlineCombo.setToolTipText("Underline style for matched text");
             slideTextUnderlineCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextUnderlineTextField = new JTextField(8);
+            slideTextUnderlineTextField.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextUnderlineTextField.setPreferredSize(new Dimension(80, 24));
+            slideTextUnderlineTextField.setToolTipText("Word/phrase to underline (leave empty to use highlight text)");
+            slideTextUnderlineTextField.getDocument().addDocumentListener(new DocumentListener() {
+                @Override public void insertUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
+                @Override public void removeUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
+                @Override public void changedUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
+            });
 
             toolbar4c.add(styledLabel("      "));
             toolbar4c.add(styledLabel("Align:"));
@@ -4997,6 +5043,7 @@ public class GifSlideShowApp extends JFrame {
             toolbar4c.add(slideTextHighlightTightnessSpinner);
             toolbar4c.add(styledLabel("UL:"));
             toolbar4c.add(slideTextUnderlineCombo);
+            toolbar4c.add(slideTextUnderlineTextField);
 
             // ===== Toolbar Row 5: Image Effects (3 rows) =====
             JPanel toolbar5a = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
@@ -5311,7 +5358,8 @@ public class GifSlideShowApp extends JFrame {
                     slideTextHighlightField.getText(), slideTextHighlightColor,
                     (String) slideTextHighlightStyleCombo.getSelectedItem(),
                     (int) slideTextHighlightTightnessSpinner.getValue(),
-                    (String) slideTextUnderlineCombo.getSelectedItem()));
+                    (String) slideTextUnderlineCombo.getSelectedItem(),
+                    slideTextUnderlineTextField.getText()));
         }
 
         private void loadSlideTextFromItem(int index) {
@@ -5348,6 +5396,7 @@ public class GifSlideShowApp extends JFrame {
                 slideTextHighlightStyleCombo.setSelectedItem(item.highlightStyle);
                 slideTextHighlightTightnessSpinner.setValue(item.highlightTightness);
                 slideTextUnderlineCombo.setSelectedItem(item.underlineStyle);
+                slideTextUnderlineTextField.setText(item.underlineText);
             } finally {
                 isLoadingSlideText = false;
             }
@@ -5386,7 +5435,7 @@ public class GifSlideShowApp extends JFrame {
                         fmt.bgColor, fmt.justify, fmt.widthPct, fmt.shiftX, fmt.alignment,
                         fmt.textEffect, fmt.textEffectIntensity,
                         fmt.highlightText, fmt.highlightColor, fmt.highlightStyle,
-                        fmt.highlightTightness, fmt.underlineStyle));
+                        fmt.highlightTightness, fmt.underlineStyle, fmt.underlineText));
             }
             if (currentSlideTextIndex >= slideTextItems.size()) {
                 currentSlideTextIndex = 0;
