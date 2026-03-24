@@ -136,6 +136,10 @@ public class GifSlideShowApp extends JFrame {
         JButton bulkTextBtn = createStyledButton("Bulk Text", new Color(220, 160, 50));
         bulkTextBtn.addActionListener(e -> bulkImportText());
 
+        JButton dictImportBtn = createStyledButton("Dict Import", new Color(50, 180, 160));
+        dictImportBtn.setToolTipText("Import CSV/TSV: each row=slide, each column=slide text (A→Text1, B→Text2...)");
+        dictImportBtn.addActionListener(e -> dictionaryImport());
+
         JButton titleGridBtn = createStyledButton("Title Grid", new Color(60, 160, 200));
         titleGridBtn.addActionListener(e -> addTitleGridSlide());
 
@@ -169,6 +173,7 @@ public class GifSlideShowApp extends JFrame {
         topRow.add(addBtn);
         topRow.add(bulkBtn);
         topRow.add(bulkTextBtn);
+        topRow.add(dictImportBtn);
         topRow.add(titleGridBtn);
         topRow.add(gifBtn);
         topRow.add(mp4Btn);
@@ -1099,6 +1104,174 @@ public class GifSlideShowApp extends JFrame {
         JOptionPane.showMessageDialog(this,
                 assigned + " lines assigned to " + targetLabel + ".\nSlides: " + slideRows.size() + " total.",
                 "Bulk Text Import", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    // ==================== Dictionary Import ====================
+
+    private List<String> parseCsvLine(String line) {
+        List<String> fields = new ArrayList<>();
+        StringBuilder sb = new StringBuilder();
+        boolean inQuotes = false;
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (inQuotes) {
+                if (c == '"') {
+                    if (i + 1 < line.length() && line.charAt(i + 1) == '"') {
+                        sb.append('"');
+                        i++;
+                    } else {
+                        inQuotes = false;
+                    }
+                } else {
+                    sb.append(c);
+                }
+            } else {
+                if (c == '"') {
+                    inQuotes = true;
+                } else if (c == ',' || c == '\t') {
+                    fields.add(sb.toString().trim());
+                    sb.setLength(0);
+                } else {
+                    sb.append(c);
+                }
+            }
+        }
+        fields.add(sb.toString().trim());
+        return fields;
+    }
+
+    private void dictionaryImport() {
+        // Choose source: file or clipboard
+        String[] options = {"From File (CSV/TSV)", "From Clipboard / Paste"};
+        int choice = JOptionPane.showOptionDialog(this,
+                "Import dictionary: each row = one slide, each column = one slide text.\n"
+                + "Column A → Text 1, Column B → Text 2, Column C → Text 3, etc.\n"
+                + "Supports CSV (comma) and TSV (tab) delimited files.\n"
+                + "(Title grid slides are skipped)",
+                "Dictionary Import", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
+                null, options, options[0]);
+
+        if (choice < 0) return;
+
+        List<String> rawLines;
+
+        if (choice == 0) {
+            JFileChooser fc = new JFileChooser();
+            fc.setFileFilter(new FileNameExtensionFilter(
+                    "CSV / TSV files (*.csv, *.tsv, *.txt)", "csv", "tsv", "txt"));
+            if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
+
+            try {
+                rawLines = Files.readAllLines(fc.getSelectedFile().toPath(), StandardCharsets.UTF_8);
+            } catch (IOException ex) {
+                try {
+                    rawLines = Files.readAllLines(fc.getSelectedFile().toPath());
+                } catch (IOException ex2) {
+                    JOptionPane.showMessageDialog(this,
+                            "Failed to read file:\n" + ex2.getMessage(),
+                            "Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+            }
+        } else {
+            JTextArea pasteArea = new JTextArea(12, 50);
+            pasteArea.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+            pasteArea.setLineWrap(false);
+            JScrollPane sp = new JScrollPane(pasteArea);
+            sp.setPreferredSize(new Dimension(600, 300));
+
+            int result = JOptionPane.showConfirmDialog(this, sp,
+                    "Paste CSV/TSV data (rows = slides, columns = text items):",
+                    JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+            if (result != JOptionPane.OK_OPTION) return;
+
+            String text = pasteArea.getText();
+            if (text.trim().isEmpty()) {
+                JOptionPane.showMessageDialog(this, "No data entered.", "Empty", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            rawLines = Arrays.asList(text.split("\\r?\\n"));
+        }
+
+        // Remove trailing empty lines
+        ArrayList<String> trimmed = new ArrayList<>(rawLines);
+        while (!trimmed.isEmpty() && trimmed.get(trimmed.size() - 1).trim().isEmpty()) {
+            trimmed.remove(trimmed.size() - 1);
+        }
+
+        if (trimmed.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "No data rows found.", "Empty", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        // Ask whether first row is a header
+        int headerChoice = JOptionPane.showOptionDialog(this,
+                "Does the first row contain column headers?\n(If yes, it will be skipped)",
+                "Dictionary Import", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,
+                null, new String[]{"Yes, skip first row", "No, first row is data"}, "No, first row is data");
+
+        List<String> dataLines;
+        if (headerChoice == 0) {
+            dataLines = trimmed.subList(1, trimmed.size());
+        } else {
+            dataLines = trimmed;
+        }
+
+        if (dataLines.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "No data rows after header.", "Empty", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        // Parse all rows
+        List<List<String>> allRows = new ArrayList<>();
+        int maxCols = 0;
+        for (String line : dataLines) {
+            List<String> fields = parseCsvLine(line);
+            allRows.add(fields);
+            maxCols = Math.max(maxCols, fields.size());
+        }
+
+        // Collect non-title-grid slides
+        List<SlideRow> targetSlides = new ArrayList<>();
+        for (SlideRow row : slideRows) {
+            if (!row.isTitleGridSlide) {
+                targetSlides.add(row);
+            }
+        }
+
+        int assigned = 0;
+        for (int i = 0; i < allRows.size(); i++) {
+            List<String> fields = allRows.get(i);
+            SlideRow slide;
+            if (i < targetSlides.size()) {
+                slide = targetSlides.get(i);
+            } else {
+                // Create new slide
+                slide = new SlideRow(slideRows.size() + 1);
+                slideRows.add(slide);
+                slidesPanel.add(slide.getPanel());
+                slidesPanel.add(Box.createRigidArea(new Dimension(0, 10)));
+                targetSlides.add(slide);
+            }
+
+            // Assign each column to a slide text item
+            for (int col = 0; col < fields.size(); col++) {
+                String cellText = fields.get(col);
+                if (!cellText.isEmpty()) {
+                    slide.setSlideTextAt(col, cellText);
+                }
+            }
+            assigned++;
+        }
+
+        applyFirstSlideFormattingToAll();
+        slidesPanel.revalidate();
+        slidesPanel.repaint();
+
+        JOptionPane.showMessageDialog(this,
+                assigned + " rows imported across " + maxCols + " text columns.\n"
+                + "Slides: " + slideRows.size() + " total.",
+                "Dictionary Import", JOptionPane.INFORMATION_MESSAGE);
     }
 
     // ==================== Format Sync ====================
@@ -5538,6 +5711,34 @@ public class GifSlideShowApp extends JFrame {
                 if (currentSlideTextIndex == 0) {
                     loadSlideTextFromItem(0);
                 }
+            }
+        }
+
+        void setSlideTextAt(int textIndex, String text) {
+            // Ensure we have enough slide text items
+            while (slideTextItems.size() <= textIndex) {
+                slideTextItems.add(new SlideTextData(false, "",
+                        loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI",
+                        40, Font.PLAIN, Color.YELLOW, 50, 50, 0, Color.BLACK,
+                        false, 100, 0, SwingConstants.CENTER));
+            }
+            SlideTextData old = slideTextItems.get(textIndex);
+            slideTextItems.set(textIndex, new SlideTextData(true, text, old.fontName, old.fontSize,
+                    old.fontStyle, old.color, old.x, old.y, old.bgOpacity,
+                    old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
+                    old.textEffect, old.textEffectIntensity,
+                    old.highlightText, old.highlightColor, old.highlightStyle,
+                    old.highlightTightness, old.underlineStyle, old.underlineText));
+            // Rebuild the selector dropdown to show all items
+            isLoadingSlideText = true;
+            try {
+                rebuildSlideTextSelector();
+                slideTextSelector.setSelectedIndex(currentSlideTextIndex);
+            } finally {
+                isLoadingSlideText = false;
+            }
+            if (currentSlideTextIndex == textIndex) {
+                loadSlideTextFromItem(textIndex);
             }
         }
 
