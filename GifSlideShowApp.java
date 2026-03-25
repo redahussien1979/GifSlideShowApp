@@ -1023,7 +1023,33 @@ public class GifSlideShowApp extends JFrame {
             if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
 
             try {
-                lines = Files.readAllLines(fc.getSelectedFile().toPath(), StandardCharsets.UTF_8);
+                byte[] fileBytes = Files.readAllBytes(fc.getSelectedFile().toPath());
+                int off = 0;
+                String content = null;
+                // Strip UTF-8 BOM if present
+                if (fileBytes.length >= 3 && (fileBytes[0] & 0xFF) == 0xEF
+                        && (fileBytes[1] & 0xFF) == 0xBB && (fileBytes[2] & 0xFF) == 0xBF) {
+                    off = 3;
+                }
+                // UTF-16 LE BOM
+                else if (fileBytes.length >= 2 && (fileBytes[0] & 0xFF) == 0xFF && (fileBytes[1] & 0xFF) == 0xFE) {
+                    content = new String(fileBytes, java.nio.charset.Charset.forName("UTF-16LE"));
+                    if (content.length() > 0 && content.charAt(0) == '\uFEFF') content = content.substring(1);
+                }
+                // UTF-16 BE BOM
+                else if (fileBytes.length >= 2 && (fileBytes[0] & 0xFF) == 0xFE && (fileBytes[1] & 0xFF) == 0xFF) {
+                    content = new String(fileBytes, java.nio.charset.Charset.forName("UTF-16BE"));
+                    if (content.length() > 0 && content.charAt(0) == '\uFEFF') content = content.substring(1);
+                }
+                if (content == null) {
+                    content = new String(fileBytes, off, fileBytes.length - off, StandardCharsets.UTF_8);
+                    // If UTF-8 produced replacement chars, try Windows-1252
+                    if (content.contains("\uFFFD")) {
+                        content = new String(fileBytes, off, fileBytes.length - off,
+                                java.nio.charset.Charset.forName("windows-1252"));
+                    }
+                }
+                lines = Arrays.asList(content.split("\\r?\\n"));
             } catch (IOException ex) {
                 try {
                     lines = Files.readAllLines(fc.getSelectedFile().toPath());
@@ -1147,6 +1173,7 @@ public class GifSlideShowApp extends JFrame {
                 "Import dictionary: each row = one slide, each column = one slide text.\n"
                 + "Column A → Text 1, Column B → Text 2, Column C → Text 3, etc.\n"
                 + "Supports CSV (comma) and TSV (tab) delimited files.\n"
+                + "Tip: For Unicode/IPA characters, save from Excel as \"CSV UTF-8\" format.\n"
                 + "(Title grid slides are skipped)",
                 "Dictionary Import", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
                 null, options, options[0]);
