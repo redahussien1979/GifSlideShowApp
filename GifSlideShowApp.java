@@ -1181,12 +1181,14 @@ public class GifSlideShowApp extends JFrame {
         if (choice < 0) return;
 
         List<String> rawLines = null;
+        File importSourceDir = null; // directory of imported file, for resolving relative paths
 
         if (choice == 0) {
             JFileChooser fc = new JFileChooser();
             fc.setFileFilter(new FileNameExtensionFilter(
                     "CSV / TSV files (*.csv, *.tsv, *.txt)", "csv", "tsv", "txt"));
             if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
+            importSourceDir = fc.getSelectedFile().getParentFile();
 
             try {
                 // Try UTF-8 first (handles BOM automatically via readAllLines)
@@ -1265,25 +1267,28 @@ public class GifSlideShowApp extends JFrame {
 
         // Ask whether first row is a header
         int headerChoice = JOptionPane.showOptionDialog(this,
-                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL column headers to import highlight/underline words.)",
+                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL headers for highlight/underline, AUDIOLINK for slide audio.)",
                 "Dictionary Import", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,
                 null, new String[]{"Yes, skip first row", "No, first row is data"}, "No, first row is data");
 
-        // Detect HL/UL columns from header row
+        // Detect HL/UL/AUDIOLINK columns from header row
         int hlColIndex = -1;
         int ulColIndex = -1;
+        int audioLinkColIndex = -1;
         List<String> headerFields = null;
 
         List<String> dataLines;
         if (headerChoice == 0) {
             headerFields = parseCsvLine(trimmed.get(0));
-            // Scan headers for HL and UL columns (case-insensitive)
+            // Scan headers for HL, UL, and AUDIOLINK columns (case-insensitive)
             for (int c = 0; c < headerFields.size(); c++) {
                 String h = headerFields.get(c).trim().toUpperCase();
                 if (h.equals("HL") || h.equals("HIGHLIGHT")) {
                     hlColIndex = c;
                 } else if (h.equals("UL") || h.equals("UNDERLINE")) {
                     ulColIndex = c;
+                } else if (h.equals("AUDIOLINK") || h.equals("AUDIO") || h.equals("AUDIO_LINK")) {
+                    audioLinkColIndex = c;
                 }
             }
             dataLines = trimmed.subList(1, trimmed.size());
@@ -1306,10 +1311,10 @@ public class GifSlideShowApp extends JFrame {
             maxCols = Math.max(maxCols, fields.size());
         }
 
-        // Determine which columns are text columns (not HL/UL)
+        // Determine which columns are text columns (not HL/UL/AUDIOLINK)
         List<Integer> textColIndices = new ArrayList<>();
         for (int c = 0; c < maxCols; c++) {
-            if (c != hlColIndex && c != ulColIndex) {
+            if (c != hlColIndex && c != ulColIndex && c != audioLinkColIndex) {
                 textColIndices.add(c);
             }
         }
@@ -1361,6 +1366,24 @@ public class GifSlideShowApp extends JFrame {
                 slide.setSlideTextUnderlineText(ulText);
             }
 
+            // Apply audio link from CSV if column exists
+            if (audioLinkColIndex >= 0 && audioLinkColIndex < fields.size()) {
+                String audioPath = fields.get(audioLinkColIndex).trim();
+                if (!audioPath.isEmpty()) {
+                    File audioFile = new File(audioPath);
+                    // If relative path, resolve against the CSV file's directory
+                    if (!audioFile.isAbsolute() && importSourceDir != null) {
+                        audioFile = new File(importSourceDir, audioPath);
+                    }
+                    if (audioFile.exists()) {
+                        int durationMs = probeAudioDurationMs(audioFile);
+                        if (durationMs > 0) {
+                            slide.setSlideAudio(audioFile, durationMs);
+                        }
+                    }
+                }
+            }
+
             assigned++;
         }
 
@@ -1371,6 +1394,7 @@ public class GifSlideShowApp extends JFrame {
         String importMsg = assigned + " rows imported across " + textColIndices.size() + " text columns.";
         if (hlColIndex >= 0) importMsg += "\nHL column detected — highlight words imported per slide.";
         if (ulColIndex >= 0) importMsg += "\nUL column detected — underline words imported per slide.";
+        if (audioLinkColIndex >= 0) importMsg += "\nAUDIOLINK column detected — audio files imported per slide.";
         importMsg += "\nSlides: " + slideRows.size() + " total.";
         JOptionPane.showMessageDialog(this, importMsg, "Dictionary Import", JOptionPane.INFORMATION_MESSAGE);
     }
@@ -6640,6 +6664,16 @@ public class GifSlideShowApp extends JFrame {
             audioFileLabel.setForeground(Color.GRAY);
             audioDurationLabel.setText("");
             audioClearBtn.setVisible(false);
+        }
+
+        void setSlideAudio(File file, int durationMs) {
+            slideAudioFile = file;
+            slideAudioDurationMs = durationMs;
+            audioFileLabel.setText(file.getName());
+            audioFileLabel.setForeground(Color.WHITE);
+            audioDurationLabel.setText(String.format("(%d.%ds)",
+                    durationMs / 1000, (durationMs % 1000) / 100));
+            audioClearBtn.setVisible(true);
         }
     }
 
