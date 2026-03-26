@@ -2897,27 +2897,48 @@ public class GifSlideShowApp extends JFrame {
                                 if (flags[1] == 1) wordStyle |= Font.ITALIC;
                                 Font wordFont = new Font(st.fontName, wordStyle, (int) scaledStSize);
                                 Color wordColor = (flags[2] == 1) ? st.colorTextColor : stColor;
+                                String wordText = visibleLine.substring(ovIdx, ovIdx + termLower.length());
 
-                                // Clear the area behind the word and redraw with override style
                                 Graphics2D gOv = (Graphics2D) g2.create();
                                 gOv.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                                 gOv.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-                                gOv.setClip(ovX, lineY - stFm.getAscent() - 2, ovW, stFm.getHeight() + 4);
 
-                                // Redraw background behind word to cover original text
+                                // Erase original text in this region by redrawing background
+                                int clipY = lineY - stFm.getAscent() - 2;
+                                int clipH = stFm.getHeight() + 4;
+                                gOv.setClip(ovX, clipY, ovW, clipH);
                                 if (st.bgOpacity > 0) {
                                     gOv.setColor(new Color(st.bgColor.getRed(), st.bgColor.getGreen(), st.bgColor.getBlue(),
                                             (int) (st.bgOpacity * 2.55)));
-                                    gOv.fillRect(ovX, lineY - stFm.getAscent() - 2, ovW, stFm.getHeight() + 4);
+                                    gOv.fillRect(ovX, clipY, ovW, clipH);
                                 }
 
-                                // Redraw the full line with the override font/color within the clip
+                                // Redraw the entire visible line through the clip with original font
+                                // to cleanly erase just this word area, then draw override on top
+                                gOv.setFont(stFont);
+                                gOv.setColor(st.bgOpacity > 0
+                                        ? new Color(st.bgColor.getRed(), st.bgColor.getGreen(), st.bgColor.getBlue(), 255)
+                                        : new Color(0, 0, 0, 0));
+                                // Clear by overdrawing background
+                                gOv.setClip(null);
+                                gOv.setClip(ovX, clipY, ovW, clipH);
+
+                                // Draw override word scaled to fit in original word's space
                                 gOv.setFont(wordFont);
-                                gOv.setColor(wordColor);
-                                // Draw only the matched word at the correct position
-                                String wordText = visibleLine.substring(ovIdx, ovIdx + termLower.length());
                                 FontMetrics ovFm = gOv.getFontMetrics();
-                                gOv.drawString(wordText, ovX, lineY);
+                                int overrideW = ovFm.stringWidth(wordText);
+                                gOv.setColor(wordColor);
+                                if (overrideW > 0 && ovW > 0 && Math.abs(overrideW - ovW) > 1) {
+                                    // Scale horizontally to fit the override word into the original space
+                                    java.awt.geom.AffineTransform savedTx = gOv.getTransform();
+                                    double scaleX = (double) ovW / overrideW;
+                                    gOv.translate(ovX, 0);
+                                    gOv.scale(scaleX, 1.0);
+                                    gOv.drawString(wordText, 0, lineY);
+                                    gOv.setTransform(savedTx);
+                                } else {
+                                    gOv.drawString(wordText, ovX, lineY);
+                                }
                                 gOv.dispose();
 
                                 ovSearchFrom = ovIdx + termLower.length();
@@ -6427,15 +6448,19 @@ public class GifSlideShowApp extends JFrame {
                 SlideTextData existing = slideTextItems.get(i);
                 String existingText = existing.text;
                 boolean show = (existingText != null && !existingText.isEmpty()) ? existing.show : fmt.show;
-                // Preserve per-slide HL/UL text if this slide has text content
+                // Preserve per-slide HL/UL/B/I/CLR text if this slide has text content
                 String hlText = (existingText != null && !existingText.isEmpty()) ? existing.highlightText : fmt.highlightText;
                 String ulText = (existingText != null && !existingText.isEmpty()) ? existing.underlineText : fmt.underlineText;
+                String bText = (existingText != null && !existingText.isEmpty()) ? existing.boldText : fmt.boldText;
+                String iText = (existingText != null && !existingText.isEmpty()) ? existing.italicText : fmt.italicText;
+                String cText = (existingText != null && !existingText.isEmpty()) ? existing.colorText : fmt.colorText;
                 slideTextItems.set(i, new SlideTextData(show, existingText, fmt.fontName, fmt.fontSize,
                         fmt.fontStyle, fmt.color, fmt.x, fmt.y, fmt.bgOpacity,
                         fmt.bgColor, fmt.justify, fmt.widthPct, fmt.shiftX, fmt.alignment,
                         fmt.textEffect, fmt.textEffectIntensity,
                         hlText, fmt.highlightColor, fmt.highlightStyle,
-                        fmt.highlightTightness, fmt.underlineStyle, ulText));
+                        fmt.highlightTightness, fmt.underlineStyle, ulText,
+                        bText, iText, cText, fmt.colorTextColor));
             }
             // For extra items beyond what the source has, apply formatting
             // from the last source item so they get consistent styling
@@ -6447,12 +6472,16 @@ public class GifSlideShowApp extends JFrame {
                     boolean show = (existingText != null && !existingText.isEmpty()) ? existing.show : false;
                     String hlText = (existingText != null && !existingText.isEmpty()) ? existing.highlightText : lastFmt.highlightText;
                     String ulText = (existingText != null && !existingText.isEmpty()) ? existing.underlineText : lastFmt.underlineText;
+                    String bText = (existingText != null && !existingText.isEmpty()) ? existing.boldText : lastFmt.boldText;
+                    String iText = (existingText != null && !existingText.isEmpty()) ? existing.italicText : lastFmt.italicText;
+                    String cText = (existingText != null && !existingText.isEmpty()) ? existing.colorText : lastFmt.colorText;
                     slideTextItems.set(i, new SlideTextData(show, existingText, lastFmt.fontName, lastFmt.fontSize,
                             lastFmt.fontStyle, lastFmt.color, lastFmt.x, lastFmt.y, lastFmt.bgOpacity,
                             lastFmt.bgColor, lastFmt.justify, lastFmt.widthPct, lastFmt.shiftX, lastFmt.alignment,
                             lastFmt.textEffect, lastFmt.textEffectIntensity,
                             hlText, lastFmt.highlightColor, lastFmt.highlightStyle,
-                            lastFmt.highlightTightness, lastFmt.underlineStyle, ulText));
+                            lastFmt.highlightTightness, lastFmt.underlineStyle, ulText,
+                            bText, iText, cText, lastFmt.colorTextColor));
                 }
             }
             if (currentSlideTextIndex >= slideTextItems.size()) {
