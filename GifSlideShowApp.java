@@ -2546,6 +2546,81 @@ public class GifSlideShowApp extends JFrame {
                         }
                     }
 
+                    // === Pre-collect per-word override regions and save background pixels ===
+                    boolean hasBoldWords = st.boldText != null && !st.boldText.isEmpty();
+                    boolean hasItalicWords = st.italicText != null && !st.italicText.isEmpty();
+                    boolean hasColorWords = st.colorText != null && !st.colorText.isEmpty();
+                    // List of: [ovIdx, termLen, ovX, ovW, boldFlag, italicFlag, colorFlag, savedPixels[]]
+                    java.util.List<Object[]> overrideRegions = new java.util.ArrayList<>();
+                    if (hasBoldWords || hasItalicWords || hasColorWords) {
+                        java.util.LinkedHashMap<String, int[]> overrideTerms = new java.util.LinkedHashMap<>();
+                        if (hasBoldWords) {
+                            for (String bt : st.boldText.split(",")) {
+                                bt = bt.trim();
+                                if (!bt.isEmpty()) {
+                                    int[] flags = overrideTerms.computeIfAbsent(bt.toLowerCase(), k -> new int[3]);
+                                    flags[0] = 1;
+                                }
+                            }
+                        }
+                        if (hasItalicWords) {
+                            for (String it : st.italicText.split(",")) {
+                                it = it.trim();
+                                if (!it.isEmpty()) {
+                                    int[] flags = overrideTerms.computeIfAbsent(it.toLowerCase(), k -> new int[3]);
+                                    flags[1] = 1;
+                                }
+                            }
+                        }
+                        if (hasColorWords) {
+                            for (String ct : st.colorText.split(",")) {
+                                ct = ct.trim();
+                                if (!ct.isEmpty()) {
+                                    int[] flags = overrideTerms.computeIfAbsent(ct.toLowerCase(), k -> new int[3]);
+                                    flags[2] = 1;
+                                }
+                            }
+                        }
+
+                        String ovLineLower = visibleLine.toLowerCase();
+                        for (java.util.Map.Entry<String, int[]> entry : overrideTerms.entrySet()) {
+                            String termLower = entry.getKey();
+                            int[] flags = entry.getValue();
+                            int ovSearchFrom = 0;
+                            while (ovSearchFrom < ovLineLower.length()) {
+                                int ovIdx = ovLineLower.indexOf(termLower, ovSearchFrom);
+                                if (ovIdx < 0) break;
+                                int ovX, ovW;
+                                if (stTextLayout != null && ovIdx + termLower.length() <= line.length()) {
+                                    java.awt.Shape ovShape = stTextLayout.getLogicalHighlightShape(ovIdx, ovIdx + termLower.length());
+                                    java.awt.geom.Rectangle2D ovBounds = ovShape.getBounds2D();
+                                    ovX = lineX + (int) ovBounds.getX();
+                                    ovW = (int) Math.ceil(ovBounds.getWidth());
+                                } else {
+                                    String ovBefore = visibleLine.substring(0, ovIdx);
+                                    ovX = lineX + stFm.stringWidth(ovBefore);
+                                    ovW = stFm.stringWidth(visibleLine.substring(ovIdx, ovIdx + termLower.length()));
+                                }
+                                // Save background pixels before text is drawn
+                                int saveY = lineY - stFm.getAscent() - 2;
+                                int saveH = stFm.getHeight() + 4;
+                                int sx = Math.max(0, ovX);
+                                int sy = Math.max(0, saveY);
+                                int sw = Math.min(ovW, frame.getWidth() - sx);
+                                int sh = Math.min(saveH, frame.getHeight() - sy);
+                                int[] savedPixels = null;
+                                if (sw > 0 && sh > 0) {
+                                    savedPixels = frame.getRGB(sx, sy, sw, sh, null, 0, sw);
+                                }
+                                overrideRegions.add(new Object[]{
+                                    ovIdx, termLower.length(), ovX, ovW, flags[0], flags[1], flags[2],
+                                    savedPixels, sx, sy, sw, sh
+                                });
+                                ovSearchFrom = ovIdx + termLower.length();
+                            }
+                        }
+                    }
+
                     Graphics2D g2 = (Graphics2D) g.create();
                     g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
@@ -2832,118 +2907,41 @@ public class GifSlideShowApp extends JFrame {
                     }
 
                     // === Per-word bold, italic, and color overrides ===
-                    boolean hasBoldWords = st.boldText != null && !st.boldText.isEmpty();
-                    boolean hasItalicWords = st.italicText != null && !st.italicText.isEmpty();
-                    boolean hasColorWords = st.colorText != null && !st.colorText.isEmpty();
-                    if (hasBoldWords || hasItalicWords || hasColorWords) {
-                        // Collect all override terms with their style flags
-                        // Each entry: [term, isBold, isItalic, isColor]
-                        java.util.LinkedHashMap<String, int[]> overrideTerms = new java.util.LinkedHashMap<>();
-                        // flags: index 0 = bold, index 1 = italic, index 2 = color
-                        if (hasBoldWords) {
-                            for (String bt : st.boldText.split(",")) {
-                                bt = bt.trim();
-                                if (!bt.isEmpty()) {
-                                    int[] flags = overrideTerms.computeIfAbsent(bt.toLowerCase(), k -> new int[3]);
-                                    flags[0] = 1;
-                                }
-                            }
-                        }
-                        if (hasItalicWords) {
-                            for (String it : st.italicText.split(",")) {
-                                it = it.trim();
-                                if (!it.isEmpty()) {
-                                    int[] flags = overrideTerms.computeIfAbsent(it.toLowerCase(), k -> new int[3]);
-                                    flags[1] = 1;
-                                }
-                            }
-                        }
-                        if (hasColorWords) {
-                            for (String ct : st.colorText.split(",")) {
-                                ct = ct.trim();
-                                if (!ct.isEmpty()) {
-                                    int[] flags = overrideTerms.computeIfAbsent(ct.toLowerCase(), k -> new int[3]);
-                                    flags[2] = 1;
-                                }
-                            }
+                    // Restore saved background pixels, then draw override word on clean background
+                    for (Object[] region : overrideRegions) {
+                        int ovIdx = (int) region[0];
+                        int termLen = (int) region[1];
+                        int ovX = (int) region[2];
+                        int ovW = (int) region[3];
+                        int boldFlag = (int) region[4];
+                        int italicFlag = (int) region[5];
+                        int colorFlag = (int) region[6];
+                        int[] savedPixels = (int[]) region[7];
+                        int sx = (int) region[8];
+                        int sy = (int) region[9];
+                        int sw = (int) region[10];
+                        int sh = (int) region[11];
+
+                        // Restore the background pixels (erases the original text in this region)
+                        if (savedPixels != null && sw > 0 && sh > 0) {
+                            frame.setRGB(sx, sy, sw, sh, savedPixels, 0, sw);
                         }
 
-                        String ovLineLower = visibleLine.toLowerCase();
-                        for (java.util.Map.Entry<String, int[]> entry : overrideTerms.entrySet()) {
-                            String termLower = entry.getKey();
-                            int[] flags = entry.getValue();
-                            int ovSearchFrom = 0;
-                            while (ovSearchFrom < ovLineLower.length()) {
-                                int ovIdx = ovLineLower.indexOf(termLower, ovSearchFrom);
-                                if (ovIdx < 0) break;
+                        // Draw override word with modified font/color
+                        int wordStyle = st.fontStyle;
+                        if (boldFlag == 1) wordStyle |= Font.BOLD;
+                        if (italicFlag == 1) wordStyle |= Font.ITALIC;
+                        Font wordFont = new Font(st.fontName, wordStyle, (int) scaledStSize);
+                        Color wordColor = (colorFlag == 1) ? st.colorTextColor : stColor;
+                        String wordText = visibleLine.substring(ovIdx, ovIdx + termLen);
 
-                                // Calculate visual position using TextLayout (RTL-safe)
-                                int ovX, ovW;
-                                // Use stTextLayout which was built from the full line
-                                if (stTextLayout != null && ovIdx + termLower.length() <= line.length()) {
-                                    java.awt.Shape ovShape = stTextLayout.getLogicalHighlightShape(ovIdx, ovIdx + termLower.length());
-                                    java.awt.geom.Rectangle2D ovBounds = ovShape.getBounds2D();
-                                    ovX = lineX + (int) ovBounds.getX();
-                                    ovW = (int) Math.ceil(ovBounds.getWidth());
-                                } else {
-                                    String ovBefore = visibleLine.substring(0, ovIdx);
-                                    ovX = lineX + stFm.stringWidth(ovBefore);
-                                    ovW = stFm.stringWidth(visibleLine.substring(ovIdx, ovIdx + termLower.length()));
-                                }
-
-                                // Determine font style for this word
-                                int wordStyle = st.fontStyle;
-                                if (flags[0] == 1) wordStyle |= Font.BOLD;
-                                if (flags[1] == 1) wordStyle |= Font.ITALIC;
-                                Font wordFont = new Font(st.fontName, wordStyle, (int) scaledStSize);
-                                Color wordColor = (flags[2] == 1) ? st.colorTextColor : stColor;
-                                String wordText = visibleLine.substring(ovIdx, ovIdx + termLower.length());
-
-                                Graphics2D gOv = (Graphics2D) g2.create();
-                                gOv.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                                gOv.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-
-                                // Erase original text in this region by redrawing background
-                                int clipY = lineY - stFm.getAscent() - 2;
-                                int clipH = stFm.getHeight() + 4;
-                                gOv.setClip(ovX, clipY, ovW, clipH);
-                                if (st.bgOpacity > 0) {
-                                    gOv.setColor(new Color(st.bgColor.getRed(), st.bgColor.getGreen(), st.bgColor.getBlue(),
-                                            (int) (st.bgOpacity * 2.55)));
-                                    gOv.fillRect(ovX, clipY, ovW, clipH);
-                                }
-
-                                // Redraw the entire visible line through the clip with original font
-                                // to cleanly erase just this word area, then draw override on top
-                                gOv.setFont(stFont);
-                                gOv.setColor(st.bgOpacity > 0
-                                        ? new Color(st.bgColor.getRed(), st.bgColor.getGreen(), st.bgColor.getBlue(), 255)
-                                        : new Color(0, 0, 0, 0));
-                                // Clear by overdrawing background
-                                gOv.setClip(null);
-                                gOv.setClip(ovX, clipY, ovW, clipH);
-
-                                // Draw override word scaled to fit in original word's space
-                                gOv.setFont(wordFont);
-                                FontMetrics ovFm = gOv.getFontMetrics();
-                                int overrideW = ovFm.stringWidth(wordText);
-                                gOv.setColor(wordColor);
-                                if (overrideW > 0 && ovW > 0 && Math.abs(overrideW - ovW) > 1) {
-                                    // Scale horizontally to fit the override word into the original space
-                                    java.awt.geom.AffineTransform savedTx = gOv.getTransform();
-                                    double scaleX = (double) ovW / overrideW;
-                                    gOv.translate(ovX, 0);
-                                    gOv.scale(scaleX, 1.0);
-                                    gOv.drawString(wordText, 0, lineY);
-                                    gOv.setTransform(savedTx);
-                                } else {
-                                    gOv.drawString(wordText, ovX, lineY);
-                                }
-                                gOv.dispose();
-
-                                ovSearchFrom = ovIdx + termLower.length();
-                            }
-                        }
+                        Graphics2D gOv = (Graphics2D) g.create();
+                        gOv.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                        gOv.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                        gOv.setFont(wordFont);
+                        gOv.setColor(wordColor);
+                        gOv.drawString(wordText, ovX, lineY);
+                        gOv.dispose();
                     }
 
                     g2.dispose();
