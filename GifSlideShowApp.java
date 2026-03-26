@@ -2190,6 +2190,12 @@ public class GifSlideShowApp extends JFrame {
                         }
                     }
 
+                    // === Build TextLayout for correct bidi/RTL visual positioning ===
+                    java.awt.font.TextLayout stTextLayout = null;
+                    if (!line.isEmpty()) {
+                        stTextLayout = new java.awt.font.TextLayout(line, stFont, ((Graphics2D) g).getFontRenderContext());
+                    }
+
                     // === Slide text highlight (supports comma-separated words) ===
                     if (st.highlightText != null && !st.highlightText.isEmpty()) {
                         String lineLower = line.toLowerCase();
@@ -2216,10 +2222,19 @@ public class GifSlideShowApp extends JFrame {
                             while (searchFrom < lineLower.length()) {
                                 int hlIdx = lineLower.indexOf(hlLower, searchFrom);
                                 if (hlIdx < 0) break;
-                                String before = line.substring(0, hlIdx);
-                                String match = line.substring(hlIdx, hlIdx + hlTerm.length());
-                                int hlX = lineX + stFm.stringWidth(before);
-                                int hlW = stFm.stringWidth(match);
+                                // Use TextLayout for correct visual position (handles RTL/bidi text)
+                                int hlX, hlW;
+                                if (stTextLayout != null) {
+                                    java.awt.Shape hlVisShape = stTextLayout.getLogicalHighlightShape(hlIdx, hlIdx + hlTerm.length());
+                                    java.awt.geom.Rectangle2D hlVisBounds = hlVisShape.getBounds2D();
+                                    hlX = lineX + (int) hlVisBounds.getX();
+                                    hlW = (int) Math.ceil(hlVisBounds.getWidth());
+                                } else {
+                                    String before = line.substring(0, hlIdx);
+                                    String match = line.substring(hlIdx, hlIdx + hlTerm.length());
+                                    hlX = lineX + stFm.stringWidth(before);
+                                    hlW = stFm.stringWidth(match);
+                                }
                             Color hlC = st.highlightColor != null ? st.highlightColor : new Color(255, 100, 150, 180);
                             Graphics2D gHL = (Graphics2D) g.create();
                             gHL.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -2399,10 +2414,19 @@ public class GifSlideShowApp extends JFrame {
                                 while (ulSearchFrom < lineLower.length()) {
                                     int ulIdx = lineLower.indexOf(ulLower, ulSearchFrom);
                                     if (ulIdx < 0) break;
-                                    String ulBefore = line.substring(0, ulIdx);
-                                    String ulMatch = line.substring(ulIdx, ulIdx + ulTerm.length());
-                                    int ulMatchX = lineX + stFm.stringWidth(ulBefore);
-                                    int ulMatchW = stFm.stringWidth(ulMatch);
+                                    // Use TextLayout for correct visual position (handles RTL/bidi text)
+                                    int ulMatchX, ulMatchW;
+                                    if (stTextLayout != null) {
+                                        java.awt.Shape ulVisShape = stTextLayout.getLogicalHighlightShape(ulIdx, ulIdx + ulTerm.length());
+                                        java.awt.geom.Rectangle2D ulVisBounds = ulVisShape.getBounds2D();
+                                        ulMatchX = lineX + (int) ulVisBounds.getX();
+                                        ulMatchW = (int) Math.ceil(ulVisBounds.getWidth());
+                                    } else {
+                                        String ulBefore = line.substring(0, ulIdx);
+                                        String ulMatch = line.substring(ulIdx, ulIdx + ulTerm.length());
+                                        ulMatchX = lineX + stFm.stringWidth(ulBefore);
+                                        ulMatchW = stFm.stringWidth(ulMatch);
+                                    }
                                 Graphics2D gUL = (Graphics2D) g.create();
                                 gUL.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                                 int ulY = lineY + stFm.getDescent() + (int) (1 * stScaleFactor);
