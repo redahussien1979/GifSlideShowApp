@@ -319,6 +319,10 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(p + "highlightTightness", String.valueOf(t.highlightTightness));
             props.setProperty(p + "underlineStyle", t.underlineStyle);
             props.setProperty(p + "underlineText", t.underlineText);
+            props.setProperty(p + "boldText", t.boldText);
+            props.setProperty(p + "italicText", t.italicText);
+            props.setProperty(p + "colorText", t.colorText);
+            props.setProperty(p + "colorTextColor", colorToHex(t.colorTextColor));
         }
 
         // Orientation
@@ -431,7 +435,11 @@ public class GifSlideShowApp extends JFrame {
                     props.getProperty(p + "highlightStyle", "Regular"),
                     Integer.parseInt(props.getProperty(p + "highlightTightness", "50")),
                     props.getProperty(p + "underlineStyle", "None"),
-                    props.getProperty(p + "underlineText", "")
+                    props.getProperty(p + "underlineText", ""),
+                    props.getProperty(p + "boldText", ""),
+                    props.getProperty(p + "italicText", ""),
+                    props.getProperty(p + "colorText", ""),
+                    hexToColor(props.getProperty(p + "colorTextColor", "#FF5050"))
             ));
         }
 
@@ -1267,26 +1275,35 @@ public class GifSlideShowApp extends JFrame {
 
         // Ask whether first row is a header
         int headerChoice = JOptionPane.showOptionDialog(this,
-                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL headers for highlight/underline, AUDIOLINK for slide audio.)",
+                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting, AUDIOLINK for slide audio.)",
                 "Dictionary Import", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,
                 null, new String[]{"Yes, skip first row", "No, first row is data"}, "No, first row is data");
 
-        // Detect HL/UL/AUDIOLINK columns from header row
+        // Detect HL/UL/BOLD/ITALIC/COLOR/AUDIOLINK columns from header row
         int hlColIndex = -1;
         int ulColIndex = -1;
+        int boldColIndex = -1;
+        int italicColIndex = -1;
+        int colorColIndex = -1;
         int audioLinkColIndex = -1;
         List<String> headerFields = null;
 
         List<String> dataLines;
         if (headerChoice == 0) {
             headerFields = parseCsvLine(trimmed.get(0));
-            // Scan headers for HL, UL, and AUDIOLINK columns (case-insensitive)
+            // Scan headers for HL, UL, BOLD, ITALIC, COLOR, and AUDIOLINK columns (case-insensitive)
             for (int c = 0; c < headerFields.size(); c++) {
                 String h = headerFields.get(c).trim().toUpperCase();
                 if (h.equals("HL") || h.equals("HIGHLIGHT")) {
                     hlColIndex = c;
                 } else if (h.equals("UL") || h.equals("UNDERLINE")) {
                     ulColIndex = c;
+                } else if (h.equals("BOLD") || h.equals("B")) {
+                    boldColIndex = c;
+                } else if (h.equals("ITALIC") || h.equals("I")) {
+                    italicColIndex = c;
+                } else if (h.equals("COLOR") || h.equals("CLR") || h.equals("COLOUR")) {
+                    colorColIndex = c;
                 } else if (h.equals("AUDIOLINK") || h.equals("AUDIO") || h.equals("AUDIO_LINK")) {
                     audioLinkColIndex = c;
                 }
@@ -1311,10 +1328,11 @@ public class GifSlideShowApp extends JFrame {
             maxCols = Math.max(maxCols, fields.size());
         }
 
-        // Determine which columns are text columns (not HL/UL/AUDIOLINK)
+        // Determine which columns are text columns (not HL/UL/BOLD/ITALIC/COLOR/AUDIOLINK)
         List<Integer> textColIndices = new ArrayList<>();
         for (int c = 0; c < maxCols; c++) {
-            if (c != hlColIndex && c != ulColIndex && c != audioLinkColIndex) {
+            if (c != hlColIndex && c != ulColIndex && c != boldColIndex
+                    && c != italicColIndex && c != colorColIndex && c != audioLinkColIndex) {
                 textColIndices.add(c);
             }
         }
@@ -1366,6 +1384,24 @@ public class GifSlideShowApp extends JFrame {
                 slide.setSlideTextUnderlineText(ulText);
             }
 
+            // Apply Bold text from CSV if column exists
+            if (boldColIndex >= 0 && boldColIndex < fields.size()) {
+                String boldText = fields.get(boldColIndex).trim();
+                slide.setSlideTextBoldText(boldText);
+            }
+
+            // Apply Italic text from CSV if column exists
+            if (italicColIndex >= 0 && italicColIndex < fields.size()) {
+                String italicText = fields.get(italicColIndex).trim();
+                slide.setSlideTextItalicText(italicText);
+            }
+
+            // Apply Color text from CSV if column exists
+            if (colorColIndex >= 0 && colorColIndex < fields.size()) {
+                String colorText = fields.get(colorColIndex).trim();
+                slide.setSlideTextColorText(colorText);
+            }
+
             // Apply audio link from CSV if column exists
             if (audioLinkColIndex >= 0 && audioLinkColIndex < fields.size()) {
                 String audioPath = fields.get(audioLinkColIndex).trim();
@@ -1394,6 +1430,9 @@ public class GifSlideShowApp extends JFrame {
         String importMsg = assigned + " rows imported across " + textColIndices.size() + " text columns.";
         if (hlColIndex >= 0) importMsg += "\nHL column detected — highlight words imported per slide.";
         if (ulColIndex >= 0) importMsg += "\nUL column detected — underline words imported per slide.";
+        if (boldColIndex >= 0) importMsg += "\nBOLD column detected — bold words imported per slide.";
+        if (italicColIndex >= 0) importMsg += "\nITALIC column detected — italic words imported per slide.";
+        if (colorColIndex >= 0) importMsg += "\nCOLOR column detected — color words imported per slide.";
         if (audioLinkColIndex >= 0) importMsg += "\nAUDIOLINK column detected — audio files imported per slide.";
         importMsg += "\nSlides: " + slideRows.size() + " total.";
         JOptionPane.showMessageDialog(this, importMsg, "Dictionary Import", JOptionPane.INFORMATION_MESSAGE);
@@ -2791,6 +2830,101 @@ public class GifSlideShowApp extends JFrame {
                             break;
                         }
                     }
+
+                    // === Per-word bold, italic, and color overrides ===
+                    boolean hasBoldWords = st.boldText != null && !st.boldText.isEmpty();
+                    boolean hasItalicWords = st.italicText != null && !st.italicText.isEmpty();
+                    boolean hasColorWords = st.colorText != null && !st.colorText.isEmpty();
+                    if (hasBoldWords || hasItalicWords || hasColorWords) {
+                        // Collect all override terms with their style flags
+                        // Each entry: [term, isBold, isItalic, isColor]
+                        java.util.LinkedHashMap<String, int[]> overrideTerms = new java.util.LinkedHashMap<>();
+                        // flags: index 0 = bold, index 1 = italic, index 2 = color
+                        if (hasBoldWords) {
+                            for (String bt : st.boldText.split(",")) {
+                                bt = bt.trim();
+                                if (!bt.isEmpty()) {
+                                    int[] flags = overrideTerms.computeIfAbsent(bt.toLowerCase(), k -> new int[3]);
+                                    flags[0] = 1;
+                                }
+                            }
+                        }
+                        if (hasItalicWords) {
+                            for (String it : st.italicText.split(",")) {
+                                it = it.trim();
+                                if (!it.isEmpty()) {
+                                    int[] flags = overrideTerms.computeIfAbsent(it.toLowerCase(), k -> new int[3]);
+                                    flags[1] = 1;
+                                }
+                            }
+                        }
+                        if (hasColorWords) {
+                            for (String ct : st.colorText.split(",")) {
+                                ct = ct.trim();
+                                if (!ct.isEmpty()) {
+                                    int[] flags = overrideTerms.computeIfAbsent(ct.toLowerCase(), k -> new int[3]);
+                                    flags[2] = 1;
+                                }
+                            }
+                        }
+
+                        String ovLineLower = visibleLine.toLowerCase();
+                        for (java.util.Map.Entry<String, int[]> entry : overrideTerms.entrySet()) {
+                            String termLower = entry.getKey();
+                            int[] flags = entry.getValue();
+                            int ovSearchFrom = 0;
+                            while (ovSearchFrom < ovLineLower.length()) {
+                                int ovIdx = ovLineLower.indexOf(termLower, ovSearchFrom);
+                                if (ovIdx < 0) break;
+
+                                // Calculate visual position using TextLayout (RTL-safe)
+                                int ovX, ovW;
+                                // Use stTextLayout which was built from the full line
+                                if (stTextLayout != null && ovIdx + termLower.length() <= line.length()) {
+                                    java.awt.Shape ovShape = stTextLayout.getLogicalHighlightShape(ovIdx, ovIdx + termLower.length());
+                                    java.awt.geom.Rectangle2D ovBounds = ovShape.getBounds2D();
+                                    ovX = lineX + (int) ovBounds.getX();
+                                    ovW = (int) Math.ceil(ovBounds.getWidth());
+                                } else {
+                                    String ovBefore = visibleLine.substring(0, ovIdx);
+                                    ovX = lineX + stFm.stringWidth(ovBefore);
+                                    ovW = stFm.stringWidth(visibleLine.substring(ovIdx, ovIdx + termLower.length()));
+                                }
+
+                                // Determine font style for this word
+                                int wordStyle = st.fontStyle;
+                                if (flags[0] == 1) wordStyle |= Font.BOLD;
+                                if (flags[1] == 1) wordStyle |= Font.ITALIC;
+                                Font wordFont = new Font(st.fontName, wordStyle, (int) scaledStSize);
+                                Color wordColor = (flags[2] == 1) ? st.colorTextColor : stColor;
+
+                                // Clear the area behind the word and redraw with override style
+                                Graphics2D gOv = (Graphics2D) g2.create();
+                                gOv.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                                gOv.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                                gOv.setClip(ovX, lineY - stFm.getAscent() - 2, ovW, stFm.getHeight() + 4);
+
+                                // Redraw background behind word to cover original text
+                                if (st.bgOpacity > 0) {
+                                    gOv.setColor(new Color(st.bgColor.getRed(), st.bgColor.getGreen(), st.bgColor.getBlue(),
+                                            (int) (st.bgOpacity * 2.55)));
+                                    gOv.fillRect(ovX, lineY - stFm.getAscent() - 2, ovW, stFm.getHeight() + 4);
+                                }
+
+                                // Redraw the full line with the override font/color within the clip
+                                gOv.setFont(wordFont);
+                                gOv.setColor(wordColor);
+                                // Draw only the matched word at the correct position
+                                String wordText = visibleLine.substring(ovIdx, ovIdx + termLower.length());
+                                FontMetrics ovFm = gOv.getFontMetrics();
+                                gOv.drawString(wordText, ovX, lineY);
+                                gOv.dispose();
+
+                                ovSearchFrom = ovIdx + termLower.length();
+                            }
+                        }
+                    }
+
                     g2.dispose();
 
                     lineY += stLineHeight;
@@ -4905,6 +5039,10 @@ public class GifSlideShowApp extends JFrame {
         final int highlightTightness;
         final String underlineStyle;
         final String underlineText;
+        final String boldText;
+        final String italicText;
+        final String colorText;
+        final Color colorTextColor;
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
                       int fontStyle, Color color, int x, int y, int bgOpacity,
@@ -4912,7 +5050,8 @@ public class GifSlideShowApp extends JFrame {
                       int alignment) {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, "None", 50,
-                    "", new Color(255, 100, 150, 180), "Regular", 50, "None", "");
+                    "", new Color(255, 100, 150, 180), "Regular", 50, "None", "",
+                    "", "", "", null);
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -4921,7 +5060,8 @@ public class GifSlideShowApp extends JFrame {
                       int alignment, String textEffect, int textEffectIntensity) {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
-                    "", new Color(255, 100, 150, 180), "Regular", 50, "None", "");
+                    "", new Color(255, 100, 150, 180), "Regular", 50, "None", "",
+                    "", "", "", null);
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -4931,7 +5071,8 @@ public class GifSlideShowApp extends JFrame {
                       String highlightText, Color highlightColor, String highlightStyle) {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
-                    highlightText, highlightColor, highlightStyle, 50, "None", "");
+                    highlightText, highlightColor, highlightStyle, 50, "None", "",
+                    "", "", "", null);
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -4942,7 +5083,8 @@ public class GifSlideShowApp extends JFrame {
                       int highlightTightness, String underlineStyle) {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
-                    highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, "");
+                    highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, "",
+                    "", "", "", null);
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -4951,6 +5093,19 @@ public class GifSlideShowApp extends JFrame {
                       int alignment, String textEffect, int textEffectIntensity,
                       String highlightText, Color highlightColor, String highlightStyle,
                       int highlightTightness, String underlineStyle, String underlineText) {
+            this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
+                    bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
+                    highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, underlineText,
+                    "", "", "", null);
+        }
+
+        SlideTextData(boolean show, String text, String fontName, int fontSize,
+                      int fontStyle, Color color, int x, int y, int bgOpacity,
+                      Color bgColor, boolean justify, int widthPct, int shiftX,
+                      int alignment, String textEffect, int textEffectIntensity,
+                      String highlightText, Color highlightColor, String highlightStyle,
+                      int highlightTightness, String underlineStyle, String underlineText,
+                      String boldText, String italicText, String colorText, Color colorTextColor) {
             this.show = show;
             this.text = text;
             this.fontName = fontName;
@@ -4973,6 +5128,10 @@ public class GifSlideShowApp extends JFrame {
             this.highlightTightness = highlightTightness;
             this.underlineStyle = underlineStyle != null ? underlineStyle : "None";
             this.underlineText = underlineText != null ? underlineText : "";
+            this.boldText = boldText != null ? boldText : "";
+            this.italicText = italicText != null ? italicText : "";
+            this.colorText = colorText != null ? colorText : "";
+            this.colorTextColor = colorTextColor != null ? colorTextColor : new Color(255, 80, 80);
         }
     }
 
@@ -5136,6 +5295,11 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner slideTextHighlightTightnessSpinner;
         private final JComboBox<String> slideTextUnderlineCombo;
         private final JTextField slideTextUnderlineTextField;
+        private final JTextField slideTextBoldField;
+        private final JTextField slideTextItalicField;
+        private final JTextField slideTextColorTextField;
+        private final JButton slideTextColorTextColorBtn;
+        private Color slideTextColorTextColor = new Color(255, 80, 80);
         private final JSpinner subtitleYSpinner;
         private final JSpinner subtitleBgOpacitySpinner;
         private final JCheckBox fxRoundCornersCheck;
@@ -5790,6 +5954,51 @@ public class GifSlideShowApp extends JFrame {
                 @Override public void changedUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
             });
 
+            slideTextBoldField = new JTextField(8);
+            slideTextBoldField.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextBoldField.setPreferredSize(new Dimension(80, 24));
+            slideTextBoldField.setToolTipText("Words to make bold, comma-separated");
+            slideTextBoldField.getDocument().addDocumentListener(new DocumentListener() {
+                @Override public void insertUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
+                @Override public void removeUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
+                @Override public void changedUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
+            });
+
+            slideTextItalicField = new JTextField(8);
+            slideTextItalicField.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextItalicField.setPreferredSize(new Dimension(80, 24));
+            slideTextItalicField.setToolTipText("Words to make italic, comma-separated");
+            slideTextItalicField.getDocument().addDocumentListener(new DocumentListener() {
+                @Override public void insertUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
+                @Override public void removeUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
+                @Override public void changedUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
+            });
+
+            slideTextColorTextField = new JTextField(8);
+            slideTextColorTextField.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextColorTextField.setPreferredSize(new Dimension(80, 24));
+            slideTextColorTextField.setToolTipText("Words to colorize, comma-separated");
+            slideTextColorTextField.getDocument().addDocumentListener(new DocumentListener() {
+                @Override public void insertUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
+                @Override public void removeUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
+                @Override public void changedUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
+            });
+
+            slideTextColorTextColorBtn = new JButton("\u25A0");
+            slideTextColorTextColorBtn.setForeground(slideTextColorTextColor);
+            slideTextColorTextColorBtn.setFont(new Font("Segoe UI", Font.PLAIN, 16));
+            slideTextColorTextColorBtn.setPreferredSize(new Dimension(32, 24));
+            slideTextColorTextColorBtn.setFocusPainted(false);
+            slideTextColorTextColorBtn.setToolTipText("Word color");
+            slideTextColorTextColorBtn.addActionListener(e -> {
+                Color c = JColorChooser.showDialog(panel, "Word Color", slideTextColorTextColor);
+                if (c != null) {
+                    slideTextColorTextColor = c;
+                    slideTextColorTextColorBtn.setForeground(c);
+                    onFormatChanged();
+                }
+            });
+
             toolbar4c.add(styledLabel("      "));
             toolbar4c.add(styledLabel("Align:"));
             toolbar4c.add(slideTextAlignCombo);
@@ -5806,6 +6015,13 @@ public class GifSlideShowApp extends JFrame {
             toolbar4c.add(styledLabel("UL:"));
             toolbar4c.add(slideTextUnderlineCombo);
             toolbar4c.add(slideTextUnderlineTextField);
+            toolbar4c.add(styledLabel("  B:"));
+            toolbar4c.add(slideTextBoldField);
+            toolbar4c.add(styledLabel("I:"));
+            toolbar4c.add(slideTextItalicField);
+            toolbar4c.add(styledLabel("Clr:"));
+            toolbar4c.add(slideTextColorTextField);
+            toolbar4c.add(slideTextColorTextColorBtn);
 
             // ===== Toolbar Row 5: Image Effects (3 rows) =====
             JPanel toolbar5a = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
@@ -6121,7 +6337,9 @@ public class GifSlideShowApp extends JFrame {
                     (String) slideTextHighlightStyleCombo.getSelectedItem(),
                     (int) slideTextHighlightTightnessSpinner.getValue(),
                     (String) slideTextUnderlineCombo.getSelectedItem(),
-                    slideTextUnderlineTextField.getText()));
+                    slideTextUnderlineTextField.getText(),
+                    slideTextBoldField.getText(), slideTextItalicField.getText(),
+                    slideTextColorTextField.getText(), slideTextColorTextColor));
         }
 
         private void loadSlideTextFromItem(int index) {
@@ -6159,6 +6377,11 @@ public class GifSlideShowApp extends JFrame {
                 slideTextHighlightTightnessSpinner.setValue(item.highlightTightness);
                 slideTextUnderlineCombo.setSelectedItem(item.underlineStyle);
                 slideTextUnderlineTextField.setText(item.underlineText);
+                slideTextBoldField.setText(item.boldText);
+                slideTextItalicField.setText(item.italicText);
+                slideTextColorTextField.setText(item.colorText);
+                slideTextColorTextColor = item.colorTextColor;
+                slideTextColorTextColorBtn.setForeground(item.colorTextColor);
             } finally {
                 isLoadingSlideText = false;
             }
@@ -6296,7 +6519,8 @@ public class GifSlideShowApp extends JFrame {
                         old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
                         old.textEffect, old.textEffectIntensity,
                         text != null ? text : "", old.highlightColor, old.highlightStyle,
-                        old.highlightTightness, old.underlineStyle, old.underlineText));
+                        old.highlightTightness, old.underlineStyle, old.underlineText,
+                        old.boldText, old.italicText, old.colorText, old.colorTextColor));
             }
             if (currentSlideTextIndex < slideTextItems.size()) {
                 loadSlideTextFromItem(currentSlideTextIndex);
@@ -6312,7 +6536,59 @@ public class GifSlideShowApp extends JFrame {
                         old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
                         old.textEffect, old.textEffectIntensity,
                         old.highlightText, old.highlightColor, old.highlightStyle,
-                        old.highlightTightness, old.underlineStyle, text != null ? text : ""));
+                        old.highlightTightness, old.underlineStyle, text != null ? text : "",
+                        old.boldText, old.italicText, old.colorText, old.colorTextColor));
+            }
+            if (currentSlideTextIndex < slideTextItems.size()) {
+                loadSlideTextFromItem(currentSlideTextIndex);
+            }
+        }
+
+        /** Set bold text on all slide text items for this slide. */
+        void setSlideTextBoldText(String text) {
+            for (int i = 0; i < slideTextItems.size(); i++) {
+                SlideTextData old = slideTextItems.get(i);
+                slideTextItems.set(i, new SlideTextData(old.show, old.text, old.fontName, old.fontSize,
+                        old.fontStyle, old.color, old.x, old.y, old.bgOpacity,
+                        old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
+                        old.textEffect, old.textEffectIntensity,
+                        old.highlightText, old.highlightColor, old.highlightStyle,
+                        old.highlightTightness, old.underlineStyle, old.underlineText,
+                        text != null ? text : "", old.italicText, old.colorText, old.colorTextColor));
+            }
+            if (currentSlideTextIndex < slideTextItems.size()) {
+                loadSlideTextFromItem(currentSlideTextIndex);
+            }
+        }
+
+        /** Set italic text on all slide text items for this slide. */
+        void setSlideTextItalicText(String text) {
+            for (int i = 0; i < slideTextItems.size(); i++) {
+                SlideTextData old = slideTextItems.get(i);
+                slideTextItems.set(i, new SlideTextData(old.show, old.text, old.fontName, old.fontSize,
+                        old.fontStyle, old.color, old.x, old.y, old.bgOpacity,
+                        old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
+                        old.textEffect, old.textEffectIntensity,
+                        old.highlightText, old.highlightColor, old.highlightStyle,
+                        old.highlightTightness, old.underlineStyle, old.underlineText,
+                        old.boldText, text != null ? text : "", old.colorText, old.colorTextColor));
+            }
+            if (currentSlideTextIndex < slideTextItems.size()) {
+                loadSlideTextFromItem(currentSlideTextIndex);
+            }
+        }
+
+        /** Set color text on all slide text items for this slide. */
+        void setSlideTextColorText(String text) {
+            for (int i = 0; i < slideTextItems.size(); i++) {
+                SlideTextData old = slideTextItems.get(i);
+                slideTextItems.set(i, new SlideTextData(old.show, old.text, old.fontName, old.fontSize,
+                        old.fontStyle, old.color, old.x, old.y, old.bgOpacity,
+                        old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
+                        old.textEffect, old.textEffectIntensity,
+                        old.highlightText, old.highlightColor, old.highlightStyle,
+                        old.highlightTightness, old.underlineStyle, old.underlineText,
+                        old.boldText, old.italicText, text != null ? text : "", old.colorTextColor));
             }
             if (currentSlideTextIndex < slideTextItems.size()) {
                 loadSlideTextFromItem(currentSlideTextIndex);
