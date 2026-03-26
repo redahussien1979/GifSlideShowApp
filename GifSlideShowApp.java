@@ -5678,6 +5678,8 @@ public class GifSlideShowApp extends JFrame {
             toolbar4b.setBackground(new Color(50, 95, 60));
             JPanel toolbar4c = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
             toolbar4c.setBackground(new Color(50, 95, 60));
+            JPanel toolbar4d = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
+            toolbar4d.setBackground(new Color(50, 95, 60));
 
             // Initialize with one default slide text item
             slideTextItems.add(new SlideTextData(false, "", loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI",
@@ -6015,13 +6017,15 @@ public class GifSlideShowApp extends JFrame {
             toolbar4c.add(styledLabel("UL:"));
             toolbar4c.add(slideTextUnderlineCombo);
             toolbar4c.add(slideTextUnderlineTextField);
-            toolbar4c.add(styledLabel("  B:"));
-            toolbar4c.add(slideTextBoldField);
-            toolbar4c.add(styledLabel("I:"));
-            toolbar4c.add(slideTextItalicField);
-            toolbar4c.add(styledLabel("Clr:"));
-            toolbar4c.add(slideTextColorTextField);
-            toolbar4c.add(slideTextColorTextColorBtn);
+
+            toolbar4d.add(styledLabel("      "));
+            toolbar4d.add(styledLabel("B:"));
+            toolbar4d.add(slideTextBoldField);
+            toolbar4d.add(styledLabel("I:"));
+            toolbar4d.add(slideTextItalicField);
+            toolbar4d.add(styledLabel("Clr:"));
+            toolbar4d.add(slideTextColorTextField);
+            toolbar4d.add(slideTextColorTextColorBtn);
 
             // ===== Toolbar Row 5: Image Effects (3 rows) =====
             JPanel toolbar5a = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
@@ -6287,6 +6291,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(toolbar4a);
             toolbarsPanel.add(toolbar4b);
             toolbarsPanel.add(toolbar4c);
+            toolbarsPanel.add(toolbar4d);
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar5a);
             toolbarsPanel.add(toolbar5b);
