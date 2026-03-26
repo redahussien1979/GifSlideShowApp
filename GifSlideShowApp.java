@@ -2940,7 +2940,19 @@ public class GifSlideShowApp extends JFrame {
                         gOv.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
                         gOv.setFont(wordFont);
                         gOv.setColor(wordColor);
-                        gOv.drawString(wordText, ovX, lineY);
+                        // Scale override word to fit in the original word's space
+                        FontMetrics ovFm = gOv.getFontMetrics();
+                        int overrideW = ovFm.stringWidth(wordText);
+                        if (overrideW > 0 && ovW > 0 && overrideW != ovW) {
+                            java.awt.geom.AffineTransform savedTx = gOv.getTransform();
+                            double scaleX = (double) ovW / overrideW;
+                            gOv.translate(ovX, 0);
+                            gOv.scale(scaleX, 1.0);
+                            gOv.drawString(wordText, 0, lineY);
+                            gOv.setTransform(savedTx);
+                        } else {
+                            gOv.drawString(wordText, ovX, lineY);
+                        }
                         gOv.dispose();
                     }
 
