@@ -3264,14 +3264,15 @@ public class GifSlideShowApp extends JFrame {
     }
 
     private int askDuration() {
-        String durStr = JOptionPane.showInputDialog(this, "Duration per slide (milliseconds):", "2000");
+        String durStr = JOptionPane.showInputDialog(this, "Duration per slide (seconds):", "5");
         if (durStr == null) return -1;
         try {
-            int duration = Integer.parseInt(durStr.trim());
+            double seconds = Double.parseDouble(durStr.trim());
+            int duration = (int) (seconds * 1000);
             if (duration < 100 || duration > 30000) throw new NumberFormatException();
             return duration;
         } catch (NumberFormatException ex) {
-            JOptionPane.showMessageDialog(this, "Enter 100–30000.", "Invalid", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Enter 0.1–30 seconds.", "Invalid", JOptionPane.ERROR_MESSAGE);
             return -1;
         }
     }
