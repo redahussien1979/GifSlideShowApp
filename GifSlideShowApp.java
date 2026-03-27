@@ -4445,7 +4445,15 @@ public class GifSlideShowApp extends JFrame {
                         int slideDur = (s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, duration) : duration;
                         int slideFrames = Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
 
-                        String slideFileName = String.format("slide_%03d.mp4", si + 1);
+                        String slideFileName;
+                        if (s.text != null && !s.text.trim().isEmpty()) {
+                            String safeName = s.text.trim().replaceAll("[<>:\"/\\\\|?*\\x00-\\x1F]", "");
+                            if (safeName.length() > 200) safeName = safeName.substring(0, 200);
+                            if (safeName.isEmpty()) safeName = String.format("slide_%03d", si + 1);
+                            slideFileName = safeName + ".mp4";
+                        } else {
+                            slideFileName = String.format("slide_%03d.mp4", si + 1);
+                        }
                         File slideOutFile = new File(outFolder, slideFileName);
 
                         publish("Exporting slide " + (si + 1) + "/" + totalSlides + "...");
