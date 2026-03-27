@@ -3264,15 +3264,14 @@ public class GifSlideShowApp extends JFrame {
     }
 
     private int askDuration() {
-        String durStr = JOptionPane.showInputDialog(this, "Duration per slide (seconds):", "5");
+        String durStr = JOptionPane.showInputDialog(this, "Duration per slide (milliseconds):", "2000");
         if (durStr == null) return -1;
         try {
-            double seconds = Double.parseDouble(durStr.trim());
-            int duration = (int) (seconds * 1000);
+            int duration = Integer.parseInt(durStr.trim());
             if (duration < 100 || duration > 30000) throw new NumberFormatException();
             return duration;
         } catch (NumberFormatException ex) {
-            JOptionPane.showMessageDialog(this, "Enter 0.1–30 seconds.", "Invalid", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Enter 100–30000.", "Invalid", JOptionPane.ERROR_MESSAGE);
             return -1;
         }
     }
@@ -4242,7 +4241,6 @@ public class GifSlideShowApp extends JFrame {
                         muxCmd.add("aac");
                         muxCmd.add("-b:a");
                         muxCmd.add("192k");
-                        muxCmd.add("-shortest");
                         muxCmd.add("-movflags");
                         muxCmd.add("+faststart");
                         muxCmd.add(finalOut.getAbsolutePath());
@@ -4528,7 +4526,6 @@ public class GifSlideShowApp extends JFrame {
                                     muxCmd.add("-c:v"); muxCmd.add("copy");
                                     muxCmd.add("-c:a"); muxCmd.add("aac");
                                     muxCmd.add("-b:a"); muxCmd.add("192k");
-                                    muxCmd.add("-shortest");
                                     muxCmd.add("-movflags"); muxCmd.add("+faststart");
                                     muxCmd.add(slideOutFile.getAbsolutePath());
                                     runFfmpeg(muxCmd);
@@ -4627,7 +4624,6 @@ public class GifSlideShowApp extends JFrame {
                                     muxCmd.add("-c:v"); muxCmd.add("copy");
                                     muxCmd.add("-c:a"); muxCmd.add("aac");
                                     muxCmd.add("-b:a"); muxCmd.add("192k");
-                                    muxCmd.add("-shortest");
                                     muxCmd.add("-movflags"); muxCmd.add("+faststart");
                                     muxCmd.add(slideOutFile.getAbsolutePath());
                                     runFfmpeg(muxCmd);
