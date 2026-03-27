@@ -3506,7 +3506,7 @@ public class GifSlideShowApp extends JFrame {
                             frames = renderAllFrames(slides, w, h, progressBar, 60);
                             frameDelays = new ArrayList<>();
                             for (SlideData s : slides) {
-                                int delay = (s.audioDurationMs > 0) ? s.audioDurationMs : duration;
+                                int delay = (s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, duration) : duration;
                                 frameDelays.add(delay);
                             }
                         }
@@ -3718,7 +3718,7 @@ public class GifSlideShowApp extends JFrame {
 
                     int totalFrames = 0;
                     for (SlideData s : slides) {
-                        int slideDur = (s.audioDurationMs > 0) ? s.audioDurationMs : duration;
+                        int slideDur = (s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, duration) : duration;
                         totalFrames += Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
                     }
                     int frameIndex = 0;
@@ -3794,7 +3794,7 @@ public class GifSlideShowApp extends JFrame {
 
                             for (int i = 0; i < slides.size(); i++) {
                                 SlideData s = slides.get(i);
-                                int slideDur = (s.audioDurationMs > 0) ? s.audioDurationMs : duration;
+                                int slideDur = (s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, duration) : duration;
                                 double slideDurSec = slideDur / 1000.0;
 
                                 BufferedImage frame = renderFrame(
@@ -3890,7 +3890,7 @@ public class GifSlideShowApp extends JFrame {
 
                             for (int i = 0; i < slides.size(); i++) {
                                 SlideData s = slides.get(i);
-                                int slideDur = (s.audioDurationMs > 0) ? s.audioDurationMs : duration;
+                                int slideDur = (s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, duration) : duration;
                                 int slideFrames = Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
                                 boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0;
                                 boolean hasAnimatedText = false;
@@ -4111,7 +4111,7 @@ public class GifSlideShowApp extends JFrame {
                         long offsetMs = 0;
 
                         for (SlideData s : slides) {
-                            int slideDur = (s.audioDurationMs > 0) ? s.audioDurationMs : duration;
+                            int slideDur = (s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, duration) : duration;
                             if (s.audioFile != null && s.audioFile.exists()) {
                                 mergeCmd.add("-i");
                                 mergeCmd.add(s.audioFile.getAbsolutePath());
@@ -4288,7 +4288,7 @@ public class GifSlideShowApp extends JFrame {
                     double sizeMB = fileSize / (1024.0 * 1024.0);
                     double totalDurationSec = 0;
                     for (SlideData s : slides) {
-                        totalDurationSec += ((s.audioDurationMs > 0) ? s.audioDurationMs : duration) / 1000.0;
+                        totalDurationSec += ((s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, duration) : duration) / 1000.0;
                     }
 
                     int slideAudioCount = 0;
@@ -4443,7 +4443,7 @@ public class GifSlideShowApp extends JFrame {
 
                     for (int si = 0; si < totalSlides; si++) {
                         SlideData s = slides.get(si);
-                        int slideDur = (s.audioDurationMs > 0) ? s.audioDurationMs : duration;
+                        int slideDur = (s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, duration) : duration;
                         int slideFrames = Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
 
                         String slideFileName = String.format("slide_%03d.mp4", si + 1);
