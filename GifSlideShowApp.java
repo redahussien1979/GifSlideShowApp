@@ -4446,8 +4446,20 @@ public class GifSlideShowApp extends JFrame {
                         int slideFrames = Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
 
                         String slideFileName;
-                        if (s.text != null && !s.text.trim().isEmpty()) {
-                            String safeName = s.text.trim().replaceAll("[<>:\"/\\\\|?*\\x00-\\x1F]", "");
+                        String slideTextName = null;
+                        if (s.slideTexts != null) {
+                            for (SlideTextData st : s.slideTexts) {
+                                if (st.text != null && !st.text.trim().isEmpty()) {
+                                    slideTextName = st.text.trim();
+                                    break;
+                                }
+                            }
+                        }
+                        if (slideTextName == null && s.text != null && !s.text.trim().isEmpty()) {
+                            slideTextName = s.text.trim();
+                        }
+                        if (slideTextName != null && !slideTextName.isEmpty()) {
+                            String safeName = slideTextName.replaceAll("[<>:\"/\\\\|?*\\x00-\\x1F]", "");
                             if (safeName.length() > 200) safeName = safeName.substring(0, 200);
                             if (safeName.isEmpty()) safeName = String.format("slide_%03d", si + 1);
                             slideFileName = safeName + ".mp4";
