@@ -4241,7 +4241,6 @@ public class GifSlideShowApp extends JFrame {
                         muxCmd.add("aac");
                         muxCmd.add("-b:a");
                         muxCmd.add("192k");
-                        muxCmd.add("-shortest");
                         muxCmd.add("-movflags");
                         muxCmd.add("+faststart");
                         muxCmd.add(finalOut.getAbsolutePath());
@@ -4527,7 +4526,6 @@ public class GifSlideShowApp extends JFrame {
                                     muxCmd.add("-c:v"); muxCmd.add("copy");
                                     muxCmd.add("-c:a"); muxCmd.add("aac");
                                     muxCmd.add("-b:a"); muxCmd.add("192k");
-                                    muxCmd.add("-shortest");
                                     muxCmd.add("-movflags"); muxCmd.add("+faststart");
                                     muxCmd.add(slideOutFile.getAbsolutePath());
                                     runFfmpeg(muxCmd);
@@ -4626,7 +4624,6 @@ public class GifSlideShowApp extends JFrame {
                                     muxCmd.add("-c:v"); muxCmd.add("copy");
                                     muxCmd.add("-c:a"); muxCmd.add("aac");
                                     muxCmd.add("-b:a"); muxCmd.add("192k");
-                                    muxCmd.add("-shortest");
                                     muxCmd.add("-movflags"); muxCmd.add("+faststart");
                                     muxCmd.add(slideOutFile.getAbsolutePath());
                                     runFfmpeg(muxCmd);
