@@ -73,6 +73,10 @@ public class GifSlideShowApp extends JFrame {
         return orientationCombo != null && "Portrait (1080×1920)".equals(orientationCombo.getSelectedItem());
     }
 
+    private boolean isBoth() {
+        return orientationCombo != null && "Both (Landscape + Portrait)".equals(orientationCombo.getSelectedItem());
+    }
+
     private int getOutputWidth() {
         return isPortrait() ? GIF_HEIGHT : GIF_WIDTH; // 1080 or 1920
     }
@@ -154,12 +158,21 @@ public class GifSlideShowApp extends JFrame {
         orientLabel.setForeground(Color.LIGHT_GRAY);
         orientLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
         orientationCombo = new JComboBox<>(new String[]{
-                "Landscape (1920×1080)", "Portrait (1080×1920)"});
-        orientationCombo.setPreferredSize(new Dimension(150, 26));
+                "Landscape (1920×1080)", "Portrait (1080×1920)", "Both (Landscape + Portrait)"});
+        orientationCombo.setPreferredSize(new Dimension(200, 26));
         orientationCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         orientationCombo.addActionListener(e -> {
-            String dims = isPortrait() ? "1080×1920" : "1920×1080";
-            String orientText = isPortrait() ? "Portrait" : "Landscape";
+            String dims, orientText;
+            if (isBoth()) {
+                dims = "1920×1080 + 1080×1920";
+                orientText = "Both";
+            } else if (isPortrait()) {
+                dims = "1080×1920";
+                orientText = "Portrait";
+            } else {
+                dims = "1920×1080";
+                orientText = "Landscape";
+            }
             setTitle("GIF/Video Slide Show Creator — YouTube HD " + orientText + " (" + dims + ")");
             header.setText("GIF / Video Slide Show Creator — YouTube HD " + orientText + " (" + dims + ")");
             // Refresh all live previews
@@ -3613,8 +3626,11 @@ public class GifSlideShowApp extends JFrame {
         int duration = askDuration();
         if (duration < 0) return;
 
+        boolean bothMode = isBoth();
         String[] resOptions;
-        if (isPortrait()) {
+        if (bothMode) {
+            resOptions = new String[]{"Full HD (1920×1080 + 1080×1920)", "2K QHD (2560×1440 + 1440×2560)", "4K UHD (3840×2160 + 2160×3840)"};
+        } else if (isPortrait()) {
             resOptions = new String[]{"1080×1920 (Full HD Portrait)", "1440×2560 (2K QHD Portrait)", "2160×3840 (4K UHD Portrait)"};
         } else {
             resOptions = new String[]{"1920×1080 (Full HD)", "2560×1440 (2K QHD)", "3840×2160 (4K UHD)"};
@@ -3625,19 +3641,29 @@ public class GifSlideShowApp extends JFrame {
                 null, resOptions, resOptions[0]);
         if (resChoice < 0) return;
 
-        final int videoW, videoH;
-        if (isPortrait()) {
+        final int[][] videoDimsList;
+        final String[] orientLabels;
+        if (bothMode) {
             switch (resChoice) {
-                case 1:  videoW = 1440; videoH = 2560; break;
-                case 2:  videoW = 2160; videoH = 3840; break;
-                default: videoW = 1080; videoH = 1920; break;
+                case 1:  videoDimsList = new int[][]{{2560, 1440}, {1440, 2560}}; break;
+                case 2:  videoDimsList = new int[][]{{3840, 2160}, {2160, 3840}}; break;
+                default: videoDimsList = new int[][]{{1920, 1080}, {1080, 1920}}; break;
             }
+            orientLabels = new String[]{"landscape", "portrait"};
+        } else if (isPortrait()) {
+            switch (resChoice) {
+                case 1:  videoDimsList = new int[][]{{1440, 2560}}; break;
+                case 2:  videoDimsList = new int[][]{{2160, 3840}}; break;
+                default: videoDimsList = new int[][]{{1080, 1920}}; break;
+            }
+            orientLabels = new String[]{"portrait"};
         } else {
             switch (resChoice) {
-                case 1:  videoW = 2560; videoH = 1440; break;
-                case 2:  videoW = 3840; videoH = 2160; break;
-                default: videoW = 1920; videoH = 1080; break;
+                case 1:  videoDimsList = new int[][]{{2560, 1440}}; break;
+                case 2:  videoDimsList = new int[][]{{3840, 2160}}; break;
+                default: videoDimsList = new int[][]{{1920, 1080}}; break;
             }
+            orientLabels = new String[]{"landscape"};
         }
 
         String[] qualityOptions = {"High Quality (CRF 18)", "Medium Quality (CRF 23)", "Small File (CRF 28)"};
@@ -3688,7 +3714,15 @@ public class GifSlideShowApp extends JFrame {
         if (!outFile.getName().toLowerCase().endsWith(".mp4"))
             outFile = new File(outFile.getAbsolutePath() + ".mp4");
 
-        final File finalOut = outFile;
+        String baseName = outFile.getName().replaceAll("(?i)\\.mp4$", "");
+        String parentDir = outFile.getParent() != null ? outFile.getParent() : ".";
+        String timestamp = new java.text.SimpleDateFormat("mmss").format(new java.util.Date());
+
+        final File[] outputFiles = new File[videoDimsList.length];
+        for (int oi = 0; oi < videoDimsList.length; oi++) {
+            outputFiles[oi] = new File(parentDir, baseName + "_" + orientLabels[oi] + "_" + timestamp + ".mp4");
+        }
+        final File finalOut = outputFiles[0];
 
         JDialog progressDialog = createProgressDialog("Creating MP4 Video...");
         JProgressBar progressBar = getProgressBar(progressDialog);
@@ -3700,8 +3734,18 @@ public class GifSlideShowApp extends JFrame {
 
             @Override
             protected Void doInBackground() {
-                File tempDir = null;
+                StringBuilder allInfo = new StringBuilder();
                 try {
+                  for (int orientIdx = 0; orientIdx < videoDimsList.length; orientIdx++) {
+                    final int videoW = videoDimsList[orientIdx][0];
+                    final int videoH = videoDimsList[orientIdx][1];
+                    final File currentOut = outputFiles[orientIdx];
+                    if (videoDimsList.length > 1) {
+                        publish("=== Generating " + orientLabels[orientIdx] + " video (" + (orientIdx + 1) + "/" + videoDimsList.length + ") ===");
+                    }
+
+                    File tempDir = null;
+                    try {
                     tempDir = new File(System.getProperty("java.io.tmpdir"),
                             "mp4_frames_" + System.currentTimeMillis());
                     if (!tempDir.mkdirs() && !tempDir.exists()) {
@@ -4243,7 +4287,7 @@ public class GifSlideShowApp extends JFrame {
                         muxCmd.add("192k");
                         muxCmd.add("-movflags");
                         muxCmd.add("+faststart");
-                        muxCmd.add(finalOut.getAbsolutePath());
+                        muxCmd.add(currentOut.getAbsolutePath());
 
                         ProcessBuilder muxPb = new ProcessBuilder(muxCmd);
                         muxPb.redirectErrorStream(true);
@@ -4271,9 +4315,9 @@ public class GifSlideShowApp extends JFrame {
                         videoOnly.delete();
                     } else {
                         // No audio — just rename video-only file to final output
-                        if (!videoOnly.renameTo(finalOut)) {
+                        if (!videoOnly.renameTo(currentOut)) {
                             // renameTo can fail across filesystems, fall back to copy
-                            java.nio.file.Files.copy(videoOnly.toPath(), finalOut.toPath(),
+                            java.nio.file.Files.copy(videoOnly.toPath(), currentOut.toPath(),
                                     java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                             videoOnly.delete();
                         }
@@ -4283,7 +4327,7 @@ public class GifSlideShowApp extends JFrame {
 
                     SwingUtilities.invokeLater(() -> progressBar.setValue(100));
 
-                    long fileSize = finalOut.length();
+                    long fileSize = currentOut.length();
                     double sizeMB = fileSize / (1024.0 * 1024.0);
                     double totalDurationSec = 0;
                     for (SlideData s : slides) {
@@ -4309,27 +4353,31 @@ public class GifSlideShowApp extends JFrame {
                             ? "Scroll: " + finalScrollDir + "\n"
                             : "";
 
-                    finalInfo = String.format(
-                            "✅ MP4 Video created successfully!\n\n" +
+                    String orientInfo = String.format(
+                            "✅ MP4 Video created successfully! (%s)\n\n" +
                                     "Resolution: %d×%d\n" +
                                     "Quality: CRF %d\n" +
                                     "Size: %.2f MB\n" +
                                     "Slides: %d (%d frames at %d fps)\n" +
                                     "Duration: %.1f seconds\n" +
                                     "%s%s\n" +
-                                    "File: %s\n\n" +
-                                    "Upload to Twitter/X for fullscreen playback!",
-                            videoW, videoH, crf, sizeMB, slides.size(),
+                                    "File: %s",
+                            orientLabels[orientIdx], videoW, videoH, crf, sizeMB, slides.size(),
                             totalFrames, fps, totalDurationSec,
-                            scrollInfo, audioInfo, finalOut.getAbsolutePath());
+                            scrollInfo, audioInfo, currentOut.getAbsolutePath());
+                    if (allInfo.length() > 0) allInfo.append("\n\n---\n\n");
+                    allInfo.append(orientInfo);
 
+                    } finally {
+                        if (tempDir != null) {
+                            cleanupTempDir(tempDir);
+                        }
+                    }
+                  } // end orientation loop
+                  finalInfo = allInfo.toString();
                 } catch (Exception ex) {
                     errorMsg = ex.getMessage();
                     ex.printStackTrace();
-                } finally {
-                    if (tempDir != null) {
-                        cleanupTempDir(tempDir);
-                    }
                 }
                 return null;
             }
@@ -4353,7 +4401,7 @@ public class GifSlideShowApp extends JFrame {
                             null, btns, btns[0]);
                     if (ch == 0) {
                         try {
-                            Desktop.getDesktop().open(finalOut.getParentFile());
+                            Desktop.getDesktop().open(outputFiles[0].getParentFile());
                         } catch (IOException ex) {
                             JOptionPane.showMessageDialog(GifSlideShowApp.this,
                                     "Could not open folder.", "Error", JOptionPane.ERROR_MESSAGE);
@@ -4375,8 +4423,11 @@ public class GifSlideShowApp extends JFrame {
         int duration = askDuration();
         if (duration < 0) return;
 
+        boolean bothMode = isBoth();
         String[] resOptions;
-        if (isPortrait()) {
+        if (bothMode) {
+            resOptions = new String[]{"Full HD (1920×1080 + 1080×1920)", "2K QHD (2560×1440 + 1440×2560)", "4K UHD (3840×2160 + 2160×3840)"};
+        } else if (isPortrait()) {
             resOptions = new String[]{"1080×1920 (Full HD Portrait)", "1440×2560 (2K QHD Portrait)", "2160×3840 (4K UHD Portrait)"};
         } else {
             resOptions = new String[]{"1920×1080 (Full HD)", "2560×1440 (2K QHD)", "3840×2160 (4K UHD)"};
@@ -4387,19 +4438,29 @@ public class GifSlideShowApp extends JFrame {
                 null, resOptions, resOptions[0]);
         if (resChoice < 0) return;
 
-        final int videoW, videoH;
-        if (isPortrait()) {
+        final int[][] videoDimsList;
+        final String[] orientLabels;
+        if (bothMode) {
             switch (resChoice) {
-                case 1:  videoW = 1440; videoH = 2560; break;
-                case 2:  videoW = 2160; videoH = 3840; break;
-                default: videoW = 1080; videoH = 1920; break;
+                case 1:  videoDimsList = new int[][]{{2560, 1440}, {1440, 2560}}; break;
+                case 2:  videoDimsList = new int[][]{{3840, 2160}, {2160, 3840}}; break;
+                default: videoDimsList = new int[][]{{1920, 1080}, {1080, 1920}}; break;
             }
+            orientLabels = new String[]{"landscape", "portrait"};
+        } else if (isPortrait()) {
+            switch (resChoice) {
+                case 1:  videoDimsList = new int[][]{{1440, 2560}}; break;
+                case 2:  videoDimsList = new int[][]{{2160, 3840}}; break;
+                default: videoDimsList = new int[][]{{1080, 1920}}; break;
+            }
+            orientLabels = new String[]{"portrait"};
         } else {
             switch (resChoice) {
-                case 1:  videoW = 2560; videoH = 1440; break;
-                case 2:  videoW = 3840; videoH = 2160; break;
-                default: videoW = 1920; videoH = 1080; break;
+                case 1:  videoDimsList = new int[][]{{2560, 1440}}; break;
+                case 2:  videoDimsList = new int[][]{{3840, 2160}}; break;
+                default: videoDimsList = new int[][]{{1920, 1080}}; break;
             }
+            orientLabels = new String[]{"landscape"};
         }
 
         String[] qualityOptions = {"High Quality (CRF 18)", "Medium Quality (CRF 23)", "Small File (CRF 28)"};
@@ -4439,13 +4500,22 @@ public class GifSlideShowApp extends JFrame {
                 try {
                     int fps = 30;
                     int totalSlides = slides.size();
+                    String perSlideTimestamp = new java.text.SimpleDateFormat("mmss").format(new java.util.Date());
+
+                    for (int orientIdx = 0; orientIdx < videoDimsList.length; orientIdx++) {
+                    final int videoW = videoDimsList[orientIdx][0];
+                    final int videoH = videoDimsList[orientIdx][1];
+                    final String orientSuffix = orientLabels[orientIdx];
+                    if (videoDimsList.length > 1) {
+                        publish("=== Generating " + orientSuffix + " videos (" + (orientIdx + 1) + "/" + videoDimsList.length + ") ===");
+                    }
 
                     for (int si = 0; si < totalSlides; si++) {
                         SlideData s = slides.get(si);
                         int slideDur = (s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, duration) : duration;
                         int slideFrames = Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
 
-                        String slideFileName;
+                        String slideBaseName;
                         String slideTextName = null;
                         if (s.slideTexts != null) {
                             for (SlideTextData st : s.slideTexts) {
@@ -4462,10 +4532,11 @@ public class GifSlideShowApp extends JFrame {
                             String safeName = slideTextName.replaceAll("[<>:\"/\\\\|?*\\x00-\\x1F]", "");
                             if (safeName.length() > 200) safeName = safeName.substring(0, 200);
                             if (safeName.isEmpty()) safeName = String.format("slide_%03d", si + 1);
-                            slideFileName = safeName + ".mp4";
+                            slideBaseName = safeName;
                         } else {
-                            slideFileName = String.format("slide_%03d.mp4", si + 1);
+                            slideBaseName = String.format("slide_%03d", si + 1);
                         }
+                        String slideFileName = slideBaseName + "_" + orientSuffix + "_" + perSlideTimestamp + ".mp4";
                         File slideOutFile = new File(outFolder, slideFileName);
 
                         publish("Exporting slide " + (si + 1) + "/" + totalSlides + "...");
@@ -4659,12 +4730,19 @@ public class GifSlideShowApp extends JFrame {
                             tempDir.delete();
                         }
 
-                        int pct = (int) ((si + 1.0) / totalSlides * 100);
+                        int totalDone = orientIdx * totalSlides + (si + 1);
+                        int totalWork = videoDimsList.length * totalSlides;
+                        int pct = (int) ((totalDone * 1.0) / totalWork * 100);
                         final int p = pct;
                         SwingUtilities.invokeLater(() -> progressBar.setValue(p));
                     }
+                    } // end orientation loop
 
-                    finalInfo = "Exported " + totalSlides + " slide(s) as individual MP4 files to:\n" + outFolder.getAbsolutePath();
+                    int totalFiles = videoDimsList.length * totalSlides;
+                    String orientNote = videoDimsList.length > 1
+                            ? " (" + totalFiles + " files: landscape + portrait)"
+                            : " (" + orientLabels[0] + ")";
+                    finalInfo = "Exported " + totalSlides + " slide(s) as individual MP4 files" + orientNote + " to:\n" + outFolder.getAbsolutePath();
                 } catch (Exception ex) {
                     errorMsg = ex.getMessage();
                     ex.printStackTrace();
