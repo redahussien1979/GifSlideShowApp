@@ -2079,50 +2079,70 @@ public class GifSlideShowApp extends JFrame {
             fg.dispose();
         }
 
-        // CRT Scanlines
+        // CRT Scanlines — smooth sine-wave darkening like real CRT phosphor rows
         if (fxScanline > 0) {
             double strength = fxScanline / 100.0;
             int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
-            int lineSpacing = Math.max(2, 4 - (int)(strength * 2));
-            double darkening = 0.3 + 0.5 * strength;
+            // Line period scales: 2px at max intensity, 6px at min
+            double period = 6.0 - 4.0 * strength;
+            // How dark the dark lines get: 0.15 (very dark) at max, 0.6 (subtle) at min
+            double minBright = 0.6 - 0.45 * strength;
+            double freq = 2.0 * Math.PI / period;
             for (int y = 0; y < targetH; y++) {
-                if (y % lineSpacing == 0) {
-                    for (int x = 0; x < targetW; x++) {
-                        int idx = y * targetW + x;
-                        int r = (int)(((px[idx] >> 16) & 0xFF) * (1.0 - darkening));
-                        int gv = (int)(((px[idx] >> 8) & 0xFF) * (1.0 - darkening));
-                        int b = (int)((px[idx] & 0xFF) * (1.0 - darkening));
-                        px[idx] = (0xFF << 24) | (r << 16) | (gv << 8) | b;
-                    }
+                // Sine gives smooth brightness oscillation between minBright and 1.0
+                double brightness = minBright + (1.0 - minBright) * (0.5 + 0.5 * Math.sin(freq * y));
+                int rowOff = y * targetW;
+                for (int x = 0; x < targetW; x++) {
+                    int idx = rowOff + x;
+                    int r = (int)(((px[idx] >> 16) & 0xFF) * brightness);
+                    int gv = (int)(((px[idx] >> 8) & 0xFF) * brightness);
+                    int b = (int)((px[idx] & 0xFF) * brightness);
+                    px[idx] = (0xFF << 24) | (r << 16) | (gv << 8) | b;
                 }
             }
             frame.setRGB(0, 0, targetW, targetH, px, 0, targetW);
         }
 
-        // Chromatic Aberration
+        // Chromatic Aberration — radial: zero at center, stronger toward edges
         if (fxChromAb > 0) {
-            double strength = fxChromAb / 50.0;
+            double strength = fxChromAb / 100.0;
             int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
             int[] result = new int[px.length];
-            int offset = Math.max(1, (int)(targetW * 0.003 * strength));
+            double cx = targetW / 2.0, cy = targetH / 2.0;
+            double maxDist = Math.sqrt(cx * cx + cy * cy);
+            double maxOffset = targetW * 0.008 * strength; // max pixel shift at corners
             for (int y = 0; y < targetH; y++) {
+                double dy = y - cy;
                 for (int x = 0; x < targetW; x++) {
-                    int idx = y * targetW + x;
-                    int rIdx = y * targetW + Math.min(targetW - 1, Math.max(0, x + offset));
-                    int bIdx = y * targetW + Math.min(targetW - 1, Math.max(0, x - offset));
-                    int rv = (px[rIdx] >> 16) & 0xFF;
-                    int gv = (px[idx] >> 8) & 0xFF;
-                    int bv = px[bIdx] & 0xFF;
-                    result[idx] = (0xFF << 24) | (rv << 16) | (gv << 8) | bv;
+                    double dx = x - cx;
+                    double dist = Math.sqrt(dx * dx + dy * dy) / maxDist;
+                    double radialFactor = dist * dist; // quadratic falloff from center
+                    int offset = (int)(maxOffset * radialFactor);
+                    if (offset < 1) {
+                        result[y * targetW + x] = px[y * targetW + x];
+                        continue;
+                    }
+                    // Offset R outward, B inward along radial direction
+                    double angle = Math.atan2(dy, dx);
+                    int rOffX = (int)(offset * Math.cos(angle));
+                    int rOffY = (int)(offset * Math.sin(angle));
+                    int rSx = Math.min(targetW - 1, Math.max(0, x + rOffX));
+                    int rSy = Math.min(targetH - 1, Math.max(0, y + rOffY));
+                    int bSx = Math.min(targetW - 1, Math.max(0, x - rOffX));
+                    int bSy = Math.min(targetH - 1, Math.max(0, y - rOffY));
+                    int rv = (px[rSy * targetW + rSx] >> 16) & 0xFF;
+                    int gv = (px[y * targetW + x] >> 8) & 0xFF;
+                    int bv = px[bSy * targetW + bSx] & 0xFF;
+                    result[y * targetW + x] = (0xFF << 24) | (rv << 16) | (gv << 8) | bv;
                 }
             }
             frame.setRGB(0, 0, targetW, targetH, result, 0, targetW);
         }
 
-        // Bloom/Glow
+        // Bloom/Glow — extract bright areas, blur, additive screen blend
         if (fxBloom > 0) {
             double strength = fxBloom / 100.0;
-            int threshold = (int)(200 - 80 * strength);
+            int threshold = (int)(220 - 100 * strength);
             int[] src = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
             // Downscale for blur performance
             int dw = targetW / 4, dh = targetH / 4;
@@ -2132,46 +2152,66 @@ public class GifSlideShowApp extends JFrame {
                 for (int x = 0; x < dw; x++) {
                     int si = (y * 4) * targetW + (x * 4);
                     int r = (src[si] >> 16) & 0xFF;
-                    int gv = (src[si] >> 8) & 0xFF;
+                    int gv2 = (src[si] >> 8) & 0xFF;
                     int b = src[si] & 0xFF;
-                    if (r > threshold || gv > threshold || b > threshold) {
-                        bpx[y * dw + x] = src[si];
+                    int luma = (r * 299 + gv2 * 587 + b * 114) / 1000;
+                    if (luma > threshold) {
+                        // Keep bright pixels, boost them slightly
+                        int br = Math.min(255, (int)(r * 1.2));
+                        int bg = Math.min(255, (int)(gv2 * 1.2));
+                        int bb = Math.min(255, (int)(b * 1.2));
+                        bpx[y * dw + x] = (0xFF << 24) | (br << 16) | (bg << 8) | bb;
                     } else {
                         bpx[y * dw + x] = 0xFF000000;
                     }
                 }
             }
             bright.setRGB(0, 0, dw, dh, bpx, 0, dw);
-            BufferedImage blurred = applyStackBlur(bright, Math.max(5, (int)(20 * strength)));
-            // Composite bloom over original using additive blending
-            Graphics2D bg2 = frame.createGraphics();
-            bg2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float)(0.4 + 0.4 * strength)));
-            bg2.drawImage(blurred, 0, 0, targetW, targetH, null);
-            bg2.dispose();
+            // Two-pass blur for smoother, wider glow
+            BufferedImage blurred = applyStackBlur(bright, Math.max(8, (int)(30 * strength)));
+            blurred = applyStackBlur(blurred, Math.max(4, (int)(15 * strength)));
+            // Upscale blurred bloom
+            BufferedImage bloomUp = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
+            Graphics2D ug = bloomUp.createGraphics();
+            ug.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            ug.drawImage(blurred, 0, 0, targetW, targetH, null);
+            ug.dispose();
+            // Screen blend: result = 1 - (1 - base) * (1 - bloom * intensity)
+            int[] bloomPx = bloomUp.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+            double bloomMix = 0.5 + 0.5 * strength;
+            for (int i = 0; i < src.length; i++) {
+                int sr = (src[i] >> 16) & 0xFF;
+                int sg = (src[i] >> 8) & 0xFF;
+                int sb = src[i] & 0xFF;
+                int br = (bloomPx[i] >> 16) & 0xFF;
+                int bg = (bloomPx[i] >> 8) & 0xFF;
+                int bb = bloomPx[i] & 0xFF;
+                // Screen blend with intensity
+                int fr = sr + (int)((br * bloomMix) * (255 - sr) / 255.0);
+                int fg = sg + (int)((bg * bloomMix) * (255 - sg) / 255.0);
+                int fb = sb + (int)((bb * bloomMix) * (255 - sb) / 255.0);
+                src[i] = (0xFF << 24) | (Math.min(255, fr) << 16) | (Math.min(255, fg) << 8) | Math.min(255, fb);
+            }
+            frame.setRGB(0, 0, targetW, targetH, src, 0, targetW);
         }
 
-        // Pixelate
+        // Pixelate — mosaic block effect
         if (fxPixelate > 0) {
-            int blockSize = Math.max(2, (int)(2 + fxPixelate * 0.3));
+            // Block size: 4px at intensity 1, up to 60px at intensity 100
+            int blockSize = Math.max(4, (int)(4 + (fxPixelate / 100.0) * 56));
             int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
             for (int by = 0; by < targetH; by += blockSize) {
                 for (int bx = 0; bx < targetW; bx += blockSize) {
-                    int rSum = 0, gSum = 0, bSum = 0, count = 0;
+                    // Sample center pixel of block (faster than averaging, looks just as good)
+                    int sy = Math.min(targetH - 1, by + blockSize / 2);
+                    int sx = Math.min(targetW - 1, bx + blockSize / 2);
+                    int color = px[sy * targetW + sx];
                     int bh = Math.min(blockSize, targetH - by);
                     int bw = Math.min(blockSize, targetW - bx);
                     for (int dy = 0; dy < bh; dy++) {
+                        int rowOff = (by + dy) * targetW + bx;
                         for (int dx = 0; dx < bw; dx++) {
-                            int idx = (by + dy) * targetW + (bx + dx);
-                            rSum += (px[idx] >> 16) & 0xFF;
-                            gSum += (px[idx] >> 8) & 0xFF;
-                            bSum += px[idx] & 0xFF;
-                            count++;
-                        }
-                    }
-                    int avg = (0xFF << 24) | ((rSum / count) << 16) | ((gSum / count) << 8) | (bSum / count);
-                    for (int dy = 0; dy < bh; dy++) {
-                        for (int dx = 0; dx < bw; dx++) {
-                            px[(by + dy) * targetW + (bx + dx)] = avg;
+                            px[rowOff + dx] = color;
                         }
                     }
                 }
@@ -5140,36 +5180,52 @@ public class GifSlideShowApp extends JFrame {
         if (fxScanline > 0) {
             double strength = fxScanline / 100.0;
             int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
-            int lineSpacing = Math.max(2, 4 - (int)(strength * 2));
-            double darkening = 0.3 + 0.5 * strength;
+            double period = 6.0 - 4.0 * strength;
+            double minBright = 0.6 - 0.45 * strength;
+            double freq = 2.0 * Math.PI / period;
             for (int y = 0; y < targetH; y++) {
-                if (y % lineSpacing == 0) {
-                    for (int x = 0; x < targetW; x++) {
-                        int idx = y * targetW + x;
-                        int r = (int)(((px[idx] >> 16) & 0xFF) * (1.0 - darkening));
-                        int gv = (int)(((px[idx] >> 8) & 0xFF) * (1.0 - darkening));
-                        int b = (int)((px[idx] & 0xFF) * (1.0 - darkening));
-                        px[idx] = (0xFF << 24) | (r << 16) | (gv << 8) | b;
-                    }
+                double brightness = minBright + (1.0 - minBright) * (0.5 + 0.5 * Math.sin(freq * y));
+                int rowOff = y * targetW;
+                for (int x = 0; x < targetW; x++) {
+                    int idx = rowOff + x;
+                    int r = (int)(((px[idx] >> 16) & 0xFF) * brightness);
+                    int gv = (int)(((px[idx] >> 8) & 0xFF) * brightness);
+                    int b = (int)((px[idx] & 0xFF) * brightness);
+                    px[idx] = (0xFF << 24) | (r << 16) | (gv << 8) | b;
                 }
             }
             frame.setRGB(0, 0, targetW, targetH, px, 0, targetW);
         }
 
         if (fxChromAb > 0) {
-            double strength = fxChromAb / 50.0;
+            double strength = fxChromAb / 100.0;
             int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
             int[] result = new int[px.length];
-            int offset = Math.max(1, (int)(targetW * 0.003 * strength));
+            double cx = targetW / 2.0, cy = targetH / 2.0;
+            double maxDist = Math.sqrt(cx * cx + cy * cy);
+            double maxOffset = targetW * 0.008 * strength;
             for (int y = 0; y < targetH; y++) {
+                double ddy = y - cy;
                 for (int x = 0; x < targetW; x++) {
-                    int idx = y * targetW + x;
-                    int rIdx = y * targetW + Math.min(targetW - 1, Math.max(0, x + offset));
-                    int bIdx = y * targetW + Math.min(targetW - 1, Math.max(0, x - offset));
-                    int rv = (px[rIdx] >> 16) & 0xFF;
-                    int gv = (px[idx] >> 8) & 0xFF;
-                    int bv = px[bIdx] & 0xFF;
-                    result[idx] = (0xFF << 24) | (rv << 16) | (gv << 8) | bv;
+                    double ddx = x - cx;
+                    double dist = Math.sqrt(ddx * ddx + ddy * ddy) / maxDist;
+                    double radialFactor = dist * dist;
+                    int offset = (int)(maxOffset * radialFactor);
+                    if (offset < 1) {
+                        result[y * targetW + x] = px[y * targetW + x];
+                        continue;
+                    }
+                    double angle = Math.atan2(ddy, ddx);
+                    int rOffX = (int)(offset * Math.cos(angle));
+                    int rOffY = (int)(offset * Math.sin(angle));
+                    int rSx = Math.min(targetW - 1, Math.max(0, x + rOffX));
+                    int rSy = Math.min(targetH - 1, Math.max(0, y + rOffY));
+                    int bSx = Math.min(targetW - 1, Math.max(0, x - rOffX));
+                    int bSy = Math.min(targetH - 1, Math.max(0, y - rOffY));
+                    int rv = (px[rSy * targetW + rSx] >> 16) & 0xFF;
+                    int gv = (px[y * targetW + x] >> 8) & 0xFF;
+                    int bv = px[bSy * targetW + bSx] & 0xFF;
+                    result[y * targetW + x] = (0xFF << 24) | (rv << 16) | (gv << 8) | bv;
                 }
             }
             frame.setRGB(0, 0, targetW, targetH, result, 0, targetW);
@@ -5177,7 +5233,7 @@ public class GifSlideShowApp extends JFrame {
 
         if (fxBloom > 0) {
             double strength = fxBloom / 100.0;
-            int threshold = (int)(200 - 80 * strength);
+            int threshold = (int)(220 - 100 * strength);
             int[] src = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
             int dw = targetW / 4, dh = targetH / 4;
             BufferedImage bright = new BufferedImage(dw, dh, BufferedImage.TYPE_INT_RGB);
@@ -5186,44 +5242,58 @@ public class GifSlideShowApp extends JFrame {
                 for (int x = 0; x < dw; x++) {
                     int si = (y * 4) * targetW + (x * 4);
                     int r = (src[si] >> 16) & 0xFF;
-                    int gv = (src[si] >> 8) & 0xFF;
+                    int gv2 = (src[si] >> 8) & 0xFF;
                     int b = src[si] & 0xFF;
-                    if (r > threshold || gv > threshold || b > threshold) {
-                        bpx[y * dw + x] = src[si];
+                    int luma = (r * 299 + gv2 * 587 + b * 114) / 1000;
+                    if (luma > threshold) {
+                        int br = Math.min(255, (int)(r * 1.2));
+                        int bg = Math.min(255, (int)(gv2 * 1.2));
+                        int bb = Math.min(255, (int)(b * 1.2));
+                        bpx[y * dw + x] = (0xFF << 24) | (br << 16) | (bg << 8) | bb;
                     } else {
                         bpx[y * dw + x] = 0xFF000000;
                     }
                 }
             }
             bright.setRGB(0, 0, dw, dh, bpx, 0, dw);
-            BufferedImage blurred = applyStackBlur(bright, Math.max(5, (int)(20 * strength)));
-            Graphics2D bg2 = frame.createGraphics();
-            bg2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float)(0.4 + 0.4 * strength)));
-            bg2.drawImage(blurred, 0, 0, targetW, targetH, null);
-            bg2.dispose();
+            BufferedImage blurred = applyStackBlur(bright, Math.max(8, (int)(30 * strength)));
+            blurred = applyStackBlur(blurred, Math.max(4, (int)(15 * strength)));
+            BufferedImage bloomUp = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
+            Graphics2D ug = bloomUp.createGraphics();
+            ug.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            ug.drawImage(blurred, 0, 0, targetW, targetH, null);
+            ug.dispose();
+            int[] bloomPx = bloomUp.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+            double bloomMix = 0.5 + 0.5 * strength;
+            for (int i = 0; i < src.length; i++) {
+                int sr = (src[i] >> 16) & 0xFF;
+                int sg = (src[i] >> 8) & 0xFF;
+                int sb = src[i] & 0xFF;
+                int bri = (bloomPx[i] >> 16) & 0xFF;
+                int bgi = (bloomPx[i] >> 8) & 0xFF;
+                int bbi = bloomPx[i] & 0xFF;
+                int fr = sr + (int)((bri * bloomMix) * (255 - sr) / 255.0);
+                int fg = sg + (int)((bgi * bloomMix) * (255 - sg) / 255.0);
+                int fb = sb + (int)((bbi * bloomMix) * (255 - sb) / 255.0);
+                src[i] = (0xFF << 24) | (Math.min(255, fr) << 16) | (Math.min(255, fg) << 8) | Math.min(255, fb);
+            }
+            frame.setRGB(0, 0, targetW, targetH, src, 0, targetW);
         }
 
         if (fxPixelate > 0) {
-            int blockSize = Math.max(2, (int)(2 + fxPixelate * 0.3));
+            int blockSize = Math.max(4, (int)(4 + (fxPixelate / 100.0) * 56));
             int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
             for (int by = 0; by < targetH; by += blockSize) {
                 for (int bx = 0; bx < targetW; bx += blockSize) {
-                    int rSum = 0, gSum = 0, bSum = 0, count = 0;
+                    int sy = Math.min(targetH - 1, by + blockSize / 2);
+                    int sx = Math.min(targetW - 1, bx + blockSize / 2);
+                    int color = px[sy * targetW + sx];
                     int bh = Math.min(blockSize, targetH - by);
                     int bw = Math.min(blockSize, targetW - bx);
                     for (int dy = 0; dy < bh; dy++) {
+                        int rowOff = (by + dy) * targetW + bx;
                         for (int dx = 0; dx < bw; dx++) {
-                            int idx = (by + dy) * targetW + (bx + dx);
-                            rSum += (px[idx] >> 16) & 0xFF;
-                            gSum += (px[idx] >> 8) & 0xFF;
-                            bSum += px[idx] & 0xFF;
-                            count++;
-                        }
-                    }
-                    int avg = (0xFF << 24) | ((rSum / count) << 16) | ((gSum / count) << 8) | (bSum / count);
-                    for (int dy = 0; dy < bh; dy++) {
-                        for (int dx = 0; dx < bw; dx++) {
-                            px[(by + dy) * targetW + (bx + dx)] = avg;
+                            px[rowOff + dx] = color;
                         }
                     }
                 }
