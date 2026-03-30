@@ -282,6 +282,14 @@ public class GifSlideShowApp extends JFrame {
         props.setProperty("fxGlitchVal", String.valueOf(source.getFxGlitchRaw()));
         props.setProperty("fxShakeOn", String.valueOf(source.fxShakeCheck.isSelected()));
         props.setProperty("fxShakeVal", String.valueOf(source.getFxShakeRaw()));
+        props.setProperty("fxScanlineOn", String.valueOf(source.fxScanlineCheck.isSelected()));
+        props.setProperty("fxScanlineVal", String.valueOf(source.getFxScanlineRaw()));
+        props.setProperty("fxChromAbOn", String.valueOf(source.fxChromAbCheck.isSelected()));
+        props.setProperty("fxChromAbVal", String.valueOf(source.getFxChromAbRaw()));
+        props.setProperty("fxBloomOn", String.valueOf(source.fxBloomCheck.isSelected()));
+        props.setProperty("fxBloomVal", String.valueOf(source.getFxBloomRaw()));
+        props.setProperty("fxPixelateOn", String.valueOf(source.fxPixelateCheck.isSelected()));
+        props.setProperty("fxPixelateVal", String.valueOf(source.getFxPixelateRaw()));
 
         // Overlay
         props.setProperty("overlayEnabled", String.valueOf(source.isOverlayEnabled()));
@@ -400,6 +408,14 @@ public class GifSlideShowApp extends JFrame {
         int fxGlitchVal = Integer.parseInt(props.getProperty("fxGlitchVal", "50"));
         boolean fxShakeOn = Boolean.parseBoolean(props.getProperty("fxShakeOn", "false"));
         int fxShakeVal = Integer.parseInt(props.getProperty("fxShakeVal", "50"));
+        boolean fxScanlineOn = Boolean.parseBoolean(props.getProperty("fxScanlineOn", "false"));
+        int fxScanlineVal = Integer.parseInt(props.getProperty("fxScanlineVal", "50"));
+        boolean fxChromAbOn = Boolean.parseBoolean(props.getProperty("fxChromAbOn", "false"));
+        int fxChromAbVal = Integer.parseInt(props.getProperty("fxChromAbVal", "50"));
+        boolean fxBloomOn = Boolean.parseBoolean(props.getProperty("fxBloomOn", "false"));
+        int fxBloomVal = Integer.parseInt(props.getProperty("fxBloomVal", "50"));
+        boolean fxPixelateOn = Boolean.parseBoolean(props.getProperty("fxPixelateOn", "false"));
+        int fxPixelateVal = Integer.parseInt(props.getProperty("fxPixelateVal", "50"));
 
         String overlayShape = props.getProperty("overlayShape", "Rectangular");
         String overlayBgMode = props.getProperty("overlayBgMode", "Blur");
@@ -464,6 +480,8 @@ public class GifSlideShowApp extends JFrame {
                         fxVignetteOn, fxVignetteVal, fxSepiaOn, fxSepiaVal,
                         fxGrainOn, fxGrainVal, fxWaterRippleOn, fxWaterRippleVal,
                         fxGlitchOn, fxGlitchVal, fxShakeOn, fxShakeVal,
+                        fxScanlineOn, fxScanlineVal, fxChromAbOn, fxChromAbVal,
+                        fxBloomOn, fxBloomVal, fxPixelateOn, fxPixelateVal,
                         overlayShape, overlayBgMode, overlayBgColor, overlayX, overlayY, overlaySize,
                         textJustify, textWidthPct, highlightText, highlightColor,
                         textShiftX);
@@ -594,6 +612,7 @@ public class GifSlideShowApp extends JFrame {
                 Collections.singletonList(new SlideTextData(false, "", "Segoe UI", 40, Font.PLAIN,
                         Color.YELLOW, 50, 50, 0, Color.BLACK, false, 100, 0, SwingConstants.CENTER)),
                 false, 60, false, 50, false, 100, false, 50, false, 50, false, 50, false, 50,
+                false, 50, false, 50, false, 50, false, 50,
                 "Rectangular", "Blur", new Color(21, 32, 43), 50, 50, 20,
                 false, 100, "", new Color(255, 255, 0, 180), 0);
 
@@ -1483,6 +1502,14 @@ public class GifSlideShowApp extends JFrame {
         int fxGlitchVal = source.getFxGlitchRaw();
         boolean fxShakeOn = source.fxShakeCheck.isSelected();
         int fxShakeVal = source.getFxShakeRaw();
+        boolean fxScanlineOn = source.fxScanlineCheck.isSelected();
+        int fxScanlineVal = source.getFxScanlineRaw();
+        boolean fxChromAbOn = source.fxChromAbCheck.isSelected();
+        int fxChromAbVal = source.getFxChromAbRaw();
+        boolean fxBloomOn = source.fxBloomCheck.isSelected();
+        int fxBloomVal = source.getFxBloomRaw();
+        boolean fxPixelateOn = source.fxPixelateCheck.isSelected();
+        int fxPixelateVal = source.getFxPixelateRaw();
         String overlayShape = source.getOverlayShape();
         String overlayBgMode = source.getOverlayBgMode();
         Color ovBgColor = source.getOverlayBgColor();
@@ -1506,6 +1533,8 @@ public class GifSlideShowApp extends JFrame {
                         fxVignetteOn, fxVignetteVal, fxSepiaOn, fxSepiaVal,
                         fxGrainOn, fxGrainVal, fxWaterRippleOn, fxWaterRippleVal,
                         fxGlitchOn, fxGlitchVal, fxShakeOn, fxShakeVal,
+                        fxScanlineOn, fxScanlineVal, fxChromAbOn, fxChromAbVal,
+                        fxBloomOn, fxBloomVal, fxPixelateOn, fxPixelateVal,
                         overlayShape, overlayBgMode, ovBgColor, overlayX, overlayY, overlaySize,
                         textJustify, textWidthPct, highlightText, hlColor,
                         textShiftX);
@@ -1684,7 +1713,7 @@ public class GifSlideShowApp extends JFrame {
                 fontColor, alignment, showPin, targetW, targetH, "Blur-Fit", 5, 78,
                 false, null, null, 0, 0, 0, null,
                 null,
-                false, 0, 0, 0, 0, 0, 0, 0,
+                false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 false, null, null, null, 0, 0, 0, 0,
                 false, 100, null, null, 0);
     }
@@ -1698,7 +1727,7 @@ public class GifSlideShowApp extends JFrame {
                 fontColor, alignment, showPin, targetW, targetH, displayMode, 5, 78,
                 false, null, null, 0, 0, 0, null,
                 null,
-                false, 0, 0, 0, 0, 0, 0, 0,
+                false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 false, null, null, null, 0, 0, 0, 0,
                 false, 100, null, null, 0);
     }
@@ -1716,7 +1745,9 @@ public class GifSlideShowApp extends JFrame {
                                      boolean fxRoundCorners, int fxCornerRadius,
                                      int fxVignette, int fxSepia,
                                      int fxGrain, int fxWaterRipple,
-                                     int fxGlitch, int fxShake) {
+                                     int fxGlitch, int fxShake,
+                                     int fxScanline, int fxChromAb,
+                                     int fxBloom, int fxPixelate) {
         return renderFrame(image, text, fontName, fontSize, fontStyle,
                 fontColor, alignment, showPin, targetW, targetH, displayMode,
                 subtitleY, subtitleBgOpacity,
@@ -1725,6 +1756,7 @@ public class GifSlideShowApp extends JFrame {
                 slideTexts,
                 fxRoundCorners, fxCornerRadius, fxVignette, fxSepia,
                 fxGrain, fxWaterRipple, fxGlitch, fxShake,
+                fxScanline, fxChromAb, fxBloom, fxPixelate,
                 false, null, null, null, 0, 0, 0,
                 0,
                 false, 100, null, null, 0);
@@ -1744,6 +1776,8 @@ public class GifSlideShowApp extends JFrame {
                                      int fxVignette, int fxSepia,
                                      int fxGrain, int fxWaterRipple,
                                      int fxGlitch, int fxShake,
+                                     int fxScanline, int fxChromAb,
+                                     int fxBloom, int fxPixelate,
                                      boolean overlayEnabled,
                                      String overlayShape, String overlayBgMode, Color overlayBgColor,
                                      int overlayX, int overlayY, int overlaySize,
@@ -2043,6 +2077,106 @@ public class GifSlideShowApp extends JFrame {
             Graphics2D fg = frame.createGraphics();
             fg.drawImage(shaken, 0, 0, null);
             fg.dispose();
+        }
+
+        // CRT Scanlines
+        if (fxScanline > 0) {
+            double strength = fxScanline / 100.0;
+            int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+            int lineSpacing = Math.max(2, 4 - (int)(strength * 2));
+            double darkening = 0.3 + 0.5 * strength;
+            for (int y = 0; y < targetH; y++) {
+                if (y % lineSpacing == 0) {
+                    for (int x = 0; x < targetW; x++) {
+                        int idx = y * targetW + x;
+                        int r = (int)(((px[idx] >> 16) & 0xFF) * (1.0 - darkening));
+                        int gv = (int)(((px[idx] >> 8) & 0xFF) * (1.0 - darkening));
+                        int b = (int)((px[idx] & 0xFF) * (1.0 - darkening));
+                        px[idx] = (0xFF << 24) | (r << 16) | (gv << 8) | b;
+                    }
+                }
+            }
+            frame.setRGB(0, 0, targetW, targetH, px, 0, targetW);
+        }
+
+        // Chromatic Aberration
+        if (fxChromAb > 0) {
+            double strength = fxChromAb / 50.0;
+            int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+            int[] result = new int[px.length];
+            int offset = Math.max(1, (int)(targetW * 0.003 * strength));
+            for (int y = 0; y < targetH; y++) {
+                for (int x = 0; x < targetW; x++) {
+                    int idx = y * targetW + x;
+                    int rIdx = y * targetW + Math.min(targetW - 1, Math.max(0, x + offset));
+                    int bIdx = y * targetW + Math.min(targetW - 1, Math.max(0, x - offset));
+                    int rv = (px[rIdx] >> 16) & 0xFF;
+                    int gv = (px[idx] >> 8) & 0xFF;
+                    int bv = px[bIdx] & 0xFF;
+                    result[idx] = (0xFF << 24) | (rv << 16) | (gv << 8) | bv;
+                }
+            }
+            frame.setRGB(0, 0, targetW, targetH, result, 0, targetW);
+        }
+
+        // Bloom/Glow
+        if (fxBloom > 0) {
+            double strength = fxBloom / 100.0;
+            int threshold = (int)(200 - 80 * strength);
+            int[] src = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+            // Downscale for blur performance
+            int dw = targetW / 4, dh = targetH / 4;
+            BufferedImage bright = new BufferedImage(dw, dh, BufferedImage.TYPE_INT_RGB);
+            int[] bpx = new int[dw * dh];
+            for (int y = 0; y < dh; y++) {
+                for (int x = 0; x < dw; x++) {
+                    int si = (y * 4) * targetW + (x * 4);
+                    int r = (src[si] >> 16) & 0xFF;
+                    int gv = (src[si] >> 8) & 0xFF;
+                    int b = src[si] & 0xFF;
+                    if (r > threshold || gv > threshold || b > threshold) {
+                        bpx[y * dw + x] = src[si];
+                    } else {
+                        bpx[y * dw + x] = 0xFF000000;
+                    }
+                }
+            }
+            bright.setRGB(0, 0, dw, dh, bpx, 0, dw);
+            BufferedImage blurred = applyStackBlur(bright, Math.max(5, (int)(20 * strength)));
+            // Composite bloom over original using additive blending
+            Graphics2D bg2 = frame.createGraphics();
+            bg2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float)(0.4 + 0.4 * strength)));
+            bg2.drawImage(blurred, 0, 0, targetW, targetH, null);
+            bg2.dispose();
+        }
+
+        // Pixelate
+        if (fxPixelate > 0) {
+            int blockSize = Math.max(2, (int)(2 + fxPixelate * 0.3));
+            int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+            for (int by = 0; by < targetH; by += blockSize) {
+                for (int bx = 0; bx < targetW; bx += blockSize) {
+                    int rSum = 0, gSum = 0, bSum = 0, count = 0;
+                    int bh = Math.min(blockSize, targetH - by);
+                    int bw = Math.min(blockSize, targetW - bx);
+                    for (int dy = 0; dy < bh; dy++) {
+                        for (int dx = 0; dx < bw; dx++) {
+                            int idx = (by + dy) * targetW + (bx + dx);
+                            rSum += (px[idx] >> 16) & 0xFF;
+                            gSum += (px[idx] >> 8) & 0xFF;
+                            bSum += px[idx] & 0xFF;
+                            count++;
+                        }
+                    }
+                    int avg = (0xFF << 24) | ((rSum / count) << 16) | ((gSum / count) << 8) | (bSum / count);
+                    for (int dy = 0; dy < bh; dy++) {
+                        for (int dx = 0; dx < bw; dx++) {
+                            px[(by + dy) * targetW + (bx + dx)] = avg;
+                        }
+                    }
+                }
+            }
+            frame.setRGB(0, 0, targetW, targetH, px, 0, targetW);
         }
 
         if (fxVignette > 0) {
@@ -3247,6 +3381,7 @@ public class GifSlideShowApp extends JFrame {
                     row.isFxRoundCorners(), row.getFxCornerRadius(),
                     row.getFxVignette(), row.getFxSepia(), row.getFxGrain(),
                     row.getFxWaterRipple(), row.getFxGlitch(), row.getFxShake(),
+                    row.getFxScanline(), row.getFxChromAb(), row.getFxBloom(), row.getFxPixelate(),
                     row.isOverlayEnabled(),
                     row.getOverlayShape(), row.getOverlayBgMode(), row.getOverlayBgColor(),
                     row.getOverlayX(), row.getOverlayY(),
@@ -3319,6 +3454,7 @@ public class GifSlideShowApp extends JFrame {
                     s.fxRoundCorners, s.fxCornerRadius,
                     s.fxVignette, s.fxSepia, s.fxGrain,
                     s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                    s.fxScanline, s.fxChromAb, s.fxBloom, s.fxPixelate,
                     s.overlayEnabled,
                     s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
                                     s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
@@ -3755,6 +3891,7 @@ public class GifSlideShowApp extends JFrame {
                                     s.fxRoundCorners, s.fxCornerRadius,
                                     s.fxVignette, s.fxSepia, s.fxGrain,
                                     s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                    s.fxScanline, s.fxChromAb, s.fxBloom, s.fxPixelate,
                                     s.overlayEnabled,
                                     s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
                                     s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX));
@@ -3783,7 +3920,7 @@ public class GifSlideShowApp extends JFrame {
                         // Check if ANY slide has animated effects (determines encoding strategy)
                         boolean anyAnimatedFx = false;
                         for (SlideData s : slides) {
-                            boolean hasAnim = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0;
+                            boolean hasAnim = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxChromAb > 0 || s.fxBloom > 0 || s.fxPixelate > 0;
                             if (!hasAnim && s.slideTexts != null) {
                                 for (SlideTextData stx : s.slideTexts) {
                                     if (stx.show && stx.textEffect != null) {
@@ -3823,6 +3960,7 @@ public class GifSlideShowApp extends JFrame {
                                         s.fxRoundCorners, s.fxCornerRadius,
                                         s.fxVignette, s.fxSepia, s.fxGrain,
                                         s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                        s.fxScanline, s.fxChromAb, s.fxBloom, s.fxPixelate,
                                         s.overlayEnabled,
                                         s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
                                         s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
@@ -3907,7 +4045,7 @@ public class GifSlideShowApp extends JFrame {
                                 SlideData s = slides.get(i);
                                 int slideDur = (s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, duration) : duration;
                                 int slideFrames = Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
-                                boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0;
+                                boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxChromAb > 0 || s.fxBloom > 0 || s.fxPixelate > 0;
                                 boolean hasAnimatedText = false;
                                 if (s.slideTexts != null) {
                                     for (SlideTextData stx : s.slideTexts) {
@@ -3934,7 +4072,7 @@ public class GifSlideShowApp extends JFrame {
                                             s.slideNumberSize, s.slideNumberColor,
                                             s.slideTexts,
                                             s.fxRoundCorners, s.fxCornerRadius,
-                                            s.fxVignette, s.fxSepia, 0, 0, 0, 0,  // zero out animated fx
+                                            s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0, 0, 0,  // zero out animated fx
                                             s.overlayEnabled,
                                             s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
                                             s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
@@ -3947,7 +4085,7 @@ public class GifSlideShowApp extends JFrame {
                                         animFrame.setRGB(0, 0, videoW, videoH, basePixels, 0, videoW);
                                         // Apply only animated effects
                                         applyAnimatedEffects(animFrame, videoW, videoH,
-                                                s.fxWaterRipple, s.fxGlitch, s.fxGrain, s.fxShake, d);
+                                                s.fxWaterRipple, s.fxGlitch, s.fxGrain, s.fxShake, s.fxScanline, s.fxChromAb, s.fxBloom, s.fxPixelate, d);
                                         // Write raw RGB to FFmpeg stdin
                                         writeRawRGB(animFrame, videoW, videoH, rgbBytes, ffmpegStdin);
                                         frameIndex++;
@@ -3967,6 +4105,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.fxRoundCorners, s.fxCornerRadius,
                                                 s.fxVignette, s.fxSepia, s.fxGrain,
                                                 s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                                s.fxScanline, s.fxChromAb, s.fxBloom, s.fxPixelate,
                                                 s.overlayEnabled,
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
                                                 s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
@@ -3984,7 +4123,7 @@ public class GifSlideShowApp extends JFrame {
                                             s.slideNumberSize, s.slideNumberColor,
                                             s.slideTexts,
                                             s.fxRoundCorners, s.fxCornerRadius,
-                                            s.fxVignette, s.fxSepia, 0, 0, 0, 0,
+                                            s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0, 0, 0,
                                             s.overlayEnabled,
                                             s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
                                             s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
@@ -4505,7 +4644,7 @@ public class GifSlideShowApp extends JFrame {
                         }
 
                         try {
-                            boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0;
+                            boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxChromAb > 0 || s.fxBloom > 0 || s.fxPixelate > 0;
                             boolean hasAnimatedText = false;
                             if (s.slideTexts != null) {
                                 for (SlideTextData stx : s.slideTexts) {
@@ -4531,7 +4670,7 @@ public class GifSlideShowApp extends JFrame {
                                         s.slideNumberSize, s.slideNumberColor,
                                         s.slideTexts,
                                         s.fxRoundCorners, s.fxCornerRadius,
-                                        s.fxVignette, s.fxSepia, 0, 0, 0, 0,
+                                        s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0, 0, 0,
                                         s.overlayEnabled,
                                         s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
                                         s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
@@ -4625,7 +4764,7 @@ public class GifSlideShowApp extends JFrame {
                                             s.slideNumberSize, s.slideNumberColor,
                                             s.slideTexts,
                                             s.fxRoundCorners, s.fxCornerRadius,
-                                            s.fxVignette, s.fxSepia, 0, 0, 0, 0,
+                                            s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0, 0, 0,
                                             s.overlayEnabled,
                                             s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
                                             s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
@@ -4635,7 +4774,7 @@ public class GifSlideShowApp extends JFrame {
                                         BufferedImage animFrame = new BufferedImage(videoW, videoH, BufferedImage.TYPE_INT_RGB);
                                         animFrame.setRGB(0, 0, videoW, videoH, basePixels, 0, videoW);
                                         applyAnimatedEffects(animFrame, videoW, videoH,
-                                                s.fxWaterRipple, s.fxGlitch, s.fxGrain, s.fxShake, d);
+                                                s.fxWaterRipple, s.fxGlitch, s.fxGrain, s.fxShake, s.fxScanline, s.fxChromAb, s.fxBloom, s.fxPixelate, d);
                                         writeRawRGB(animFrame, videoW, videoH, rgbBytes, ffmpegStdin);
                                     }
                                 } else {
@@ -4652,6 +4791,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.fxRoundCorners, s.fxCornerRadius,
                                                 s.fxVignette, s.fxSepia, s.fxGrain,
                                                 s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                                s.fxScanline, s.fxChromAb, s.fxBloom, s.fxPixelate,
                                                 s.overlayEnabled,
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
                                                 s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
@@ -4845,6 +4985,7 @@ public class GifSlideShowApp extends JFrame {
                                     s.fxRoundCorners, s.fxCornerRadius,
                                     s.fxVignette, s.fxSepia, s.fxGrain,
                                     s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                    s.fxScanline, s.fxChromAb, s.fxBloom, s.fxPixelate,
                                     s.overlayEnabled,
                                     s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
                                     s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
@@ -4903,6 +5044,7 @@ public class GifSlideShowApp extends JFrame {
      */
     static void applyAnimatedEffects(BufferedImage frame, int targetW, int targetH,
                                      int fxWaterRipple, int fxGlitch, int fxGrain, int fxShake,
+                                     int fxScanline, int fxChromAb, int fxBloom, int fxPixelate,
                                      int animFrameIndex) {
         if (fxWaterRipple > 0) {
             double strength = fxWaterRipple / 50.0;
@@ -4993,6 +5135,100 @@ public class GifSlideShowApp extends JFrame {
             Graphics2D fg = frame.createGraphics();
             fg.drawImage(shaken, 0, 0, null);
             fg.dispose();
+        }
+
+        if (fxScanline > 0) {
+            double strength = fxScanline / 100.0;
+            int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+            int lineSpacing = Math.max(2, 4 - (int)(strength * 2));
+            double darkening = 0.3 + 0.5 * strength;
+            for (int y = 0; y < targetH; y++) {
+                if (y % lineSpacing == 0) {
+                    for (int x = 0; x < targetW; x++) {
+                        int idx = y * targetW + x;
+                        int r = (int)(((px[idx] >> 16) & 0xFF) * (1.0 - darkening));
+                        int gv = (int)(((px[idx] >> 8) & 0xFF) * (1.0 - darkening));
+                        int b = (int)((px[idx] & 0xFF) * (1.0 - darkening));
+                        px[idx] = (0xFF << 24) | (r << 16) | (gv << 8) | b;
+                    }
+                }
+            }
+            frame.setRGB(0, 0, targetW, targetH, px, 0, targetW);
+        }
+
+        if (fxChromAb > 0) {
+            double strength = fxChromAb / 50.0;
+            int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+            int[] result = new int[px.length];
+            int offset = Math.max(1, (int)(targetW * 0.003 * strength));
+            for (int y = 0; y < targetH; y++) {
+                for (int x = 0; x < targetW; x++) {
+                    int idx = y * targetW + x;
+                    int rIdx = y * targetW + Math.min(targetW - 1, Math.max(0, x + offset));
+                    int bIdx = y * targetW + Math.min(targetW - 1, Math.max(0, x - offset));
+                    int rv = (px[rIdx] >> 16) & 0xFF;
+                    int gv = (px[idx] >> 8) & 0xFF;
+                    int bv = px[bIdx] & 0xFF;
+                    result[idx] = (0xFF << 24) | (rv << 16) | (gv << 8) | bv;
+                }
+            }
+            frame.setRGB(0, 0, targetW, targetH, result, 0, targetW);
+        }
+
+        if (fxBloom > 0) {
+            double strength = fxBloom / 100.0;
+            int threshold = (int)(200 - 80 * strength);
+            int[] src = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+            int dw = targetW / 4, dh = targetH / 4;
+            BufferedImage bright = new BufferedImage(dw, dh, BufferedImage.TYPE_INT_RGB);
+            int[] bpx = new int[dw * dh];
+            for (int y = 0; y < dh; y++) {
+                for (int x = 0; x < dw; x++) {
+                    int si = (y * 4) * targetW + (x * 4);
+                    int r = (src[si] >> 16) & 0xFF;
+                    int gv = (src[si] >> 8) & 0xFF;
+                    int b = src[si] & 0xFF;
+                    if (r > threshold || gv > threshold || b > threshold) {
+                        bpx[y * dw + x] = src[si];
+                    } else {
+                        bpx[y * dw + x] = 0xFF000000;
+                    }
+                }
+            }
+            bright.setRGB(0, 0, dw, dh, bpx, 0, dw);
+            BufferedImage blurred = applyStackBlur(bright, Math.max(5, (int)(20 * strength)));
+            Graphics2D bg2 = frame.createGraphics();
+            bg2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float)(0.4 + 0.4 * strength)));
+            bg2.drawImage(blurred, 0, 0, targetW, targetH, null);
+            bg2.dispose();
+        }
+
+        if (fxPixelate > 0) {
+            int blockSize = Math.max(2, (int)(2 + fxPixelate * 0.3));
+            int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+            for (int by = 0; by < targetH; by += blockSize) {
+                for (int bx = 0; bx < targetW; bx += blockSize) {
+                    int rSum = 0, gSum = 0, bSum = 0, count = 0;
+                    int bh = Math.min(blockSize, targetH - by);
+                    int bw = Math.min(blockSize, targetW - bx);
+                    for (int dy = 0; dy < bh; dy++) {
+                        for (int dx = 0; dx < bw; dx++) {
+                            int idx = (by + dy) * targetW + (bx + dx);
+                            rSum += (px[idx] >> 16) & 0xFF;
+                            gSum += (px[idx] >> 8) & 0xFF;
+                            bSum += px[idx] & 0xFF;
+                            count++;
+                        }
+                    }
+                    int avg = (0xFF << 24) | ((rSum / count) << 16) | ((gSum / count) << 8) | (bSum / count);
+                    for (int dy = 0; dy < bh; dy++) {
+                        for (int dx = 0; dx < bw; dx++) {
+                            px[(by + dy) * targetW + (bx + dx)] = avg;
+                        }
+                    }
+                }
+            }
+            frame.setRGB(0, 0, targetW, targetH, px, 0, targetW);
         }
     }
 
@@ -5241,6 +5477,10 @@ public class GifSlideShowApp extends JFrame {
         final int fxWaterRipple;
         final int fxGlitch;
         final int fxShake;
+        final int fxScanline;
+        final int fxChromAb;
+        final int fxBloom;
+        final int fxPixelate;
         final boolean overlayEnabled;
         final String overlayShape;
         final String overlayBgMode;
@@ -5266,6 +5506,7 @@ public class GifSlideShowApp extends JFrame {
                   boolean fxRoundCorners, int fxCornerRadius,
                   int fxVignette, int fxSepia, int fxGrain,
                   int fxWaterRipple, int fxGlitch, int fxShake,
+                  int fxScanline, int fxChromAb, int fxBloom, int fxPixelate,
                   boolean overlayEnabled,
                   String overlayShape, String overlayBgMode, Color overlayBgColor,
                   int overlayX, int overlayY, int overlaySize,
@@ -5300,6 +5541,10 @@ public class GifSlideShowApp extends JFrame {
             this.fxWaterRipple = fxWaterRipple;
             this.fxGlitch = fxGlitch;
             this.fxShake = fxShake;
+            this.fxScanline = fxScanline;
+            this.fxChromAb = fxChromAb;
+            this.fxBloom = fxBloom;
+            this.fxPixelate = fxPixelate;
             this.overlayEnabled = overlayEnabled;
             this.overlayShape = overlayShape;
             this.overlayBgMode = overlayBgMode;
@@ -5392,6 +5637,14 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner fxGlitchSpinner;
         private final JCheckBox fxShakeCheck;
         private final JSpinner fxShakeSpinner;
+        private final JCheckBox fxScanlineCheck;
+        private final JSpinner fxScanlineSpinner;
+        private final JCheckBox fxChromAbCheck;
+        private final JSpinner fxChromAbSpinner;
+        private final JCheckBox fxBloomCheck;
+        private final JSpinner fxBloomSpinner;
+        private final JCheckBox fxPixelateCheck;
+        private final JSpinner fxPixelateSpinner;
         private final JCheckBox overlayCheckBox;
         private final JComboBox<String> overlayShapeCombo;
         private final JComboBox<String> overlayBgCombo;
@@ -6199,6 +6452,54 @@ public class GifSlideShowApp extends JFrame {
             fxShakeSpinner.setToolTipText("Shake intensity %");
             fxShakeSpinner.addChangeListener(e -> onFormatChanged());
 
+            fxScanlineCheck = new JCheckBox("Scanline", false);
+            fxScanlineCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            fxScanlineCheck.setForeground(Color.LIGHT_GRAY);
+            fxScanlineCheck.setBackground(new Color(44, 47, 51));
+            fxScanlineCheck.setFocusPainted(false);
+            fxScanlineCheck.addActionListener(e -> onFormatChanged());
+
+            fxScanlineSpinner = new JSpinner(new SpinnerNumberModel(50, 1, 100, 5));
+            fxScanlineSpinner.setPreferredSize(new Dimension(45, 24));
+            fxScanlineSpinner.setToolTipText("CRT scanline intensity %");
+            fxScanlineSpinner.addChangeListener(e -> onFormatChanged());
+
+            fxChromAbCheck = new JCheckBox("ChromAb", false);
+            fxChromAbCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            fxChromAbCheck.setForeground(Color.LIGHT_GRAY);
+            fxChromAbCheck.setBackground(new Color(44, 47, 51));
+            fxChromAbCheck.setFocusPainted(false);
+            fxChromAbCheck.addActionListener(e -> onFormatChanged());
+
+            fxChromAbSpinner = new JSpinner(new SpinnerNumberModel(50, 1, 100, 5));
+            fxChromAbSpinner.setPreferredSize(new Dimension(45, 24));
+            fxChromAbSpinner.setToolTipText("Chromatic aberration intensity %");
+            fxChromAbSpinner.addChangeListener(e -> onFormatChanged());
+
+            fxBloomCheck = new JCheckBox("Bloom", false);
+            fxBloomCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            fxBloomCheck.setForeground(Color.LIGHT_GRAY);
+            fxBloomCheck.setBackground(new Color(44, 47, 51));
+            fxBloomCheck.setFocusPainted(false);
+            fxBloomCheck.addActionListener(e -> onFormatChanged());
+
+            fxBloomSpinner = new JSpinner(new SpinnerNumberModel(50, 1, 100, 5));
+            fxBloomSpinner.setPreferredSize(new Dimension(45, 24));
+            fxBloomSpinner.setToolTipText("Bloom/glow intensity %");
+            fxBloomSpinner.addChangeListener(e -> onFormatChanged());
+
+            fxPixelateCheck = new JCheckBox("Pixelate", false);
+            fxPixelateCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            fxPixelateCheck.setForeground(Color.LIGHT_GRAY);
+            fxPixelateCheck.setBackground(new Color(44, 47, 51));
+            fxPixelateCheck.setFocusPainted(false);
+            fxPixelateCheck.addActionListener(e -> onFormatChanged());
+
+            fxPixelateSpinner = new JSpinner(new SpinnerNumberModel(50, 1, 100, 5));
+            fxPixelateSpinner.setPreferredSize(new Dimension(45, 24));
+            fxPixelateSpinner.setToolTipText("Pixelate intensity %");
+            fxPixelateSpinner.addChangeListener(e -> onFormatChanged());
+
             // Row 5a: Corners + Vignette + Sepia
             toolbar5a.add(fxLabel);
             toolbar5a.add(fxRoundCornersCheck);
@@ -6221,6 +6522,19 @@ public class GifSlideShowApp extends JFrame {
             toolbar5c.add(fxGlitchSpinner);
             toolbar5c.add(fxShakeCheck);
             toolbar5c.add(fxShakeSpinner);
+            toolbar5c.add(fxScanlineCheck);
+            toolbar5c.add(fxScanlineSpinner);
+
+            // Row 5d: ChromAb + Bloom + Pixelate
+            JPanel toolbar5d = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
+            toolbar5d.setBackground(new Color(110, 55, 60));
+            toolbar5d.add(styledLabel("      "));
+            toolbar5d.add(fxChromAbCheck);
+            toolbar5d.add(fxChromAbSpinner);
+            toolbar5d.add(fxBloomCheck);
+            toolbar5d.add(fxBloomSpinner);
+            toolbar5d.add(fxPixelateCheck);
+            toolbar5d.add(fxPixelateSpinner);
 
             // ===== Toolbar Row 6: Image Shape (2 rows) =====
             JPanel toolbar6a = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
@@ -6372,6 +6686,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(toolbar5a);
             toolbarsPanel.add(toolbar5b);
             toolbarsPanel.add(toolbar5c);
+            toolbarsPanel.add(toolbar5d);
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar6a);
             toolbarsPanel.add(toolbar6b);
@@ -6743,6 +7058,10 @@ public class GifSlideShowApp extends JFrame {
                              boolean fxWaterRippleOn, int fxWaterRippleVal,
                              boolean fxGlitchOn, int fxGlitchVal,
                              boolean fxShakeOn, int fxShakeVal,
+                             boolean fxScanlineOn, int fxScanlineVal,
+                             boolean fxChromAbOn, int fxChromAbVal,
+                             boolean fxBloomOn, int fxBloomVal,
+                             boolean fxPixelateOn, int fxPixelateVal,
                              String overlayShape, String overlayBgMode, Color overlayBgColor,
                              int overlayX, int overlayY, int overlaySize,
                              boolean textJustify, int textWidthPct,
@@ -6790,6 +7109,14 @@ public class GifSlideShowApp extends JFrame {
             fxGlitchSpinner.setValue(fxGlitchVal);
             fxShakeCheck.setSelected(fxShakeOn);
             fxShakeSpinner.setValue(fxShakeVal);
+            fxScanlineCheck.setSelected(fxScanlineOn);
+            fxScanlineSpinner.setValue(fxScanlineVal);
+            fxChromAbCheck.setSelected(fxChromAbOn);
+            fxChromAbSpinner.setValue(fxChromAbVal);
+            fxBloomCheck.setSelected(fxBloomOn);
+            fxBloomSpinner.setValue(fxBloomVal);
+            fxPixelateCheck.setSelected(fxPixelateOn);
+            fxPixelateSpinner.setValue(fxPixelateVal);
 
             overlayShapeCombo.setSelectedItem(overlayShape);
             overlayBgCombo.setSelectedItem(overlayBgMode);
@@ -6863,6 +7190,7 @@ public class GifSlideShowApp extends JFrame {
                     isFxRoundCorners(), getFxCornerRadius(),
                     getFxVignette(), getFxSepia(), getFxGrain(),
                     getFxWaterRipple(), getFxGlitch(), getFxShake(),
+                    getFxScanline(), getFxChromAb(), getFxBloom(), getFxPixelate(),
                     isOverlayEnabled(),
                     getOverlayShape(), getOverlayBgMode(), getOverlayBgColor(),
                     getOverlayX(), getOverlayY(), getOverlaySize(), 0,
@@ -7001,12 +7329,20 @@ public class GifSlideShowApp extends JFrame {
         int getFxWaterRipple() { return fxWaterRippleCheck.isSelected() ? (int) fxWaterRippleSpinner.getValue() : 0; }
         int getFxGlitch() { return fxGlitchCheck.isSelected() ? (int) fxGlitchSpinner.getValue() : 0; }
         int getFxShake() { return fxShakeCheck.isSelected() ? (int) fxShakeSpinner.getValue() : 0; }
+        int getFxScanline() { return fxScanlineCheck.isSelected() ? (int) fxScanlineSpinner.getValue() : 0; }
+        int getFxChromAb() { return fxChromAbCheck.isSelected() ? (int) fxChromAbSpinner.getValue() : 0; }
+        int getFxBloom() { return fxBloomCheck.isSelected() ? (int) fxBloomSpinner.getValue() : 0; }
+        int getFxPixelate() { return fxPixelateCheck.isSelected() ? (int) fxPixelateSpinner.getValue() : 0; }
         int getFxVignetteRaw() { return (int) fxVignetteSpinner.getValue(); }
         int getFxSepiaRaw() { return (int) fxSepiaSpinner.getValue(); }
         int getFxGrainRaw() { return (int) fxGrainSpinner.getValue(); }
         int getFxWaterRippleRaw() { return (int) fxWaterRippleSpinner.getValue(); }
         int getFxGlitchRaw() { return (int) fxGlitchSpinner.getValue(); }
         int getFxShakeRaw() { return (int) fxShakeSpinner.getValue(); }
+        int getFxScanlineRaw() { return (int) fxScanlineSpinner.getValue(); }
+        int getFxChromAbRaw() { return (int) fxChromAbSpinner.getValue(); }
+        int getFxBloomRaw() { return (int) fxBloomSpinner.getValue(); }
+        int getFxPixelateRaw() { return (int) fxPixelateSpinner.getValue(); }
         boolean isOverlayEnabled() { return overlayCheckBox.isSelected(); }
         String getOverlayShape() { return (String) overlayShapeCombo.getSelectedItem(); }
         String getOverlayBgMode() { return (String) overlayBgCombo.getSelectedItem(); }
