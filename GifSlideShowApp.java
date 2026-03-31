@@ -5048,7 +5048,6 @@ public class GifSlideShowApp extends JFrame {
             java.util.List<String> cmd = new java.util.ArrayList<>();
             cmd.add("ffmpeg"); cmd.add("-y");
             cmd.add("-i"); cmd.add(preOverlay.getAbsolutePath());
-            cmd.add("-stream_loop"); cmd.add("-1"); // loop overlay if shorter than base
             cmd.add("-i"); cmd.add(overlayVideo.getAbsolutePath());
             cmd.add("-filter_complex"); cmd.add(filter);
             cmd.add("-map"); cmd.add("[outv]");
@@ -5073,7 +5072,6 @@ public class GifSlideShowApp extends JFrame {
             java.util.List<String> cmd = new java.util.ArrayList<>();
             cmd.add("ffmpeg"); cmd.add("-y");
             cmd.add("-i"); cmd.add(preOverlay.getAbsolutePath());
-            cmd.add("-stream_loop"); cmd.add("-1");
             cmd.add("-i"); cmd.add(overlayVideo.getAbsolutePath());
             cmd.add("-filter_complex"); cmd.add(videoFilter);
             cmd.add("-map"); cmd.add("[outv]");
@@ -5098,7 +5096,6 @@ public class GifSlideShowApp extends JFrame {
             java.util.List<String> cmd = new java.util.ArrayList<>();
             cmd.add("ffmpeg"); cmd.add("-y");
             cmd.add("-i"); cmd.add(preOverlay.getAbsolutePath());
-            cmd.add("-stream_loop"); cmd.add("-1");
             cmd.add("-i"); cmd.add(overlayVideo.getAbsolutePath());
             cmd.add("-filter_complex"); cmd.add(videoFilter);
             cmd.add("-map"); cmd.add("[outv]");
