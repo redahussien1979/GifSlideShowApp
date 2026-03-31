@@ -5005,73 +5005,81 @@ public class GifSlideShowApp extends JFrame {
         int ovPxX = (int)(videoW * voX / 100.0) - ovW / 2;
         int ovPxY = (int)(videoH * voY / 100.0);
 
-        // Try with audio mixing first (overlay audio at full volume, base audio at full volume)
-        // Use -2 for height to guarantee even dimensions
-        String filterWithAudio = "[1:v]scale=" + ovW + ":-2[ov];" +
-                "[0:v][ov]overlay=" + ovPxX + ":" + ovPxY + ":eof_action=pass[outv];" +
-                "[0:a]volume=1.0[a0];[1:a]volume=1.0[a1];[a0][a1]amix=inputs=2:duration=first:normalize=0[outa]";
+        // Build filter: scale overlay video, place it on base video
+        // The overlay video plays normally frame-by-frame on top of the slideshow
+        String videoFilter = "[1:v]scale=" + ovW + ":-2[ov];[0:v][ov]overlay=" + ovPxX + ":" + ovPxY + ":eof_action=pass[outv]";
 
-        java.util.List<String> cmd = new java.util.ArrayList<>();
-        cmd.add("ffmpeg"); cmd.add("-y");
-        cmd.add("-i"); cmd.add(preOverlay.getAbsolutePath());
-        cmd.add("-i"); cmd.add(overlayVideo.getAbsolutePath());
-        cmd.add("-filter_complex"); cmd.add(filterWithAudio);
-        cmd.add("-map"); cmd.add("[outv]");
-        cmd.add("-map"); cmd.add("[outa]");
-        cmd.add("-c:v"); cmd.add("libx264");
-        cmd.add("-preset"); cmd.add("medium");
-        cmd.add("-crf"); cmd.add(String.valueOf(crf));
-        cmd.add("-c:a"); cmd.add("aac");
-        cmd.add("-b:a"); cmd.add("192k");
-        cmd.add("-pix_fmt"); cmd.add("yuv420p");
-        cmd.add("-movflags"); cmd.add("+faststart");
-        cmd.add(baseVideo.getAbsolutePath());
-
-        try {
-            runFfmpeg(cmd);
-        } catch (IOException e) {
-            // Retry: use overlay video's audio only (base or overlay may lack audio stream)
-            String filterVideoOnly = "[1:v]scale=" + ovW + ":-2[ov];" +
-                    "[0:v][ov]overlay=" + ovPxX + ":" + ovPxY + ":eof_action=pass[outv]";
-
-            java.util.List<String> retryCmd = new java.util.ArrayList<>();
-            retryCmd.add("ffmpeg"); retryCmd.add("-y");
-            retryCmd.add("-i"); retryCmd.add(preOverlay.getAbsolutePath());
-            retryCmd.add("-i"); retryCmd.add(overlayVideo.getAbsolutePath());
-            retryCmd.add("-filter_complex"); retryCmd.add(filterVideoOnly);
-            retryCmd.add("-map"); retryCmd.add("[outv]");
-            retryCmd.add("-map"); retryCmd.add("1:a?");
-            retryCmd.add("-map"); retryCmd.add("0:a?");
-            retryCmd.add("-c:v"); retryCmd.add("libx264");
-            retryCmd.add("-preset"); retryCmd.add("medium");
-            retryCmd.add("-crf"); retryCmd.add(String.valueOf(crf));
-            retryCmd.add("-c:a"); retryCmd.add("aac");
-            retryCmd.add("-b:a"); retryCmd.add("192k");
-            retryCmd.add("-pix_fmt"); retryCmd.add("yuv420p");
-            retryCmd.add("-movflags"); retryCmd.add("+faststart");
-            retryCmd.add(baseVideo.getAbsolutePath());
-
+        // Strategy 1: Both audio streams exist — mix them (overlay audio at full volume)
+        {
+            String filter = videoFilter + ";[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=0[outa]";
+            java.util.List<String> cmd = new java.util.ArrayList<>();
+            cmd.add("ffmpeg"); cmd.add("-y");
+            cmd.add("-i"); cmd.add(preOverlay.getAbsolutePath());
+            cmd.add("-stream_loop"); cmd.add("-1"); // loop overlay if shorter than base
+            cmd.add("-i"); cmd.add(overlayVideo.getAbsolutePath());
+            cmd.add("-filter_complex"); cmd.add(filter);
+            cmd.add("-map"); cmd.add("[outv]");
+            cmd.add("-map"); cmd.add("[outa]");
+            cmd.add("-c:v"); cmd.add("libx264");
+            cmd.add("-preset"); cmd.add("medium");
+            cmd.add("-crf"); cmd.add(String.valueOf(crf));
+            cmd.add("-c:a"); cmd.add("aac");
+            cmd.add("-b:a"); cmd.add("192k");
+            cmd.add("-pix_fmt"); cmd.add("yuv420p");
+            cmd.add("-shortest");
+            cmd.add("-movflags"); cmd.add("+faststart");
+            cmd.add(baseVideo.getAbsolutePath());
             try {
-                runFfmpeg(retryCmd);
-            } catch (IOException e2) {
-                // Final retry: video overlay only, no audio at all
-                String filterNoAudio = "[1:v]scale=" + ovW + ":-2[ov];" +
-                        "[0:v][ov]overlay=" + ovPxX + ":" + ovPxY + ":eof_action=pass[outv]";
-                java.util.List<String> finalCmd = new java.util.ArrayList<>();
-                finalCmd.add("ffmpeg"); finalCmd.add("-y");
-                finalCmd.add("-i"); finalCmd.add(preOverlay.getAbsolutePath());
-                finalCmd.add("-i"); finalCmd.add(overlayVideo.getAbsolutePath());
-                finalCmd.add("-filter_complex"); finalCmd.add(filterNoAudio);
-                finalCmd.add("-map"); finalCmd.add("[outv]");
-                finalCmd.add("-an");
-                finalCmd.add("-c:v"); finalCmd.add("libx264");
-                finalCmd.add("-preset"); finalCmd.add("medium");
-                finalCmd.add("-crf"); finalCmd.add(String.valueOf(crf));
-                finalCmd.add("-pix_fmt"); finalCmd.add("yuv420p");
-                finalCmd.add("-movflags"); finalCmd.add("+faststart");
-                finalCmd.add(baseVideo.getAbsolutePath());
-                runFfmpeg(finalCmd);
-            }
+                runFfmpeg(cmd);
+                preOverlay.delete();
+                return;
+            } catch (IOException ignored) {}
+        }
+
+        // Strategy 2: Base has no audio — use overlay video's audio directly
+        {
+            java.util.List<String> cmd = new java.util.ArrayList<>();
+            cmd.add("ffmpeg"); cmd.add("-y");
+            cmd.add("-i"); cmd.add(preOverlay.getAbsolutePath());
+            cmd.add("-stream_loop"); cmd.add("-1");
+            cmd.add("-i"); cmd.add(overlayVideo.getAbsolutePath());
+            cmd.add("-filter_complex"); cmd.add(videoFilter);
+            cmd.add("-map"); cmd.add("[outv]");
+            cmd.add("-map"); cmd.add("1:a");
+            cmd.add("-c:v"); cmd.add("libx264");
+            cmd.add("-preset"); cmd.add("medium");
+            cmd.add("-crf"); cmd.add(String.valueOf(crf));
+            cmd.add("-c:a"); cmd.add("aac");
+            cmd.add("-b:a"); cmd.add("192k");
+            cmd.add("-pix_fmt"); cmd.add("yuv420p");
+            cmd.add("-shortest");
+            cmd.add("-movflags"); cmd.add("+faststart");
+            cmd.add(baseVideo.getAbsolutePath());
+            try {
+                runFfmpeg(cmd);
+                preOverlay.delete();
+                return;
+            } catch (IOException ignored) {}
+        }
+
+        // Strategy 3: No audio at all — video overlay only
+        {
+            java.util.List<String> cmd = new java.util.ArrayList<>();
+            cmd.add("ffmpeg"); cmd.add("-y");
+            cmd.add("-i"); cmd.add(preOverlay.getAbsolutePath());
+            cmd.add("-stream_loop"); cmd.add("-1");
+            cmd.add("-i"); cmd.add(overlayVideo.getAbsolutePath());
+            cmd.add("-filter_complex"); cmd.add(videoFilter);
+            cmd.add("-map"); cmd.add("[outv]");
+            cmd.add("-an");
+            cmd.add("-c:v"); cmd.add("libx264");
+            cmd.add("-preset"); cmd.add("medium");
+            cmd.add("-crf"); cmd.add(String.valueOf(crf));
+            cmd.add("-pix_fmt"); cmd.add("yuv420p");
+            cmd.add("-shortest");
+            cmd.add("-movflags"); cmd.add("+faststart");
+            cmd.add(baseVideo.getAbsolutePath());
+            runFfmpeg(cmd);
         }
         preOverlay.delete();
     }
