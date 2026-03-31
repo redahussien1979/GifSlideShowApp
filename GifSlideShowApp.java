@@ -69,6 +69,14 @@ public class GifSlideShowApp extends JFrame {
     private static final File PRESETS_DIR = new File(new File(".").getAbsoluteFile().getParentFile(), "presets");
     private JComboBox<String> presetCombo;
 
+    // Video overlay (global — overlaid on entire output video)
+    private File videoOverlayFile = null;
+    private JLabel videoOverlayFileLabel;
+    private JButton videoOverlayClearBtn;
+    private JSpinner videoOverlayXSpinner;
+    private JSpinner videoOverlayYSpinner;
+    private JSpinner videoOverlaySizeSpinner;
+
     private boolean isPortrait() {
         return orientationCombo != null && "Portrait (1080×1920)".equals(orientationCombo.getSelectedItem());
     }
@@ -178,6 +186,61 @@ public class GifSlideShowApp extends JFrame {
         topRow.add(gifBtn);
         topRow.add(mp4Btn);
 
+        // ===== Video Overlay Row =====
+        JPanel videoOverlayRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 4, 3));
+        videoOverlayRow.setBackground(new Color(30, 30, 30));
+
+        JLabel voLabel = new JLabel("\uD83C\uDFA5 Video Overlay:");
+        voLabel.setForeground(new Color(255, 180, 50));
+        voLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
+
+        JButton videoOverlayBrowseBtn = createStyledButton("Upload Video", new Color(180, 100, 50));
+        videoOverlayBrowseBtn.setToolTipText("Upload a video to overlay on the output (upper 75% area, with audio)");
+        videoOverlayBrowseBtn.addActionListener(e -> browseVideoOverlay());
+
+        videoOverlayFileLabel = new JLabel("No video");
+        videoOverlayFileLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        videoOverlayFileLabel.setForeground(Color.GRAY);
+        videoOverlayFileLabel.setPreferredSize(new Dimension(130, 22));
+
+        videoOverlayClearBtn = createStyledButton("\u2716", new Color(160, 60, 60));
+        videoOverlayClearBtn.setPreferredSize(new Dimension(36, 26));
+        videoOverlayClearBtn.setToolTipText("Remove video overlay");
+        videoOverlayClearBtn.setVisible(false);
+        videoOverlayClearBtn.addActionListener(e -> clearVideoOverlay());
+
+        JLabel voXLabel = new JLabel("X%:");
+        voXLabel.setForeground(Color.LIGHT_GRAY);
+        voXLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        videoOverlayXSpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
+        videoOverlayXSpinner.setPreferredSize(new Dimension(50, 26));
+        videoOverlayXSpinner.setToolTipText("Horizontal center position (% of video width)");
+
+        JLabel voYLabel = new JLabel("Y%:");
+        voYLabel.setForeground(Color.LIGHT_GRAY);
+        voYLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        videoOverlayYSpinner = new JSpinner(new SpinnerNumberModel(25, 0, 75, 1));
+        videoOverlayYSpinner.setPreferredSize(new Dimension(50, 26));
+        videoOverlayYSpinner.setToolTipText("Vertical center position (% of video height, max 75% = upper area)");
+
+        JLabel voSizeLabel = new JLabel("Size%:");
+        voSizeLabel.setForeground(Color.LIGHT_GRAY);
+        voSizeLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        videoOverlaySizeSpinner = new JSpinner(new SpinnerNumberModel(30, 5, 100, 5));
+        videoOverlaySizeSpinner.setPreferredSize(new Dimension(50, 26));
+        videoOverlaySizeSpinner.setToolTipText("Size of overlay video (% of output video width)");
+
+        videoOverlayRow.add(voLabel);
+        videoOverlayRow.add(videoOverlayBrowseBtn);
+        videoOverlayRow.add(videoOverlayFileLabel);
+        videoOverlayRow.add(videoOverlayClearBtn);
+        videoOverlayRow.add(voXLabel);
+        videoOverlayRow.add(videoOverlayXSpinner);
+        videoOverlayRow.add(voYLabel);
+        videoOverlayRow.add(videoOverlayYSpinner);
+        videoOverlayRow.add(voSizeLabel);
+        videoOverlayRow.add(videoOverlaySizeSpinner);
+
         // Preset controls
         JLabel presetLabel = new JLabel("Preset:");
         presetLabel.setForeground(Color.LIGHT_GRAY);
@@ -203,6 +266,7 @@ public class GifSlideShowApp extends JFrame {
         botRow.add(presetDeleteBtn);
 
         bottomPanel.add(topRow);
+        bottomPanel.add(videoOverlayRow);
         bottomPanel.add(botRow);
         mainPanel.add(bottomPanel, BorderLayout.SOUTH);
 
@@ -499,6 +563,33 @@ public class GifSlideShowApp extends JFrame {
         if (file.exists()) file.delete();
         refreshPresetCombo();
     }
+
+    // ==================== Video Overlay ====================
+
+    private void browseVideoOverlay() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setFileFilter(new FileNameExtensionFilter(
+                "Video Files (mp4, avi, mov, mkv, webm, flv, wmv)",
+                "mp4", "avi", "mov", "mkv", "webm", "flv", "wmv"));
+        chooser.setDialogTitle("Select Video Overlay");
+        if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+            videoOverlayFile = chooser.getSelectedFile();
+            videoOverlayFileLabel.setText(videoOverlayFile.getName());
+            videoOverlayFileLabel.setForeground(Color.WHITE);
+            videoOverlayClearBtn.setVisible(true);
+        }
+    }
+
+    private void clearVideoOverlay() {
+        videoOverlayFile = null;
+        videoOverlayFileLabel.setText("No video");
+        videoOverlayFileLabel.setForeground(Color.GRAY);
+        videoOverlayClearBtn.setVisible(false);
+    }
+
+    private int getVideoOverlayX() { return (int) videoOverlayXSpinner.getValue(); }
+    private int getVideoOverlayY() { return (int) videoOverlayYSpinner.getValue(); }
+    private int getVideoOverlaySize() { return (int) videoOverlaySizeSpinner.getValue(); }
 
     private static String colorToHex(Color c) {
         if (c.getAlpha() == 255) {
@@ -3769,6 +3860,12 @@ public class GifSlideShowApp extends JFrame {
         }
         final File finalAudioFile = audioFile;
 
+        // Capture video overlay settings
+        final File finalVideoOverlay = videoOverlayFile;
+        final int voX = getVideoOverlayX();
+        final int voY = getVideoOverlayY();
+        final int voSize = getVideoOverlaySize();
+
         JFileChooser chooser = new JFileChooser();
         chooser.setSelectedFile(new File("slideshow.mp4"));
         chooser.setFileFilter(new FileNameExtensionFilter("MP4 Video", "mp4"));
@@ -4386,6 +4483,13 @@ public class GifSlideShowApp extends JFrame {
                         }
                     }
 
+                    // Step 4: Apply video overlay if set
+                    if (finalVideoOverlay != null && finalVideoOverlay.exists()) {
+                        publish("Applying video overlay...");
+                        applyVideoOverlay(finalOut, finalVideoOverlay,
+                                videoW, videoH, voX, voY, voSize, crf, tempDir);
+                    }
+
                     SwingUtilities.invokeLater(() -> progressBar.setValue(90));
 
                     SwingUtilities.invokeLater(() -> progressBar.setValue(100));
@@ -4416,6 +4520,11 @@ public class GifSlideShowApp extends JFrame {
                             ? "Scroll: " + finalScrollDir + "\n"
                             : "";
 
+                    String videoOverlayInfo = (finalVideoOverlay != null)
+                            ? "Video Overlay: " + finalVideoOverlay.getName() +
+                              " (X:" + voX + "% Y:" + voY + "% Size:" + voSize + "%)\n"
+                            : "";
+
                     finalInfo = String.format(
                             "✅ MP4 Video created successfully!\n\n" +
                                     "Resolution: %d×%d (%s)\n" +
@@ -4423,12 +4532,12 @@ public class GifSlideShowApp extends JFrame {
                                     "Size: %.2f MB\n" +
                                     "Slides: %d (%d frames at %d fps)\n" +
                                     "Duration: %.1f seconds\n" +
-                                    "%s%s\n" +
+                                    "%s%s%s\n" +
                                     "File: %s\n\n" +
                                     "Upload to Twitter/X for fullscreen playback!",
                             videoW, videoH, orientLabel, crf, sizeMB, slides.size(),
                             totalFrames, fps, totalDurationSec,
-                            scrollInfo, audioInfo, finalOut.getAbsolutePath());
+                            scrollInfo, videoOverlayInfo, audioInfo, finalOut.getAbsolutePath());
 
                 } catch (Exception ex) {
                     errorMsg = ex.getMessage();
@@ -4523,6 +4632,12 @@ public class GifSlideShowApp extends JFrame {
             case 2:  crf = 28; break;
             default: crf = 18; break;
         }
+
+        // Capture video overlay settings
+        final File perSlideVideoOverlay = videoOverlayFile;
+        final int perSlideVoX = getVideoOverlayX();
+        final int perSlideVoY = getVideoOverlayY();
+        final int perSlideVoSize = getVideoOverlaySize();
 
         // Choose output folder
         JFileChooser folderChooser = new JFileChooser();
@@ -4773,6 +4888,14 @@ public class GifSlideShowApp extends JFrame {
                                             java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                                 }
                             }
+
+                            // Apply video overlay if set
+                            if (perSlideVideoOverlay != null && perSlideVideoOverlay.exists()
+                                    && slideOutFile.exists()) {
+                                publish("Applying video overlay to slide " + (si + 1) + "...");
+                                applyVideoOverlay(slideOutFile, perSlideVideoOverlay,
+                                        videoW, videoH, perSlideVoX, perSlideVoY, perSlideVoSize, crf, tempDir);
+                            }
                         } finally {
                             // Clean up temp directory
                             File[] tempFiles = tempDir.listFiles();
@@ -4839,6 +4962,83 @@ public class GifSlideShowApp extends JFrame {
             if (lastLines.length() > 1500) lastLines = lastLines.substring(lastLines.length() - 1500);
             throw new IOException("FFmpeg failed (exit " + exit + "):\n" + lastLines);
         }
+    }
+
+    /**
+     * Apply a video overlay on top of a base video file using FFmpeg.
+     * The overlay video is scaled and positioned, and its audio is mixed with existing audio.
+     * @param baseVideo the slideshow video file (will be replaced)
+     * @param overlayVideo the overlay video file
+     * @param videoW output video width
+     * @param videoH output video height
+     * @param voX overlay center X position (% of width)
+     * @param voY overlay top Y position (% of height, max 75)
+     * @param voSize overlay width (% of output width)
+     * @param crf encoding quality
+     * @param tempDir temporary directory for intermediate files
+     */
+    private static void applyVideoOverlay(File baseVideo, File overlayVideo,
+                                          int videoW, int videoH,
+                                          int voX, int voY, int voSize, int crf,
+                                          File tempDir) throws IOException, InterruptedException {
+        File preOverlay = new File(tempDir, "pre_vo_" + System.currentTimeMillis() + ".mp4");
+        if (!baseVideo.renameTo(preOverlay)) {
+            java.nio.file.Files.copy(baseVideo.toPath(), preOverlay.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            baseVideo.delete();
+        }
+
+        int ovW = (int)(videoW * voSize / 100.0);
+        int ovPxX = (int)(videoW * voX / 100.0) - ovW / 2;
+        int ovPxY = (int)(videoH * voY / 100.0);
+
+        // Try with audio mixing first
+        String filterWithAudio = "[1:v]scale=" + ovW + ":-1[ov];" +
+                "[0:v][ov]overlay=" + ovPxX + ":" + ovPxY + ":eof_action=pass[outv];" +
+                "[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=0[outa]";
+
+        java.util.List<String> cmd = new java.util.ArrayList<>();
+        cmd.add("ffmpeg"); cmd.add("-y");
+        cmd.add("-i"); cmd.add(preOverlay.getAbsolutePath());
+        cmd.add("-i"); cmd.add(overlayVideo.getAbsolutePath());
+        cmd.add("-filter_complex"); cmd.add(filterWithAudio);
+        cmd.add("-map"); cmd.add("[outv]");
+        cmd.add("-map"); cmd.add("[outa]");
+        cmd.add("-c:v"); cmd.add("libx264");
+        cmd.add("-preset"); cmd.add("medium");
+        cmd.add("-crf"); cmd.add(String.valueOf(crf));
+        cmd.add("-c:a"); cmd.add("aac");
+        cmd.add("-b:a"); cmd.add("192k");
+        cmd.add("-pix_fmt"); cmd.add("yuv420p");
+        cmd.add("-movflags"); cmd.add("+faststart");
+        cmd.add(baseVideo.getAbsolutePath());
+
+        try {
+            runFfmpeg(cmd);
+        } catch (IOException e) {
+            // Retry without audio mixing (overlay or base may lack audio)
+            String filterNoAudioMix = "[1:v]scale=" + ovW + ":-1[ov];" +
+                    "[0:v][ov]overlay=" + ovPxX + ":" + ovPxY + ":eof_action=pass[outv]";
+
+            java.util.List<String> retryCmd = new java.util.ArrayList<>();
+            retryCmd.add("ffmpeg"); retryCmd.add("-y");
+            retryCmd.add("-i"); retryCmd.add(preOverlay.getAbsolutePath());
+            retryCmd.add("-i"); retryCmd.add(overlayVideo.getAbsolutePath());
+            retryCmd.add("-filter_complex"); retryCmd.add(filterNoAudioMix);
+            retryCmd.add("-map"); retryCmd.add("[outv]");
+            retryCmd.add("-map"); retryCmd.add("1:a?");
+            retryCmd.add("-map"); retryCmd.add("0:a?");
+            retryCmd.add("-c:v"); retryCmd.add("libx264");
+            retryCmd.add("-preset"); retryCmd.add("medium");
+            retryCmd.add("-crf"); retryCmd.add(String.valueOf(crf));
+            retryCmd.add("-c:a"); retryCmd.add("aac");
+            retryCmd.add("-b:a"); retryCmd.add("192k");
+            retryCmd.add("-pix_fmt"); retryCmd.add("yuv420p");
+            retryCmd.add("-movflags"); retryCmd.add("+faststart");
+            retryCmd.add(baseVideo.getAbsolutePath());
+            runFfmpeg(retryCmd);
+        }
+        preOverlay.delete();
     }
 
     // ==================== GIF Encoding ====================
@@ -7064,6 +7264,34 @@ public class GifSlideShowApp extends JFrame {
                     isTextJustify(), getTextWidthPct(),
                     getHighlightText(), getHighlightColor(),
                     getTextShiftX());
+
+            // Draw video overlay indicator if a video overlay is set
+            if (videoOverlayFile != null) {
+                int pw = preview.getWidth();
+                int ph = preview.getHeight();
+                int vox = getVideoOverlayX();
+                int voy = getVideoOverlayY();
+                int vos = getVideoOverlaySize();
+                int ovW = (int)(pw * vos / 100.0);
+                int ovH = (int)(ovW * 9.0 / 16.0); // assume 16:9 aspect ratio for indicator
+                int ovPxX = (int)(pw * vox / 100.0) - ovW / 2;
+                int ovPxY = (int)(ph * voy / 100.0);
+                Graphics2D pg = preview.createGraphics();
+                pg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                pg.setColor(new Color(255, 180, 50, 60));
+                pg.fillRoundRect(ovPxX, ovPxY, ovW, ovH, 8, 8);
+                pg.setColor(new Color(255, 180, 50, 200));
+                pg.setStroke(new BasicStroke(2));
+                pg.drawRoundRect(ovPxX, ovPxY, ovW, ovH, 8, 8);
+                pg.setFont(new Font("Segoe UI", Font.BOLD, Math.max(9, ovW / 10)));
+                pg.setColor(new Color(255, 255, 255, 220));
+                String voText = "\uD83C\uDFA5 Video";
+                FontMetrics fm = pg.getFontMetrics();
+                int tx = ovPxX + (ovW - fm.stringWidth(voText)) / 2;
+                int ty = ovPxY + (ovH + fm.getAscent()) / 2;
+                pg.drawString(voText, tx, ty);
+                pg.dispose();
+            }
 
             int lw = livePreviewLabel.getWidth();
             int lh = livePreviewLabel.getHeight();
