@@ -215,6 +215,7 @@ public class GifSlideShowApp extends JFrame {
         videoOverlayXSpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
         videoOverlayXSpinner.setPreferredSize(new Dimension(50, 26));
         videoOverlayXSpinner.setToolTipText("Horizontal center position (% of video width)");
+        videoOverlayXSpinner.addChangeListener(e -> refreshAllPreviews());
 
         JLabel voYLabel = new JLabel("Y%:");
         voYLabel.setForeground(Color.LIGHT_GRAY);
@@ -222,6 +223,7 @@ public class GifSlideShowApp extends JFrame {
         videoOverlayYSpinner = new JSpinner(new SpinnerNumberModel(25, 0, 75, 1));
         videoOverlayYSpinner.setPreferredSize(new Dimension(50, 26));
         videoOverlayYSpinner.setToolTipText("Vertical center position (% of video height, max 75% = upper area)");
+        videoOverlayYSpinner.addChangeListener(e -> refreshAllPreviews());
 
         JLabel voSizeLabel = new JLabel("Size%:");
         voSizeLabel.setForeground(Color.LIGHT_GRAY);
@@ -229,6 +231,7 @@ public class GifSlideShowApp extends JFrame {
         videoOverlaySizeSpinner = new JSpinner(new SpinnerNumberModel(30, 5, 100, 5));
         videoOverlaySizeSpinner.setPreferredSize(new Dimension(50, 26));
         videoOverlaySizeSpinner.setToolTipText("Size of overlay video (% of output video width)");
+        videoOverlaySizeSpinner.addChangeListener(e -> refreshAllPreviews());
 
         videoOverlayRow.add(voLabel);
         videoOverlayRow.add(videoOverlayBrowseBtn);
@@ -577,6 +580,7 @@ public class GifSlideShowApp extends JFrame {
             videoOverlayFileLabel.setText(videoOverlayFile.getName());
             videoOverlayFileLabel.setForeground(Color.WHITE);
             videoOverlayClearBtn.setVisible(true);
+            refreshAllPreviews();
         }
     }
 
@@ -585,6 +589,13 @@ public class GifSlideShowApp extends JFrame {
         videoOverlayFileLabel.setText("No video");
         videoOverlayFileLabel.setForeground(Color.GRAY);
         videoOverlayClearBtn.setVisible(false);
+        refreshAllPreviews();
+    }
+
+    private void refreshAllPreviews() {
+        for (SlideRow row : slideRows) {
+            row.schedulePreview();
+        }
     }
 
     private int getVideoOverlayX() { return (int) videoOverlayXSpinner.getValue(); }
@@ -4988,14 +4999,17 @@ public class GifSlideShowApp extends JFrame {
             baseVideo.delete();
         }
 
+        // Ensure even width for h264 compatibility
         int ovW = (int)(videoW * voSize / 100.0);
+        if (ovW % 2 != 0) ovW++;
         int ovPxX = (int)(videoW * voX / 100.0) - ovW / 2;
         int ovPxY = (int)(videoH * voY / 100.0);
 
-        // Try with audio mixing first
-        String filterWithAudio = "[1:v]scale=" + ovW + ":-1[ov];" +
+        // Try with audio mixing first (overlay audio at full volume, base audio at full volume)
+        // Use -2 for height to guarantee even dimensions
+        String filterWithAudio = "[1:v]scale=" + ovW + ":-2[ov];" +
                 "[0:v][ov]overlay=" + ovPxX + ":" + ovPxY + ":eof_action=pass[outv];" +
-                "[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=0[outa]";
+                "[0:a]volume=1.0[a0];[1:a]volume=1.0[a1];[a0][a1]amix=inputs=2:duration=first:normalize=0[outa]";
 
         java.util.List<String> cmd = new java.util.ArrayList<>();
         cmd.add("ffmpeg"); cmd.add("-y");
@@ -5016,15 +5030,15 @@ public class GifSlideShowApp extends JFrame {
         try {
             runFfmpeg(cmd);
         } catch (IOException e) {
-            // Retry without audio mixing (overlay or base may lack audio)
-            String filterNoAudioMix = "[1:v]scale=" + ovW + ":-1[ov];" +
+            // Retry: use overlay video's audio only (base or overlay may lack audio stream)
+            String filterVideoOnly = "[1:v]scale=" + ovW + ":-2[ov];" +
                     "[0:v][ov]overlay=" + ovPxX + ":" + ovPxY + ":eof_action=pass[outv]";
 
             java.util.List<String> retryCmd = new java.util.ArrayList<>();
             retryCmd.add("ffmpeg"); retryCmd.add("-y");
             retryCmd.add("-i"); retryCmd.add(preOverlay.getAbsolutePath());
             retryCmd.add("-i"); retryCmd.add(overlayVideo.getAbsolutePath());
-            retryCmd.add("-filter_complex"); retryCmd.add(filterNoAudioMix);
+            retryCmd.add("-filter_complex"); retryCmd.add(filterVideoOnly);
             retryCmd.add("-map"); retryCmd.add("[outv]");
             retryCmd.add("-map"); retryCmd.add("1:a?");
             retryCmd.add("-map"); retryCmd.add("0:a?");
@@ -5036,7 +5050,28 @@ public class GifSlideShowApp extends JFrame {
             retryCmd.add("-pix_fmt"); retryCmd.add("yuv420p");
             retryCmd.add("-movflags"); retryCmd.add("+faststart");
             retryCmd.add(baseVideo.getAbsolutePath());
-            runFfmpeg(retryCmd);
+
+            try {
+                runFfmpeg(retryCmd);
+            } catch (IOException e2) {
+                // Final retry: video overlay only, no audio at all
+                String filterNoAudio = "[1:v]scale=" + ovW + ":-2[ov];" +
+                        "[0:v][ov]overlay=" + ovPxX + ":" + ovPxY + ":eof_action=pass[outv]";
+                java.util.List<String> finalCmd = new java.util.ArrayList<>();
+                finalCmd.add("ffmpeg"); finalCmd.add("-y");
+                finalCmd.add("-i"); finalCmd.add(preOverlay.getAbsolutePath());
+                finalCmd.add("-i"); finalCmd.add(overlayVideo.getAbsolutePath());
+                finalCmd.add("-filter_complex"); finalCmd.add(filterNoAudio);
+                finalCmd.add("-map"); finalCmd.add("[outv]");
+                finalCmd.add("-an");
+                finalCmd.add("-c:v"); finalCmd.add("libx264");
+                finalCmd.add("-preset"); finalCmd.add("medium");
+                finalCmd.add("-crf"); finalCmd.add(String.valueOf(crf));
+                finalCmd.add("-pix_fmt"); finalCmd.add("yuv420p");
+                finalCmd.add("-movflags"); finalCmd.add("+faststart");
+                finalCmd.add(baseVideo.getAbsolutePath());
+                runFfmpeg(finalCmd);
+            }
         }
         preOverlay.delete();
     }
@@ -7269,23 +7304,31 @@ public class GifSlideShowApp extends JFrame {
             if (videoOverlayFile != null) {
                 int pw = preview.getWidth();
                 int ph = preview.getHeight();
+                // Convert to ARGB so alpha compositing works
+                BufferedImage argbPreview = new BufferedImage(pw, ph, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D copyG = argbPreview.createGraphics();
+                copyG.drawImage(preview, 0, 0, null);
+                copyG.dispose();
+                preview = argbPreview;
+
                 int vox = getVideoOverlayX();
                 int voy = getVideoOverlayY();
                 int vos = getVideoOverlaySize();
-                int ovW = (int)(pw * vos / 100.0);
-                int ovH = (int)(ovW * 9.0 / 16.0); // assume 16:9 aspect ratio for indicator
+                int ovW = Math.max(20, (int)(pw * vos / 100.0));
+                int ovH = Math.max(12, (int)(ovW * 9.0 / 16.0)); // assume 16:9 aspect ratio
                 int ovPxX = (int)(pw * vox / 100.0) - ovW / 2;
                 int ovPxY = (int)(ph * voy / 100.0);
                 Graphics2D pg = preview.createGraphics();
+                pg.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER));
                 pg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 pg.setColor(new Color(255, 180, 50, 60));
                 pg.fillRoundRect(ovPxX, ovPxY, ovW, ovH, 8, 8);
-                pg.setColor(new Color(255, 180, 50, 200));
+                pg.setColor(new Color(255, 180, 50, 220));
                 pg.setStroke(new BasicStroke(2));
                 pg.drawRoundRect(ovPxX, ovPxY, ovW, ovH, 8, 8);
                 pg.setFont(new Font("Segoe UI", Font.BOLD, Math.max(9, ovW / 10)));
-                pg.setColor(new Color(255, 255, 255, 220));
-                String voText = "\uD83C\uDFA5 Video";
+                pg.setColor(Color.WHITE);
+                String voText = "Video";
                 FontMetrics fm = pg.getFontMetrics();
                 int tx = ovPxX + (ovW - fm.stringWidth(voText)) / 2;
                 int ty = ovPxY + (ovH + fm.getAscent()) / 2;
