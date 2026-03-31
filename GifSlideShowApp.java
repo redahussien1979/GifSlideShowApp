@@ -2087,74 +2087,49 @@ public class GifSlideShowApp extends JFrame {
             frame.setRGB(0, 0, targetW, targetH, px, 0, targetW);
         }
 
-        // Raised — 3D pop-out effect: shrink image, add deep shadow + highlight edge
+        // Raised — 3D emboss/bevel effect using directional lighting on edges
         if (fxRaised > 0) {
             double strength = fxRaised / 100.0;
-            // Shrink the image to create margin for the shadow
-            double scale = 1.0 - 0.06 * strength; // shrink up to 6%
-            int newW = (int)(targetW * scale);
-            int newH = (int)(targetH * scale);
-            int offX = (targetW - newW) / 2;
-            int offY = (targetH - newH) / 2;
+            int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+            int[] result = new int[px.length];
 
-            BufferedImage raised = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D rg = raised.createGraphics();
-            rg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            rg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            // Light direction: top-left (angle ~135 degrees)
+            // We compare each pixel with its neighbors to detect surface slope,
+            // then brighten slopes facing the light and darken slopes facing away.
+            double bevelAmount = 80 + 175 * strength; // how strong the 3D effect is
 
-            // Fill background matching the frame's edge color
-            rg.setColor(new Color(21, 32, 43));
-            rg.fillRect(0, 0, targetW, targetH);
+            for (int y = 0; y < targetH; y++) {
+                for (int x = 0; x < targetW; x++) {
+                    int idx = y * targetW + x;
+                    int c = px[idx];
+                    int cr = (c >> 16) & 0xFF;
+                    int cg = (c >> 8) & 0xFF;
+                    int cb = c & 0xFF;
 
-            // Draw multiple shadow layers (soft shadow expanding outward)
-            int shadowLayers = 4 + (int)(6 * strength);
-            int maxShadowOff = (int)(12 * strength);
-            for (int sl = shadowLayers; sl >= 1; sl--) {
-                float frac = sl / (float) shadowLayers;
-                int shadowAlpha = (int)(40 * strength * (1.0 - frac * 0.6));
-                int sOff = (int)(maxShadowOff * frac);
-                rg.setColor(new Color(0, 0, 0, Math.min(255, shadowAlpha)));
-                rg.fillRoundRect(offX + sOff, offY + sOff, newW, newH,
-                        (int)(8 * strength), (int)(8 * strength));
+                    // Get luminance of neighbors for edge/slope detection
+                    int lumC = (cr * 299 + cg * 587 + cb * 114) / 1000;
+
+                    // Top-left neighbor (light side)
+                    int tlIdx = (y > 0 && x > 0) ? (y - 1) * targetW + (x - 1) : idx;
+                    int tl = px[tlIdx];
+                    int lumTL = (((tl >> 16) & 0xFF) * 299 + ((tl >> 8) & 0xFF) * 587 + (tl & 0xFF) * 114) / 1000;
+
+                    // Bottom-right neighbor (shadow side)
+                    int brIdx = (y < targetH - 1 && x < targetW - 1) ? (y + 1) * targetW + (x + 1) : idx;
+                    int br = px[brIdx];
+                    int lumBR = (((br >> 16) & 0xFF) * 299 + ((br >> 8) & 0xFF) * 587 + (br & 0xFF) * 114) / 1000;
+
+                    // Slope: positive = facing light (highlight), negative = facing away (shadow)
+                    double slope = (lumTL - lumBR) / 255.0;
+                    int adjustment = (int)(slope * bevelAmount);
+
+                    int nr = Math.max(0, Math.min(255, cr + adjustment));
+                    int ng = Math.max(0, Math.min(255, cg + adjustment));
+                    int nb = Math.max(0, Math.min(255, cb + adjustment));
+                    result[idx] = (0xFF << 24) | (nr << 16) | (ng << 8) | nb;
+                }
             }
-
-            // Draw the main image (shrunk)
-            rg.drawImage(frame, offX, offY, newW, newH, null);
-
-            // Top-left highlight edge (light source from top-left)
-            int hlAlpha = (int)(60 * strength);
-            // Top edge highlight
-            GradientPaint topHL = new GradientPaint(
-                    offX, offY, new Color(255, 255, 255, hlAlpha),
-                    offX, offY + (int)(newH * 0.08), new Color(255, 255, 255, 0));
-            rg.setPaint(topHL);
-            rg.fillRect(offX, offY, newW, (int)(newH * 0.08));
-            // Left edge highlight
-            GradientPaint leftHL = new GradientPaint(
-                    offX, offY, new Color(255, 255, 255, hlAlpha / 2),
-                    offX + (int)(newW * 0.05), offY, new Color(255, 255, 255, 0));
-            rg.setPaint(leftHL);
-            rg.fillRect(offX, offY, (int)(newW * 0.05), newH);
-
-            // Bottom-right darkened edge (away from light)
-            int darkAlpha = (int)(80 * strength);
-            GradientPaint botDK = new GradientPaint(
-                    offX, offY + newH - (int)(newH * 0.06), new Color(0, 0, 0, 0),
-                    offX, offY + newH, new Color(0, 0, 0, darkAlpha));
-            rg.setPaint(botDK);
-            rg.fillRect(offX, offY + newH - (int)(newH * 0.06), newW, (int)(newH * 0.06));
-            GradientPaint rightDK = new GradientPaint(
-                    offX + newW - (int)(newW * 0.04), offY, new Color(0, 0, 0, 0),
-                    offX + newW, offY, new Color(0, 0, 0, darkAlpha / 2));
-            rg.setPaint(rightDK);
-            rg.fillRect(offX + newW - (int)(newW * 0.04), offY, (int)(newW * 0.04), newH);
-
-            rg.dispose();
-
-            // Copy raised result back to frame
-            Graphics2D fg2 = frame.createGraphics();
-            fg2.drawImage(raised, 0, 0, null);
-            fg2.dispose();
+            frame.setRGB(0, 0, targetW, targetH, result, 0, targetW);
         }
 
         if (fxVignette > 0) {
@@ -5137,60 +5112,32 @@ public class GifSlideShowApp extends JFrame {
 
         if (fxRaised > 0) {
             double strength = fxRaised / 100.0;
-            double scale = 1.0 - 0.06 * strength;
-            int newW = (int)(targetW * scale);
-            int newH = (int)(targetH * scale);
-            int offX = (targetW - newW) / 2;
-            int offY = (targetH - newH) / 2;
-
-            BufferedImage raised = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D rg = raised.createGraphics();
-            rg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            rg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            rg.setColor(new Color(21, 32, 43));
-            rg.fillRect(0, 0, targetW, targetH);
-
-            int shadowLayers = 4 + (int)(6 * strength);
-            int maxShadowOff = (int)(12 * strength);
-            for (int sl = shadowLayers; sl >= 1; sl--) {
-                float frac = sl / (float) shadowLayers;
-                int shadowAlpha = (int)(40 * strength * (1.0 - frac * 0.6));
-                int sOff = (int)(maxShadowOff * frac);
-                rg.setColor(new Color(0, 0, 0, Math.min(255, shadowAlpha)));
-                rg.fillRoundRect(offX + sOff, offY + sOff, newW, newH,
-                        (int)(8 * strength), (int)(8 * strength));
+            int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+            int[] result = new int[px.length];
+            double bevelAmount = 80 + 175 * strength;
+            for (int y = 0; y < targetH; y++) {
+                for (int x = 0; x < targetW; x++) {
+                    int idx = y * targetW + x;
+                    int c = px[idx];
+                    int cr = (c >> 16) & 0xFF;
+                    int cg = (c >> 8) & 0xFF;
+                    int cb = c & 0xFF;
+                    int lumC = (cr * 299 + cg * 587 + cb * 114) / 1000;
+                    int tlIdx = (y > 0 && x > 0) ? (y - 1) * targetW + (x - 1) : idx;
+                    int tl = px[tlIdx];
+                    int lumTL = (((tl >> 16) & 0xFF) * 299 + ((tl >> 8) & 0xFF) * 587 + (tl & 0xFF) * 114) / 1000;
+                    int brIdx = (y < targetH - 1 && x < targetW - 1) ? (y + 1) * targetW + (x + 1) : idx;
+                    int br = px[brIdx];
+                    int lumBR = (((br >> 16) & 0xFF) * 299 + ((br >> 8) & 0xFF) * 587 + (br & 0xFF) * 114) / 1000;
+                    double slope = (lumTL - lumBR) / 255.0;
+                    int adjustment = (int)(slope * bevelAmount);
+                    int nr = Math.max(0, Math.min(255, cr + adjustment));
+                    int ng = Math.max(0, Math.min(255, cg + adjustment));
+                    int nb = Math.max(0, Math.min(255, cb + adjustment));
+                    result[idx] = (0xFF << 24) | (nr << 16) | (ng << 8) | nb;
+                }
             }
-
-            rg.drawImage(frame, offX, offY, newW, newH, null);
-
-            int hlAlpha = (int)(60 * strength);
-            GradientPaint topHL = new GradientPaint(
-                    offX, offY, new Color(255, 255, 255, hlAlpha),
-                    offX, offY + (int)(newH * 0.08), new Color(255, 255, 255, 0));
-            rg.setPaint(topHL);
-            rg.fillRect(offX, offY, newW, (int)(newH * 0.08));
-            GradientPaint leftHL = new GradientPaint(
-                    offX, offY, new Color(255, 255, 255, hlAlpha / 2),
-                    offX + (int)(newW * 0.05), offY, new Color(255, 255, 255, 0));
-            rg.setPaint(leftHL);
-            rg.fillRect(offX, offY, (int)(newW * 0.05), newH);
-
-            int darkAlpha = (int)(80 * strength);
-            GradientPaint botDK = new GradientPaint(
-                    offX, offY + newH - (int)(newH * 0.06), new Color(0, 0, 0, 0),
-                    offX, offY + newH, new Color(0, 0, 0, darkAlpha));
-            rg.setPaint(botDK);
-            rg.fillRect(offX, offY + newH - (int)(newH * 0.06), newW, (int)(newH * 0.06));
-            GradientPaint rightDK = new GradientPaint(
-                    offX + newW - (int)(newW * 0.04), offY, new Color(0, 0, 0, 0),
-                    offX + newW, offY, new Color(0, 0, 0, darkAlpha / 2));
-            rg.setPaint(rightDK);
-            rg.fillRect(offX + newW - (int)(newW * 0.04), offY, (int)(newW * 0.04), newH);
-
-            rg.dispose();
-            Graphics2D fg2 = frame.createGraphics();
-            fg2.drawImage(raised, 0, 0, null);
-            fg2.dispose();
+            frame.setRGB(0, 0, targetW, targetH, result, 0, targetW);
         }
     }
 
