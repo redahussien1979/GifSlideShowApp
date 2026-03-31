@@ -3877,6 +3877,14 @@ public class GifSlideShowApp extends JFrame {
         final int voY = getVideoOverlayY();
         final int voSize = getVideoOverlaySize();
 
+        // Probe overlay video duration — if set, override slide duration so the full video plays
+        final int videoOverlayDurationMs;
+        if (finalVideoOverlay != null && finalVideoOverlay.exists()) {
+            videoOverlayDurationMs = probeAudioDurationMs(finalVideoOverlay); // works for video too
+        } else {
+            videoOverlayDurationMs = -1;
+        }
+
         JFileChooser chooser = new JFileChooser();
         chooser.setSelectedFile(new File("slideshow.mp4"));
         chooser.setFileFilter(new FileNameExtensionFilter("MP4 Video", "mp4"));
@@ -3921,7 +3929,19 @@ public class GifSlideShowApp extends JFrame {
                     }
 
                     int fps = 30;
-                    int defaultFramesPerSlide = Math.max(1, (int) Math.round(duration / 1000.0 * fps));
+
+                    // If video overlay is set, override slide duration so total output >= overlay video length
+                    int effectiveDuration = duration;
+                    if (videoOverlayDurationMs > 0 && slides.size() > 0) {
+                        int neededPerSlide = (int) Math.ceil((double) videoOverlayDurationMs / slides.size());
+                        if (neededPerSlide > effectiveDuration) {
+                            effectiveDuration = neededPerSlide;
+                            publish("Extending slide duration to " + (effectiveDuration / 1000.0) + "s to fit overlay video ("
+                                    + (videoOverlayDurationMs / 1000.0) + "s)...");
+                        }
+                    }
+
+                    int defaultFramesPerSlide = Math.max(1, (int) Math.round(effectiveDuration / 1000.0 * fps));
                     boolean useConcatDemuxer = false;
                     boolean usePipeEncoding = false;
                     File concatFile = null;
@@ -3930,7 +3950,7 @@ public class GifSlideShowApp extends JFrame {
 
                     int totalFrames = 0;
                     for (SlideData s : slides) {
-                        int slideDur = (s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, duration) : duration;
+                        int slideDur = (s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, effectiveDuration) : effectiveDuration;
                         totalFrames += Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
                     }
                     int frameIndex = 0;
@@ -4007,7 +4027,7 @@ public class GifSlideShowApp extends JFrame {
 
                             for (int i = 0; i < slides.size(); i++) {
                                 SlideData s = slides.get(i);
-                                int slideDur = (s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, duration) : duration;
+                                int slideDur = (s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, effectiveDuration) : effectiveDuration;
                                 double slideDurSec = slideDur / 1000.0;
 
                                 BufferedImage frame = renderFrame(
@@ -4104,7 +4124,7 @@ public class GifSlideShowApp extends JFrame {
 
                             for (int i = 0; i < slides.size(); i++) {
                                 SlideData s = slides.get(i);
-                                int slideDur = (s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, duration) : duration;
+                                int slideDur = (s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, effectiveDuration) : effectiveDuration;
                                 int slideFrames = Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
                                 boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxRaised > 0;
                                 boolean hasAnimatedText = false;
@@ -4326,7 +4346,7 @@ public class GifSlideShowApp extends JFrame {
                         long offsetMs = 0;
 
                         for (SlideData s : slides) {
-                            int slideDur = (s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, duration) : duration;
+                            int slideDur = (s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, effectiveDuration) : effectiveDuration;
                             if (s.audioFile != null && s.audioFile.exists()) {
                                 mergeCmd.add("-i");
                                 mergeCmd.add(s.audioFile.getAbsolutePath());
@@ -4509,7 +4529,7 @@ public class GifSlideShowApp extends JFrame {
                     double sizeMB = fileSize / (1024.0 * 1024.0);
                     double totalDurationSec = 0;
                     for (SlideData s : slides) {
-                        totalDurationSec += ((s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, duration) : duration) / 1000.0;
+                        totalDurationSec += ((s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, effectiveDuration) : effectiveDuration) / 1000.0;
                     }
 
                     int slideAudioCount = 0;
@@ -4650,6 +4670,14 @@ public class GifSlideShowApp extends JFrame {
         final int perSlideVoY = getVideoOverlayY();
         final int perSlideVoSize = getVideoOverlaySize();
 
+        // Probe overlay video duration — each slide must be long enough for the full overlay video
+        final int perSlideOverlayDurationMs;
+        if (perSlideVideoOverlay != null && perSlideVideoOverlay.exists()) {
+            perSlideOverlayDurationMs = probeAudioDurationMs(perSlideVideoOverlay);
+        } else {
+            perSlideOverlayDurationMs = -1;
+        }
+
         // Choose output folder
         JFileChooser folderChooser = new JFileChooser();
         folderChooser.setDialogTitle("Select Output Folder for Slide Videos");
@@ -4677,7 +4705,12 @@ public class GifSlideShowApp extends JFrame {
 
                     for (int si = 0; si < totalSlides; si++) {
                         SlideData s = slides.get(si);
-                        int slideDur = (s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, duration) : duration;
+                        // If video overlay is set, each slide must be at least as long as the overlay video
+                        int perSlideEffDur = duration;
+                        if (perSlideOverlayDurationMs > 0 && perSlideOverlayDurationMs > perSlideEffDur) {
+                            perSlideEffDur = perSlideOverlayDurationMs;
+                        }
+                        int slideDur = (s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, perSlideEffDur) : perSlideEffDur;
                         int slideFrames = Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
 
                         String slideTextPart;
@@ -5026,7 +5059,6 @@ public class GifSlideShowApp extends JFrame {
             cmd.add("-c:a"); cmd.add("aac");
             cmd.add("-b:a"); cmd.add("192k");
             cmd.add("-pix_fmt"); cmd.add("yuv420p");
-            cmd.add("-shortest");
             cmd.add("-movflags"); cmd.add("+faststart");
             cmd.add(baseVideo.getAbsolutePath());
             try {
@@ -5052,7 +5084,6 @@ public class GifSlideShowApp extends JFrame {
             cmd.add("-c:a"); cmd.add("aac");
             cmd.add("-b:a"); cmd.add("192k");
             cmd.add("-pix_fmt"); cmd.add("yuv420p");
-            cmd.add("-shortest");
             cmd.add("-movflags"); cmd.add("+faststart");
             cmd.add(baseVideo.getAbsolutePath());
             try {
@@ -5076,7 +5107,6 @@ public class GifSlideShowApp extends JFrame {
             cmd.add("-preset"); cmd.add("medium");
             cmd.add("-crf"); cmd.add(String.valueOf(crf));
             cmd.add("-pix_fmt"); cmd.add("yuv420p");
-            cmd.add("-shortest");
             cmd.add("-movflags"); cmd.add("+faststart");
             cmd.add(baseVideo.getAbsolutePath());
             runFfmpeg(cmd);
