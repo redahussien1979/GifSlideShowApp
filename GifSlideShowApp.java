@@ -475,7 +475,8 @@ public class GifSlideShowApp extends JFrame {
                         fxScanlineOn, fxScanlineVal, fxRaisedOn, fxRaisedVal,
                         overlayShape, overlayBgMode, overlayBgColor, overlayX, overlayY, overlaySize,
                         textJustify, textWidthPct, highlightText, highlightColor,
-                        textShiftX);
+                        textShiftX,
+                        null, -1, 50, 25, 30);
             }
         } finally {
             isSyncingFormat = false;
@@ -605,7 +606,8 @@ public class GifSlideShowApp extends JFrame {
                 false, 60, false, 50, false, 100, false, 50, false, 50, false, 50, false, 50,
                 false, 50, false, 50,
                 "Rectangular", "Blur", new Color(21, 32, 43), 50, 50, 20,
-                false, 100, "", new Color(255, 255, 0, 180), 0);
+                false, 100, "", new Color(255, 255, 0, 180), 0,
+                null, -1, 50, 25, 30);
 
         slideRows.add(0, titleRow);
         rebuildSlidesPanel();
@@ -1508,6 +1510,11 @@ public class GifSlideShowApp extends JFrame {
         String highlightText = source.getHighlightText();
         Color hlColor = source.getHighlightColor();
         int textShiftX = source.getTextShiftX();
+        File voFile = source.getSlideVideoOverlayFile();
+        int voDurationMs = source.getSlideVideoOverlayDurationMs();
+        int voX = source.getSlideVideoOverlayX();
+        int voY = source.getSlideVideoOverlayY();
+        int voSize = source.getSlideVideoOverlaySize();
 
         isSyncingFormat = true;
         try {
@@ -1523,7 +1530,8 @@ public class GifSlideShowApp extends JFrame {
                         fxScanlineOn, fxScanlineVal, fxRaisedOn, fxRaisedVal,
                         overlayShape, overlayBgMode, ovBgColor, overlayX, overlayY, overlaySize,
                         textJustify, textWidthPct, highlightText, hlColor,
-                        textShiftX);
+                        textShiftX,
+                        voFile, voDurationMs, voX, voY, voSize);
             }
         } finally {
             isSyncingFormat = false;
@@ -6893,19 +6901,19 @@ public class GifSlideShowApp extends JFrame {
             videoOverlayXSp = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
             videoOverlayXSp.setPreferredSize(new Dimension(48, 24));
             videoOverlayXSp.setToolTipText("Horizontal center position (% of video width)");
-            videoOverlayXSp.addChangeListener(e -> schedulePreview());
+            videoOverlayXSp.addChangeListener(e -> onFormatChanged());
 
             JLabel voY8 = styledLabel("Y%:");
             videoOverlayYSp = new JSpinner(new SpinnerNumberModel(25, 0, 75, 1));
             videoOverlayYSp.setPreferredSize(new Dimension(48, 24));
             videoOverlayYSp.setToolTipText("Vertical center position (% of video height, max 75%)");
-            videoOverlayYSp.addChangeListener(e -> schedulePreview());
+            videoOverlayYSp.addChangeListener(e -> onFormatChanged());
 
             JLabel voSize8 = styledLabel("Size%:");
             videoOverlaySizeSp = new JSpinner(new SpinnerNumberModel(30, 5, 100, 5));
             videoOverlaySizeSp.setPreferredSize(new Dimension(48, 24));
             videoOverlaySizeSp.setToolTipText("Size of overlay video (% of output width)");
-            videoOverlaySizeSp.addChangeListener(e -> schedulePreview());
+            videoOverlaySizeSp.addChangeListener(e -> onFormatChanged());
 
             toolbar8.add(voLabel8);
             toolbar8.add(videoOverlayBtn);
@@ -7335,7 +7343,8 @@ public class GifSlideShowApp extends JFrame {
                              int overlayX, int overlayY, int overlaySize,
                              boolean textJustify, int textWidthPct,
                              String highlightText, Color highlightColor,
-                             int textShiftX) {
+                             int textShiftX,
+                             File voFile, int voDurationMs, int voX, int voY, int voSize) {
             fontCombo.setSelectedItem(fontName);
             sizeSpinner.setValue(fontSize);
             boldBtn.setSelected((fontStyle & Font.BOLD) != 0);
@@ -7398,6 +7407,13 @@ public class GifSlideShowApp extends JFrame {
             this.highlightColor = highlightColor;
             highlightColorBtn.setForeground(highlightColor);
             textShiftXSpinner.setValue(textShiftX);
+
+            // Sync video overlay from master slide
+            if (voFile != null && voFile.exists()) {
+                setSlideVideoOverlay(voFile, voDurationMs, voX, voY, voSize);
+            } else {
+                clearSlideVideoOverlay();
+            }
 
             updateTextAreaStyle();
             schedulePreview();
@@ -7683,7 +7699,7 @@ public class GifSlideShowApp extends JFrame {
                 videoOverlayDurLbl.setText(String.format("(%d.%ds)",
                         durationMs / 1000, (durationMs % 1000) / 100));
                 videoOverlayClearButton.setVisible(true);
-                schedulePreview();
+                onFormatChanged();
             }
         }
 
@@ -7694,7 +7710,7 @@ public class GifSlideShowApp extends JFrame {
             videoOverlayFileLbl.setForeground(Color.GRAY);
             videoOverlayDurLbl.setText("");
             videoOverlayClearButton.setVisible(false);
-            schedulePreview();
+            onFormatChanged();
         }
 
         void setSlideVideoOverlay(File file, int durationMs, int x, int y, int size) {
