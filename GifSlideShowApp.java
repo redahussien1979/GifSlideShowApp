@@ -6687,7 +6687,25 @@ public class GifSlideShowApp extends JFrame {
             removeSlideTextBtn.setToolTipText("Remove current slide text overlay");
             removeSlideTextBtn.addActionListener(e -> {
                 if (slideTextItems.size() <= 1) return;
-                slideTextItems.remove(currentSlideTextIndex);
+                int removedIdx = currentSlideTextIndex;
+                slideTextItems.remove(removedIdx);
+                // Remove audio for the deleted text and shift higher indices down
+                slideAudioFiles.remove(removedIdx);
+                slideAudioDurationsMs.remove(removedIdx);
+                java.util.Map<Integer, File> shiftedFiles = new java.util.HashMap<>();
+                java.util.Map<Integer, Integer> shiftedDurations = new java.util.HashMap<>();
+                for (java.util.Map.Entry<Integer, File> entry : slideAudioFiles.entrySet()) {
+                    int key = entry.getKey();
+                    shiftedFiles.put(key > removedIdx ? key - 1 : key, entry.getValue());
+                }
+                for (java.util.Map.Entry<Integer, Integer> entry : slideAudioDurationsMs.entrySet()) {
+                    int key = entry.getKey();
+                    shiftedDurations.put(key > removedIdx ? key - 1 : key, entry.getValue());
+                }
+                slideAudioFiles.clear();
+                slideAudioFiles.putAll(shiftedFiles);
+                slideAudioDurationsMs.clear();
+                slideAudioDurationsMs.putAll(shiftedDurations);
                 if (currentSlideTextIndex >= slideTextItems.size()) {
                     currentSlideTextIndex = slideTextItems.size() - 1;
                 }
@@ -6699,6 +6717,7 @@ public class GifSlideShowApp extends JFrame {
                     isLoadingSlideText = false;
                 }
                 loadSlideTextFromItem(currentSlideTextIndex);
+                updateAudioUI();
                 onFormatChanged();
             });
 
