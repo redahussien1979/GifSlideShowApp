@@ -5924,8 +5924,8 @@ public class GifSlideShowApp extends JFrame {
             panel.setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createLineBorder(new Color(60, 63, 68), 1, true),
                     BorderFactory.createEmptyBorder(10, 10, 10, 10)));
-            panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 480));
-            panel.setPreferredSize(new Dimension(1100, 470));
+            panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 530));
+            panel.setPreferredSize(new Dimension(1100, 520));
 
             previewTimer = new Timer(150, e -> updateLivePreview());
             previewTimer.setRepeats(false);
