@@ -1287,7 +1287,7 @@ public class GifSlideShowApp extends JFrame {
 
         // Ask whether first row is a header
         int headerChoice = JOptionPane.showOptionDialog(this,
-                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting, AUDIOLINK for slide audio.)",
+                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting,\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.)",
                 "Dictionary Import", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,
                 null, new String[]{"Yes, skip first row", "No, first row is data"}, "No, first row is data");
 
@@ -1298,6 +1298,8 @@ public class GifSlideShowApp extends JFrame {
         int italicColIndex = -1;
         int colorColIndex = -1;
         int audioLinkColIndex = -1;
+        // Multi-audio: AUDIO1, AUDIO2, AUDIOLINK1, AUDIOLINK2, etc.
+        java.util.Map<Integer, Integer> audioColByTextIndex = new java.util.TreeMap<>();
         List<String> headerFields = null;
 
         List<String> dataLines;
@@ -1318,6 +1320,13 @@ public class GifSlideShowApp extends JFrame {
                     colorColIndex = c;
                 } else if (h.equals("AUDIOLINK") || h.equals("AUDIO") || h.equals("AUDIO_LINK")) {
                     audioLinkColIndex = c;
+                } else if (h.matches("(AUDIOLINK|AUDIO|AUDIO_LINK)\\d+")) {
+                    // Multi-audio columns: AUDIO1, AUDIO2, AUDIOLINK1, AUDIOLINK2, etc.
+                    String numPart = h.replaceAll("^(AUDIOLINK|AUDIO_LINK|AUDIO)", "");
+                    int textIdx = Integer.parseInt(numPart) - 1; // 1-based to 0-based
+                    if (textIdx >= 0) {
+                        audioColByTextIndex.put(textIdx, c);
+                    }
                 }
             }
             dataLines = trimmed.subList(1, trimmed.size());
@@ -1341,10 +1350,12 @@ public class GifSlideShowApp extends JFrame {
         }
 
         // Determine which columns are text columns (not HL/UL/BOLD/ITALIC/COLOR/AUDIOLINK)
+        java.util.Set<Integer> audioColIndices = new java.util.HashSet<>(audioColByTextIndex.values());
         List<Integer> textColIndices = new ArrayList<>();
         for (int c = 0; c < maxCols; c++) {
             if (c != hlColIndex && c != ulColIndex && c != boldColIndex
-                    && c != italicColIndex && c != colorColIndex && c != audioLinkColIndex) {
+                    && c != italicColIndex && c != colorColIndex && c != audioLinkColIndex
+                    && !audioColIndices.contains(c)) {
                 textColIndices.add(c);
             }
         }
@@ -1414,19 +1425,39 @@ public class GifSlideShowApp extends JFrame {
                 slide.setSlideTextColorText(colorText);
             }
 
-            // Apply audio link from CSV if column exists
+            // Apply audio link from CSV if column exists (single AUDIOLINK → text index 0)
             if (audioLinkColIndex >= 0 && audioLinkColIndex < fields.size()) {
                 String audioPath = fields.get(audioLinkColIndex).trim();
                 if (!audioPath.isEmpty()) {
                     File audioFile = new File(audioPath);
-                    // If relative path, resolve against the CSV file's directory
                     if (!audioFile.isAbsolute() && importSourceDir != null) {
                         audioFile = new File(importSourceDir, audioPath);
                     }
                     if (audioFile.exists()) {
                         int durationMs = probeAudioDurationMs(audioFile);
                         if (durationMs > 0) {
-                            slide.setSlideAudio(audioFile, durationMs);
+                            slide.setSlideAudio(0, audioFile, durationMs);
+                        }
+                    }
+                }
+            }
+
+            // Apply multi-audio columns (AUDIO1, AUDIO2, etc.)
+            for (java.util.Map.Entry<Integer, Integer> entry : audioColByTextIndex.entrySet()) {
+                int textIdx = entry.getKey();
+                int colIdx = entry.getValue();
+                if (colIdx < fields.size()) {
+                    String audioPath = fields.get(colIdx).trim();
+                    if (!audioPath.isEmpty()) {
+                        File audioFile = new File(audioPath);
+                        if (!audioFile.isAbsolute() && importSourceDir != null) {
+                            audioFile = new File(importSourceDir, audioPath);
+                        }
+                        if (audioFile.exists()) {
+                            int durationMs = probeAudioDurationMs(audioFile);
+                            if (durationMs > 0) {
+                                slide.setSlideAudio(textIdx, audioFile, durationMs);
+                            }
                         }
                     }
                 }
@@ -1446,6 +1477,7 @@ public class GifSlideShowApp extends JFrame {
         if (italicColIndex >= 0) importMsg += "\nITALIC column detected — italic words imported per slide.";
         if (colorColIndex >= 0) importMsg += "\nCOLOR column detected — color words imported per slide.";
         if (audioLinkColIndex >= 0) importMsg += "\nAUDIOLINK column detected — audio files imported per slide.";
+        if (!audioColByTextIndex.isEmpty()) importMsg += "\nMulti-audio columns detected (AUDIO1-" + (audioColByTextIndex.size()) + ") — audio files mapped to text items.";
         importMsg += "\nSlides: " + slideRows.size() + " total.";
         JOptionPane.showMessageDialog(this, importMsg, "Dictionary Import", JOptionPane.INFORMATION_MESSAGE);
     }
@@ -3350,7 +3382,7 @@ public class GifSlideShowApp extends JFrame {
                     row.isTextJustify(), row.getTextWidthPct(),
                     row.getHighlightText(), row.getHighlightColor(),
                     row.getTextShiftX(),
-                    row.getSlideAudioDurationMs(), row.getSlideAudioFile(),
+                    row.getSlideAudioDurationsMsList(), row.getSlideAudioFilesList(),
                     row.getSlideVideoOverlayFile(), row.getSlideVideoOverlayX(),
                     row.getSlideVideoOverlayY(), row.getSlideVideoOverlaySize(),
                     row.getSlideVideoOverlayDurationMs()));
@@ -3367,8 +3399,8 @@ public class GifSlideShowApp extends JFrame {
         if (s.videoOverlayDurationMs > 0 && s.videoOverlayDurationMs > dur) {
             dur = s.videoOverlayDurationMs;
         }
-        if (s.audioDurationMs > 0 && s.audioDurationMs > dur) {
-            dur = s.audioDurationMs;
+        if (s.totalAudioDurationMs > 0 && s.totalAudioDurationMs > dur) {
+            dur = s.totalAudioDurationMs;
         }
         return dur;
     }
@@ -3617,7 +3649,7 @@ public class GifSlideShowApp extends JFrame {
                             frames = renderAllFrames(slides, w, h, progressBar, 60);
                             frameDelays = new ArrayList<>();
                             for (SlideData s : slides) {
-                                int delay = (s.audioDurationMs > 0) ? Math.max(s.audioDurationMs, duration) : duration;
+                                int delay = (s.totalAudioDurationMs > 0) ? Math.max(s.totalAudioDurationMs, duration) : duration;
                                 frameDelays.add(delay);
                             }
                         }
@@ -3916,38 +3948,113 @@ public class GifSlideShowApp extends JFrame {
 
                         if (!anyAnimatedFx) {
                             // FAST PATH: No animated effects on any slide.
-                            // Render one PNG per slide and use FFmpeg concat demuxer with duration.
-                            // This avoids writing thousands of duplicate frame files (e.g. a 3-min audio = 1 PNG instead of 5400).
+                            // Render one PNG per slide (or per audio segment for multi-audio) and use FFmpeg concat demuxer.
                             useConcatDemuxer = true;
                             concatFile = new File(tempDir, "concat.txt");
                             StringBuilder concatContent = new StringBuilder();
+                            String lastConcatPng = null;
 
                             for (int i = 0; i < slides.size(); i++) {
                                 SlideData s = slides.get(i);
                                 int slideDur = computeSlideDuration(s, duration);
-                                double slideDurSec = slideDur / 1000.0;
 
-                                BufferedImage frame = renderFrame(
-                                        s.image, s.text, s.fontName, s.fontSize,
-                                        s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                        videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
-                                        s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
-                                        s.slideNumberX, s.slideNumberY,
-                                        s.slideNumberSize, s.slideNumberColor,
-                                        s.slideTexts,
-                                        s.fxRoundCorners, s.fxCornerRadius,
-                                        s.fxVignette, s.fxSepia, s.fxGrain,
-                                        s.fxWaterRipple, s.fxGlitch, s.fxShake,
-                                        s.fxScanline, s.fxRaised,
-                                        s.overlayEnabled,
-                                        s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                        s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                // Count valid audio files for this slide
+                                int validAudioCount = 0;
+                                for (int ai = 0; ai < s.audioFiles.size(); ai++) {
+                                    File af = s.audioFiles.get(ai);
+                                    int adur = ai < s.audioDurationsMs.size() ? s.audioDurationsMs.get(ai) : 0;
+                                    if (af != null && af.exists() && adur > 0) validAudioCount++;
+                                }
 
-                                File slideFile = new File(tempDir, String.format("slide_%03d.png", i));
-                                ImageIO.write(frame, "png", slideFile);
+                                if (validAudioCount >= 2) {
+                                    // MULTI-AUDIO: render one PNG per audio segment with active text highlighted
+                                    int segIdx = 0;
+                                    int audioTimeUsed = 0;
+                                    for (int ai = 0; ai < s.audioFiles.size(); ai++) {
+                                        File af = s.audioFiles.get(ai);
+                                        int adur = ai < s.audioDurationsMs.size() ? s.audioDurationsMs.get(ai) : 0;
+                                        if (af == null || !af.exists() || adur <= 0) continue;
 
-                                concatContent.append("file '").append(slideFile.getAbsolutePath().replace("'", "'\\''")).append("'\n");
-                                concatContent.append("duration ").append(String.format("%.3f", slideDurSec)).append("\n");
+                                        List<SlideTextData> highlightedTexts = applyActiveTextHighlight(s.slideTexts, ai);
+                                        BufferedImage frame = renderFrame(
+                                                s.image, s.text, s.fontName, s.fontSize,
+                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                s.slideNumberX, s.slideNumberY,
+                                                s.slideNumberSize, s.slideNumberColor,
+                                                highlightedTexts,
+                                                s.fxRoundCorners, s.fxCornerRadius,
+                                                s.fxVignette, s.fxSepia, s.fxGrain,
+                                                s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                                s.fxScanline, s.fxRaised,
+                                                s.overlayEnabled,
+                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+
+                                        File slideFile = new File(tempDir, String.format("slide_%03d_seg%02d.png", i, segIdx));
+                                        ImageIO.write(frame, "png", slideFile);
+
+                                        double segDurSec = adur / 1000.0;
+                                        String filePath = slideFile.getAbsolutePath().replace("'", "'\\''");
+                                        concatContent.append("file '").append(filePath).append("'\n");
+                                        concatContent.append("duration ").append(String.format("%.3f", segDurSec)).append("\n");
+                                        lastConcatPng = filePath;
+                                        audioTimeUsed += adur;
+                                        segIdx++;
+                                    }
+                                    // If slide duration exceeds total audio, add remaining time with no highlight
+                                    if (slideDur > audioTimeUsed) {
+                                        BufferedImage frame = renderFrame(
+                                                s.image, s.text, s.fontName, s.fontSize,
+                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                s.slideNumberX, s.slideNumberY,
+                                                s.slideNumberSize, s.slideNumberColor,
+                                                s.slideTexts,
+                                                s.fxRoundCorners, s.fxCornerRadius,
+                                                s.fxVignette, s.fxSepia, s.fxGrain,
+                                                s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                                s.fxScanline, s.fxRaised,
+                                                s.overlayEnabled,
+                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                        File restFile = new File(tempDir, String.format("slide_%03d_rest.png", i));
+                                        ImageIO.write(frame, "png", restFile);
+                                        double restSec = (slideDur - audioTimeUsed) / 1000.0;
+                                        String filePath = restFile.getAbsolutePath().replace("'", "'\\''");
+                                        concatContent.append("file '").append(filePath).append("'\n");
+                                        concatContent.append("duration ").append(String.format("%.3f", restSec)).append("\n");
+                                        lastConcatPng = filePath;
+                                    }
+                                } else {
+                                    // SINGLE/NO AUDIO: original behavior — one PNG per slide
+                                    double slideDurSec = slideDur / 1000.0;
+                                    BufferedImage frame = renderFrame(
+                                            s.image, s.text, s.fontName, s.fontSize,
+                                            s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                            videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                            s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                            s.slideNumberX, s.slideNumberY,
+                                            s.slideNumberSize, s.slideNumberColor,
+                                            s.slideTexts,
+                                            s.fxRoundCorners, s.fxCornerRadius,
+                                            s.fxVignette, s.fxSepia, s.fxGrain,
+                                            s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                            s.fxScanline, s.fxRaised,
+                                            s.overlayEnabled,
+                                            s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+
+                                    File slideFile = new File(tempDir, String.format("slide_%03d.png", i));
+                                    ImageIO.write(frame, "png", slideFile);
+
+                                    String filePath = slideFile.getAbsolutePath().replace("'", "'\\''");
+                                    concatContent.append("file '").append(filePath).append("'\n");
+                                    concatContent.append("duration ").append(String.format("%.3f", slideDurSec)).append("\n");
+                                    lastConcatPng = filePath;
+                                }
 
                                 int pct = (int) ((i + 1.0) / slides.size() * 60);
                                 final int p = pct;
@@ -3955,11 +4062,8 @@ public class GifSlideShowApp extends JFrame {
                                 publish("Rendered slide " + (i + 1) + "/" + slides.size());
                             }
                             // Concat demuxer requires last file repeated without duration
-                            if (slides.size() > 0) {
-                                concatContent.append("file '")
-                                        .append(new File(tempDir, String.format("slide_%03d.png", slides.size() - 1))
-                                                .getAbsolutePath().replace("'", "'\\''"))
-                                        .append("'\n");
+                            if (lastConcatPng != null) {
+                                concatContent.append("file '").append(lastConcatPng).append("'\n");
                             }
 
                             try (java.io.FileWriter fw = new java.io.FileWriter(concatFile)) {
@@ -4038,7 +4142,90 @@ public class GifSlideShowApp extends JFrame {
                                     }
                                 }
 
-                                if (hasAnimatedFx && !hasAnimatedText) {
+                                // Check for multi-audio (2+ valid audio files)
+                                int vaCount = 0;
+                                for (File af : s.audioFiles) { if (af != null && af.exists()) vaCount++; }
+                                boolean hasMultiAudio = vaCount >= 2;
+
+                                if (hasMultiAudio && (hasAnimatedFx || hasAnimatedText)) {
+                                    // Multi-audio with animated effects: per-frame rendering with active text highlight
+                                    publish("Rendering slide " + (i + 1) + " with " + slideFrames + " multi-audio animated frames...");
+                                    for (int d = 0; d < slideFrames; d++) {
+                                        long elapsedMs = (long)(d * 1000.0 / fps);
+                                        int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
+                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(s.slideTexts, activeIdx);
+                                        BufferedImage frame = renderFrame(
+                                                s.image, s.text, s.fontName, s.fontSize,
+                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                s.slideNumberX, s.slideNumberY,
+                                                s.slideNumberSize, s.slideNumberColor,
+                                                hlTexts,
+                                                s.fxRoundCorners, s.fxCornerRadius,
+                                                s.fxVignette, s.fxSepia, s.fxGrain,
+                                                s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                                s.fxScanline, s.fxRaised,
+                                                s.overlayEnabled,
+                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                        writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
+                                        frameIndex++;
+                                    }
+                                } else if (hasMultiAudio) {
+                                    // Multi-audio, no animated effects: per-segment cached rendering
+                                    publish("Rendering slide " + (i + 1) + " with " + vaCount + " audio segments...");
+                                    int segFrameStart = 0;
+                                    for (int ai = 0; ai < s.audioFiles.size(); ai++) {
+                                        File af = s.audioFiles.get(ai);
+                                        int adur = ai < s.audioDurationsMs.size() ? s.audioDurationsMs.get(ai) : 0;
+                                        if (af == null || !af.exists() || adur <= 0) continue;
+                                        int segFrameCount = Math.max(1, (int) Math.round(adur / 1000.0 * fps));
+                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(s.slideTexts, ai);
+                                        BufferedImage segFrame = renderFrame(
+                                                s.image, s.text, s.fontName, s.fontSize,
+                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                s.slideNumberX, s.slideNumberY,
+                                                s.slideNumberSize, s.slideNumberColor,
+                                                hlTexts,
+                                                s.fxRoundCorners, s.fxCornerRadius,
+                                                s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
+                                                s.overlayEnabled,
+                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                        writeRawRGB(segFrame, videoW, videoH, rgbBytes, ffmpegStdin);
+                                        for (int dd = 1; dd < segFrameCount; dd++) {
+                                            ffmpegStdin.write(rgbBytes);
+                                            frameIndex++;
+                                        }
+                                        frameIndex++;
+                                        segFrameStart += segFrameCount;
+                                    }
+                                    int remainingFrames = slideFrames - segFrameStart;
+                                    if (remainingFrames > 0) {
+                                        BufferedImage restFrame = renderFrame(
+                                                s.image, s.text, s.fontName, s.fontSize,
+                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                s.slideNumberX, s.slideNumberY,
+                                                s.slideNumberSize, s.slideNumberColor,
+                                                s.slideTexts,
+                                                s.fxRoundCorners, s.fxCornerRadius,
+                                                s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
+                                                s.overlayEnabled,
+                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                        writeRawRGB(restFrame, videoW, videoH, rgbBytes, ffmpegStdin);
+                                        for (int dd = 1; dd < remainingFrames; dd++) {
+                                            ffmpegStdin.write(rgbBytes);
+                                            frameIndex++;
+                                        }
+                                        frameIndex++;
+                                    }
+                                } else if (hasAnimatedFx && !hasAnimatedText) {
                                     // Render base frame ONCE without animated effects, then clone + apply effects
                                     publish("Rendering slide " + (i + 1) + " base + " + slideFrames + " effect frames...");
                                     BufferedImage baseFrame = renderFrame(
@@ -4221,37 +4408,47 @@ public class GifSlideShowApp extends JFrame {
                     File mergedSlideAudio = null;
                     boolean hasSlideAudio = false;
                     for (SlideData s : slides) {
-                        if (s.audioFile != null && s.audioFile.exists()) {
-                            hasSlideAudio = true;
-                            break;
+                        for (File af : s.audioFiles) {
+                            if (af != null && af.exists()) {
+                                hasSlideAudio = true;
+                                break;
+                            }
                         }
+                        if (hasSlideAudio) break;
                     }
 
                     if (hasSlideAudio) {
                         publish("Merging slide audio tracks...");
                         mergedSlideAudio = new File(tempDir, "merged_slide_audio.m4a");
 
-                        // Build ffmpeg filter_complex: delay each slide's audio to its correct offset, then amix
+                        // Build ffmpeg filter_complex: delay each audio to its correct offset, then amix
                         java.util.List<String> mergeCmd = new java.util.ArrayList<>();
                         mergeCmd.add("ffmpeg");
                         mergeCmd.add("-y");
 
-                        // Calculate each slide's start time and add audio inputs
+                        // Calculate each audio's start time and add inputs
                         int inputIdx = 0;
                         java.util.List<Integer> audioInputIndices = new java.util.ArrayList<>();
                         java.util.List<Long> audioDelays = new java.util.ArrayList<>();
-                        long offsetMs = 0;
+                        long slideOffsetMs = 0;
 
                         for (SlideData s : slides) {
                             int slideDur = computeSlideDuration(s, duration);
-                            if (s.audioFile != null && s.audioFile.exists()) {
-                                mergeCmd.add("-i");
-                                mergeCmd.add(s.audioFile.getAbsolutePath());
-                                audioInputIndices.add(inputIdx);
-                                audioDelays.add(offsetMs);
-                                inputIdx++;
+                            // Each audio within the slide plays sequentially
+                            long intraSlideOffset = 0;
+                            for (int ai = 0; ai < s.audioFiles.size(); ai++) {
+                                File af = s.audioFiles.get(ai);
+                                int adur = ai < s.audioDurationsMs.size() ? s.audioDurationsMs.get(ai) : 0;
+                                if (af != null && af.exists() && adur > 0) {
+                                    mergeCmd.add("-i");
+                                    mergeCmd.add(af.getAbsolutePath());
+                                    audioInputIndices.add(inputIdx);
+                                    audioDelays.add(slideOffsetMs + intraSlideOffset);
+                                    inputIdx++;
+                                    intraSlideOffset += adur;
+                                }
                             }
-                            offsetMs += slideDur;
+                            slideOffsetMs += slideDur;
                         }
 
                         // Build filter_complex string
@@ -4259,7 +4456,6 @@ public class GifSlideShowApp extends JFrame {
                         for (int ai = 0; ai < audioInputIndices.size(); ai++) {
                             int idx = audioInputIndices.get(ai);
                             long delayMs = audioDelays.get(ai);
-                            // adelay takes delay in ms, pad with silence after audio ends
                             filterComplex.append("[").append(idx).append(":a]adelay=")
                                     .append(delayMs).append("|").append(delayMs)
                                     .append("[a").append(ai).append("];");
@@ -4581,7 +4777,9 @@ public class GifSlideShowApp extends JFrame {
 
                     int slideAudioCount = 0;
                     for (SlideData s : slides) {
-                        if (s.audioFile != null && s.audioFile.exists()) slideAudioCount++;
+                        for (File af : s.audioFiles) {
+                            if (af != null && af.exists()) slideAudioCount++;
+                        }
                     }
                     String audioInfo;
                     if (slideAudioCount > 0 && finalAudioFile != null) {
@@ -4847,12 +5045,12 @@ public class GifSlideShowApp extends JFrame {
                                 cmd.add(videoOnly.getAbsolutePath());
                                 runFfmpeg(cmd);
 
-                                if (s.audioFile != null && s.audioFile.exists()) {
-                                    // Mux audio into video
+                                File perSlideAudio = concatSlideAudios(s, tempDir);
+                                if (perSlideAudio != null && perSlideAudio.exists()) {
                                     java.util.List<String> muxCmd = new java.util.ArrayList<>();
                                     muxCmd.add("ffmpeg"); muxCmd.add("-y");
                                     muxCmd.add("-i"); muxCmd.add(videoOnly.getAbsolutePath());
-                                    muxCmd.add("-i"); muxCmd.add(s.audioFile.getAbsolutePath());
+                                    muxCmd.add("-i"); muxCmd.add(perSlideAudio.getAbsolutePath());
                                     muxCmd.add("-c:v"); muxCmd.add("copy");
                                     muxCmd.add("-c:a"); muxCmd.add("aac");
                                     muxCmd.add("-b:a"); muxCmd.add("192k");
@@ -4947,11 +5145,12 @@ public class GifSlideShowApp extends JFrame {
                                 convergenceReader.join(5000);
                                 if (exitCode != 0) throw new IOException("FFmpeg encoding failed for slide " + (si + 1));
 
-                                if (s.audioFile != null && s.audioFile.exists()) {
+                                File perSlideAudio2 = concatSlideAudios(s, tempDir);
+                                if (perSlideAudio2 != null && perSlideAudio2.exists()) {
                                     java.util.List<String> muxCmd = new java.util.ArrayList<>();
                                     muxCmd.add("ffmpeg"); muxCmd.add("-y");
                                     muxCmd.add("-i"); muxCmd.add(videoOnly.getAbsolutePath());
-                                    muxCmd.add("-i"); muxCmd.add(s.audioFile.getAbsolutePath());
+                                    muxCmd.add("-i"); muxCmd.add(perSlideAudio2.getAbsolutePath());
                                     muxCmd.add("-c:v"); muxCmd.add("copy");
                                     muxCmd.add("-c:a"); muxCmd.add("aac");
                                     muxCmd.add("-b:a"); muxCmd.add("192k");
@@ -5442,6 +5641,90 @@ public class GifSlideShowApp extends JFrame {
         }
     }
 
+    /**
+     * Concatenate all audio files for a slide (audio1, audio2, ...) into a single audio file.
+     * Returns null if the slide has no audio files.
+     */
+    private static File concatSlideAudios(SlideData s, File tempDir) {
+        java.util.List<File> validAudios = new java.util.ArrayList<>();
+        for (File af : s.audioFiles) {
+            if (af != null && af.exists()) validAudios.add(af);
+        }
+        if (validAudios.isEmpty()) return null;
+        if (validAudios.size() == 1) return validAudios.get(0);
+        try {
+            File concatList = new File(tempDir, "audio_concat_" + System.nanoTime() + ".txt");
+            try (java.io.PrintWriter pw = new java.io.PrintWriter(concatList)) {
+                for (File af : validAudios) {
+                    pw.println("file '" + af.getAbsolutePath().replace("'", "'\\''") + "'");
+                }
+            }
+            File outFile = new File(tempDir, "slide_audio_merged_" + System.nanoTime() + ".m4a");
+            java.util.List<String> cmd = new java.util.ArrayList<>();
+            cmd.add("ffmpeg"); cmd.add("-y");
+            cmd.add("-f"); cmd.add("concat");
+            cmd.add("-safe"); cmd.add("0");
+            cmd.add("-i"); cmd.add(concatList.getAbsolutePath());
+            cmd.add("-c:a"); cmd.add("aac");
+            cmd.add("-b:a"); cmd.add("192k");
+            cmd.add(outFile.getAbsolutePath());
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            pb.redirectErrorStream(true);
+            Process proc = pb.start();
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(proc.getInputStream()))) {
+                while (br.readLine() != null) {}
+            }
+            int exit = proc.waitFor();
+            if (exit == 0 && outFile.exists()) return outFile;
+        } catch (Exception e) { e.printStackTrace(); }
+        return validAudios.get(0);
+    }
+
+    /**
+     * Create a modified copy of slideTexts with the active text (by index) fully highlighted.
+     * Used during video rendering to show which text's audio is currently playing.
+     */
+    private static List<SlideTextData> applyActiveTextHighlight(List<SlideTextData> origTexts, int activeIndex) {
+        if (activeIndex < 0 || origTexts == null || origTexts.isEmpty()) return origTexts;
+        List<SlideTextData> result = new ArrayList<>();
+        for (int i = 0; i < origTexts.size(); i++) {
+            SlideTextData st = origTexts.get(i);
+            if (i == activeIndex && st.show && st.text != null && !st.text.trim().isEmpty()) {
+                String allText = st.text.replace("\n", ",").replace("\r", "");
+                result.add(new SlideTextData(st.show, st.text, st.fontName, st.fontSize,
+                        st.fontStyle, st.color, st.x, st.y, st.bgOpacity, st.bgColor,
+                        st.justify, st.widthPct, st.shiftX, st.alignment,
+                        st.textEffect, st.textEffectIntensity,
+                        allText, new Color(255, 200, 50, 160), "Glow",
+                        st.highlightTightness, st.underlineStyle, st.underlineText,
+                        st.boldText, st.italicText, st.colorText, st.colorTextColor));
+            } else {
+                result.add(st);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Determine which audio segment (text index) is active at a given elapsed time within a slide.
+     * Returns -1 if no audio is active at that time.
+     */
+    private static int getActiveAudioTextIndex(SlideData s, long elapsedMs) {
+        if (s.audioDurationsMs == null || s.audioDurationsMs.isEmpty()) return -1;
+        long cumulative = 0;
+        for (int i = 0; i < s.audioDurationsMs.size(); i++) {
+            int dur = s.audioDurationsMs.get(i);
+            if (dur <= 0 || i >= s.audioFiles.size() || s.audioFiles.get(i) == null) {
+                continue;
+            }
+            if (elapsedMs >= cumulative && elapsedMs < cumulative + dur) {
+                return i;
+            }
+            cumulative += dur;
+        }
+        return -1;
+    }
+
     private static int probeAudioDurationMs(File audioFile) {
         try {
             ProcessBuilder pb = new ProcessBuilder(
@@ -5720,8 +6003,9 @@ public class GifSlideShowApp extends JFrame {
         final String highlightText;
         final Color highlightColor;
         final int textShiftX;
-        final int audioDurationMs;
-        final File audioFile;
+        final List<File> audioFiles;
+        final List<Integer> audioDurationsMs;
+        final int totalAudioDurationMs;
         final File videoOverlayFile;
         final int videoOverlayX;
         final int videoOverlayY;
@@ -5745,7 +6029,7 @@ public class GifSlideShowApp extends JFrame {
                   boolean textJustify, int textWidthPct,
                   String highlightText, Color highlightColor,
                   int textShiftX,
-                  int audioDurationMs, File audioFile,
+                  List<Integer> audioDurationsMs, List<File> audioFiles,
                   File videoOverlayFile, int videoOverlayX, int videoOverlayY,
                   int videoOverlaySize, int videoOverlayDurationMs) {
             this.image = image;
@@ -5789,8 +6073,11 @@ public class GifSlideShowApp extends JFrame {
             this.highlightText = highlightText;
             this.highlightColor = highlightColor;
             this.textShiftX = textShiftX;
-            this.audioDurationMs = audioDurationMs;
-            this.audioFile = audioFile;
+            this.audioFiles = audioFiles != null ? audioFiles : new java.util.ArrayList<>();
+            this.audioDurationsMs = audioDurationsMs != null ? audioDurationsMs : new java.util.ArrayList<>();
+            int totalMs = 0;
+            for (int d : this.audioDurationsMs) { if (d > 0) totalMs += d; }
+            this.totalAudioDurationMs = totalMs;
             this.videoOverlayFile = videoOverlayFile;
             this.videoOverlayX = videoOverlayX;
             this.videoOverlayY = videoOverlayY;
@@ -5902,12 +6189,13 @@ public class GifSlideShowApp extends JFrame {
         private List<BufferedImage> gridSourceImages = null;
         private BufferedImage titleBgImage = null;
 
-        private File slideAudioFile;
-        private int slideAudioDurationMs = -1;
+        private final java.util.Map<Integer, File> slideAudioFiles = new java.util.HashMap<>();
+        private final java.util.Map<Integer, Integer> slideAudioDurationsMs = new java.util.HashMap<>();
         private final JButton audioBtn;
         private final JLabel audioFileLabel;
         private final JLabel audioDurationLabel;
         private final JButton audioClearBtn;
+        private final JLabel audioLabel;
 
         private File slideVideoOverlayFile;
         private int slideVideoOverlayDurationMs = -1;
@@ -6268,6 +6556,7 @@ public class GifSlideShowApp extends JFrame {
                     saveCurrentSlideTextToItem();
                     currentSlideTextIndex = newIndex;
                     loadSlideTextFromItem(currentSlideTextIndex);
+                    updateAudioUI();
                 }
             });
 
@@ -6831,7 +7120,7 @@ public class GifSlideShowApp extends JFrame {
             JPanel toolbar7 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
             toolbar7.setBackground(new Color(100, 85, 55));
 
-            JLabel audioLabel = styledLabel("\uD83D\uDD0A Audio:");
+            audioLabel = styledLabel("\uD83D\uDD0A Audio (Text 1):");
             audioLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
             audioLabel.setForeground(new Color(100, 180, 220));
 
@@ -7668,8 +7957,37 @@ public class GifSlideShowApp extends JFrame {
         Color getHighlightColor() { return highlightColor; }
         int getTextShiftX() { return (int) textShiftXSpinner.getValue(); }
 
-        File getSlideAudioFile() { return slideAudioFile; }
-        int getSlideAudioDurationMs() { return slideAudioDurationMs; }
+        File getSlideAudioFile() { return slideAudioFiles.get(0); }
+        int getSlideAudioDurationMs() {
+            int total = 0;
+            for (int d : slideAudioDurationsMs.values()) {
+                if (d > 0) total += d;
+            }
+            return total > 0 ? total : -1;
+        }
+
+        java.util.List<File> getSlideAudioFilesList() {
+            int maxIdx = -1;
+            for (int k : slideAudioFiles.keySet()) if (k > maxIdx) maxIdx = k;
+            if (maxIdx < 0) return new java.util.ArrayList<>();
+            java.util.List<File> result = new java.util.ArrayList<>();
+            for (int i = 0; i <= maxIdx; i++) {
+                result.add(slideAudioFiles.get(i));
+            }
+            return result;
+        }
+
+        java.util.List<Integer> getSlideAudioDurationsMsList() {
+            int maxIdx = -1;
+            for (int k : slideAudioDurationsMs.keySet()) if (k > maxIdx) maxIdx = k;
+            if (maxIdx < 0) return new java.util.ArrayList<>();
+            java.util.List<Integer> result = new java.util.ArrayList<>();
+            for (int i = 0; i <= maxIdx; i++) {
+                Integer d = slideAudioDurationsMs.get(i);
+                result.add(d != null ? d : 0);
+            }
+            return result;
+        }
 
         File getSlideVideoOverlayFile() { return slideVideoOverlayFile; }
         int getSlideVideoOverlayDurationMs() { return slideVideoOverlayDurationMs; }
@@ -7739,33 +8057,46 @@ public class GifSlideShowApp extends JFrame {
                             "Audio Error", JOptionPane.ERROR_MESSAGE);
                     return;
                 }
-                slideAudioFile = file;
-                slideAudioDurationMs = durationMs;
+                slideAudioFiles.put(currentSlideTextIndex, file);
+                slideAudioDurationsMs.put(currentSlideTextIndex, durationMs);
+                updateAudioUI();
+            }
+        }
+
+        private void clearSlideAudio() {
+            slideAudioFiles.remove(currentSlideTextIndex);
+            slideAudioDurationsMs.remove(currentSlideTextIndex);
+            updateAudioUI();
+        }
+
+        void setSlideAudio(File file, int durationMs) {
+            setSlideAudio(0, file, durationMs);
+        }
+
+        void setSlideAudio(int textIndex, File file, int durationMs) {
+            slideAudioFiles.put(textIndex, file);
+            slideAudioDurationsMs.put(textIndex, durationMs);
+            if (currentSlideTextIndex == textIndex) {
+                updateAudioUI();
+            }
+        }
+
+        private void updateAudioUI() {
+            File file = slideAudioFiles.get(currentSlideTextIndex);
+            Integer durationMs = slideAudioDurationsMs.get(currentSlideTextIndex);
+            audioLabel.setText("\uD83D\uDD0A Audio (Text " + (currentSlideTextIndex + 1) + "):");
+            if (file != null && durationMs != null && durationMs > 0) {
                 audioFileLabel.setText(file.getName());
                 audioFileLabel.setForeground(Color.WHITE);
                 audioDurationLabel.setText(String.format("(%d.%ds)",
                         durationMs / 1000, (durationMs % 1000) / 100));
                 audioClearBtn.setVisible(true);
+            } else {
+                audioFileLabel.setText("No audio");
+                audioFileLabel.setForeground(Color.GRAY);
+                audioDurationLabel.setText("");
+                audioClearBtn.setVisible(false);
             }
-        }
-
-        private void clearSlideAudio() {
-            slideAudioFile = null;
-            slideAudioDurationMs = -1;
-            audioFileLabel.setText("No audio");
-            audioFileLabel.setForeground(Color.GRAY);
-            audioDurationLabel.setText("");
-            audioClearBtn.setVisible(false);
-        }
-
-        void setSlideAudio(File file, int durationMs) {
-            slideAudioFile = file;
-            slideAudioDurationMs = durationMs;
-            audioFileLabel.setText(file.getName());
-            audioFileLabel.setForeground(Color.WHITE);
-            audioDurationLabel.setText(String.format("(%d.%ds)",
-                    durationMs / 1000, (durationMs % 1000) / 100));
-            audioClearBtn.setVisible(true);
         }
     }
 
