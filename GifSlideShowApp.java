@@ -5001,30 +5001,101 @@ public class GifSlideShowApp extends JFrame {
                             }
 
                             if (!hasAnimatedFx && !hasAnimatedText) {
-                                // Static slide — use concat demuxer (1 PNG, fast)
-                                BufferedImage frame = renderFrame(
-                                        s.image, s.text, s.fontName, s.fontSize,
-                                        s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                        videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
-                                        s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
-                                        s.slideNumberX, s.slideNumberY,
-                                        s.slideNumberSize, s.slideNumberColor,
-                                        s.slideTexts,
-                                        s.fxRoundCorners, s.fxCornerRadius,
-                                        s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
-                                        s.overlayEnabled,
-                                        s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                        s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                // Static slide — use concat demuxer
+                                // Check for multi-audio
+                                int perSlideVaCount = 0;
+                                for (File af : s.audioFiles) { if (af != null && af.exists()) perSlideVaCount++; }
 
-                                File imgFile = new File(tempDir, "slide.png");
-                                ImageIO.write(frame, "png", imgFile);
-
-                                double durSec = slideDur / 1000.0;
                                 File concatFile = new File(tempDir, "concat.txt");
-                                try (java.io.FileWriter fw = new java.io.FileWriter(concatFile)) {
-                                    fw.write("file '" + imgFile.getAbsolutePath().replace("'", "'\\''") + "'\n");
-                                    fw.write("duration " + String.format("%.3f", durSec) + "\n");
-                                    fw.write("file '" + imgFile.getAbsolutePath().replace("'", "'\\''") + "'\n");
+                                if (perSlideVaCount >= 2) {
+                                    // Multi-audio: render per-segment PNGs with active text highlighted
+                                    StringBuilder concatContent = new StringBuilder();
+                                    String lastFile = null;
+                                    int segIdx = 0;
+                                    int audioTimeUsed = 0;
+                                    for (int ai = 0; ai < s.audioFiles.size(); ai++) {
+                                        File af = s.audioFiles.get(ai);
+                                        int adur = ai < s.audioDurationsMs.size() ? s.audioDurationsMs.get(ai) : 0;
+                                        if (af == null || !af.exists() || adur <= 0) continue;
+
+                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(s.slideTexts, ai);
+                                        BufferedImage frame = renderFrame(
+                                                s.image, s.text, s.fontName, s.fontSize,
+                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                s.slideNumberX, s.slideNumberY,
+                                                s.slideNumberSize, s.slideNumberColor,
+                                                hlTexts,
+                                                s.fxRoundCorners, s.fxCornerRadius,
+                                                s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
+                                                s.overlayEnabled,
+                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+
+                                        File segFile = new File(tempDir, String.format("seg_%02d.png", segIdx));
+                                        ImageIO.write(frame, "png", segFile);
+                                        String fp = segFile.getAbsolutePath().replace("'", "'\\''");
+                                        concatContent.append("file '").append(fp).append("'\n");
+                                        concatContent.append("duration ").append(String.format("%.3f", adur / 1000.0)).append("\n");
+                                        lastFile = fp;
+                                        audioTimeUsed += adur;
+                                        segIdx++;
+                                    }
+                                    // Remaining time with no highlight
+                                    if (slideDur > audioTimeUsed) {
+                                        BufferedImage restFrame = renderFrame(
+                                                s.image, s.text, s.fontName, s.fontSize,
+                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                s.slideNumberX, s.slideNumberY,
+                                                s.slideNumberSize, s.slideNumberColor,
+                                                s.slideTexts,
+                                                s.fxRoundCorners, s.fxCornerRadius,
+                                                s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
+                                                s.overlayEnabled,
+                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                        File restFile = new File(tempDir, "seg_rest.png");
+                                        ImageIO.write(restFrame, "png", restFile);
+                                        String fp = restFile.getAbsolutePath().replace("'", "'\\''");
+                                        concatContent.append("file '").append(fp).append("'\n");
+                                        concatContent.append("duration ").append(String.format("%.3f", (slideDur - audioTimeUsed) / 1000.0)).append("\n");
+                                        lastFile = fp;
+                                    }
+                                    // Last entry without duration
+                                    if (lastFile != null) {
+                                        concatContent.append("file '").append(lastFile).append("'\n");
+                                    }
+                                    try (java.io.FileWriter fw = new java.io.FileWriter(concatFile)) {
+                                        fw.write(concatContent.toString());
+                                    }
+                                } else {
+                                    // Single/no audio: one PNG
+                                    BufferedImage frame = renderFrame(
+                                            s.image, s.text, s.fontName, s.fontSize,
+                                            s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                            videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                            s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                            s.slideNumberX, s.slideNumberY,
+                                            s.slideNumberSize, s.slideNumberColor,
+                                            s.slideTexts,
+                                            s.fxRoundCorners, s.fxCornerRadius,
+                                            s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
+                                            s.overlayEnabled,
+                                            s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+
+                                    File imgFile = new File(tempDir, "slide.png");
+                                    ImageIO.write(frame, "png", imgFile);
+
+                                    double durSec = slideDur / 1000.0;
+                                    try (java.io.FileWriter fw = new java.io.FileWriter(concatFile)) {
+                                        fw.write("file '" + imgFile.getAbsolutePath().replace("'", "'\\''") + "'\n");
+                                        fw.write("duration " + String.format("%.3f", durSec) + "\n");
+                                        fw.write("file '" + imgFile.getAbsolutePath().replace("'", "'\\''") + "'\n");
+                                    }
                                 }
 
                                 java.util.List<String> cmd = new java.util.ArrayList<>();
@@ -5094,7 +5165,35 @@ public class GifSlideShowApp extends JFrame {
 
                                 byte[] rgbBytes = new byte[videoW * videoH * 3];
 
-                                if (hasAnimatedFx && !hasAnimatedText) {
+                                // Check for multi-audio in per-slide animated export
+                                int perSlideAnimVaCount = 0;
+                                for (File af : s.audioFiles) { if (af != null && af.exists()) perSlideAnimVaCount++; }
+                                boolean perSlideMultiAudio = perSlideAnimVaCount >= 2;
+
+                                if (perSlideMultiAudio) {
+                                    // Multi-audio with animated effects: per-frame with active text highlight
+                                    for (int d = 0; d < slideFrames; d++) {
+                                        long elapsedMs = (long)(d * 1000.0 / fps);
+                                        int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
+                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(s.slideTexts, activeIdx);
+                                        BufferedImage frame = renderFrame(
+                                                s.image, s.text, s.fontName, s.fontSize,
+                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                s.slideNumberX, s.slideNumberY,
+                                                s.slideNumberSize, s.slideNumberColor,
+                                                hlTexts,
+                                                s.fxRoundCorners, s.fxCornerRadius,
+                                                s.fxVignette, s.fxSepia, s.fxGrain,
+                                                s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                                s.fxScanline, s.fxRaised,
+                                                s.overlayEnabled,
+                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                        writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
+                                    }
+                                } else if (hasAnimatedFx && !hasAnimatedText) {
                                     // Render base once, apply only effects per-frame
                                     BufferedImage baseFrame = renderFrame(
                                             s.image, s.text, s.fontName, s.fontSize,
