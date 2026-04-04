@@ -2586,10 +2586,17 @@ public class GifSlideShowApp extends JFrame {
                                     break;
                                 }
                                 case "Glow": {
-                                    int glowLayers = 5;
+                                    int glowLayers = 7;
                                     for (int gl = glowLayers; gl >= 0; gl--) {
-                                        int expand = gl * (int) (3 * stScaleFactor);
-                                        int alpha = gl == 0 ? hlC.getAlpha() : Math.max(10, hlC.getAlpha() / (gl + 2));
+                                        int expand = gl * (int) (4 * stScaleFactor);
+                                        int alpha;
+                                        if (gl == 0) {
+                                            alpha = Math.min(255, hlC.getAlpha() + 30);
+                                        } else {
+                                            // Stronger outer glow with smoother falloff
+                                            double t = (double) gl / glowLayers;
+                                            alpha = Math.max(8, (int)(hlC.getAlpha() * 0.6 * (1.0 - t * t)));
+                                        }
                                         gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), alpha));
                                         gHL.fillRoundRect(hlRectX - expand, hlRectY - expand,
                                                 hlRectW + expand * 2, hlRectH + expand * 2,
@@ -6109,42 +6116,58 @@ public class GifSlideShowApp extends JFrame {
             if (i == activeIndex && st.show && st.text != null && !st.text.trim().isEmpty()) {
                 String allText = st.text.replace("\n", ",").replace("\r", "");
 
-                // Glow: highlight all text with glow style
+                // Glow: highlight all text with glow style + boost highlight layers
                 String useHlText = fx.contains("Glow") ? allText : st.highlightText;
                 Color useHlColor = fx.contains("Glow") ? hlColor : st.highlightColor;
                 String useHlStyle = fx.contains("Glow") ? "Glow" : st.highlightStyle;
 
                 // Enlarge / Pulse: modify font size
                 int fontSize = st.fontSize;
-                if (fx.contains("Enlarge")) fontSize = (int)(fontSize * 1.25);
-                if (fx.contains("Pulse") && animFrame >= 0) {
-                    double pulse = 1.0 + 0.15 * Math.sin(animFrame * 0.3);
-                    fontSize = (int)(st.fontSize * (fx.contains("Enlarge") ? 1.25 : 1.0) * pulse);
+                if (fx.contains("Enlarge")) fontSize = (int)(fontSize * 1.30);
+                if (fx.contains("Pulse")) {
+                    double baseMul = fx.contains("Enlarge") ? 1.30 : 1.0;
+                    if (animFrame >= 0) {
+                        double pulse = 1.0 + 0.25 * Math.sin(animFrame * 0.3);
+                        fontSize = (int)(st.fontSize * baseMul * pulse);
+                    } else {
+                        // Static path: apply a noticeable scale-up to indicate pulse is active
+                        fontSize = (int)(st.fontSize * baseMul * 1.15);
+                    }
                 }
 
                 // Bold
                 int fontStyle = st.fontStyle;
                 if (fx.contains("Bold")) fontStyle |= Font.BOLD;
 
-                // Color: change text color to highlight color
-                Color textColor = fx.contains("Color") ? hlColor : st.color;
+                // Color: change text color to opaque version of highlight color
+                Color textColor = st.color;
+                if (fx.contains("Color")) {
+                    textColor = new Color(hlColor.getRed(), hlColor.getGreen(), hlColor.getBlue(), 255);
+                }
 
                 // Underline
                 String ulStyle = st.underlineStyle;
                 String ulText = st.underlineText;
                 if (fx.contains("Underline")) {
-                    ulStyle = "Straight";
+                    ulStyle = "Thick";
                     ulText = allText;
                 }
 
-                // Shake: offset x position
+                // Shake: offset x and y position for visible shaking
                 int x = st.x;
-                if (fx.contains("Shake") && animFrame >= 0) {
-                    x = st.x + (int)(3 * Math.sin(animFrame * 0.8));
+                int y = st.y;
+                if (fx.contains("Shake")) {
+                    if (animFrame >= 0) {
+                        x = st.x + (int)(6 * Math.sin(animFrame * 1.2));
+                        y = st.y + (int)(4 * Math.cos(animFrame * 0.9 + 1.5));
+                    } else {
+                        // Static path: apply a fixed offset to show shake is active
+                        x = st.x + 2;
+                    }
                 }
 
                 result.add(new SlideTextData(st.show, st.text, st.fontName, fontSize,
-                        fontStyle, textColor, x, st.y, st.bgOpacity, st.bgColor,
+                        fontStyle, textColor, x, y, st.bgOpacity, st.bgColor,
                         st.justify, st.widthPct, st.shiftX, st.alignment,
                         st.textEffect, st.textEffectIntensity,
                         useHlText, useHlColor, useHlStyle,
