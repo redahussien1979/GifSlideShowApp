@@ -2586,10 +2586,17 @@ public class GifSlideShowApp extends JFrame {
                                     break;
                                 }
                                 case "Glow": {
-                                    int glowLayers = 5;
+                                    int glowLayers = 7;
                                     for (int gl = glowLayers; gl >= 0; gl--) {
-                                        int expand = gl * (int) (3 * stScaleFactor);
-                                        int alpha = gl == 0 ? hlC.getAlpha() : Math.max(10, hlC.getAlpha() / (gl + 2));
+                                        int expand = gl * (int) (4 * stScaleFactor);
+                                        int alpha;
+                                        if (gl == 0) {
+                                            alpha = Math.min(255, hlC.getAlpha() + 30);
+                                        } else {
+                                            // Stronger outer glow with smoother falloff
+                                            double t = (double) gl / glowLayers;
+                                            alpha = Math.max(8, (int)(hlC.getAlpha() * 0.6 * (1.0 - t * t)));
+                                        }
                                         gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), alpha));
                                         gHL.fillRoundRect(hlRectX - expand, hlRectY - expand,
                                                 hlRectW + expand * 2, hlRectH + expand * 2,
@@ -6109,42 +6116,58 @@ public class GifSlideShowApp extends JFrame {
             if (i == activeIndex && st.show && st.text != null && !st.text.trim().isEmpty()) {
                 String allText = st.text.replace("\n", ",").replace("\r", "");
 
-                // Glow: highlight all text with glow style
+                // Glow: highlight all text with glow style + boost highlight layers
                 String useHlText = fx.contains("Glow") ? allText : st.highlightText;
                 Color useHlColor = fx.contains("Glow") ? hlColor : st.highlightColor;
                 String useHlStyle = fx.contains("Glow") ? "Glow" : st.highlightStyle;
 
                 // Enlarge / Pulse: modify font size
                 int fontSize = st.fontSize;
-                if (fx.contains("Enlarge")) fontSize = (int)(fontSize * 1.25);
-                if (fx.contains("Pulse") && animFrame >= 0) {
-                    double pulse = 1.0 + 0.15 * Math.sin(animFrame * 0.3);
-                    fontSize = (int)(st.fontSize * (fx.contains("Enlarge") ? 1.25 : 1.0) * pulse);
+                if (fx.contains("Enlarge")) fontSize = (int)(fontSize * 1.30);
+                if (fx.contains("Pulse")) {
+                    double baseMul = fx.contains("Enlarge") ? 1.30 : 1.0;
+                    if (animFrame >= 0) {
+                        double pulse = 1.0 + 0.25 * Math.sin(animFrame * 0.3);
+                        fontSize = (int)(st.fontSize * baseMul * pulse);
+                    } else {
+                        // Static path: apply a noticeable scale-up to indicate pulse is active
+                        fontSize = (int)(st.fontSize * baseMul * 1.15);
+                    }
                 }
 
                 // Bold
                 int fontStyle = st.fontStyle;
                 if (fx.contains("Bold")) fontStyle |= Font.BOLD;
 
-                // Color: change text color to highlight color
-                Color textColor = fx.contains("Color") ? hlColor : st.color;
+                // Color: change text color to opaque version of highlight color
+                Color textColor = st.color;
+                if (fx.contains("Color")) {
+                    textColor = new Color(hlColor.getRed(), hlColor.getGreen(), hlColor.getBlue(), 255);
+                }
 
                 // Underline
                 String ulStyle = st.underlineStyle;
                 String ulText = st.underlineText;
                 if (fx.contains("Underline")) {
-                    ulStyle = "Straight";
+                    ulStyle = "Thick";
                     ulText = allText;
                 }
 
-                // Shake: offset x position
+                // Shake: offset x and y position for visible shaking
                 int x = st.x;
-                if (fx.contains("Shake") && animFrame >= 0) {
-                    x = st.x + (int)(3 * Math.sin(animFrame * 0.8));
+                int y = st.y;
+                if (fx.contains("Shake")) {
+                    if (animFrame >= 0) {
+                        x = st.x + (int)(6 * Math.sin(animFrame * 1.2));
+                        y = st.y + (int)(4 * Math.cos(animFrame * 0.9 + 1.5));
+                    } else {
+                        // Static path: apply a fixed offset to show shake is active
+                        x = st.x + 2;
+                    }
                 }
 
                 result.add(new SlideTextData(st.show, st.text, st.fontName, fontSize,
-                        fontStyle, textColor, x, st.y, st.bgOpacity, st.bgColor,
+                        fontStyle, textColor, x, y, st.bgOpacity, st.bgColor,
                         st.justify, st.widthPct, st.shiftX, st.alignment,
                         st.textEffect, st.textEffectIntensity,
                         useHlText, useHlColor, useHlStyle,
@@ -7352,29 +7375,56 @@ public class GifSlideShowApp extends JFrame {
                 }
             });
 
-            toolbar4c.add(styledLabel("      "));
-            toolbar4c.add(styledLabel("Align:"));
+            JLabel tc4cAlignLbl = styledLabel("      \u2B82 Align:");
+            tc4cAlignLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4cAlignLbl.setForeground(new Color(140, 210, 160));
+            JLabel tc4cEffectLbl = styledLabel("  \u2728 Effect:");
+            tc4cEffectLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4cEffectLbl.setForeground(new Color(140, 210, 160));
+            JLabel tc4cPowerLbl = styledLabel("Power:");
+            tc4cPowerLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4cPowerLbl.setForeground(new Color(140, 210, 160));
+            JLabel tc4cHlLbl = styledLabel("  \uD83D\uDD8D HL:");
+            tc4cHlLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4cHlLbl.setForeground(new Color(140, 210, 160));
+            JLabel tc4cTightLbl = styledLabel("Tight:");
+            tc4cTightLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4cTightLbl.setForeground(new Color(140, 210, 160));
+            JLabel tc4cUlLbl = styledLabel("UL:");
+            tc4cUlLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4cUlLbl.setForeground(new Color(140, 210, 160));
+
+            toolbar4c.add(tc4cAlignLbl);
             toolbar4c.add(slideTextAlignCombo);
-            toolbar4c.add(styledLabel("  Effect:"));
+            toolbar4c.add(tc4cEffectLbl);
             toolbar4c.add(slideTextEffectCombo);
-            toolbar4c.add(styledLabel("Power:"));
+            toolbar4c.add(tc4cPowerLbl);
             toolbar4c.add(slideTextEffectIntensitySpinner);
-            toolbar4c.add(styledLabel("  HL:"));
+            toolbar4c.add(tc4cHlLbl);
             toolbar4c.add(slideTextHighlightField);
             toolbar4c.add(slideTextHighlightColorBtn);
             toolbar4c.add(slideTextHighlightStyleCombo);
-            toolbar4c.add(styledLabel("Tight:"));
+            toolbar4c.add(tc4cTightLbl);
             toolbar4c.add(slideTextHighlightTightnessSpinner);
-            toolbar4c.add(styledLabel("UL:"));
+            toolbar4c.add(tc4cUlLbl);
             toolbar4c.add(slideTextUnderlineCombo);
             toolbar4c.add(slideTextUnderlineTextField);
 
-            toolbar4d.add(styledLabel("      "));
-            toolbar4d.add(styledLabel("B:"));
+            JLabel tc4dBLbl = styledLabel("      \uD835\uDC01 Bold:");
+            tc4dBLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4dBLbl.setForeground(new Color(140, 210, 160));
+            JLabel tc4dILbl = styledLabel("\uD835\uDC3C Italic:");
+            tc4dILbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4dILbl.setForeground(new Color(140, 210, 160));
+            JLabel tc4dClrLbl = styledLabel("\uD83C\uDFA8 Color:");
+            tc4dClrLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4dClrLbl.setForeground(new Color(140, 210, 160));
+
+            toolbar4d.add(tc4dBLbl);
             toolbar4d.add(slideTextBoldField);
-            toolbar4d.add(styledLabel("I:"));
+            toolbar4d.add(tc4dILbl);
             toolbar4d.add(slideTextItalicField);
-            toolbar4d.add(styledLabel("Clr:"));
+            toolbar4d.add(tc4dClrLbl);
             toolbar4d.add(slideTextColorTextField);
             toolbar4d.add(slideTextColorTextColorBtn);
 
@@ -7607,40 +7657,49 @@ public class GifSlideShowApp extends JFrame {
             toolbar6b.add(overlaySizeSpinner);
 
             // ===== Toolbar Row 7: Slide Audio =====
-            JPanel toolbar7 = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-            toolbar7.setBackground(new Color(45, 55, 72));
+            JPanel toolbar7 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
+            toolbar7.setBackground(new Color(28, 38, 56));
+            toolbar7.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(55, 75, 110)),
+                BorderFactory.createEmptyBorder(2, 4, 2, 4)));
 
             audioLabel = styledLabel("\uD83C\uDFB5 Audio (Text 1):");
-            audioLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            audioLabel.setForeground(new Color(130, 200, 255));
+            audioLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            audioLabel.setForeground(new Color(100, 180, 255));
 
             audioBtn = new JButton("\uD83D\uDCC2 Browse");
             audioBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            audioBtn.setPreferredSize(new Dimension(90, 24));
+            audioBtn.setPreferredSize(new Dimension(95, 26));
             audioBtn.setFocusPainted(false);
-            audioBtn.setBackground(new Color(60, 120, 180));
+            audioBtn.setBackground(new Color(45, 100, 170));
             audioBtn.setForeground(Color.WHITE);
+            audioBtn.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(70, 130, 200), 1),
+                BorderFactory.createEmptyBorder(2, 8, 2, 8)));
             audioBtn.setToolTipText("Attach audio to this slide (duration overrides global slide duration)");
             audioBtn.addActionListener(e -> browseSlideAudio());
+            audioBtn.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
 
             audioFileLabel = new JLabel("No audio");
             audioFileLabel.setFont(new Font("Segoe UI", Font.ITALIC, 11));
-            audioFileLabel.setForeground(new Color(140, 140, 160));
-            audioFileLabel.setPreferredSize(new Dimension(160, 20));
+            audioFileLabel.setForeground(new Color(120, 125, 145));
+            audioFileLabel.setPreferredSize(new Dimension(160, 22));
 
             audioDurationLabel = new JLabel("");
             audioDurationLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            audioDurationLabel.setForeground(new Color(120, 220, 160));
+            audioDurationLabel.setForeground(new Color(80, 210, 140));
 
             audioClearBtn = new JButton("\u2716");
-            audioClearBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            audioClearBtn.setPreferredSize(new Dimension(36, 24));
+            audioClearBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            audioClearBtn.setPreferredSize(new Dimension(32, 26));
             audioClearBtn.setFocusPainted(false);
-            audioClearBtn.setBackground(new Color(180, 60, 60));
-            audioClearBtn.setForeground(Color.WHITE);
+            audioClearBtn.setBackground(new Color(160, 45, 45));
+            audioClearBtn.setForeground(new Color(255, 200, 200));
+            audioClearBtn.setBorder(BorderFactory.createLineBorder(new Color(200, 70, 70), 1));
             audioClearBtn.setToolTipText("Remove audio from this slide");
             audioClearBtn.setVisible(false);
             audioClearBtn.addActionListener(e -> clearSlideAudio());
+            audioClearBtn.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
 
             toolbar7.add(audioLabel);
             toolbar7.add(audioBtn);
@@ -7649,20 +7708,24 @@ public class GifSlideShowApp extends JFrame {
             toolbar7.add(audioClearBtn);
 
             // ===== Toolbar Row 7b: Audio Highlight Effects =====
-            JPanel toolbar7b = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
-            toolbar7b.setBackground(new Color(100, 85, 55));
+            JPanel toolbar7b = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            toolbar7b.setBackground(new Color(35, 42, 58));
+            toolbar7b.setBorder(BorderFactory.createEmptyBorder(1, 4, 2, 4));
 
             audioGapSpinner = new JSpinner(new SpinnerNumberModel(0.0, 0.0, 10.0, 0.1));
-            audioGapSpinner.setPreferredSize(new Dimension(55, 24));
-            audioGapSpinner.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            audioGapSpinner.setPreferredSize(new Dimension(58, 26));
+            audioGapSpinner.setFont(new Font("Segoe UI", Font.BOLD, 11));
             audioGapSpinner.setToolTipText("Silence gap between sequential audios (seconds)");
 
             audioHlColorBtn = new JButton("\u25A0");
-            audioHlColorBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            audioHlColorBtn.setFont(new Font("Segoe UI", Font.BOLD, 14));
             audioHlColorBtn.setForeground(audioHlColor);
-            audioHlColorBtn.setPreferredSize(new Dimension(30, 24));
+            audioHlColorBtn.setPreferredSize(new Dimension(32, 26));
             audioHlColorBtn.setFocusPainted(false);
+            audioHlColorBtn.setBackground(new Color(50, 55, 70));
+            audioHlColorBtn.setBorder(BorderFactory.createLineBorder(new Color(80, 85, 100), 1));
             audioHlColorBtn.setToolTipText("Audio highlight color");
+            audioHlColorBtn.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
             audioHlColorBtn.addActionListener(e -> {
                 Color c = JColorChooser.showDialog(panel, "Audio Highlight Color", audioHlColor);
                 if (c != null) {
@@ -7671,49 +7734,101 @@ public class GifSlideShowApp extends JFrame {
                 }
             });
 
+            // Professional styled toggle buttons with clear selected/unselected states
             Font fxBtnFont = new Font("Segoe UI", Font.BOLD, 10);
-            Dimension fxBtnSize = new Dimension(50, 22);
+            Color fxBtnOffBg = new Color(50, 55, 68);
+            Color fxBtnOffFg = new Color(140, 145, 160);
+            Color fxBtnOnBg = new Color(55, 120, 200);
+            Color fxBtnOnFg = Color.WHITE;
+            Color fxBtnBorder = new Color(70, 75, 90);
+            Color fxBtnOnBorder = new Color(80, 150, 230);
+
+            java.awt.event.ItemListener fxToggleStyler = evt -> {
+                JToggleButton btn = (JToggleButton) evt.getSource();
+                if (btn.isSelected()) {
+                    btn.setBackground(fxBtnOnBg);
+                    btn.setForeground(fxBtnOnFg);
+                    btn.setBorder(BorderFactory.createLineBorder(fxBtnOnBorder, 1));
+                } else {
+                    btn.setBackground(fxBtnOffBg);
+                    btn.setForeground(fxBtnOffFg);
+                    btn.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
+                }
+            };
 
             audioFxGlow = new JToggleButton("Glow", true);
-            audioFxGlow.setFont(fxBtnFont); audioFxGlow.setPreferredSize(fxBtnSize);
+            audioFxGlow.setFont(fxBtnFont); audioFxGlow.setPreferredSize(new Dimension(52, 24));
             audioFxGlow.setFocusPainted(false); audioFxGlow.setToolTipText("Background glow highlight on active text");
+            audioFxGlow.setBackground(fxBtnOnBg); audioFxGlow.setForeground(fxBtnOnFg);
+            audioFxGlow.setBorder(BorderFactory.createLineBorder(fxBtnOnBorder, 1));
+            audioFxGlow.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+            audioFxGlow.addItemListener(fxToggleStyler);
 
             audioFxEnlarge = new JToggleButton("Big");
-            audioFxEnlarge.setFont(fxBtnFont); audioFxEnlarge.setPreferredSize(fxBtnSize);
+            audioFxEnlarge.setFont(fxBtnFont); audioFxEnlarge.setPreferredSize(new Dimension(42, 24));
             audioFxEnlarge.setFocusPainted(false); audioFxEnlarge.setToolTipText("Enlarge active text by 25%");
+            audioFxEnlarge.setBackground(fxBtnOffBg); audioFxEnlarge.setForeground(fxBtnOffFg);
+            audioFxEnlarge.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
+            audioFxEnlarge.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+            audioFxEnlarge.addItemListener(fxToggleStyler);
 
             audioFxBold = new JToggleButton("Bold");
-            audioFxBold.setFont(fxBtnFont); audioFxBold.setPreferredSize(fxBtnSize);
+            audioFxBold.setFont(fxBtnFont); audioFxBold.setPreferredSize(new Dimension(48, 24));
             audioFxBold.setFocusPainted(false); audioFxBold.setToolTipText("Make active text bold");
+            audioFxBold.setBackground(fxBtnOffBg); audioFxBold.setForeground(fxBtnOffFg);
+            audioFxBold.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
+            audioFxBold.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+            audioFxBold.addItemListener(fxToggleStyler);
 
             audioFxUnderline = new JToggleButton("UL");
-            audioFxUnderline.setFont(fxBtnFont); audioFxUnderline.setPreferredSize(new Dimension(36, 22));
+            audioFxUnderline.setFont(fxBtnFont); audioFxUnderline.setPreferredSize(new Dimension(36, 24));
             audioFxUnderline.setFocusPainted(false); audioFxUnderline.setToolTipText("Underline active text");
+            audioFxUnderline.setBackground(fxBtnOffBg); audioFxUnderline.setForeground(fxBtnOffFg);
+            audioFxUnderline.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
+            audioFxUnderline.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+            audioFxUnderline.addItemListener(fxToggleStyler);
 
             audioFxColor = new JToggleButton("Clr");
-            audioFxColor.setFont(fxBtnFont); audioFxColor.setPreferredSize(new Dimension(36, 22));
+            audioFxColor.setFont(fxBtnFont); audioFxColor.setPreferredSize(new Dimension(38, 24));
             audioFxColor.setFocusPainted(false); audioFxColor.setToolTipText("Change active text color to highlight color");
+            audioFxColor.setBackground(fxBtnOffBg); audioFxColor.setForeground(fxBtnOffFg);
+            audioFxColor.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
+            audioFxColor.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+            audioFxColor.addItemListener(fxToggleStyler);
 
             audioFxShake = new JToggleButton("Shake");
-            audioFxShake.setFont(fxBtnFont); audioFxShake.setPreferredSize(fxBtnSize);
+            audioFxShake.setFont(fxBtnFont); audioFxShake.setPreferredSize(new Dimension(52, 24));
             audioFxShake.setFocusPainted(false); audioFxShake.setToolTipText("Shake active text (animated video only)");
+            audioFxShake.setBackground(fxBtnOffBg); audioFxShake.setForeground(fxBtnOffFg);
+            audioFxShake.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
+            audioFxShake.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+            audioFxShake.addItemListener(fxToggleStyler);
 
             audioFxPulse = new JToggleButton("Pulse");
-            audioFxPulse.setFont(fxBtnFont); audioFxPulse.setPreferredSize(fxBtnSize);
+            audioFxPulse.setFont(fxBtnFont); audioFxPulse.setPreferredSize(new Dimension(52, 24));
             audioFxPulse.setFocusPainted(false); audioFxPulse.setToolTipText("Pulse active text size (animated video only)");
+            audioFxPulse.setBackground(fxBtnOffBg); audioFxPulse.setForeground(fxBtnOffFg);
+            audioFxPulse.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
+            audioFxPulse.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+            audioFxPulse.addItemListener(fxToggleStyler);
 
-            JLabel gapLbl = styledLabel("  Gap:");
-            gapLbl.setForeground(new Color(200, 180, 140));
-            JLabel fxLbl = styledLabel("  FX:");
-            fxLbl.setForeground(new Color(200, 180, 140));
+            JLabel gapLbl = styledLabel("  \u23F1 Gap:");
+            gapLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            gapLbl.setForeground(new Color(140, 170, 220));
+            JLabel fxLbl = styledLabel("  \u2728 FX:");
+            fxLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            fxLbl.setForeground(new Color(140, 170, 220));
             JLabel secLbl = styledLabel("s");
-            secLbl.setForeground(new Color(200, 180, 140));
+            secLbl.setForeground(new Color(140, 170, 220));
+            JLabel hlLbl = styledLabel("  \uD83C\uDFA8 HL:");
+            hlLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            hlLbl.setForeground(new Color(140, 170, 220));
 
-            toolbar7b.add(styledLabel("      "));
+            toolbar7b.add(styledLabel("   "));
             toolbar7b.add(gapLbl);
             toolbar7b.add(audioGapSpinner);
             toolbar7b.add(secLbl);
-            toolbar7b.add(styledLabel("  HL:"));
+            toolbar7b.add(hlLbl);
             toolbar7b.add(audioHlColorBtn);
             toolbar7b.add(fxLbl);
             toolbar7b.add(audioFxGlow);
@@ -7725,52 +7840,74 @@ public class GifSlideShowApp extends JFrame {
             toolbar7b.add(audioFxPulse);
 
             // ===== Toolbar Row 8: Per-Slide Video Overlay =====
-            JPanel toolbar8 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
-            toolbar8.setBackground(new Color(85, 60, 40));
+            JPanel toolbar8 = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 3));
+            toolbar8.setBackground(new Color(42, 32, 22));
+            toolbar8.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(90, 70, 45)),
+                BorderFactory.createEmptyBorder(2, 4, 2, 4)));
 
             JLabel voLabel8 = styledLabel("\uD83C\uDFA5 Video Overlay:");
-            voLabel8.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            voLabel8.setForeground(new Color(255, 180, 50));
+            voLabel8.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            voLabel8.setForeground(new Color(255, 185, 60));
 
-            videoOverlayBtn = new JButton("Browse...");
-            videoOverlayBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            videoOverlayBtn.setPreferredSize(new Dimension(75, 24));
+            videoOverlayBtn = new JButton("\uD83D\uDCC2 Browse");
+            videoOverlayBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            videoOverlayBtn.setPreferredSize(new Dimension(95, 26));
             videoOverlayBtn.setFocusPainted(false);
+            videoOverlayBtn.setBackground(new Color(130, 90, 35));
+            videoOverlayBtn.setForeground(new Color(255, 240, 210));
+            videoOverlayBtn.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(170, 120, 50), 1),
+                BorderFactory.createEmptyBorder(2, 8, 2, 8)));
             videoOverlayBtn.setToolTipText("Upload a video to overlay on this slide (plays fully, overrides slide duration)");
             videoOverlayBtn.addActionListener(e -> browseSlideVideoOverlay());
+            videoOverlayBtn.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
 
             videoOverlayFileLbl = new JLabel("No video");
-            videoOverlayFileLbl.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            videoOverlayFileLbl.setForeground(Color.GRAY);
-            videoOverlayFileLbl.setPreferredSize(new Dimension(120, 20));
+            videoOverlayFileLbl.setFont(new Font("Segoe UI", Font.ITALIC, 11));
+            videoOverlayFileLbl.setForeground(new Color(120, 110, 95));
+            videoOverlayFileLbl.setPreferredSize(new Dimension(120, 22));
 
             videoOverlayDurLbl = new JLabel("");
-            videoOverlayDurLbl.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            videoOverlayDurLbl.setForeground(new Color(220, 180, 120));
+            videoOverlayDurLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            videoOverlayDurLbl.setForeground(new Color(240, 190, 90));
 
             videoOverlayClearButton = new JButton("\u2716");
-            videoOverlayClearButton.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            videoOverlayClearButton.setPreferredSize(new Dimension(36, 24));
+            videoOverlayClearButton.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            videoOverlayClearButton.setPreferredSize(new Dimension(32, 26));
             videoOverlayClearButton.setFocusPainted(false);
+            videoOverlayClearButton.setBackground(new Color(160, 45, 45));
+            videoOverlayClearButton.setForeground(new Color(255, 200, 200));
+            videoOverlayClearButton.setBorder(BorderFactory.createLineBorder(new Color(200, 70, 70), 1));
             videoOverlayClearButton.setToolTipText("Remove video overlay from this slide");
             videoOverlayClearButton.setVisible(false);
             videoOverlayClearButton.addActionListener(e -> clearSlideVideoOverlay());
+            videoOverlayClearButton.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
 
             JLabel voX8 = styledLabel("X%:");
+            voX8.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            voX8.setForeground(new Color(200, 170, 120));
             videoOverlayXSp = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
-            videoOverlayXSp.setPreferredSize(new Dimension(48, 24));
+            videoOverlayXSp.setPreferredSize(new Dimension(52, 26));
+            videoOverlayXSp.setFont(new Font("Segoe UI", Font.BOLD, 11));
             videoOverlayXSp.setToolTipText("Horizontal center position (% of video width)");
             videoOverlayXSp.addChangeListener(e -> onFormatChanged());
 
             JLabel voY8 = styledLabel("Y%:");
+            voY8.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            voY8.setForeground(new Color(200, 170, 120));
             videoOverlayYSp = new JSpinner(new SpinnerNumberModel(25, 0, 75, 1));
-            videoOverlayYSp.setPreferredSize(new Dimension(48, 24));
+            videoOverlayYSp.setPreferredSize(new Dimension(52, 26));
+            videoOverlayYSp.setFont(new Font("Segoe UI", Font.BOLD, 11));
             videoOverlayYSp.setToolTipText("Vertical center position (% of video height, max 75%)");
             videoOverlayYSp.addChangeListener(e -> onFormatChanged());
 
             JLabel voSize8 = styledLabel("Size%:");
+            voSize8.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            voSize8.setForeground(new Color(200, 170, 120));
             videoOverlaySizeSp = new JSpinner(new SpinnerNumberModel(30, 5, 100, 5));
-            videoOverlaySizeSp.setPreferredSize(new Dimension(48, 24));
+            videoOverlaySizeSp.setPreferredSize(new Dimension(52, 26));
+            videoOverlaySizeSp.setFont(new Font("Segoe UI", Font.BOLD, 11));
             videoOverlaySizeSp.setToolTipText("Size of overlay video (% of output width)");
             videoOverlaySizeSp.addChangeListener(e -> onFormatChanged());
 
