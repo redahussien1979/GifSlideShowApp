@@ -92,7 +92,7 @@ public class GifSlideShowApp extends JFrame {
     public GifSlideShowApp() {
         super("GIF/Video Slide Show Creator — YouTube HD (1920×1080)");
         setDefaultCloseOperation(EXIT_ON_CLOSE);
-        setSize(1100, 780);
+        setSize(1100, 920);
         setLocationRelativeTo(null);
         setMinimumSize(new Dimension(900, 600));
 
@@ -6714,8 +6714,8 @@ public class GifSlideShowApp extends JFrame {
             panel.setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createLineBorder(new Color(60, 63, 68), 1, true),
                     BorderFactory.createEmptyBorder(10, 10, 10, 10)));
-            panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 530));
-            panel.setPreferredSize(new Dimension(1100, 520));
+            panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 680));
+            panel.setPreferredSize(new Dimension(1100, 660));
 
             previewTimer = new Timer(150, e -> updateLivePreview());
             previewTimer.setRepeats(false);
