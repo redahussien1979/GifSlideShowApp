@@ -3383,6 +3383,7 @@ public class GifSlideShowApp extends JFrame {
                     row.getHighlightText(), row.getHighlightColor(),
                     row.getTextShiftX(),
                     row.getSlideAudioDurationsMsList(), row.getSlideAudioFilesList(),
+                    row.getAudioGapMs(), row.getAudioHlColor(), row.getAudioHlEffects(),
                     row.getSlideVideoOverlayFile(), row.getSlideVideoOverlayX(),
                     row.getSlideVideoOverlayY(), row.getSlideVideoOverlaySize(),
                     row.getSlideVideoOverlayDurationMs()));
@@ -3970,12 +3971,44 @@ public class GifSlideShowApp extends JFrame {
                                     // MULTI-AUDIO: render one PNG per audio segment with active text highlighted
                                     int segIdx = 0;
                                     int audioTimeUsed = 0;
+                                    int audioOrdinal = 0;
+                                    // Pre-render a base (no highlight) frame for gaps
+                                    BufferedImage gapFrame = null;
+                                    if (s.audioGapMs > 0) {
+                                        gapFrame = renderFrame(
+                                                s.image, s.text, s.fontName, s.fontSize,
+                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                s.slideNumberX, s.slideNumberY,
+                                                s.slideNumberSize, s.slideNumberColor,
+                                                s.slideTexts,
+                                                s.fxRoundCorners, s.fxCornerRadius,
+                                                s.fxVignette, s.fxSepia, s.fxGrain,
+                                                s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                                s.fxScanline, s.fxRaised,
+                                                s.overlayEnabled,
+                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                    }
                                     for (int ai = 0; ai < s.audioFiles.size(); ai++) {
                                         File af = s.audioFiles.get(ai);
                                         int adur = ai < s.audioDurationsMs.size() ? s.audioDurationsMs.get(ai) : 0;
                                         if (af == null || !af.exists() || adur <= 0) continue;
 
-                                        List<SlideTextData> highlightedTexts = applyActiveTextHighlight(s.slideTexts, ai);
+                                        // Insert gap segment between audios
+                                        if (audioOrdinal > 0 && s.audioGapMs > 0 && gapFrame != null) {
+                                            File gapFile = new File(tempDir, String.format("slide_%03d_gap%02d.png", i, segIdx));
+                                            ImageIO.write(gapFrame, "png", gapFile);
+                                            String gapPath = gapFile.getAbsolutePath().replace("'", "'\\''");
+                                            concatContent.append("file '").append(gapPath).append("'\n");
+                                            concatContent.append("duration ").append(String.format("%.3f", s.audioGapMs / 1000.0)).append("\n");
+                                            lastConcatPng = gapPath;
+                                            audioTimeUsed += s.audioGapMs;
+                                            segIdx++;
+                                        }
+
+                                        List<SlideTextData> highlightedTexts = applyActiveTextHighlight(s.slideTexts, ai, s.audioHlColor, s.audioHlEffects, -1);
                                         BufferedImage frame = renderFrame(
                                                 s.image, s.text, s.fontName, s.fontSize,
                                                 s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -4001,6 +4034,7 @@ public class GifSlideShowApp extends JFrame {
                                         concatContent.append("duration ").append(String.format("%.3f", segDurSec)).append("\n");
                                         lastConcatPng = filePath;
                                         audioTimeUsed += adur;
+                                        audioOrdinal++;
                                         segIdx++;
                                     }
                                     // If slide duration exceeds total audio, add remaining time with no highlight
@@ -4153,7 +4187,7 @@ public class GifSlideShowApp extends JFrame {
                                     for (int d = 0; d < slideFrames; d++) {
                                         long elapsedMs = (long)(d * 1000.0 / fps);
                                         int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
-                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(s.slideTexts, activeIdx);
+                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(s.slideTexts, activeIdx, s.audioHlColor, s.audioHlEffects, d);
                                         BufferedImage frame = renderFrame(
                                                 s.image, s.text, s.fontName, s.fontSize,
                                                 s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -4176,12 +4210,43 @@ public class GifSlideShowApp extends JFrame {
                                     // Multi-audio, no animated effects: per-segment cached rendering
                                     publish("Rendering slide " + (i + 1) + " with " + vaCount + " audio segments...");
                                     int segFrameStart = 0;
+                                    int animAudioOrd = 0;
+                                    // Pre-render gap frame (no highlight) for gaps between audios
+                                    BufferedImage animGapFrame = null;
+                                    if (s.audioGapMs > 0) {
+                                        animGapFrame = renderFrame(
+                                                s.image, s.text, s.fontName, s.fontSize,
+                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                s.slideNumberX, s.slideNumberY,
+                                                s.slideNumberSize, s.slideNumberColor,
+                                                s.slideTexts,
+                                                s.fxRoundCorners, s.fxCornerRadius,
+                                                s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
+                                                s.overlayEnabled,
+                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                    }
                                     for (int ai = 0; ai < s.audioFiles.size(); ai++) {
                                         File af = s.audioFiles.get(ai);
                                         int adur = ai < s.audioDurationsMs.size() ? s.audioDurationsMs.get(ai) : 0;
                                         if (af == null || !af.exists() || adur <= 0) continue;
+
+                                        // Insert gap frames between audios
+                                        if (animAudioOrd > 0 && s.audioGapMs > 0 && animGapFrame != null) {
+                                            int gapFrameCount = Math.max(1, (int) Math.round(s.audioGapMs / 1000.0 * fps));
+                                            writeRawRGB(animGapFrame, videoW, videoH, rgbBytes, ffmpegStdin);
+                                            for (int gg = 1; gg < gapFrameCount; gg++) {
+                                                ffmpegStdin.write(rgbBytes);
+                                                frameIndex++;
+                                            }
+                                            frameIndex++;
+                                            segFrameStart += gapFrameCount;
+                                        }
+
                                         int segFrameCount = Math.max(1, (int) Math.round(adur / 1000.0 * fps));
-                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(s.slideTexts, ai);
+                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(s.slideTexts, ai, s.audioHlColor, s.audioHlEffects, -1);
                                         BufferedImage segFrame = renderFrame(
                                                 s.image, s.text, s.fontName, s.fontSize,
                                                 s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -4202,6 +4267,7 @@ public class GifSlideShowApp extends JFrame {
                                         }
                                         frameIndex++;
                                         segFrameStart += segFrameCount;
+                                        animAudioOrd++;
                                     }
                                     int remainingFrames = slideFrames - segFrameStart;
                                     if (remainingFrames > 0) {
@@ -4436,16 +4502,22 @@ public class GifSlideShowApp extends JFrame {
                             int slideDur = computeSlideDuration(s, duration);
                             // Each audio within the slide plays sequentially
                             long intraSlideOffset = 0;
+                            int mergeAudioOrd = 0;
                             for (int ai = 0; ai < s.audioFiles.size(); ai++) {
                                 File af = s.audioFiles.get(ai);
                                 int adur = ai < s.audioDurationsMs.size() ? s.audioDurationsMs.get(ai) : 0;
                                 if (af != null && af.exists() && adur > 0) {
+                                    // Add gap before this audio (except the first)
+                                    if (mergeAudioOrd > 0 && s.audioGapMs > 0) {
+                                        intraSlideOffset += s.audioGapMs;
+                                    }
                                     mergeCmd.add("-i");
                                     mergeCmd.add(af.getAbsolutePath());
                                     audioInputIndices.add(inputIdx);
                                     audioDelays.add(slideOffsetMs + intraSlideOffset);
                                     inputIdx++;
                                     intraSlideOffset += adur;
+                                    mergeAudioOrd++;
                                 }
                             }
                             slideOffsetMs += slideDur;
@@ -5013,12 +5085,42 @@ public class GifSlideShowApp extends JFrame {
                                     String lastFile = null;
                                     int segIdx = 0;
                                     int audioTimeUsed = 0;
+                                    int psAudioOrdinal = 0;
+                                    // Pre-render gap frame (no highlight) for gaps between audios
+                                    BufferedImage psGapFrame = null;
+                                    if (s.audioGapMs > 0) {
+                                        psGapFrame = renderFrame(
+                                                s.image, s.text, s.fontName, s.fontSize,
+                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                s.slideNumberX, s.slideNumberY,
+                                                s.slideNumberSize, s.slideNumberColor,
+                                                s.slideTexts,
+                                                s.fxRoundCorners, s.fxCornerRadius,
+                                                s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
+                                                s.overlayEnabled,
+                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                    }
                                     for (int ai = 0; ai < s.audioFiles.size(); ai++) {
                                         File af = s.audioFiles.get(ai);
                                         int adur = ai < s.audioDurationsMs.size() ? s.audioDurationsMs.get(ai) : 0;
                                         if (af == null || !af.exists() || adur <= 0) continue;
 
-                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(s.slideTexts, ai);
+                                        // Insert gap segment between audios
+                                        if (psAudioOrdinal > 0 && s.audioGapMs > 0 && psGapFrame != null) {
+                                            File gapFile = new File(tempDir, String.format("seg_gap%02d.png", segIdx));
+                                            ImageIO.write(psGapFrame, "png", gapFile);
+                                            String gp = gapFile.getAbsolutePath().replace("'", "'\\''");
+                                            concatContent.append("file '").append(gp).append("'\n");
+                                            concatContent.append("duration ").append(String.format("%.3f", s.audioGapMs / 1000.0)).append("\n");
+                                            lastFile = gp;
+                                            audioTimeUsed += s.audioGapMs;
+                                            segIdx++;
+                                        }
+
+                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(s.slideTexts, ai, s.audioHlColor, s.audioHlEffects, -1);
                                         BufferedImage frame = renderFrame(
                                                 s.image, s.text, s.fontName, s.fontSize,
                                                 s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -5040,6 +5142,7 @@ public class GifSlideShowApp extends JFrame {
                                         concatContent.append("duration ").append(String.format("%.3f", adur / 1000.0)).append("\n");
                                         lastFile = fp;
                                         audioTimeUsed += adur;
+                                        psAudioOrdinal++;
                                         segIdx++;
                                     }
                                     // Remaining time with no highlight
@@ -5175,7 +5278,7 @@ public class GifSlideShowApp extends JFrame {
                                     for (int d = 0; d < slideFrames; d++) {
                                         long elapsedMs = (long)(d * 1000.0 / fps);
                                         int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
-                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(s.slideTexts, activeIdx);
+                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(s.slideTexts, activeIdx, s.audioHlColor, s.audioHlEffects, d);
                                         BufferedImage frame = renderFrame(
                                                 s.image, s.text, s.fontName, s.fontSize,
                                                 s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -5752,6 +5855,54 @@ public class GifSlideShowApp extends JFrame {
         if (validAudios.isEmpty()) return null;
         if (validAudios.size() == 1) return validAudios.get(0);
         try {
+            // If gap is needed, use filter_complex with adelay+amix instead of concat
+            if (s.audioGapMs > 0) {
+                File outFile = new File(tempDir, "slide_audio_merged_" + System.nanoTime() + ".m4a");
+                java.util.List<String> cmd = new java.util.ArrayList<>();
+                cmd.add("ffmpeg"); cmd.add("-y");
+                for (File af : validAudios) {
+                    cmd.add("-i"); cmd.add(af.getAbsolutePath());
+                }
+                // Build filter: delay each audio by cumulative offset including gaps
+                StringBuilder fc = new StringBuilder();
+                long offset = 0;
+                for (int ai = 0; ai < validAudios.size(); ai++) {
+                    if (ai > 0) offset += s.audioGapMs;
+                    fc.append("[").append(ai).append(":a]adelay=").append(offset).append("|").append(offset)
+                            .append("[a").append(ai).append("];");
+                    // Add this audio's duration for next offset
+                    int adur = 0;
+                    for (int si = 0; si < s.audioFiles.size(); si++) {
+                        File af = s.audioFiles.get(si);
+                        if (af != null && af.exists()) {
+                            if (af.equals(validAudios.get(ai))) {
+                                adur = si < s.audioDurationsMs.size() ? s.audioDurationsMs.get(si) : 0;
+                                break;
+                            }
+                        }
+                    }
+                    offset += adur;
+                }
+                for (int ai = 0; ai < validAudios.size(); ai++) {
+                    fc.append("[a").append(ai).append("]");
+                }
+                fc.append("amix=inputs=").append(validAudios.size())
+                        .append(":duration=longest:dropout_transition=0[out]");
+                cmd.add("-filter_complex"); cmd.add(fc.toString());
+                cmd.add("-map"); cmd.add("[out]");
+                cmd.add("-c:a"); cmd.add("aac");
+                cmd.add("-b:a"); cmd.add("192k");
+                cmd.add(outFile.getAbsolutePath());
+                ProcessBuilder pb = new ProcessBuilder(cmd);
+                pb.redirectErrorStream(true);
+                Process proc = pb.start();
+                try (BufferedReader br = new BufferedReader(new InputStreamReader(proc.getInputStream()))) {
+                    while (br.readLine() != null) {}
+                }
+                int exit = proc.waitFor();
+                if (exit == 0 && outFile.exists()) return outFile;
+            }
+            // No gap: simple concat
             File concatList = new File(tempDir, "audio_concat_" + System.nanoTime() + ".txt");
             try (java.io.PrintWriter pw = new java.io.PrintWriter(concatList)) {
                 for (File af : validAudios) {
@@ -5781,21 +5932,66 @@ public class GifSlideShowApp extends JFrame {
 
     /**
      * Create a modified copy of slideTexts with the active text (by index) fully highlighted.
-     * Used during video rendering to show which text's audio is currently playing.
+     * Supports multiple combinable effects: Glow, Enlarge, Bold, Underline, Color, Shake, Pulse.
+     * @param animFrame frame index for animated effects (Shake/Pulse); use -1 for static rendering.
      */
-    private static List<SlideTextData> applyActiveTextHighlight(List<SlideTextData> origTexts, int activeIndex) {
+    private static List<SlideTextData> applyActiveTextHighlight(
+            List<SlideTextData> origTexts, int activeIndex,
+            Color hlColor, String effects, int animFrame) {
         if (activeIndex < 0 || origTexts == null || origTexts.isEmpty()) return origTexts;
+        java.util.Set<String> fx = new java.util.HashSet<>();
+        if (effects != null && !effects.isEmpty()) {
+            for (String e : effects.split(",")) fx.add(e.trim());
+        }
+        if (fx.isEmpty()) fx.add("Glow");
+        if (hlColor == null) hlColor = new Color(255, 200, 50, 160);
+
         List<SlideTextData> result = new ArrayList<>();
         for (int i = 0; i < origTexts.size(); i++) {
             SlideTextData st = origTexts.get(i);
             if (i == activeIndex && st.show && st.text != null && !st.text.trim().isEmpty()) {
                 String allText = st.text.replace("\n", ",").replace("\r", "");
-                result.add(new SlideTextData(st.show, st.text, st.fontName, st.fontSize,
-                        st.fontStyle, st.color, st.x, st.y, st.bgOpacity, st.bgColor,
+
+                // Glow: highlight all text with glow style
+                String useHlText = fx.contains("Glow") ? allText : st.highlightText;
+                Color useHlColor = fx.contains("Glow") ? hlColor : st.highlightColor;
+                String useHlStyle = fx.contains("Glow") ? "Glow" : st.highlightStyle;
+
+                // Enlarge / Pulse: modify font size
+                int fontSize = st.fontSize;
+                if (fx.contains("Enlarge")) fontSize = (int)(fontSize * 1.25);
+                if (fx.contains("Pulse") && animFrame >= 0) {
+                    double pulse = 1.0 + 0.15 * Math.sin(animFrame * 0.3);
+                    fontSize = (int)(st.fontSize * (fx.contains("Enlarge") ? 1.25 : 1.0) * pulse);
+                }
+
+                // Bold
+                int fontStyle = st.fontStyle;
+                if (fx.contains("Bold")) fontStyle |= Font.BOLD;
+
+                // Color: change text color to highlight color
+                Color textColor = fx.contains("Color") ? hlColor : st.color;
+
+                // Underline
+                String ulStyle = st.underlineStyle;
+                String ulText = st.underlineText;
+                if (fx.contains("Underline")) {
+                    ulStyle = "Straight";
+                    ulText = allText;
+                }
+
+                // Shake: offset x position
+                int x = st.x;
+                if (fx.contains("Shake") && animFrame >= 0) {
+                    x = st.x + (int)(3 * Math.sin(animFrame * 0.8));
+                }
+
+                result.add(new SlideTextData(st.show, st.text, st.fontName, fontSize,
+                        fontStyle, textColor, x, st.y, st.bgOpacity, st.bgColor,
                         st.justify, st.widthPct, st.shiftX, st.alignment,
                         st.textEffect, st.textEffectIntensity,
-                        allText, new Color(255, 200, 50, 160), "Glow",
-                        st.highlightTightness, st.underlineStyle, st.underlineText,
+                        useHlText, useHlColor, useHlStyle,
+                        st.highlightTightness, ulStyle, ulText,
                         st.boldText, st.italicText, st.colorText, st.colorTextColor));
             } else {
                 result.add(st);
@@ -5811,15 +6007,18 @@ public class GifSlideShowApp extends JFrame {
     private static int getActiveAudioTextIndex(SlideData s, long elapsedMs) {
         if (s.audioDurationsMs == null || s.audioDurationsMs.isEmpty()) return -1;
         long cumulative = 0;
+        int audioIdx = 0;
         for (int i = 0; i < s.audioDurationsMs.size(); i++) {
             int dur = s.audioDurationsMs.get(i);
             if (dur <= 0 || i >= s.audioFiles.size() || s.audioFiles.get(i) == null) {
                 continue;
             }
+            if (audioIdx > 0) cumulative += s.audioGapMs; // gap before this audio
             if (elapsedMs >= cumulative && elapsedMs < cumulative + dur) {
                 return i;
             }
             cumulative += dur;
+            audioIdx++;
         }
         return -1;
     }
@@ -6104,6 +6303,9 @@ public class GifSlideShowApp extends JFrame {
         final int textShiftX;
         final List<File> audioFiles;
         final List<Integer> audioDurationsMs;
+        final int audioGapMs;
+        final Color audioHlColor;
+        final String audioHlEffects;
         final int totalAudioDurationMs;
         final File videoOverlayFile;
         final int videoOverlayX;
@@ -6129,6 +6331,7 @@ public class GifSlideShowApp extends JFrame {
                   String highlightText, Color highlightColor,
                   int textShiftX,
                   List<Integer> audioDurationsMs, List<File> audioFiles,
+                  int audioGapMs, Color audioHlColor, String audioHlEffects,
                   File videoOverlayFile, int videoOverlayX, int videoOverlayY,
                   int videoOverlaySize, int videoOverlayDurationMs) {
             this.image = image;
@@ -6174,8 +6377,13 @@ public class GifSlideShowApp extends JFrame {
             this.textShiftX = textShiftX;
             this.audioFiles = audioFiles != null ? audioFiles : new java.util.ArrayList<>();
             this.audioDurationsMs = audioDurationsMs != null ? audioDurationsMs : new java.util.ArrayList<>();
+            this.audioGapMs = audioGapMs;
+            this.audioHlColor = audioHlColor != null ? audioHlColor : new Color(255, 200, 50, 160);
+            this.audioHlEffects = audioHlEffects != null ? audioHlEffects : "Glow";
             int totalMs = 0;
-            for (int d : this.audioDurationsMs) { if (d > 0) totalMs += d; }
+            int numValid = 0;
+            for (int d : this.audioDurationsMs) { if (d > 0) { totalMs += d; numValid++; } }
+            if (numValid > 1 && audioGapMs > 0) totalMs += (numValid - 1) * audioGapMs;
             this.totalAudioDurationMs = totalMs;
             this.videoOverlayFile = videoOverlayFile;
             this.videoOverlayX = videoOverlayX;
@@ -6295,6 +6503,12 @@ public class GifSlideShowApp extends JFrame {
         private final JLabel audioDurationLabel;
         private final JButton audioClearBtn;
         private final JLabel audioLabel;
+        // Audio highlight effect controls
+        private final JSpinner audioGapSpinner;
+        private final JButton audioHlColorBtn;
+        private Color audioHlColor = new Color(255, 200, 50, 160);
+        private final JToggleButton audioFxGlow, audioFxEnlarge, audioFxBold,
+                audioFxUnderline, audioFxColor, audioFxShake, audioFxPulse;
 
         private File slideVideoOverlayFile;
         private int slideVideoOverlayDurationMs = -1;
@@ -7272,6 +7486,82 @@ public class GifSlideShowApp extends JFrame {
             toolbar7.add(audioDurationLabel);
             toolbar7.add(audioClearBtn);
 
+            // ===== Toolbar Row 7b: Audio Highlight Effects =====
+            JPanel toolbar7b = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
+            toolbar7b.setBackground(new Color(100, 85, 55));
+
+            audioGapSpinner = new JSpinner(new SpinnerNumberModel(0.0, 0.0, 10.0, 0.1));
+            audioGapSpinner.setPreferredSize(new Dimension(55, 24));
+            audioGapSpinner.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            audioGapSpinner.setToolTipText("Silence gap between sequential audios (seconds)");
+
+            audioHlColorBtn = new JButton("\u25A0");
+            audioHlColorBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            audioHlColorBtn.setForeground(audioHlColor);
+            audioHlColorBtn.setPreferredSize(new Dimension(30, 24));
+            audioHlColorBtn.setFocusPainted(false);
+            audioHlColorBtn.setToolTipText("Audio highlight color");
+            audioHlColorBtn.addActionListener(e -> {
+                Color c = JColorChooser.showDialog(panel, "Audio Highlight Color", audioHlColor);
+                if (c != null) {
+                    audioHlColor = new Color(c.getRed(), c.getGreen(), c.getBlue(), 160);
+                    audioHlColorBtn.setForeground(audioHlColor);
+                }
+            });
+
+            Font fxBtnFont = new Font("Segoe UI", Font.BOLD, 10);
+            Dimension fxBtnSize = new Dimension(50, 22);
+
+            audioFxGlow = new JToggleButton("Glow", true);
+            audioFxGlow.setFont(fxBtnFont); audioFxGlow.setPreferredSize(fxBtnSize);
+            audioFxGlow.setFocusPainted(false); audioFxGlow.setToolTipText("Background glow highlight on active text");
+
+            audioFxEnlarge = new JToggleButton("Big");
+            audioFxEnlarge.setFont(fxBtnFont); audioFxEnlarge.setPreferredSize(fxBtnSize);
+            audioFxEnlarge.setFocusPainted(false); audioFxEnlarge.setToolTipText("Enlarge active text by 25%");
+
+            audioFxBold = new JToggleButton("Bold");
+            audioFxBold.setFont(fxBtnFont); audioFxBold.setPreferredSize(fxBtnSize);
+            audioFxBold.setFocusPainted(false); audioFxBold.setToolTipText("Make active text bold");
+
+            audioFxUnderline = new JToggleButton("UL");
+            audioFxUnderline.setFont(fxBtnFont); audioFxUnderline.setPreferredSize(new Dimension(36, 22));
+            audioFxUnderline.setFocusPainted(false); audioFxUnderline.setToolTipText("Underline active text");
+
+            audioFxColor = new JToggleButton("Clr");
+            audioFxColor.setFont(fxBtnFont); audioFxColor.setPreferredSize(new Dimension(36, 22));
+            audioFxColor.setFocusPainted(false); audioFxColor.setToolTipText("Change active text color to highlight color");
+
+            audioFxShake = new JToggleButton("Shake");
+            audioFxShake.setFont(fxBtnFont); audioFxShake.setPreferredSize(fxBtnSize);
+            audioFxShake.setFocusPainted(false); audioFxShake.setToolTipText("Shake active text (animated video only)");
+
+            audioFxPulse = new JToggleButton("Pulse");
+            audioFxPulse.setFont(fxBtnFont); audioFxPulse.setPreferredSize(fxBtnSize);
+            audioFxPulse.setFocusPainted(false); audioFxPulse.setToolTipText("Pulse active text size (animated video only)");
+
+            JLabel gapLbl = styledLabel("  Gap:");
+            gapLbl.setForeground(new Color(200, 180, 140));
+            JLabel fxLbl = styledLabel("  FX:");
+            fxLbl.setForeground(new Color(200, 180, 140));
+            JLabel secLbl = styledLabel("s");
+            secLbl.setForeground(new Color(200, 180, 140));
+
+            toolbar7b.add(styledLabel("      "));
+            toolbar7b.add(gapLbl);
+            toolbar7b.add(audioGapSpinner);
+            toolbar7b.add(secLbl);
+            toolbar7b.add(styledLabel("  HL:"));
+            toolbar7b.add(audioHlColorBtn);
+            toolbar7b.add(fxLbl);
+            toolbar7b.add(audioFxGlow);
+            toolbar7b.add(audioFxEnlarge);
+            toolbar7b.add(audioFxBold);
+            toolbar7b.add(audioFxUnderline);
+            toolbar7b.add(audioFxColor);
+            toolbar7b.add(audioFxShake);
+            toolbar7b.add(audioFxPulse);
+
             // ===== Toolbar Row 8: Per-Slide Video Overlay =====
             JPanel toolbar8 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
             toolbar8.setBackground(new Color(85, 60, 40));
@@ -7376,6 +7666,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(toolbar6b);
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar7);
+            toolbarsPanel.add(toolbar7b);
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar8);
 
@@ -8105,6 +8396,21 @@ public class GifSlideShowApp extends JFrame {
                 result.add(d != null ? d : 0);
             }
             return result;
+        }
+
+        int getAudioGapMs() { return (int)(((Number) audioGapSpinner.getValue()).doubleValue() * 1000); }
+        Color getAudioHlColor() { return audioHlColor; }
+        String getAudioHlEffects() {
+            StringBuilder sb = new StringBuilder();
+            if (audioFxGlow.isSelected()) sb.append("Glow,");
+            if (audioFxEnlarge.isSelected()) sb.append("Enlarge,");
+            if (audioFxBold.isSelected()) sb.append("Bold,");
+            if (audioFxUnderline.isSelected()) sb.append("Underline,");
+            if (audioFxColor.isSelected()) sb.append("Color,");
+            if (audioFxShake.isSelected()) sb.append("Shake,");
+            if (audioFxPulse.isSelected()) sb.append("Pulse,");
+            if (sb.length() > 0) sb.setLength(sb.length() - 1);
+            return sb.toString();
         }
 
         File getSlideVideoOverlayFile() { return slideVideoOverlayFile; }
