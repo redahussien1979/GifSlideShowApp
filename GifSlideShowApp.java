@@ -1414,6 +1414,7 @@ public class GifSlideShowApp extends JFrame {
         }
 
         int assigned = 0;
+        List<String> missingAudioFiles = new ArrayList<>();
         for (int i = 0; i < allRows.size(); i++) {
             List<String> fields = allRows.get(i);
             SlideRow slide;
@@ -1480,9 +1481,10 @@ public class GifSlideShowApp extends JFrame {
                     }
                     if (audioFile.exists()) {
                         int durationMs = probeAudioDurationMs(audioFile);
-                        if (durationMs > 0) {
-                            slide.setSlideAudio(0, audioFile, durationMs);
-                        }
+                        if (durationMs <= 0) durationMs = 3000; // fallback 3s if probe fails
+                        slide.setSlideAudio(0, audioFile, durationMs);
+                    } else {
+                        missingAudioFiles.add("Slide " + (i + 1) + ": " + audioPath);
                     }
                 }
             }
@@ -1500,9 +1502,10 @@ public class GifSlideShowApp extends JFrame {
                         }
                         if (audioFile.exists()) {
                             int durationMs = probeAudioDurationMs(audioFile);
-                            if (durationMs > 0) {
-                                slide.setSlideAudio(textIdx, audioFile, durationMs);
-                            }
+                            if (durationMs <= 0) durationMs = 3000; // fallback 3s if probe fails
+                            slide.setSlideAudio(textIdx, audioFile, durationMs);
+                        } else {
+                            missingAudioFiles.add("Slide " + (i + 1) + " Text" + (textIdx + 1) + ": " + audioPath);
                         }
                     }
                 }
@@ -1524,7 +1527,15 @@ public class GifSlideShowApp extends JFrame {
         if (audioLinkColIndex >= 0) importMsg += "\nAUDIOLINK column detected — audio files imported per slide.";
         if (!audioColByTextIndex.isEmpty()) importMsg += "\nMulti-audio columns detected (AUDIO1-" + (audioColByTextIndex.size()) + ") — audio files mapped to text items.";
         importMsg += "\nSlides: " + slideRows.size() + " total.";
-        JOptionPane.showMessageDialog(this, importMsg, "Dictionary Import", JOptionPane.INFORMATION_MESSAGE);
+        if (!missingAudioFiles.isEmpty()) {
+            importMsg += "\n\nWARNING: " + missingAudioFiles.size() + " audio file(s) not found:";
+            for (String missing : missingAudioFiles) {
+                importMsg += "\n  " + missing;
+            }
+            importMsg += "\n\nMake sure audio files exist relative to the CSV file location.";
+        }
+        JOptionPane.showMessageDialog(this, importMsg, "Dictionary Import",
+                missingAudioFiles.isEmpty() ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
     }
 
     // ==================== Format Sync ====================
