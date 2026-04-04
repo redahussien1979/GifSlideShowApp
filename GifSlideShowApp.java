@@ -6452,7 +6452,10 @@ public class GifSlideShowApp extends JFrame {
         private final JLabel audioFileLabel;
         private final JLabel audioDurationLabel;
         private final JButton audioClearBtn;
+        private final JButton audioPlayBtn;
         private final JLabel audioLabel;
+        private final JLabel audioCountLabel;
+        private volatile Process audioPlayProcess;
 
         private File slideVideoOverlayFile;
         private int slideVideoOverlayDurationMs = -1;
@@ -7393,46 +7396,65 @@ public class GifSlideShowApp extends JFrame {
             toolbar6b.add(overlaySizeSpinner);
 
             // ===== Toolbar Row 7: Slide Audio =====
-            JPanel toolbar7 = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-            toolbar7.setBackground(new Color(45, 55, 72));
+            JPanel toolbar7 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            toolbar7.setBackground(new Color(35, 45, 60));
+            toolbar7.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createMatteBorder(1, 0, 1, 0, new Color(60, 80, 110)),
+                    BorderFactory.createEmptyBorder(1, 2, 1, 2)));
 
             audioLabel = styledLabel("\uD83C\uDFB5 Audio (Text 1):");
             audioLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            audioLabel.setForeground(new Color(130, 200, 255));
+            audioLabel.setForeground(new Color(100, 180, 255));
 
             audioBtn = new JButton("\uD83D\uDCC2 Browse");
             audioBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            audioBtn.setPreferredSize(new Dimension(90, 24));
+            audioBtn.setPreferredSize(new Dimension(85, 24));
             audioBtn.setFocusPainted(false);
-            audioBtn.setBackground(new Color(60, 120, 180));
+            audioBtn.setBackground(new Color(50, 110, 170));
             audioBtn.setForeground(Color.WHITE);
             audioBtn.setToolTipText("Attach audio to this slide (duration overrides global slide duration)");
             audioBtn.addActionListener(e -> browseSlideAudio());
 
             audioFileLabel = new JLabel("No audio");
             audioFileLabel.setFont(new Font("Segoe UI", Font.ITALIC, 11));
-            audioFileLabel.setForeground(new Color(140, 140, 160));
-            audioFileLabel.setPreferredSize(new Dimension(160, 20));
+            audioFileLabel.setForeground(new Color(120, 130, 150));
+            audioFileLabel.setPreferredSize(new Dimension(150, 20));
 
             audioDurationLabel = new JLabel("");
             audioDurationLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            audioDurationLabel.setForeground(new Color(120, 220, 160));
+            audioDurationLabel.setForeground(new Color(100, 210, 150));
+
+            audioPlayBtn = new JButton("\u25B6");
+            audioPlayBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            audioPlayBtn.setPreferredSize(new Dimension(32, 24));
+            audioPlayBtn.setFocusPainted(false);
+            audioPlayBtn.setBackground(new Color(40, 140, 80));
+            audioPlayBtn.setForeground(Color.WHITE);
+            audioPlayBtn.setToolTipText("Play/preview this audio clip");
+            audioPlayBtn.setVisible(false);
+            audioPlayBtn.addActionListener(e -> playSlideAudio());
 
             audioClearBtn = new JButton("\u2716");
             audioClearBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            audioClearBtn.setPreferredSize(new Dimension(36, 24));
+            audioClearBtn.setPreferredSize(new Dimension(32, 24));
             audioClearBtn.setFocusPainted(false);
-            audioClearBtn.setBackground(new Color(180, 60, 60));
+            audioClearBtn.setBackground(new Color(160, 50, 50));
             audioClearBtn.setForeground(Color.WHITE);
             audioClearBtn.setToolTipText("Remove audio from this slide");
             audioClearBtn.setVisible(false);
             audioClearBtn.addActionListener(e -> clearSlideAudio());
 
+            audioCountLabel = new JLabel("");
+            audioCountLabel.setFont(new Font("Segoe UI", Font.BOLD, 10));
+            audioCountLabel.setForeground(new Color(180, 200, 230));
+
             toolbar7.add(audioLabel);
             toolbar7.add(audioBtn);
             toolbar7.add(audioFileLabel);
             toolbar7.add(audioDurationLabel);
+            toolbar7.add(audioPlayBtn);
             toolbar7.add(audioClearBtn);
+            toolbar7.add(audioCountLabel);
 
             // ===== Toolbar Row 8: Per-Slide Video Overlay =====
             JPanel toolbar8 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
@@ -8344,7 +8366,44 @@ public class GifSlideShowApp extends JFrame {
             }
         }
 
+        private void playSlideAudio() {
+            // Stop any currently playing audio
+            if (audioPlayProcess != null && audioPlayProcess.isAlive()) {
+                audioPlayProcess.destroy();
+                audioPlayBtn.setText("\u25B6");
+                audioPlayBtn.setBackground(new Color(40, 140, 80));
+                audioPlayProcess = null;
+                return;
+            }
+            File file = slideAudioFiles.get(currentSlideTextIndex);
+            if (file == null || !file.exists()) return;
+            try {
+                audioPlayBtn.setText("\u25A0");
+                audioPlayBtn.setBackground(new Color(180, 80, 40));
+                ProcessBuilder pb = new ProcessBuilder("ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet",
+                        file.getAbsolutePath());
+                audioPlayProcess = pb.start();
+                new Thread(() -> {
+                    try { audioPlayProcess.waitFor(); } catch (InterruptedException ignored) {}
+                    SwingUtilities.invokeLater(() -> {
+                        audioPlayBtn.setText("\u25B6");
+                        audioPlayBtn.setBackground(new Color(40, 140, 80));
+                        audioPlayProcess = null;
+                    });
+                }).start();
+            } catch (IOException ex) {
+                audioPlayBtn.setText("\u25B6");
+                audioPlayBtn.setBackground(new Color(40, 140, 80));
+                audioPlayProcess = null;
+            }
+        }
+
         private void clearSlideAudio() {
+            // Stop playback if running
+            if (audioPlayProcess != null && audioPlayProcess.isAlive()) {
+                audioPlayProcess.destroy();
+                audioPlayProcess = null;
+            }
             slideAudioFiles.remove(currentSlideTextIndex);
             slideAudioDurationsMs.remove(currentSlideTextIndex);
             updateAudioUI();
@@ -8368,17 +8427,35 @@ public class GifSlideShowApp extends JFrame {
             audioLabel.setText("\uD83C\uDFB5 Audio (Text " + (currentSlideTextIndex + 1) + "):");
             if (file != null && durationMs != null && durationMs > 0) {
                 audioFileLabel.setText("\u266B " + file.getName());
-                audioFileLabel.setFont(audioFileLabel.getFont().deriveFont(Font.BOLD));
+                audioFileLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
                 audioFileLabel.setForeground(new Color(200, 230, 255));
                 audioDurationLabel.setText(String.format("\u23F1 %d.%ds",
                         durationMs / 1000, (durationMs % 1000) / 100));
+                audioPlayBtn.setVisible(true);
                 audioClearBtn.setVisible(true);
             } else {
                 audioFileLabel.setText("No audio");
-                audioFileLabel.setFont(audioFileLabel.getFont().deriveFont(Font.ITALIC));
-                audioFileLabel.setForeground(new Color(140, 140, 160));
+                audioFileLabel.setFont(new Font("Segoe UI", Font.ITALIC, 11));
+                audioFileLabel.setForeground(new Color(120, 130, 150));
                 audioDurationLabel.setText("");
+                audioPlayBtn.setVisible(false);
                 audioClearBtn.setVisible(false);
+            }
+            // Show total audio count for this slide
+            int totalAudio = 0;
+            long totalDurationMs = 0;
+            for (java.util.Map.Entry<Integer, File> entry : slideAudioFiles.entrySet()) {
+                if (entry.getValue() != null) {
+                    totalAudio++;
+                    Integer dur = slideAudioDurationsMs.get(entry.getKey());
+                    if (dur != null && dur > 0) totalDurationMs += dur;
+                }
+            }
+            if (totalAudio > 0) {
+                audioCountLabel.setText(String.format("  [%d audio | %d.%ds total]",
+                        totalAudio, totalDurationMs / 1000, (totalDurationMs % 1000) / 100));
+            } else {
+                audioCountLabel.setText("");
             }
         }
     }
