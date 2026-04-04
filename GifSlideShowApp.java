@@ -2389,7 +2389,7 @@ public class GifSlideShowApp extends JFrame {
 
                     // === Typewriter: limit visible characters ===
                     String visibleLine = line;
-                    if (effect.equals("Typewriter")) {
+                    if (effect.equals("Typewriter") && animFrameIndex > 0) {
                         int totalChars = 0;
                         for (int tli = 0; tli < stWrappedLines.size(); tli++) totalChars += stWrappedLines.get(tli).length();
                         int charsPerFrame = Math.max(1, (int) (2 + 6 * intensity));
@@ -7291,33 +7291,37 @@ public class GifSlideShowApp extends JFrame {
             toolbar6b.add(overlaySizeSpinner);
 
             // ===== Toolbar Row 7: Slide Audio =====
-            JPanel toolbar7 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
-            toolbar7.setBackground(new Color(100, 85, 55));
+            JPanel toolbar7 = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
+            toolbar7.setBackground(new Color(45, 55, 72));
 
-            audioLabel = styledLabel("\uD83D\uDD0A Audio (Text 1):");
+            audioLabel = styledLabel("\uD83C\uDFB5 Audio (Text 1):");
             audioLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            audioLabel.setForeground(new Color(100, 180, 220));
+            audioLabel.setForeground(new Color(130, 200, 255));
 
-            audioBtn = new JButton("Browse...");
-            audioBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            audioBtn.setPreferredSize(new Dimension(75, 24));
+            audioBtn = new JButton("\uD83D\uDCC2 Browse");
+            audioBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            audioBtn.setPreferredSize(new Dimension(90, 24));
             audioBtn.setFocusPainted(false);
+            audioBtn.setBackground(new Color(60, 120, 180));
+            audioBtn.setForeground(Color.WHITE);
             audioBtn.setToolTipText("Attach audio to this slide (duration overrides global slide duration)");
             audioBtn.addActionListener(e -> browseSlideAudio());
 
             audioFileLabel = new JLabel("No audio");
-            audioFileLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            audioFileLabel.setForeground(Color.GRAY);
-            audioFileLabel.setPreferredSize(new Dimension(150, 20));
+            audioFileLabel.setFont(new Font("Segoe UI", Font.ITALIC, 11));
+            audioFileLabel.setForeground(new Color(140, 140, 160));
+            audioFileLabel.setPreferredSize(new Dimension(160, 20));
 
             audioDurationLabel = new JLabel("");
-            audioDurationLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            audioDurationLabel.setForeground(new Color(180, 220, 180));
+            audioDurationLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            audioDurationLabel.setForeground(new Color(120, 220, 160));
 
             audioClearBtn = new JButton("\u2716");
-            audioClearBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            audioClearBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
             audioClearBtn.setPreferredSize(new Dimension(36, 24));
             audioClearBtn.setFocusPainted(false);
+            audioClearBtn.setBackground(new Color(180, 60, 60));
+            audioClearBtn.setForeground(Color.WHITE);
             audioClearBtn.setToolTipText("Remove audio from this slide");
             audioClearBtn.setVisible(false);
             audioClearBtn.addActionListener(e -> clearSlideAudio());
@@ -7575,7 +7579,8 @@ public class GifSlideShowApp extends JFrame {
                         bText, iText, cText, fmt.colorTextColor));
             }
             // For extra items beyond what the source has, apply formatting
-            // from the last source item so they get consistent styling
+            // from the last source item so they get consistent styling.
+            // Text effect is reset to "None" so the last effect does not persist.
             if (formats.size() > 0 && slideTextItems.size() > formats.size()) {
                 SlideTextData lastFmt = formats.get(formats.size() - 1);
                 for (int i = formats.size(); i < slideTextItems.size(); i++) {
@@ -7590,7 +7595,7 @@ public class GifSlideShowApp extends JFrame {
                     slideTextItems.set(i, new SlideTextData(show, existingText, lastFmt.fontName, lastFmt.fontSize,
                             lastFmt.fontStyle, lastFmt.color, lastFmt.x, lastFmt.y, lastFmt.bgOpacity,
                             lastFmt.bgColor, lastFmt.justify, lastFmt.widthPct, lastFmt.shiftX, lastFmt.alignment,
-                            lastFmt.textEffect, lastFmt.textEffectIntensity,
+                            "None", 50,
                             hlText, lastFmt.highlightColor, lastFmt.highlightStyle,
                             lastFmt.highlightTightness, lastFmt.underlineStyle, ulText,
                             bText, iText, cText, lastFmt.colorTextColor));
@@ -8258,16 +8263,18 @@ public class GifSlideShowApp extends JFrame {
         private void updateAudioUI() {
             File file = slideAudioFiles.get(currentSlideTextIndex);
             Integer durationMs = slideAudioDurationsMs.get(currentSlideTextIndex);
-            audioLabel.setText("\uD83D\uDD0A Audio (Text " + (currentSlideTextIndex + 1) + "):");
+            audioLabel.setText("\uD83C\uDFB5 Audio (Text " + (currentSlideTextIndex + 1) + "):");
             if (file != null && durationMs != null && durationMs > 0) {
-                audioFileLabel.setText(file.getName());
-                audioFileLabel.setForeground(Color.WHITE);
-                audioDurationLabel.setText(String.format("(%d.%ds)",
+                audioFileLabel.setText("\u266B " + file.getName());
+                audioFileLabel.setFont(audioFileLabel.getFont().deriveFont(Font.BOLD));
+                audioFileLabel.setForeground(new Color(200, 230, 255));
+                audioDurationLabel.setText(String.format("\u23F1 %d.%ds",
                         durationMs / 1000, (durationMs % 1000) / 100));
                 audioClearBtn.setVisible(true);
             } else {
                 audioFileLabel.setText("No audio");
-                audioFileLabel.setForeground(Color.GRAY);
+                audioFileLabel.setFont(audioFileLabel.getFont().deriveFont(Font.ITALIC));
+                audioFileLabel.setForeground(new Color(140, 140, 160));
                 audioDurationLabel.setText("");
                 audioClearBtn.setVisible(false);
             }
