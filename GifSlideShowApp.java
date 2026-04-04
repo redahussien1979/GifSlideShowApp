@@ -7420,12 +7420,26 @@ public class GifSlideShowApp extends JFrame {
             audioLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
             audioLabel.setForeground(new Color(100, 180, 255));
 
-            audioBtn = new JButton("\uD83D\uDCC2 Browse");
+            Color audioBtnColor = new Color(50, 110, 170);
+            audioBtn = new JButton("\uD83D\uDCC2 Browse") {
+                @Override protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(getModel().isPressed() ? audioBtnColor.darker() : getModel().isRollover() ? audioBtnColor.brighter() : audioBtnColor);
+                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
+                    g2.setColor(Color.WHITE);
+                    g2.setFont(getFont());
+                    FontMetrics fm = g2.getFontMetrics();
+                    g2.drawString(getText(), (getWidth() - fm.stringWidth(getText())) / 2, (getHeight() + fm.getAscent() - fm.getDescent()) / 2);
+                    g2.dispose();
+                }
+            };
             audioBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
             audioBtn.setPreferredSize(new Dimension(85, 24));
+            audioBtn.setContentAreaFilled(false);
+            audioBtn.setBorderPainted(false);
             audioBtn.setFocusPainted(false);
-            audioBtn.setBackground(new Color(50, 110, 170));
-            audioBtn.setForeground(Color.WHITE);
+            audioBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
             audioBtn.setToolTipText("Attach audio to this slide (duration overrides global slide duration)");
             audioBtn.addActionListener(e -> browseSlideAudio());
 
@@ -7438,22 +7452,51 @@ public class GifSlideShowApp extends JFrame {
             audioDurationLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
             audioDurationLabel.setForeground(new Color(100, 210, 150));
 
-            audioPlayBtn = new JButton("\u25B6");
+            audioPlayBtn = new JButton("\u25B6") {
+                @Override protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    Color base = getBackground();
+                    g2.setColor(getModel().isPressed() ? base.darker() : getModel().isRollover() ? base.brighter() : base);
+                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
+                    g2.setColor(Color.WHITE);
+                    g2.setFont(getFont());
+                    FontMetrics fm = g2.getFontMetrics();
+                    g2.drawString(getText(), (getWidth() - fm.stringWidth(getText())) / 2, (getHeight() + fm.getAscent() - fm.getDescent()) / 2);
+                    g2.dispose();
+                }
+            };
             audioPlayBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
             audioPlayBtn.setPreferredSize(new Dimension(32, 24));
+            audioPlayBtn.setContentAreaFilled(false);
+            audioPlayBtn.setBorderPainted(false);
             audioPlayBtn.setFocusPainted(false);
+            audioPlayBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
             audioPlayBtn.setBackground(new Color(40, 140, 80));
-            audioPlayBtn.setForeground(Color.WHITE);
             audioPlayBtn.setToolTipText("Play/preview this audio clip");
             audioPlayBtn.setVisible(false);
             audioPlayBtn.addActionListener(e -> playSlideAudio());
 
-            audioClearBtn = new JButton("\u2716");
+            Color clearBtnColor = new Color(160, 50, 50);
+            audioClearBtn = new JButton("\u2716") {
+                @Override protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(getModel().isPressed() ? clearBtnColor.darker() : getModel().isRollover() ? clearBtnColor.brighter() : clearBtnColor);
+                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
+                    g2.setColor(Color.WHITE);
+                    g2.setFont(getFont());
+                    FontMetrics fm = g2.getFontMetrics();
+                    g2.drawString(getText(), (getWidth() - fm.stringWidth(getText())) / 2, (getHeight() + fm.getAscent() - fm.getDescent()) / 2);
+                    g2.dispose();
+                }
+            };
             audioClearBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
             audioClearBtn.setPreferredSize(new Dimension(32, 24));
+            audioClearBtn.setContentAreaFilled(false);
+            audioClearBtn.setBorderPainted(false);
             audioClearBtn.setFocusPainted(false);
-            audioClearBtn.setBackground(new Color(160, 50, 50));
-            audioClearBtn.setForeground(Color.WHITE);
+            audioClearBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
             audioClearBtn.setToolTipText("Remove audio from this slide");
             audioClearBtn.setVisible(false);
             audioClearBtn.addActionListener(e -> clearSlideAudio());
