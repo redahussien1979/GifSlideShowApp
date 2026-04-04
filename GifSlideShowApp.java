@@ -1154,6 +1154,51 @@ public class GifSlideShowApp extends JFrame {
 
     // ==================== Dictionary Import ====================
 
+    /**
+     * Splits raw CSV/TSV content into logical rows, respecting quoted fields
+     * that may contain newlines (multiline cells). A quoted field like
+     * "line1\nline2\nline3" is kept as a single field value.
+     */
+    private List<String> splitCsvRows(String content) {
+        List<String> rows = new ArrayList<>();
+        StringBuilder currentRow = new StringBuilder();
+        boolean inQuotes = false;
+        for (int i = 0; i < content.length(); i++) {
+            char c = content.charAt(i);
+            if (inQuotes) {
+                if (c == '"') {
+                    if (i + 1 < content.length() && content.charAt(i + 1) == '"') {
+                        // Escaped quote
+                        currentRow.append('"').append('"');
+                        i++;
+                    } else {
+                        inQuotes = false;
+                        currentRow.append(c);
+                    }
+                } else {
+                    currentRow.append(c);
+                }
+            } else {
+                if (c == '"') {
+                    inQuotes = true;
+                    currentRow.append(c);
+                } else if (c == '\r') {
+                    // Skip \r, handle \n next
+                } else if (c == '\n') {
+                    rows.add(currentRow.toString());
+                    currentRow.setLength(0);
+                } else {
+                    currentRow.append(c);
+                }
+            }
+        }
+        // Add last row if non-empty
+        if (currentRow.length() > 0) {
+            rows.add(currentRow.toString());
+        }
+        return rows;
+    }
+
     private List<String> parseCsvLine(String line) {
         List<String> fields = new ArrayList<>();
         StringBuilder sb = new StringBuilder();
@@ -1224,14 +1269,14 @@ public class GifSlideShowApp extends JFrame {
                     String content = new String(fileBytes, java.nio.charset.Charset.forName("UTF-16LE"));
                     // Remove BOM character
                     if (content.length() > 0 && content.charAt(0) == '\uFEFF') content = content.substring(1);
-                    rawLines = Arrays.asList(content.split("\\r?\\n"));
+                    rawLines = splitCsvRows(content);
                     offset = -1; // signal already decoded
                 }
                 // Strip UTF-16 BE BOM
                 else if (fileBytes.length >= 2 && (fileBytes[0] & 0xFF) == 0xFE && (fileBytes[1] & 0xFF) == 0xFF) {
                     String content = new String(fileBytes, java.nio.charset.Charset.forName("UTF-16BE"));
                     if (content.length() > 0 && content.charAt(0) == '\uFEFF') content = content.substring(1);
-                    rawLines = Arrays.asList(content.split("\\r?\\n"));
+                    rawLines = splitCsvRows(content);
                     offset = -1;
                 }
                 if (offset >= 0) {
@@ -1242,7 +1287,7 @@ public class GifSlideShowApp extends JFrame {
                         content = new String(fileBytes, offset, fileBytes.length - offset,
                                 java.nio.charset.Charset.forName("windows-1252"));
                     }
-                    rawLines = Arrays.asList(content.split("\\r?\\n"));
+                    rawLines = splitCsvRows(content);
                 }
             } catch (IOException ex) {
                 try {
@@ -1271,7 +1316,7 @@ public class GifSlideShowApp extends JFrame {
                 JOptionPane.showMessageDialog(this, "No data entered.", "Empty", JOptionPane.WARNING_MESSAGE);
                 return;
             }
-            rawLines = Arrays.asList(text.split("\\r?\\n"));
+            rawLines = splitCsvRows(text);
         }
 
         // Remove trailing empty lines
