@@ -2811,20 +2811,45 @@ public class GifSlideShowApp extends JFrame {
 
                     switch (effect) {
                         case "Shadow": {
-                            int off = Math.max(1, (int) (scaledStSize * 0.06 * intensity));
-                            g2.setColor(new Color(0, 0, 0, (int) (180 * intensity)));
-                            if (justified) drawJustified(g2, justifyWords, stBlockLeft + off, lineY + off, justifyExtraSpace, stFm);
-                            else g2.drawString(visibleLine, lineX + off, lineY + off);
+                            // Multi-layer soft drop shadow for professional look
+                            int baseOff = Math.max(1, (int) (scaledStSize * 0.07 * intensity));
+                            int shadowLayers = 3 + (int) (3 * intensity);
+                            for (int sl = shadowLayers; sl >= 1; sl--) {
+                                float layerOff = baseOff * sl / (float) shadowLayers;
+                                int alpha = (int) (60 * intensity / sl);
+                                float blur = sl * scaledStSize * 0.015f * (float) intensity;
+                                g2.setColor(new Color(0, 0, 0, Math.min(255, alpha)));
+                                Font sf = stFont.deriveFont(scaledStSize + blur);
+                                g2.setFont(sf);
+                                FontMetrics sfm = g2.getFontMetrics();
+                                int sOffY = (int) (lineY + layerOff) - (sfm.getAscent() - stAscent) / 2;
+                                if (justified) {
+                                    double dx = stBlockLeft;
+                                    for (String w : justifyWords) {
+                                        int origW = stFm.stringWidth(w);
+                                        int sOffX = (int) (dx + layerOff) - (sfm.stringWidth(w) - origW) / 2;
+                                        g2.drawString(w, sOffX, sOffY);
+                                        dx += origW + justifyExtraSpace;
+                                    }
+                                } else {
+                                    int sLineW = sfm.stringWidth(visibleLine);
+                                    int sOffX = (int) (lineX + layerOff) - (sLineW - lineW) / 2;
+                                    g2.drawString(visibleLine, sOffX, sOffY);
+                                }
+                            }
+                            g2.setFont(stFont);
                             g2.setColor(stColor);
                             if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
                             else g2.drawString(visibleLine, lineX, lineY);
                             break;
                         }
                         case "Glow": {
-                            int layers = 3 + (int) (5 * intensity);
+                            int layers = 4 + (int) (6 * intensity);
                             for (int gl = layers; gl >= 1; gl--) {
-                                float spread = gl * scaledStSize * 0.04f * (float) intensity;
-                                int alpha = (int) (40 * intensity / gl);
+                                float spread = gl * scaledStSize * 0.05f * (float) intensity;
+                                // Smoother alpha falloff with quadratic decay
+                                double t = (double) gl / layers;
+                                int alpha = (int) (70 * intensity * t * t);
                                 g2.setColor(new Color(stColor.getRed(), stColor.getGreen(), stColor.getBlue(), Math.min(255, alpha)));
                                 Font glowFont = stFont.deriveFont((float) (scaledStSize + spread));
                                 g2.setFont(glowFont);
@@ -2845,16 +2870,19 @@ public class GifSlideShowApp extends JFrame {
                                 }
                             }
                             g2.setFont(stFont);
-                            g2.setColor(Color.WHITE);
+                            // Bright inner core
+                            g2.setColor(new Color(255, 255, 255, (int) (220 + 35 * intensity)));
                             if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
                             else g2.drawString(visibleLine, lineX, lineY);
                             break;
                         }
                         case "Neon": {
-                            int layers = 4 + (int) (4 * intensity);
+                            int layers = 5 + (int) (5 * intensity);
+                            // Outer glow layers (colored)
                             for (int nl = layers; nl >= 1; nl--) {
-                                float spread = nl * scaledStSize * 0.05f * (float) intensity;
-                                int alpha = (int) (60 * intensity / nl);
+                                float spread = nl * scaledStSize * 0.06f * (float) intensity;
+                                double t = (double) nl / layers;
+                                int alpha = (int) (80 * intensity * t);
                                 Color neonC = new Color(stColor.getRed(), stColor.getGreen(), stColor.getBlue(), Math.min(255, alpha));
                                 g2.setColor(neonC);
                                 Font nf = stFont.deriveFont((float) (scaledStSize + spread));
@@ -2875,8 +2903,12 @@ public class GifSlideShowApp extends JFrame {
                                     g2.drawString(visibleLine, offX, offY);
                                 }
                             }
+                            // Inner bright white-hot core with slight color tint
                             g2.setFont(stFont);
-                            g2.setColor(new Color(255, 255, 255, (int) (200 + 55 * intensity)));
+                            int coreR = Math.min(255, stColor.getRed() + (int) (100 * intensity));
+                            int coreG = Math.min(255, stColor.getGreen() + (int) (100 * intensity));
+                            int coreB = Math.min(255, stColor.getBlue() + (int) (100 * intensity));
+                            g2.setColor(new Color(coreR, coreG, coreB));
                             if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
                             else g2.drawString(visibleLine, lineX, lineY);
                             break;
@@ -2946,19 +2978,22 @@ public class GifSlideShowApp extends JFrame {
                             break;
                         }
                         case "Fire": {
-                            int layers = 3 + (int) (4 * intensity);
+                            int layers = 4 + (int) (5 * intensity);
                             Color[] fireColors = {
-                                new Color(255, 60, 0, (int) (60 * intensity)),
-                                new Color(255, 120, 0, (int) (80 * intensity)),
-                                new Color(255, 200, 0, (int) (100 * intensity)),
-                                new Color(255, 240, 100, (int) (120 * intensity))
+                                new Color(180, 30, 0, (int) (50 * intensity)),    // deep red
+                                new Color(220, 60, 0, (int) (70 * intensity)),    // red-orange
+                                new Color(255, 120, 0, (int) (90 * intensity)),   // orange
+                                new Color(255, 180, 30, (int) (110 * intensity)), // gold
+                                new Color(255, 220, 80, (int) (130 * intensity)), // yellow
+                                new Color(255, 245, 160, (int) (150 * intensity)) // bright yellow
                             };
                             for (int fl = layers; fl >= 1; fl--) {
-                                float rise = fl * scaledStSize * 0.03f * (float) intensity;
-                                double flicker = rise * 0.4 * Math.sin(animFrameIndex * 0.3 + fl * 1.7);
+                                float rise = fl * scaledStSize * 0.04f * (float) intensity;
+                                double flicker = rise * 0.5 * Math.sin(animFrameIndex * 0.35 + fl * 1.7)
+                                        + rise * 0.2 * Math.cos(animFrameIndex * 0.5 + fl * 2.3);
                                 Color fc = fireColors[Math.min(fl - 1, fireColors.length - 1)];
                                 g2.setColor(fc);
-                                float fSize = scaledStSize + fl * scaledStSize * 0.02f * (float) intensity;
+                                float fSize = scaledStSize + fl * scaledStSize * 0.025f * (float) intensity;
                                 Font ff = stFont.deriveFont(fSize);
                                 g2.setFont(ff);
                                 FontMetrics ffm = g2.getFontMetrics();
@@ -2978,18 +3013,27 @@ public class GifSlideShowApp extends JFrame {
                                 }
                             }
                             g2.setFont(stFont);
-                            g2.setColor(new Color(255, 255, 200));
+                            g2.setColor(new Color(255, 255, 220));
                             if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
                             else g2.drawString(visibleLine, lineX, lineY);
                             break;
                         }
                         case "Ice": {
-                            int layers = 3 + (int) (3 * intensity);
+                            int layers = 4 + (int) (4 * intensity);
+                            Color[] iceColors = {
+                                new Color(100, 160, 255),   // deep ice blue
+                                new Color(130, 190, 255),   // medium blue
+                                new Color(170, 210, 255),   // light blue
+                                new Color(200, 230, 255),   // pale blue
+                                new Color(230, 245, 255)    // near white frost
+                            };
                             for (int il = layers; il >= 1; il--) {
-                                float spread = il * scaledStSize * 0.03f * (float) intensity;
-                                double shimmer = spread * 0.2 * Math.sin(animFrameIndex * 0.15 + il);
-                                int alpha = (int) (50 * intensity / il);
-                                g2.setColor(new Color(150, 200, 255, Math.min(255, alpha)));
+                                float spread = il * scaledStSize * 0.04f * (float) intensity;
+                                double shimmer = spread * 0.25 * Math.sin(animFrameIndex * 0.18 + il * 1.2);
+                                double t = (double) il / layers;
+                                int alpha = (int) (60 * intensity * t);
+                                Color ic = iceColors[Math.min(il - 1, iceColors.length - 1)];
+                                g2.setColor(new Color(ic.getRed(), ic.getGreen(), ic.getBlue(), Math.min(255, alpha)));
                                 Font iFont = stFont.deriveFont((float) (scaledStSize + spread + shimmer));
                                 g2.setFont(iFont);
                                 FontMetrics ifm = g2.getFontMetrics();
@@ -3009,7 +3053,7 @@ public class GifSlideShowApp extends JFrame {
                                 }
                             }
                             g2.setFont(stFont);
-                            g2.setColor(new Color(220, 240, 255));
+                            g2.setColor(new Color(230, 245, 255));
                             if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
                             else g2.drawString(visibleLine, lineX, lineY);
                             break;
@@ -3079,6 +3123,63 @@ public class GifSlideShowApp extends JFrame {
                                     Math.max(0, Math.min(255, darkB))));
                             if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
                             else g2.drawString(visibleLine, lineX, lineY);
+                            break;
+                        }
+                        case "Shake": {
+                            // Per-character random shake/jitter effect
+                            double shakeAmp = scaledStSize * 0.12 * intensity;
+                            Random shakeRng = new Random(animFrameIndex * 7L);
+                            if (justified) {
+                                double dx = stBlockLeft;
+                                for (String w : justifyWords) {
+                                    for (int ci = 0; ci < w.length(); ci++) {
+                                        String ch = String.valueOf(w.charAt(ci));
+                                        int cx = (int) dx + stFm.stringWidth(w.substring(0, ci));
+                                        double sx = shakeAmp * (shakeRng.nextDouble() * 2 - 1);
+                                        double sy = shakeAmp * (shakeRng.nextDouble() * 2 - 1);
+                                        g2.setColor(stColor);
+                                        g2.drawString(ch, (int) (cx + sx), (int) (lineY + sy));
+                                    }
+                                    dx += stFm.stringWidth(w) + justifyExtraSpace;
+                                }
+                            } else {
+                                for (int ci = 0; ci < visibleLine.length(); ci++) {
+                                    String ch = String.valueOf(visibleLine.charAt(ci));
+                                    int cx = lineX + stFm.stringWidth(visibleLine.substring(0, ci));
+                                    double sx = shakeAmp * (shakeRng.nextDouble() * 2 - 1);
+                                    double sy = shakeAmp * (shakeRng.nextDouble() * 2 - 1);
+                                    g2.setColor(stColor);
+                                    g2.drawString(ch, (int) (cx + sx), (int) (lineY + sy));
+                                }
+                            }
+                            break;
+                        }
+                        case "Pulse": {
+                            // Text pulses in size and opacity
+                            double pulsePhase = animFrameIndex * 0.15;
+                            double pulseFactor = 1.0 + 0.15 * intensity * Math.sin(pulsePhase);
+                            int pulseAlpha = (int) (255 * (0.6 + 0.4 * (0.5 + 0.5 * Math.sin(pulsePhase))));
+                            float pulseSize = (float) (scaledStSize * pulseFactor);
+                            Font pulseFont = stFont.deriveFont(pulseSize);
+                            g2.setFont(pulseFont);
+                            FontMetrics pfm = g2.getFontMetrics();
+                            int pOffY = lineY - (pfm.getAscent() - stAscent) / 2;
+                            g2.setColor(new Color(stColor.getRed(), stColor.getGreen(), stColor.getBlue(),
+                                    Math.max(0, Math.min(255, pulseAlpha))));
+                            if (justified) {
+                                double dx = stBlockLeft;
+                                for (String w : justifyWords) {
+                                    int origW = stFm.stringWidth(w);
+                                    int offX = (int) dx - (pfm.stringWidth(w) - origW) / 2;
+                                    g2.drawString(w, offX, pOffY);
+                                    dx += origW + justifyExtraSpace;
+                                }
+                            } else {
+                                int pLineW = pfm.stringWidth(visibleLine);
+                                int pOffX = lineX - (pLineW - lineW) / 2;
+                                g2.drawString(visibleLine, pOffX, pOffY);
+                            }
+                            g2.setFont(stFont);
                             break;
                         }
                         default: { // "None" and "Typewriter" (typewriter just limits chars above)
@@ -3992,7 +4093,8 @@ public class GifSlideShowApp extends JFrame {
                                     if (stx.show && stx.textEffect != null) {
                                         String fx = stx.textEffect;
                                         if (fx.equals("Water Ripple") || fx.equals("Fire") || fx.equals("Ice")
-                                                || fx.equals("Rainbow") || fx.equals("Typewriter")) {
+                                                || fx.equals("Rainbow") || fx.equals("Typewriter")
+                                                || fx.equals("Shake") || fx.equals("Pulse")) {
                                             hasAnim = true;
                                             break;
                                         }
@@ -4059,31 +4161,31 @@ public class GifSlideShowApp extends JFrame {
                                         audioTimeUsed += adur;
                                         segIdx++;
                                     }
-                                    // If slide duration exceeds total audio, add remaining time with no highlight
+                                    // Render a clean frame (no highlight) for remaining time and final entry
+                                    BufferedImage cleanFrame = renderFrame(
+                                            s.image, s.text, s.fontName, s.fontSize,
+                                            s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                            videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                            s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                            s.slideNumberX, s.slideNumberY,
+                                            s.slideNumberSize, s.slideNumberColor,
+                                            s.slideTexts,
+                                            s.fxRoundCorners, s.fxCornerRadius,
+                                            s.fxVignette, s.fxSepia, s.fxGrain,
+                                            s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                            s.fxScanline, s.fxRaised,
+                                            s.overlayEnabled,
+                                            s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                    File restFile = new File(tempDir, String.format("slide_%03d_rest.png", i));
+                                    ImageIO.write(cleanFrame, "png", restFile);
+                                    String cleanFilePath = restFile.getAbsolutePath().replace("'", "'\\''");
                                     if (slideDur > audioTimeUsed) {
-                                        BufferedImage frame = renderFrame(
-                                                s.image, s.text, s.fontName, s.fontSize,
-                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
-                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
-                                                s.slideNumberX, s.slideNumberY,
-                                                s.slideNumberSize, s.slideNumberColor,
-                                                s.slideTexts,
-                                                s.fxRoundCorners, s.fxCornerRadius,
-                                                s.fxVignette, s.fxSepia, s.fxGrain,
-                                                s.fxWaterRipple, s.fxGlitch, s.fxShake,
-                                                s.fxScanline, s.fxRaised,
-                                                s.overlayEnabled,
-                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
-                                        File restFile = new File(tempDir, String.format("slide_%03d_rest.png", i));
-                                        ImageIO.write(frame, "png", restFile);
                                         double restSec = (slideDur - audioTimeUsed) / 1000.0;
-                                        String filePath = restFile.getAbsolutePath().replace("'", "'\\''");
-                                        concatContent.append("file '").append(filePath).append("'\n");
+                                        concatContent.append("file '").append(cleanFilePath).append("'\n");
                                         concatContent.append("duration ").append(String.format("%.3f", restSec)).append("\n");
-                                        lastConcatPng = filePath;
                                     }
+                                    lastConcatPng = cleanFilePath;
                                 } else {
                                     // SINGLE/NO AUDIO: original behavior — one PNG per slide
                                     double slideDurSec = slideDur / 1000.0;
@@ -4190,7 +4292,8 @@ public class GifSlideShowApp extends JFrame {
                                         if (stx.show && stx.textEffect != null) {
                                             String fx = stx.textEffect;
                                             if (fx.equals("Water Ripple") || fx.equals("Fire") || fx.equals("Ice")
-                                                    || fx.equals("Rainbow") || fx.equals("Typewriter")) {
+                                                    || fx.equals("Rainbow") || fx.equals("Typewriter")
+                                                || fx.equals("Shake") || fx.equals("Pulse")) {
                                                 hasAnimatedText = true;
                                                 break;
                                             }
@@ -4259,28 +4362,27 @@ public class GifSlideShowApp extends JFrame {
                                         frameIndex++;
                                         segFrameStart += segFrameCount;
                                     }
-                                    int remainingFrames = slideFrames - segFrameStart;
-                                    if (remainingFrames > 0) {
-                                        BufferedImage restFrame = renderFrame(
-                                                s.image, s.text, s.fontName, s.fontSize,
-                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
-                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
-                                                s.slideNumberX, s.slideNumberY,
-                                                s.slideNumberSize, s.slideNumberColor,
-                                                s.slideTexts,
-                                                s.fxRoundCorners, s.fxCornerRadius,
-                                                s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
-                                                s.overlayEnabled,
-                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
-                                        writeRawRGB(restFrame, videoW, videoH, rgbBytes, ffmpegStdin);
-                                        for (int dd = 1; dd < remainingFrames; dd++) {
-                                            ffmpegStdin.write(rgbBytes);
-                                            frameIndex++;
-                                        }
+                                    int remainingFrames = Math.max(1, slideFrames - segFrameStart);
+                                    // Render clean frame (no highlight) for remaining time after last audio
+                                    BufferedImage restFrame = renderFrame(
+                                            s.image, s.text, s.fontName, s.fontSize,
+                                            s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                            videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                            s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                            s.slideNumberX, s.slideNumberY,
+                                            s.slideNumberSize, s.slideNumberColor,
+                                            s.slideTexts,
+                                            s.fxRoundCorners, s.fxCornerRadius,
+                                            s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
+                                            s.overlayEnabled,
+                                            s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                    writeRawRGB(restFrame, videoW, videoH, rgbBytes, ffmpegStdin);
+                                    for (int dd = 1; dd < remainingFrames; dd++) {
+                                        ffmpegStdin.write(rgbBytes);
                                         frameIndex++;
                                     }
+                                    frameIndex++;
                                 } else if (hasAnimatedFx && !hasAnimatedText) {
                                     // Render base frame ONCE without animated effects, then clone + apply effects
                                     publish("Rendering slide " + (i + 1) + " base + " + slideFrames + " effect frames...");
@@ -5048,7 +5150,8 @@ public class GifSlideShowApp extends JFrame {
                                     if (stx.show && stx.textEffect != null) {
                                         String fx = stx.textEffect;
                                         if (fx.equals("Water Ripple") || fx.equals("Fire") || fx.equals("Ice")
-                                                || fx.equals("Rainbow") || fx.equals("Typewriter")) {
+                                                || fx.equals("Rainbow") || fx.equals("Typewriter")
+                                                || fx.equals("Shake") || fx.equals("Pulse")) {
                                             hasAnimatedText = true;
                                             break;
                                         }
@@ -5099,31 +5202,29 @@ public class GifSlideShowApp extends JFrame {
                                         segIdx++;
                                     }
                                     // Remaining time with no highlight
+                                    // Render a clean frame (no highlight) for remaining time and final entry
+                                    BufferedImage cleanFrame = renderFrame(
+                                            s.image, s.text, s.fontName, s.fontSize,
+                                            s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                            videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                            s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                            s.slideNumberX, s.slideNumberY,
+                                            s.slideNumberSize, s.slideNumberColor,
+                                            s.slideTexts,
+                                            s.fxRoundCorners, s.fxCornerRadius,
+                                            s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
+                                            s.overlayEnabled,
+                                            s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                    File restFile = new File(tempDir, "seg_rest.png");
+                                    ImageIO.write(cleanFrame, "png", restFile);
+                                    String cleanFp = restFile.getAbsolutePath().replace("'", "'\\''");
                                     if (slideDur > audioTimeUsed) {
-                                        BufferedImage restFrame = renderFrame(
-                                                s.image, s.text, s.fontName, s.fontSize,
-                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
-                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
-                                                s.slideNumberX, s.slideNumberY,
-                                                s.slideNumberSize, s.slideNumberColor,
-                                                s.slideTexts,
-                                                s.fxRoundCorners, s.fxCornerRadius,
-                                                s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
-                                                s.overlayEnabled,
-                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
-                                        File restFile = new File(tempDir, "seg_rest.png");
-                                        ImageIO.write(restFrame, "png", restFile);
-                                        String fp = restFile.getAbsolutePath().replace("'", "'\\''");
-                                        concatContent.append("file '").append(fp).append("'\n");
+                                        concatContent.append("file '").append(cleanFp).append("'\n");
                                         concatContent.append("duration ").append(String.format("%.3f", (slideDur - audioTimeUsed) / 1000.0)).append("\n");
-                                        lastFile = fp;
                                     }
-                                    // Last entry without duration
-                                    if (lastFile != null) {
-                                        concatContent.append("file '").append(lastFile).append("'\n");
-                                    }
+                                    // Last entry without duration — always use the clean (no highlight) frame
+                                    concatContent.append("file '").append(cleanFp).append("'\n");
                                     try (java.io.FileWriter fw = new java.io.FileWriter(concatFile)) {
                                         fw.write(concatContent.toString());
                                     }
@@ -5989,7 +6090,8 @@ public class GifSlideShowApp extends JFrame {
 
     static final String[] TEXT_EFFECTS = {
         "None", "Shadow", "Glow", "Neon", "Outline", "Emboss",
-        "Water Ripple", "Fire", "Ice", "Rainbow", "Typewriter", "Stone Engraving"
+        "Water Ripple", "Fire", "Ice", "Rainbow", "Typewriter", "Stone Engraving",
+        "Shake", "Pulse"
     };
 
     static final String[] HIGHLIGHT_STYLES = { "Regular", "Brush", "Brush2", "Pill", "Gradient", "Glow", "Box" };
