@@ -5946,12 +5946,26 @@ public class GifSlideShowApp extends JFrame {
         for (int i = 0; i < origTexts.size(); i++) {
             SlideTextData st = origTexts.get(i);
             if (i == activeIndex && st.show && st.text != null && !st.text.trim().isEmpty()) {
+                // Active text: apply a vivid highlight + Neon text effect for professional look
                 String allText = st.text.replace("\n", ",").replace("\r", "");
+                // Bright warm highlight with Gradient style for smooth appearance
                 result.add(new SlideTextData(st.show, st.text, st.fontName, st.fontSize,
-                        st.fontStyle, st.color, st.x, st.y, st.bgOpacity, st.bgColor,
+                        st.fontStyle | Font.BOLD, st.color, st.x, st.y, st.bgOpacity, st.bgColor,
                         st.justify, st.widthPct, st.shiftX, st.alignment,
-                        st.textEffect, st.textEffectIntensity,
-                        allText, new Color(255, 200, 50, 160), "Glow",
+                        "Glow", 60,
+                        allText, new Color(255, 210, 60, 130), "Gradient",
+                        st.highlightTightness, st.underlineStyle, st.underlineText,
+                        st.boldText, st.italicText, st.colorText, st.colorTextColor));
+            } else if (st.show && st.text != null && !st.text.trim().isEmpty()) {
+                // Inactive texts: dim them slightly for contrast with the active one
+                int dimR = (int) (st.color.getRed() * 0.55);
+                int dimG = (int) (st.color.getGreen() * 0.55);
+                int dimB = (int) (st.color.getBlue() * 0.55);
+                result.add(new SlideTextData(st.show, st.text, st.fontName, st.fontSize,
+                        st.fontStyle, new Color(dimR, dimG, dimB), st.x, st.y, st.bgOpacity, st.bgColor,
+                        st.justify, st.widthPct, st.shiftX, st.alignment,
+                        "None", 50,
+                        st.highlightText, st.highlightColor, st.highlightStyle,
                         st.highlightTightness, st.underlineStyle, st.underlineText,
                         st.boldText, st.italicText, st.colorText, st.colorTextColor));
             } else {
