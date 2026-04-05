@@ -2395,6 +2395,12 @@ public class GifSlideShowApp extends JFrame {
                     stMaxLineWidth = Math.max(stMaxLineWidth, stFm.stringWidth(line));
                 }
 
+                // When xLeftAligned (set via CSV X-AXIS import), treat X as left edge
+                // instead of center: shift center rightward by half the text width
+                if (st.xLeftAligned) {
+                    stCenterX += stMaxLineWidth / 2;
+                }
+
                 int stPadX = (int) (6 * stScaleFactor);
                 int stPadY = (int) (4 * stScaleFactor);
 
@@ -6241,7 +6247,7 @@ public class GifSlideShowApp extends JFrame {
                         st.textEffect, st.textEffectIntensity,
                         useHlText, useHlColor, useHlStyle,
                         st.highlightTightness, ulStyle, ulText,
-                        st.boldText, st.italicText, st.colorText, st.colorTextColor));
+                        st.boldText, st.italicText, st.colorText, st.colorTextColor, st.xLeftAligned));
             } else {
                 result.add(st);
             }
@@ -6415,6 +6421,7 @@ public class GifSlideShowApp extends JFrame {
         final String italicText;
         final String colorText;
         final Color colorTextColor;
+        final boolean xLeftAligned;
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
                       int fontStyle, Color color, int x, int y, int bgOpacity,
@@ -6423,7 +6430,7 @@ public class GifSlideShowApp extends JFrame {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, "None", 50,
                     "", new Color(255, 100, 150, 180), "Regular", 50, "None", "",
-                    "", "", "", null);
+                    "", "", "", null, false);
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -6433,7 +6440,7 @@ public class GifSlideShowApp extends JFrame {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     "", new Color(255, 100, 150, 180), "Regular", 50, "None", "",
-                    "", "", "", null);
+                    "", "", "", null, false);
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -6444,7 +6451,7 @@ public class GifSlideShowApp extends JFrame {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     highlightText, highlightColor, highlightStyle, 50, "None", "",
-                    "", "", "", null);
+                    "", "", "", null, false);
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -6456,7 +6463,7 @@ public class GifSlideShowApp extends JFrame {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, "",
-                    "", "", "", null);
+                    "", "", "", null, false);
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -6468,7 +6475,7 @@ public class GifSlideShowApp extends JFrame {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, underlineText,
-                    "", "", "", null);
+                    "", "", "", null, false);
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -6478,6 +6485,20 @@ public class GifSlideShowApp extends JFrame {
                       String highlightText, Color highlightColor, String highlightStyle,
                       int highlightTightness, String underlineStyle, String underlineText,
                       String boldText, String italicText, String colorText, Color colorTextColor) {
+            this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
+                    bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
+                    highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, underlineText,
+                    boldText, italicText, colorText, colorTextColor, false);
+        }
+
+        SlideTextData(boolean show, String text, String fontName, int fontSize,
+                      int fontStyle, Color color, int x, int y, int bgOpacity,
+                      Color bgColor, boolean justify, int widthPct, int shiftX,
+                      int alignment, String textEffect, int textEffectIntensity,
+                      String highlightText, Color highlightColor, String highlightStyle,
+                      int highlightTightness, String underlineStyle, String underlineText,
+                      String boldText, String italicText, String colorText, Color colorTextColor,
+                      boolean xLeftAligned) {
             this.show = show;
             this.text = text;
             this.fontName = fontName;
@@ -6504,6 +6525,7 @@ public class GifSlideShowApp extends JFrame {
             this.italicText = italicText != null ? italicText : "";
             this.colorText = colorText != null ? colorText : "";
             this.colorTextColor = colorTextColor != null ? colorTextColor : new Color(255, 80, 80);
+            this.xLeftAligned = xLeftAligned;
         }
     }
 
@@ -8065,6 +8087,8 @@ public class GifSlideShowApp extends JFrame {
                 case 2: alignment = SwingConstants.RIGHT; break;
                 default: alignment = SwingConstants.CENTER; break;
             }
+            boolean prevXLeftAligned = currentSlideTextIndex < slideTextItems.size()
+                    ? slideTextItems.get(currentSlideTextIndex).xLeftAligned : false;
             slideTextItems.set(currentSlideTextIndex, new SlideTextData(
                     slideTextCheckBox.isSelected(), slideTextArea.getText(),
                     (String) slideTextFontCombo.getSelectedItem(), (int) slideTextSizeSpinner.getValue(),
@@ -8081,7 +8105,7 @@ public class GifSlideShowApp extends JFrame {
                     (String) slideTextUnderlineCombo.getSelectedItem(),
                     slideTextUnderlineTextField.getText(),
                     slideTextBoldField.getText(), slideTextItalicField.getText(),
-                    slideTextColorTextField.getText(), slideTextColorTextColor));
+                    slideTextColorTextField.getText(), slideTextColorTextColor, prevXLeftAligned));
         }
 
         private void loadSlideTextFromItem(int index) {
@@ -8176,7 +8200,7 @@ public class GifSlideShowApp extends JFrame {
                         fmt.textEffect, fmt.textEffectIntensity,
                         hlText, fmt.highlightColor, fmt.highlightStyle,
                         fmt.highlightTightness, fmt.underlineStyle, ulText,
-                        bText, iText, cText, fmt.colorTextColor));
+                        bText, iText, cText, fmt.colorTextColor, existing.xLeftAligned));
             }
             // For extra items beyond what the source has, apply formatting
             // from the last source item so they get consistent styling.
@@ -8198,7 +8222,7 @@ public class GifSlideShowApp extends JFrame {
                             "None", 50,
                             hlText, lastFmt.highlightColor, lastFmt.highlightStyle,
                             lastFmt.highlightTightness, lastFmt.underlineStyle, ulText,
-                            bText, iText, cText, lastFmt.colorTextColor));
+                            bText, iText, cText, lastFmt.colorTextColor, existing.xLeftAligned));
                 }
             }
             if (currentSlideTextIndex >= slideTextItems.size()) {
@@ -8271,7 +8295,7 @@ public class GifSlideShowApp extends JFrame {
                     old.textEffect, old.textEffectIntensity,
                     old.highlightText, old.highlightColor, old.highlightStyle,
                     old.highlightTightness, old.underlineStyle, old.underlineText,
-                    old.boldText, old.italicText, old.colorText, old.colorTextColor));
+                    old.boldText, old.italicText, old.colorText, old.colorTextColor, true));
             if (currentSlideTextIndex == textIndex) loadSlideTextFromItem(textIndex);
         }
 
@@ -8290,7 +8314,7 @@ public class GifSlideShowApp extends JFrame {
                     old.textEffect, old.textEffectIntensity,
                     old.highlightText, old.highlightColor, old.highlightStyle,
                     old.highlightTightness, old.underlineStyle, old.underlineText,
-                    old.boldText, old.italicText, old.colorText, old.colorTextColor));
+                    old.boldText, old.italicText, old.colorText, old.colorTextColor, old.xLeftAligned));
             if (currentSlideTextIndex == textIndex) loadSlideTextFromItem(textIndex);
         }
 
@@ -8309,7 +8333,7 @@ public class GifSlideShowApp extends JFrame {
                     old.textEffect, old.textEffectIntensity,
                     old.highlightText, old.highlightColor, old.highlightStyle,
                     old.highlightTightness, old.underlineStyle, old.underlineText,
-                    old.boldText, old.italicText, old.colorText, old.colorTextColor));
+                    old.boldText, old.italicText, old.colorText, old.colorTextColor, old.xLeftAligned));
             if (currentSlideTextIndex == textIndex) loadSlideTextFromItem(textIndex);
         }
 
@@ -8328,7 +8352,7 @@ public class GifSlideShowApp extends JFrame {
                         old.textEffect, old.textEffectIntensity,
                         text != null ? text : "", old.highlightColor, old.highlightStyle,
                         old.highlightTightness, old.underlineStyle, old.underlineText,
-                        old.boldText, old.italicText, old.colorText, old.colorTextColor));
+                        old.boldText, old.italicText, old.colorText, old.colorTextColor, old.xLeftAligned));
             }
             if (currentSlideTextIndex < slideTextItems.size()) {
                 loadSlideTextFromItem(currentSlideTextIndex);
@@ -8345,7 +8369,7 @@ public class GifSlideShowApp extends JFrame {
                         old.textEffect, old.textEffectIntensity,
                         old.highlightText, old.highlightColor, old.highlightStyle,
                         old.highlightTightness, old.underlineStyle, text != null ? text : "",
-                        old.boldText, old.italicText, old.colorText, old.colorTextColor));
+                        old.boldText, old.italicText, old.colorText, old.colorTextColor, old.xLeftAligned));
             }
             if (currentSlideTextIndex < slideTextItems.size()) {
                 loadSlideTextFromItem(currentSlideTextIndex);
@@ -8362,7 +8386,7 @@ public class GifSlideShowApp extends JFrame {
                         old.textEffect, old.textEffectIntensity,
                         old.highlightText, old.highlightColor, old.highlightStyle,
                         old.highlightTightness, old.underlineStyle, old.underlineText,
-                        text != null ? text : "", old.italicText, old.colorText, old.colorTextColor));
+                        text != null ? text : "", old.italicText, old.colorText, old.colorTextColor, old.xLeftAligned));
             }
             if (currentSlideTextIndex < slideTextItems.size()) {
                 loadSlideTextFromItem(currentSlideTextIndex);
@@ -8379,7 +8403,7 @@ public class GifSlideShowApp extends JFrame {
                         old.textEffect, old.textEffectIntensity,
                         old.highlightText, old.highlightColor, old.highlightStyle,
                         old.highlightTightness, old.underlineStyle, old.underlineText,
-                        old.boldText, text != null ? text : "", old.colorText, old.colorTextColor));
+                        old.boldText, text != null ? text : "", old.colorText, old.colorTextColor, old.xLeftAligned));
             }
             if (currentSlideTextIndex < slideTextItems.size()) {
                 loadSlideTextFromItem(currentSlideTextIndex);
@@ -8396,7 +8420,7 @@ public class GifSlideShowApp extends JFrame {
                         old.textEffect, old.textEffectIntensity,
                         old.highlightText, old.highlightColor, old.highlightStyle,
                         old.highlightTightness, old.underlineStyle, old.underlineText,
-                        old.boldText, old.italicText, text != null ? text : "", old.colorTextColor));
+                        old.boldText, old.italicText, text != null ? text : "", old.colorTextColor, old.xLeftAligned));
             }
             if (currentSlideTextIndex < slideTextItems.size()) {
                 loadSlideTextFromItem(currentSlideTextIndex);
