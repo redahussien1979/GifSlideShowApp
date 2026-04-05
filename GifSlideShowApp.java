@@ -476,7 +476,8 @@ public class GifSlideShowApp extends JFrame {
                         overlayShape, overlayBgMode, overlayBgColor, overlayX, overlayY, overlaySize,
                         textJustify, textWidthPct, highlightText, highlightColor,
                         textShiftX,
-                        null, -1, 50, 25, 30);
+                        null, -1, 50, 25, 30,
+                        0.0);
             }
         } finally {
             isSyncingFormat = false;
@@ -607,7 +608,8 @@ public class GifSlideShowApp extends JFrame {
                 false, 50, false, 50,
                 "Rectangular", "Blur", new Color(21, 32, 43), 50, 50, 20,
                 false, 100, "", new Color(255, 255, 0, 180), 0,
-                null, -1, 50, 25, 30);
+                null, -1, 50, 25, 30,
+                0.0);
 
         slideRows.add(0, titleRow);
         rebuildSlidesPanel();
@@ -1603,6 +1605,7 @@ public class GifSlideShowApp extends JFrame {
         int voX = source.getSlideVideoOverlayX();
         int voY = source.getSlideVideoOverlayY();
         int voSize = source.getSlideVideoOverlaySize();
+        double audioGapSeconds = ((Number) source.audioGapSpinner.getValue()).doubleValue();
 
         isSyncingFormat = true;
         try {
@@ -1619,7 +1622,8 @@ public class GifSlideShowApp extends JFrame {
                         overlayShape, overlayBgMode, ovBgColor, overlayX, overlayY, overlaySize,
                         textJustify, textWidthPct, highlightText, hlColor,
                         textShiftX,
-                        voFile, voDurationMs, voX, voY, voSize);
+                        voFile, voDurationMs, voX, voY, voSize,
+                        audioGapSeconds);
             }
         } finally {
             isSyncingFormat = false;
@@ -7716,6 +7720,7 @@ public class GifSlideShowApp extends JFrame {
             audioGapSpinner.setPreferredSize(new Dimension(58, 26));
             audioGapSpinner.setFont(new Font("Segoe UI", Font.BOLD, 11));
             audioGapSpinner.setToolTipText("Silence gap between sequential audios (seconds)");
+            audioGapSpinner.addChangeListener(e -> onFormatChanged());
 
             audioHlColorBtn = new JButton("\u25A0");
             audioHlColorBtn.setFont(new Font("Segoe UI", Font.BOLD, 14));
@@ -8342,7 +8347,8 @@ public class GifSlideShowApp extends JFrame {
                              boolean textJustify, int textWidthPct,
                              String highlightText, Color highlightColor,
                              int textShiftX,
-                             File voFile, int voDurationMs, int voX, int voY, int voSize) {
+                             File voFile, int voDurationMs, int voX, int voY, int voSize,
+                             double audioGapSeconds) {
             fontCombo.setSelectedItem(fontName);
             sizeSpinner.setValue(fontSize);
             boldBtn.setSelected((fontStyle & Font.BOLD) != 0);
@@ -8412,6 +8418,8 @@ public class GifSlideShowApp extends JFrame {
             } else {
                 clearSlideVideoOverlay();
             }
+
+            audioGapSpinner.setValue(audioGapSeconds);
 
             updateTextAreaStyle();
             schedulePreview();
