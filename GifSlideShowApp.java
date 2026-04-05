@@ -1241,6 +1241,7 @@ public class GifSlideShowApp extends JFrame {
                 + "Column A → Text 1, Column B → Text 2, Column C → Text 3, etc.\n"
                 + "Supports CSV (comma) and TSV (tab) delimited files.\n"
                 + "Tip: For Unicode/IPA characters, save from Excel as \"CSV UTF-8\" format.\n"
+                + "Optional columns: X-AXIS, Y-AXIS, TEXT-SIZE (comma-separated per text item).\n"
                 + "(Title grid slides are skipped)",
                 "Dictionary Import", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
                 null, options, options[0]);
@@ -1334,7 +1335,7 @@ public class GifSlideShowApp extends JFrame {
 
         // Ask whether first row is a header
         int headerChoice = JOptionPane.showOptionDialog(this,
-                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting,\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.)",
+                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting,\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.\nX-AXIS/Y-AXIS/TEXT-SIZE for position & size per text item.)",
                 "Dictionary Import", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,
                 null, new String[]{"Yes, skip first row", "No, first row is data"}, "No, first row is data");
 
@@ -1345,6 +1346,9 @@ public class GifSlideShowApp extends JFrame {
         int italicColIndex = -1;
         int colorColIndex = -1;
         int audioLinkColIndex = -1;
+        int xAxisColIndex = -1;
+        int yAxisColIndex = -1;
+        int textSizeColIndex = -1;
         // Multi-audio: AUDIO1, AUDIO2, AUDIOLINK1, AUDIOLINK2, etc.
         java.util.Map<Integer, Integer> audioColByTextIndex = new java.util.TreeMap<>();
         List<String> headerFields = null;
@@ -1367,6 +1371,12 @@ public class GifSlideShowApp extends JFrame {
                     colorColIndex = c;
                 } else if (h.equals("AUDIOLINK") || h.equals("AUDIO") || h.equals("AUDIO_LINK")) {
                     audioLinkColIndex = c;
+                } else if (h.equals("X-AXIS") || h.equals("XAXIS") || h.equals("X_AXIS")) {
+                    xAxisColIndex = c;
+                } else if (h.equals("Y-AXIS") || h.equals("YAXIS") || h.equals("Y_AXIS")) {
+                    yAxisColIndex = c;
+                } else if (h.equals("TEXT-SIZE") || h.equals("TEXTSIZE") || h.equals("TEXT_SIZE") || h.equals("SIZE")) {
+                    textSizeColIndex = c;
                 } else if (h.matches("(AUDIOLINK|AUDIO|AUDIO_LINK)\\d+")) {
                     // Multi-audio columns: AUDIO1, AUDIO2, AUDIOLINK1, AUDIOLINK2, etc.
                     String numPart = h.replaceAll("^(AUDIOLINK|AUDIO_LINK|AUDIO)", "");
@@ -1402,6 +1412,7 @@ public class GifSlideShowApp extends JFrame {
         for (int c = 0; c < maxCols; c++) {
             if (c != hlColIndex && c != ulColIndex && c != boldColIndex
                     && c != italicColIndex && c != colorColIndex && c != audioLinkColIndex
+                    && c != xAxisColIndex && c != yAxisColIndex && c != textSizeColIndex
                     && !audioColIndices.contains(c)) {
                 textColIndices.add(c);
             }
@@ -1473,6 +1484,57 @@ public class GifSlideShowApp extends JFrame {
                 slide.setSlideTextColorText(colorText);
             }
 
+            // Apply X-AXIS values from CSV if column exists (comma-separated per text item)
+            if (xAxisColIndex >= 0 && xAxisColIndex < fields.size()) {
+                String xVals = fields.get(xAxisColIndex).trim();
+                if (!xVals.isEmpty()) {
+                    String[] parts = xVals.split(",");
+                    for (int ti = 0; ti < parts.length; ti++) {
+                        String val = parts[ti].trim();
+                        if (!val.isEmpty()) {
+                            try {
+                                int xVal = Integer.parseInt(val);
+                                slide.setSlideTextXAt(ti, xVal);
+                            } catch (NumberFormatException ignored) {}
+                        }
+                    }
+                }
+            }
+
+            // Apply Y-AXIS values from CSV if column exists (comma-separated per text item)
+            if (yAxisColIndex >= 0 && yAxisColIndex < fields.size()) {
+                String yVals = fields.get(yAxisColIndex).trim();
+                if (!yVals.isEmpty()) {
+                    String[] parts = yVals.split(",");
+                    for (int ti = 0; ti < parts.length; ti++) {
+                        String val = parts[ti].trim();
+                        if (!val.isEmpty()) {
+                            try {
+                                int yVal = Integer.parseInt(val);
+                                slide.setSlideTextYAt(ti, yVal);
+                            } catch (NumberFormatException ignored) {}
+                        }
+                    }
+                }
+            }
+
+            // Apply TEXT-SIZE values from CSV if column exists (comma-separated per text item)
+            if (textSizeColIndex >= 0 && textSizeColIndex < fields.size()) {
+                String sizeVals = fields.get(textSizeColIndex).trim();
+                if (!sizeVals.isEmpty()) {
+                    String[] parts = sizeVals.split(",");
+                    for (int ti = 0; ti < parts.length; ti++) {
+                        String val = parts[ti].trim();
+                        if (!val.isEmpty()) {
+                            try {
+                                int sizeVal = Integer.parseInt(val);
+                                slide.setSlideTextSizeAt(ti, sizeVal);
+                            } catch (NumberFormatException ignored) {}
+                        }
+                    }
+                }
+            }
+
             // Apply audio link from CSV if column exists (single AUDIOLINK → text index 0)
             if (audioLinkColIndex >= 0 && audioLinkColIndex < fields.size()) {
                 String audioPath = fields.get(audioLinkColIndex).trim();
@@ -1528,6 +1590,9 @@ public class GifSlideShowApp extends JFrame {
         if (colorColIndex >= 0) importMsg += "\nCOLOR column detected — color words imported per slide.";
         if (audioLinkColIndex >= 0) importMsg += "\nAUDIOLINK column detected — audio files imported per slide.";
         if (!audioColByTextIndex.isEmpty()) importMsg += "\nMulti-audio columns detected (AUDIO1-" + (audioColByTextIndex.size()) + ") — audio files mapped to text items.";
+        if (xAxisColIndex >= 0) importMsg += "\nX-AXIS column detected — X positions imported per text item.";
+        if (yAxisColIndex >= 0) importMsg += "\nY-AXIS column detected — Y positions imported per text item.";
+        if (textSizeColIndex >= 0) importMsg += "\nTEXT-SIZE column detected — text sizes imported per text item.";
         importMsg += "\nSlides: " + slideRows.size() + " total.";
         if (!missingAudioFiles.isEmpty()) {
             importMsg += "\n\nWARNING: " + missingAudioFiles.size() + " audio file(s) not found:";
@@ -8189,6 +8254,63 @@ public class GifSlideShowApp extends JFrame {
             if (currentSlideTextIndex == textIndex) {
                 loadSlideTextFromItem(textIndex);
             }
+        }
+
+        /** Set X position for a specific text item by index. */
+        void setSlideTextXAt(int textIndex, int xVal) {
+            while (slideTextItems.size() <= textIndex) {
+                slideTextItems.add(new SlideTextData(false, "",
+                        loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI",
+                        40, Font.PLAIN, Color.YELLOW, 50, 50, 0, Color.BLACK,
+                        false, 100, 0, SwingConstants.CENTER));
+            }
+            SlideTextData old = slideTextItems.get(textIndex);
+            slideTextItems.set(textIndex, new SlideTextData(old.show, old.text, old.fontName, old.fontSize,
+                    old.fontStyle, old.color, xVal, old.y, old.bgOpacity,
+                    old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
+                    old.textEffect, old.textEffectIntensity,
+                    old.highlightText, old.highlightColor, old.highlightStyle,
+                    old.highlightTightness, old.underlineStyle, old.underlineText,
+                    old.boldText, old.italicText, old.colorText, old.colorTextColor));
+            if (currentSlideTextIndex == textIndex) loadSlideTextFromItem(textIndex);
+        }
+
+        /** Set Y position for a specific text item by index. */
+        void setSlideTextYAt(int textIndex, int yVal) {
+            while (slideTextItems.size() <= textIndex) {
+                slideTextItems.add(new SlideTextData(false, "",
+                        loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI",
+                        40, Font.PLAIN, Color.YELLOW, 50, 50, 0, Color.BLACK,
+                        false, 100, 0, SwingConstants.CENTER));
+            }
+            SlideTextData old = slideTextItems.get(textIndex);
+            slideTextItems.set(textIndex, new SlideTextData(old.show, old.text, old.fontName, old.fontSize,
+                    old.fontStyle, old.color, old.x, yVal, old.bgOpacity,
+                    old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
+                    old.textEffect, old.textEffectIntensity,
+                    old.highlightText, old.highlightColor, old.highlightStyle,
+                    old.highlightTightness, old.underlineStyle, old.underlineText,
+                    old.boldText, old.italicText, old.colorText, old.colorTextColor));
+            if (currentSlideTextIndex == textIndex) loadSlideTextFromItem(textIndex);
+        }
+
+        /** Set font size for a specific text item by index. */
+        void setSlideTextSizeAt(int textIndex, int sizeVal) {
+            while (slideTextItems.size() <= textIndex) {
+                slideTextItems.add(new SlideTextData(false, "",
+                        loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI",
+                        40, Font.PLAIN, Color.YELLOW, 50, 50, 0, Color.BLACK,
+                        false, 100, 0, SwingConstants.CENTER));
+            }
+            SlideTextData old = slideTextItems.get(textIndex);
+            slideTextItems.set(textIndex, new SlideTextData(old.show, old.text, old.fontName, sizeVal,
+                    old.fontStyle, old.color, old.x, old.y, old.bgOpacity,
+                    old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
+                    old.textEffect, old.textEffectIntensity,
+                    old.highlightText, old.highlightColor, old.highlightStyle,
+                    old.highlightTightness, old.underlineStyle, old.underlineText,
+                    old.boldText, old.italicText, old.colorText, old.colorTextColor));
+            if (currentSlideTextIndex == textIndex) loadSlideTextFromItem(textIndex);
         }
 
         /** Set the main overlay highlight text field for this slide. */
