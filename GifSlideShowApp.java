@@ -2395,10 +2395,26 @@ public class GifSlideShowApp extends JFrame {
                     stMaxLineWidth = Math.max(stMaxLineWidth, stFm.stringWidth(line));
                 }
 
-                // When xLeftAligned (set via CSV X-AXIS import), treat X as left edge
-                // instead of center: shift center rightward by half the text width
+                // When xLeftAligned (set via CSV X-AXIS import), treat X as edge-aligned:
+                // For RTL text (Arabic/Hebrew), X is measured from the right side.
+                // For LTR text, X is the left edge where the first letter starts.
                 if (st.xLeftAligned) {
-                    stCenterX += stMaxLineWidth / 2;
+                    boolean isRTL = false;
+                    String rawText = st.text != null ? st.text : "";
+                    for (int ci = 0; ci < rawText.length(); ci++) {
+                        int dir = Character.getDirectionality(rawText.charAt(ci));
+                        if (dir == Character.DIRECTIONALITY_RIGHT_TO_LEFT
+                                || dir == Character.DIRECTIONALITY_RIGHT_TO_LEFT_ARABIC) {
+                            isRTL = true;
+                            break;
+                        }
+                    }
+                    if (isRTL) {
+                        // X measures from right: right edge of text starts at X% from right
+                        stCenterX = targetW - (int) (st.x / 100.0 * targetW) - stMaxLineWidth / 2;
+                    } else {
+                        stCenterX += stMaxLineWidth / 2;
+                    }
                 }
 
                 int stPadX = (int) (6 * stScaleFactor);
