@@ -1934,6 +1934,41 @@ public class GifSlideShowApp extends JFrame {
                                      boolean textJustify, int textWidthPct,
                                      String highlightText, Color highlightColor,
                                      int textShiftX) {
+        return renderFrame(image, text, fontName, fontSize, fontStyle, fontColor, alignment,
+                showPin, targetW, targetH, displayMode, subtitleY, subtitleBgOpacity,
+                showSlideNumber, slideNumberText, slideNumberFontName,
+                slideNumberX, slideNumberY, slideNumberSize, slideNumberColor,
+                slideTexts, fxRoundCorners, fxCornerRadius,
+                fxVignette, fxSepia, fxGrain, fxWaterRipple, fxGlitch, fxShake,
+                fxScanline, fxRaised, overlayEnabled,
+                overlayShape, overlayBgMode, overlayBgColor, overlayX, overlayY, overlaySize,
+                animFrameIndex, textJustify, textWidthPct, highlightText, highlightColor,
+                textShiftX, null);
+    }
+
+    static BufferedImage renderFrame(BufferedImage image, String text,
+                                     String fontName, int fontSize, int fontStyle,
+                                     Color fontColor, int alignment,
+                                     boolean showPin, int targetW, int targetH,
+                                     String displayMode, int subtitleY, int subtitleBgOpacity,
+                                     boolean showSlideNumber, String slideNumberText,
+                                     String slideNumberFontName,
+                                     int slideNumberX, int slideNumberY,
+                                     int slideNumberSize, Color slideNumberColor,
+                                     List<SlideTextData> slideTexts,
+                                     boolean fxRoundCorners, int fxCornerRadius,
+                                     int fxVignette, int fxSepia,
+                                     int fxGrain, int fxWaterRipple,
+                                     int fxGlitch, int fxShake,
+                                     int fxScanline, int fxRaised,
+                                     boolean overlayEnabled,
+                                     String overlayShape, String overlayBgMode, Color overlayBgColor,
+                                     int overlayX, int overlayY, int overlaySize,
+                                     int animFrameIndex,
+                                     boolean textJustify, int textWidthPct,
+                                     String highlightText, Color highlightColor,
+                                     int textShiftX,
+                                     List<SlidePictureData> slidePictures) {
         BufferedImage frame = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = frame.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -3481,6 +3516,40 @@ public class GifSlideShowApp extends JFrame {
             }
         }
 
+        // ========== SLIDE PICTURE OVERLAY(S) ==========
+        if (slidePictures != null) {
+            for (SlidePictureData pic : slidePictures) {
+                if (!pic.show || pic.image == null) continue;
+                int picW = Math.max(1, (int) (targetW * pic.widthPct / 100.0));
+                double aspect = (double) pic.image.getHeight() / pic.image.getWidth();
+                int picH = Math.max(1, (int) (picW * aspect));
+                int picX = (int) (targetW * pic.x / 100.0) - picW / 2;
+                int picY = (int) (targetH * pic.y / 100.0) - picH / 2;
+
+                if ("Circle".equals(pic.shape)) {
+                    int diameter = Math.min(picW, picH);
+                    int cx = (int) (targetW * pic.x / 100.0) - diameter / 2;
+                    int cy = (int) (targetH * pic.y / 100.0) - diameter / 2;
+                    Graphics2D pg = (Graphics2D) g.create();
+                    pg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    pg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                    pg.setClip(new java.awt.geom.Ellipse2D.Double(cx, cy, diameter, diameter));
+                    // Cover-crop the image to fill the circle
+                    double coverScale = Math.max((double) diameter / pic.image.getWidth(),
+                            (double) diameter / pic.image.getHeight());
+                    int drawW = (int) (pic.image.getWidth() * coverScale);
+                    int drawH = (int) (pic.image.getHeight() * coverScale);
+                    pg.drawImage(pic.image, cx + (diameter - drawW) / 2, cy + (diameter - drawH) / 2, drawW, drawH, null);
+                    pg.dispose();
+                } else {
+                    Graphics2D pg = (Graphics2D) g.create();
+                    pg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                    pg.drawImage(pic.image, picX, picY, picW, picH, null);
+                    pg.dispose();
+                }
+            }
+        }
+
         g.dispose();
         return frame;
     }
@@ -3626,6 +3695,7 @@ public class GifSlideShowApp extends JFrame {
                     row.getSlideNumberX(), row.getSlideNumberY(),
                     row.getSlideNumberSize(), row.getSlideNumberColor(),
                     row.getSlideTextDataList(),
+                    row.getSlidePictureDataList(),
                     row.isFxRoundCorners(), row.getFxCornerRadius(),
                     row.getFxVignette(), row.getFxSepia(), row.getFxGrain(),
                     row.getFxWaterRipple(), row.getFxGlitch(), row.getFxShake(),
@@ -3720,7 +3790,7 @@ public class GifSlideShowApp extends JFrame {
                     s.fxScanline, s.fxRaised,
                     s.overlayEnabled,
                     s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                    s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                    s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
             frames.add(frame);
             int pct = (int) ((i + 1.0) / slides.size() * maxPct);
             SwingUtilities.invokeLater(() -> progressBar.setValue(pct));
@@ -4160,7 +4230,7 @@ public class GifSlideShowApp extends JFrame {
                                     s.fxScanline, s.fxRaised,
                                     s.overlayEnabled,
                                     s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                    s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX));
+                                    s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures));
                             int pct = (int) ((i + 1.0) / slides.size() * 30);
                             final int p = pct;
                             SwingUtilities.invokeLater(() -> progressBar.setValue(p));
@@ -4245,7 +4315,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.fxScanline, s.fxRaised,
                                                 s.overlayEnabled,
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
                                     }
                                     for (int ai = 0; ai < s.audioFiles.size(); ai++) {
                                         File af = s.audioFiles.get(ai);
@@ -4279,7 +4349,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.fxScanline, s.fxRaised,
                                                 s.overlayEnabled,
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
 
                                         File slideFile = new File(tempDir, String.format("slide_%03d_seg%02d.png", i, segIdx));
                                         ImageIO.write(frame, "png", slideFile);
@@ -4308,7 +4378,7 @@ public class GifSlideShowApp extends JFrame {
                                             s.fxScanline, s.fxRaised,
                                             s.overlayEnabled,
                                             s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
                                     File restFile = new File(tempDir, String.format("slide_%03d_rest.png", i));
                                     ImageIO.write(cleanFrame, "png", restFile);
                                     String cleanFilePath = restFile.getAbsolutePath().replace("'", "'\\''");
@@ -4335,7 +4405,7 @@ public class GifSlideShowApp extends JFrame {
                                             s.fxScanline, s.fxRaised,
                                             s.overlayEnabled,
                                             s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
 
                                     File slideFile = new File(tempDir, String.format("slide_%03d.png", i));
                                     ImageIO.write(frame, "png", slideFile);
@@ -4459,7 +4529,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.fxScanline, s.fxRaised,
                                                 s.overlayEnabled,
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
-                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
                                         writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
                                         frameIndex++;
                                     }
@@ -4483,7 +4553,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
                                                 s.overlayEnabled,
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
                                     }
                                     for (int ai = 0; ai < s.audioFiles.size(); ai++) {
                                         File af = s.audioFiles.get(ai);
@@ -4516,7 +4586,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
                                                 s.overlayEnabled,
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
                                         writeRawRGB(segFrame, videoW, videoH, rgbBytes, ffmpegStdin);
                                         for (int dd = 1; dd < segFrameCount; dd++) {
                                             ffmpegStdin.write(rgbBytes);
@@ -4540,7 +4610,7 @@ public class GifSlideShowApp extends JFrame {
                                             s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
                                             s.overlayEnabled,
                                             s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
                                     writeRawRGB(restFrame, videoW, videoH, rgbBytes, ffmpegStdin);
                                     for (int dd = 1; dd < remainingFrames; dd++) {
                                         ffmpegStdin.write(rgbBytes);
@@ -4562,7 +4632,7 @@ public class GifSlideShowApp extends JFrame {
                                             s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,  // zero out animated fx
                                             s.overlayEnabled,
                                             s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
                                     // Cache base pixel data for fast cloning
                                     int[] basePixels = baseFrame.getRGB(0, 0, videoW, videoH, null, 0, videoW);
 
@@ -4595,7 +4665,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.fxScanline, s.fxRaised,
                                                 s.overlayEnabled,
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
-                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
                                         writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
                                         frameIndex++;
                                     }
@@ -4613,7 +4683,7 @@ public class GifSlideShowApp extends JFrame {
                                             s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
                                             s.overlayEnabled,
                                             s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
                                     writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
                                     for (int d = 1; d < slideFrames; d++) {
                                         ffmpegStdin.write(rgbBytes);  // same bytes, no re-render
@@ -5358,7 +5428,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
                                                 s.overlayEnabled,
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
                                     }
                                     for (int ai = 0; ai < s.audioFiles.size(); ai++) {
                                         File af = s.audioFiles.get(ai);
@@ -5390,7 +5460,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
                                                 s.overlayEnabled,
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
 
                                         File segFile = new File(tempDir, String.format("seg_%02d.png", segIdx));
                                         ImageIO.write(frame, "png", segFile);
@@ -5416,7 +5486,7 @@ public class GifSlideShowApp extends JFrame {
                                             s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
                                             s.overlayEnabled,
                                             s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
                                     File restFile = new File(tempDir, "seg_rest.png");
                                     ImageIO.write(cleanFrame, "png", restFile);
                                     String cleanFp = restFile.getAbsolutePath().replace("'", "'\\''");
@@ -5443,7 +5513,7 @@ public class GifSlideShowApp extends JFrame {
                                             s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
                                             s.overlayEnabled,
                                             s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
 
                                     File imgFile = new File(tempDir, "slide.png");
                                     ImageIO.write(frame, "png", imgFile);
@@ -5548,7 +5618,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.fxScanline, s.fxRaised,
                                                 s.overlayEnabled,
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
-                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
                                         writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
                                     }
                                 } else if (hasAnimatedFx && !hasAnimatedText) {
@@ -5565,7 +5635,7 @@ public class GifSlideShowApp extends JFrame {
                                             s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
                                             s.overlayEnabled,
                                             s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
                                     int[] basePixels = baseFrame.getRGB(0, 0, videoW, videoH, null, 0, videoW);
 
                                     for (int d = 0; d < slideFrames; d++) {
@@ -5592,7 +5662,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.fxScanline, s.fxRaised,
                                                 s.overlayEnabled,
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
-                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
                                         writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
                                     }
                                 }
@@ -5898,7 +5968,7 @@ public class GifSlideShowApp extends JFrame {
                                     s.fxScanline, s.fxRaised,
                                     s.overlayEnabled,
                                     s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                    s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX);
+                                    s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
                             ImageIO.write(frame, "png",
                                     new File(tempDir, String.format("frame_%04d.png", i)));
                         }
@@ -6545,6 +6615,29 @@ public class GifSlideShowApp extends JFrame {
         }
     }
 
+    // ==================== SlidePictureData ====================
+
+    static class SlidePictureData {
+        final boolean show;
+        final transient BufferedImage image;
+        final File imageFile;
+        final int x;       // center X as % of frame width
+        final int y;       // center Y as % of frame height
+        final int widthPct; // picture width as % of frame width
+        final String shape; // "Rectangle" or "Circle"
+
+        SlidePictureData(boolean show, BufferedImage image, File imageFile,
+                         int x, int y, int widthPct, String shape) {
+            this.show = show;
+            this.image = image;
+            this.imageFile = imageFile;
+            this.x = x;
+            this.y = y;
+            this.widthPct = widthPct;
+            this.shape = shape != null ? shape : "Rectangle";
+        }
+    }
+
     // ==================== SlideData ====================
 
     private static class SlideData {
@@ -6567,6 +6660,7 @@ public class GifSlideShowApp extends JFrame {
         final int slideNumberSize;
         final Color slideNumberColor;
         final List<SlideTextData> slideTexts;
+        final List<SlidePictureData> slidePictures;
         final boolean fxRoundCorners;
         final int fxCornerRadius;
         final int fxVignette;
@@ -6608,6 +6702,7 @@ public class GifSlideShowApp extends JFrame {
                   int slideNumberX, int slideNumberY,
                   int slideNumberSize, Color slideNumberColor,
                   List<SlideTextData> slideTexts,
+                  List<SlidePictureData> slidePictures,
                   boolean fxRoundCorners, int fxCornerRadius,
                   int fxVignette, int fxSepia, int fxGrain,
                   int fxWaterRipple, int fxGlitch, int fxShake,
@@ -6641,6 +6736,7 @@ public class GifSlideShowApp extends JFrame {
             this.slideNumberSize = slideNumberSize;
             this.slideNumberColor = slideNumberColor;
             this.slideTexts = slideTexts;
+            this.slidePictures = slidePictures != null ? slidePictures : new ArrayList<>();
             this.fxRoundCorners = fxRoundCorners;
             this.fxCornerRadius = fxCornerRadius;
             this.fxVignette = fxVignette;
@@ -6797,6 +6893,20 @@ public class GifSlideShowApp extends JFrame {
         private Color audioHlColor = new Color(255, 200, 50, 160);
         private final JToggleButton audioFxGlow, audioFxEnlarge, audioFxBold,
                 audioFxUnderline, audioFxColor, audioFxShake, audioFxPulse;
+
+        // Slide picture overlay items
+        private final List<SlidePictureData> slidePictureItems = new ArrayList<>();
+        private int currentSlidePictureIndex = 0;
+        private boolean isLoadingSlidePicture = false;
+        private final JComboBox<String> slidePicSelector;
+        private final JCheckBox slidePicShowCheck;
+        private final JLabel slidePicPreviewLabel;
+        private BufferedImage slidePicLoadedImage;
+        private File slidePicLoadedFile;
+        private final JSpinner slidePicXSpinner;
+        private final JSpinner slidePicYSpinner;
+        private final JSpinner slidePicWidthSpinner;
+        private final JComboBox<String> slidePicShapeCombo;
 
         private File slideVideoOverlayFile;
         private int slideVideoOverlayDurationMs = -1;
@@ -7535,6 +7645,164 @@ public class GifSlideShowApp extends JFrame {
             toolbar4d.add(slideTextColorTextField);
             toolbar4d.add(slideTextColorTextColorBtn);
 
+            // ===== Toolbar Row 4e: Slide Pictures =====
+            JPanel toolbar4e = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
+            toolbar4e.setBackground(new Color(45, 80, 95));
+
+            slidePictureItems.add(new SlidePictureData(false, null, null, 50, 50, 20, "Rectangle"));
+
+            slidePicSelector = new JComboBox<>(new String[]{"Pic 1"});
+            slidePicSelector.setPreferredSize(new Dimension(65, 24));
+            slidePicSelector.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slidePicSelector.setToolTipText("Select which slide picture to edit");
+            slidePicSelector.addActionListener(e -> {
+                if (isLoadingSlidePicture) return;
+                int newIndex = slidePicSelector.getSelectedIndex();
+                if (newIndex >= 0 && newIndex < slidePictureItems.size()) {
+                    saveCurrentSlidePictureToItem();
+                    currentSlidePictureIndex = newIndex;
+                    loadSlidePictureFromItem(currentSlidePictureIndex);
+                }
+            });
+
+            JButton addSlidePicBtn = new JButton("+");
+            addSlidePicBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            addSlidePicBtn.setPreferredSize(new Dimension(28, 24));
+            addSlidePicBtn.setFocusPainted(false);
+            addSlidePicBtn.setToolTipText("Add another slide picture overlay");
+            addSlidePicBtn.addActionListener(e -> {
+                saveCurrentSlidePictureToItem();
+                slidePictureItems.add(new SlidePictureData(false, null, null, 50, 50, 20, "Rectangle"));
+                currentSlidePictureIndex = slidePictureItems.size() - 1;
+                isLoadingSlidePicture = true;
+                try {
+                    rebuildSlidePicSelector();
+                    slidePicSelector.setSelectedIndex(currentSlidePictureIndex);
+                } finally {
+                    isLoadingSlidePicture = false;
+                }
+                loadSlidePictureFromItem(currentSlidePictureIndex);
+                onFormatChanged();
+            });
+
+            JButton removeSlidePicBtn = new JButton("\u2212");
+            removeSlidePicBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            removeSlidePicBtn.setPreferredSize(new Dimension(28, 24));
+            removeSlidePicBtn.setFocusPainted(false);
+            removeSlidePicBtn.setToolTipText("Remove current slide picture overlay");
+            removeSlidePicBtn.addActionListener(e -> {
+                if (slidePictureItems.size() <= 1) return;
+                slidePictureItems.remove(currentSlidePictureIndex);
+                if (currentSlidePictureIndex >= slidePictureItems.size()) {
+                    currentSlidePictureIndex = slidePictureItems.size() - 1;
+                }
+                isLoadingSlidePicture = true;
+                try {
+                    rebuildSlidePicSelector();
+                    slidePicSelector.setSelectedIndex(currentSlidePictureIndex);
+                } finally {
+                    isLoadingSlidePicture = false;
+                }
+                loadSlidePictureFromItem(currentSlidePictureIndex);
+                onFormatChanged();
+            });
+
+            slidePicShowCheck = new JCheckBox("Slide Pic", false);
+            slidePicShowCheck.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            slidePicShowCheck.setForeground(new Color(100, 200, 220));
+            slidePicShowCheck.setBackground(new Color(44, 47, 51));
+            slidePicShowCheck.setFocusPainted(false);
+            slidePicShowCheck.addActionListener(e -> { if (!isLoadingSlidePicture) onFormatChanged(); });
+
+            slidePicPreviewLabel = new JLabel("No image");
+            slidePicPreviewLabel.setPreferredSize(new Dimension(48, 36));
+            slidePicPreviewLabel.setBorder(BorderFactory.createLineBorder(new Color(80, 130, 150)));
+            slidePicPreviewLabel.setHorizontalAlignment(SwingConstants.CENTER);
+            slidePicPreviewLabel.setForeground(Color.GRAY);
+            slidePicPreviewLabel.setFont(new Font("Segoe UI", Font.PLAIN, 9));
+            slidePicPreviewLabel.setToolTipText("Click to browse or drag an image");
+
+            JButton slidePicBrowseBtn = new JButton("Browse");
+            slidePicBrowseBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slidePicBrowseBtn.setPreferredSize(new Dimension(65, 24));
+            slidePicBrowseBtn.setFocusPainted(false);
+            slidePicBrowseBtn.setToolTipText("Browse for a picture to overlay on slide");
+            slidePicBrowseBtn.addActionListener(e -> {
+                JFileChooser fc = new JFileChooser();
+                fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                        "Images", "jpg", "jpeg", "png", "gif", "bmp", "webp", "avif", "heif", "heic"));
+                if (fc.showOpenDialog(panel) == JFileChooser.APPROVE_OPTION) {
+                    try {
+                        File f = fc.getSelectedFile();
+                        BufferedImage img = loadImageFile(f);
+                        if (img != null) {
+                            slidePicLoadedImage = img;
+                            slidePicLoadedFile = f;
+                            updateSlidePicPreview();
+                            slidePicShowCheck.setSelected(true);
+                            onFormatChanged();
+                        }
+                    } catch (Exception ex) {
+                        JOptionPane.showMessageDialog(panel, "Failed to load image: " + ex.getMessage());
+                    }
+                }
+            });
+
+            JButton slidePicClearBtn = new JButton("\u2715");
+            slidePicClearBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slidePicClearBtn.setPreferredSize(new Dimension(28, 24));
+            slidePicClearBtn.setFocusPainted(false);
+            slidePicClearBtn.setToolTipText("Remove picture from this slot");
+            slidePicClearBtn.addActionListener(e -> {
+                slidePicLoadedImage = null;
+                slidePicLoadedFile = null;
+                slidePicPreviewLabel.setIcon(null);
+                slidePicPreviewLabel.setText("No image");
+                slidePicShowCheck.setSelected(false);
+                onFormatChanged();
+            });
+
+            slidePicXSpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
+            slidePicXSpinner.setPreferredSize(new Dimension(50, 24));
+            slidePicXSpinner.setToolTipText("Picture center X position (% of width)");
+            slidePicXSpinner.addChangeListener(e -> { if (!isLoadingSlidePicture) onFormatChanged(); });
+
+            slidePicYSpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
+            slidePicYSpinner.setPreferredSize(new Dimension(50, 24));
+            slidePicYSpinner.setToolTipText("Picture center Y position (% of height)");
+            slidePicYSpinner.addChangeListener(e -> { if (!isLoadingSlidePicture) onFormatChanged(); });
+
+            slidePicWidthSpinner = new JSpinner(new SpinnerNumberModel(20, 1, 100, 1));
+            slidePicWidthSpinner.setPreferredSize(new Dimension(50, 24));
+            slidePicWidthSpinner.setToolTipText("Picture width (% of frame width)");
+            slidePicWidthSpinner.addChangeListener(e -> { if (!isLoadingSlidePicture) onFormatChanged(); });
+
+            slidePicShapeCombo = new JComboBox<>(new String[]{"Rectangle", "Circle"});
+            slidePicShapeCombo.setPreferredSize(new Dimension(85, 24));
+            slidePicShapeCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slidePicShapeCombo.setToolTipText("Picture shape: Rectangle or Circle");
+            slidePicShapeCombo.addActionListener(e -> { if (!isLoadingSlidePicture) onFormatChanged(); });
+
+            JLabel tc4ePicLbl = styledLabel("\uD83D\uDDBC Pic:");
+            tc4ePicLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4ePicLbl.setForeground(new Color(100, 200, 220));
+
+            toolbar4e.add(slidePicSelector);
+            toolbar4e.add(addSlidePicBtn);
+            toolbar4e.add(removeSlidePicBtn);
+            toolbar4e.add(slidePicShowCheck);
+            toolbar4e.add(slidePicPreviewLabel);
+            toolbar4e.add(slidePicBrowseBtn);
+            toolbar4e.add(slidePicClearBtn);
+            toolbar4e.add(styledLabel("X%:"));
+            toolbar4e.add(slidePicXSpinner);
+            toolbar4e.add(styledLabel("Y%:"));
+            toolbar4e.add(slidePicYSpinner);
+            toolbar4e.add(styledLabel("W%:"));
+            toolbar4e.add(slidePicWidthSpinner);
+            toolbar4e.add(styledLabel("Shape:"));
+            toolbar4e.add(slidePicShapeCombo);
+
             // ===== Toolbar Row 5: Image Effects (3 rows) =====
             JPanel toolbar5a = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
             toolbar5a.setBackground(new Color(110, 75, 45));
@@ -8063,6 +8331,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(toolbar4b);
             toolbarsPanel.add(toolbar4c);
             toolbarsPanel.add(toolbar4d);
+            toolbarsPanel.add(toolbar4e);
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar5a);
             toolbarsPanel.add(toolbar5b);
@@ -8443,6 +8712,65 @@ public class GifSlideShowApp extends JFrame {
             }
         }
 
+        // ===== Slide picture dropdown helpers =====
+
+        private void saveCurrentSlidePictureToItem() {
+            if (currentSlidePictureIndex < 0 || currentSlidePictureIndex >= slidePictureItems.size()) return;
+            slidePictureItems.set(currentSlidePictureIndex, new SlidePictureData(
+                    slidePicShowCheck.isSelected(), slidePicLoadedImage, slidePicLoadedFile,
+                    (int) slidePicXSpinner.getValue(), (int) slidePicYSpinner.getValue(),
+                    (int) slidePicWidthSpinner.getValue(),
+                    (String) slidePicShapeCombo.getSelectedItem()));
+        }
+
+        private void loadSlidePictureFromItem(int index) {
+            if (index < 0 || index >= slidePictureItems.size()) return;
+            isLoadingSlidePicture = true;
+            try {
+                SlidePictureData item = slidePictureItems.get(index);
+                slidePicShowCheck.setSelected(item.show);
+                slidePicLoadedImage = item.image;
+                slidePicLoadedFile = item.imageFile;
+                slidePicXSpinner.setValue(item.x);
+                slidePicYSpinner.setValue(item.y);
+                slidePicWidthSpinner.setValue(item.widthPct);
+                slidePicShapeCombo.setSelectedItem(item.shape);
+                updateSlidePicPreview();
+            } finally {
+                isLoadingSlidePicture = false;
+            }
+        }
+
+        private void rebuildSlidePicSelector() {
+            slidePicSelector.removeAllItems();
+            for (int i = 0; i < slidePictureItems.size(); i++) {
+                slidePicSelector.addItem("Pic " + (i + 1));
+            }
+        }
+
+        private void updateSlidePicPreview() {
+            if (slidePicLoadedImage != null) {
+                int pw = slidePicPreviewLabel.getPreferredSize().width;
+                int ph = slidePicPreviewLabel.getPreferredSize().height;
+                double sc = Math.min((double) pw / slidePicLoadedImage.getWidth(),
+                        (double) ph / slidePicLoadedImage.getHeight());
+                Image scaled = slidePicLoadedImage.getScaledInstance(
+                        Math.max(1, (int) (slidePicLoadedImage.getWidth() * sc)),
+                        Math.max(1, (int) (slidePicLoadedImage.getHeight() * sc)),
+                        Image.SCALE_SMOOTH);
+                slidePicPreviewLabel.setIcon(new ImageIcon(scaled));
+                slidePicPreviewLabel.setText(null);
+            } else {
+                slidePicPreviewLabel.setIcon(null);
+                slidePicPreviewLabel.setText("No image");
+            }
+        }
+
+        List<SlidePictureData> getSlidePictureDataList() {
+            saveCurrentSlidePictureToItem();
+            return new ArrayList<>(slidePictureItems);
+        }
+
         private void onFormatChanged() {
             schedulePreview();
             updateTextAreaStyle();
@@ -8645,7 +8973,7 @@ public class GifSlideShowApp extends JFrame {
                     getOverlayX(), getOverlayY(), getOverlaySize(), 0,
                     isTextJustify(), getTextWidthPct(),
                     getHighlightText(), getHighlightColor(),
-                    getTextShiftX());
+                    getTextShiftX(), getSlidePictureDataList());
 
             // Draw video overlay indicator if this slide has a video overlay
             if (slideVideoOverlayFile != null) {
