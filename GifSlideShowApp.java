@@ -467,7 +467,7 @@ public class GifSlideShowApp extends JFrame {
                 row.applyFormatting(fontName, fontSize, fontStyle, fontColor, alignment, showPin, displayMode,
                         subtitleY, subtitleBgOpacity,
                         showSlideNumber, slideNumberFontName, slideNumberX, slideNumberY, slideNumberSize, slideNumberColor,
-                        slideTextFormats,
+                        slideTextFormats, null,
                         fxRoundCorners, fxCornerRadius,
                         fxVignetteOn, fxVignetteVal, fxSepiaOn, fxSepiaVal,
                         fxGrainOn, fxGrainVal, fxWaterRippleOn, fxWaterRippleVal,
@@ -604,6 +604,7 @@ public class GifSlideShowApp extends JFrame {
                 false, loadedFontNames[0], 50, 10, 80, Color.WHITE,
                 Collections.singletonList(new SlideTextData(false, "", "Segoe UI", 40, Font.PLAIN,
                         Color.YELLOW, 50, 50, 0, Color.BLACK, false, 100, 0, SwingConstants.CENTER)),
+                null,
                 false, 60, false, 50, false, 100, false, 50, false, 50, false, 50, false, 50,
                 false, 50, false, 50,
                 "Rectangular", "Blur", new Color(21, 32, 43), 50, 50, 20,
@@ -1636,6 +1637,7 @@ public class GifSlideShowApp extends JFrame {
         int slideNumberSize = source.getSlideNumberSize();
         Color slideNumberColor = source.getSlideNumberColor();
         List<SlideTextData> slideTextFormats = source.getSlideTextFormats();
+        List<SlidePictureData> slidePictureFormats = source.getSlidePictureFormats();
         boolean fxRoundCorners = source.isFxRoundCorners();
         int fxCornerRadius = source.getFxCornerRadius();
         boolean fxVignetteOn = source.fxVignetteCheck.isSelected();
@@ -1678,7 +1680,7 @@ public class GifSlideShowApp extends JFrame {
                 if (row == source || row.isTitleGridSlide) continue;
                 row.applyFormatting(fontName, fontSize, fontStyle, fontColor, alignment, showPin, displayMode, subtitleY, subtitleBgOpacity,
                         showSlideNumber, slideNumberFontName, slideNumberX, slideNumberY, slideNumberSize, slideNumberColor,
-                        slideTextFormats,
+                        slideTextFormats, slidePictureFormats,
                         fxRoundCorners, fxCornerRadius,
                         fxVignetteOn, fxVignetteVal, fxSepiaOn, fxSepiaVal,
                         fxGrainOn, fxGrainVal, fxWaterRippleOn, fxWaterRippleVal,
@@ -8771,6 +8773,39 @@ public class GifSlideShowApp extends JFrame {
             return new ArrayList<>(slidePictureItems);
         }
 
+        List<SlidePictureData> getSlidePictureFormats() {
+            return getSlidePictureDataList();
+        }
+
+        void applySlidePictureFormats(List<SlidePictureData> formats) {
+            if (formats == null || formats.isEmpty()) return;
+            // Ensure we have at least as many items as the source.
+            while (slidePictureItems.size() < formats.size()) {
+                slidePictureItems.add(new SlidePictureData(false, null, null, 50, 50, 20, "Rectangle"));
+            }
+            // Sync position/size/shape from master, preserve each slide's own image and show state.
+            for (int i = 0; i < formats.size(); i++) {
+                SlidePictureData fmt = formats.get(i);
+                SlidePictureData existing = slidePictureItems.get(i);
+                boolean show = existing.image != null ? existing.show : fmt.show;
+                slidePictureItems.set(i, new SlidePictureData(show,
+                        existing.image, existing.imageFile,
+                        fmt.x, fmt.y, fmt.widthPct, fmt.shape));
+            }
+            if (currentSlidePictureIndex >= slidePictureItems.size()) {
+                currentSlidePictureIndex = 0;
+            }
+            isLoadingSlidePicture = true;
+            try {
+                rebuildSlidePicSelector();
+                slidePicSelector.setSelectedIndex(currentSlidePictureIndex);
+            } finally {
+                isLoadingSlidePicture = false;
+            }
+            loadSlidePictureFromItem(currentSlidePictureIndex);
+            schedulePreview();
+        }
+
         private void onFormatChanged() {
             schedulePreview();
             updateTextAreaStyle();
@@ -8823,6 +8858,7 @@ public class GifSlideShowApp extends JFrame {
                              int slideNumberX, int slideNumberY,
                              int slideNumberSize, Color slideNumberColor,
                              List<SlideTextData> slideTextFormats,
+                             List<SlidePictureData> slidePictureFormats,
                              boolean fxRoundCorners, int fxCornerRadius,
                              boolean fxVignetteOn, int fxVignetteVal,
                              boolean fxSepiaOn, int fxSepiaVal,
@@ -8866,6 +8902,7 @@ public class GifSlideShowApp extends JFrame {
             slideNumberColorBtn.setForeground(slideNumberColor);
 
             applySlideTextFormats(slideTextFormats);
+            applySlidePictureFormats(slidePictureFormats);
 
             fxRoundCornersCheck.setSelected(fxRoundCorners);
             fxCornerRadiusSpinner.setValue(fxCornerRadius);
