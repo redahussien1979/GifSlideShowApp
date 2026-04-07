@@ -8369,7 +8369,7 @@ public class GifSlideShowApp extends JFrame {
 
             JPanel westPanel = new JPanel(new BorderLayout(4, 0));
             westPanel.setBackground(new Color(44, 47, 51));
-            centerPanel.setPreferredSize(new Dimension(170, 0));
+            centerPanel.setPreferredSize(new Dimension(500, 0));
             westPanel.add(leftCtrl, BorderLayout.WEST);
             westPanel.add(centerPanel, BorderLayout.CENTER);
 
