@@ -3545,7 +3545,13 @@ public class GifSlideShowApp extends JFrame {
                     pg.dispose();
                 } else {
                     Graphics2D pg = (Graphics2D) g.create();
+                    pg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     pg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                    if (pic.cornerRadius > 0) {
+                        float rcScale = Math.max(targetW, targetH) / 1920.0f;
+                        int radius = Math.max(1, (int) (pic.cornerRadius * Math.max(rcScale, 0.5f)));
+                        pg.setClip(new RoundRectangle2D.Double(picX, picY, picW, picH, radius * 2, radius * 2));
+                    }
                     pg.drawImage(pic.image, picX, picY, picW, picH, null);
                     pg.dispose();
                 }
@@ -6627,9 +6633,10 @@ public class GifSlideShowApp extends JFrame {
         final int y;       // center Y as % of frame height
         final int widthPct; // picture width as % of frame width
         final String shape; // "Rectangle" or "Circle"
+        final int cornerRadius; // corner radius for Rectangle (0 = sharp)
 
         SlidePictureData(boolean show, BufferedImage image, File imageFile,
-                         int x, int y, int widthPct, String shape) {
+                         int x, int y, int widthPct, String shape, int cornerRadius) {
             this.show = show;
             this.image = image;
             this.imageFile = imageFile;
@@ -6637,6 +6644,7 @@ public class GifSlideShowApp extends JFrame {
             this.y = y;
             this.widthPct = widthPct;
             this.shape = shape != null ? shape : "Rectangle";
+            this.cornerRadius = cornerRadius;
         }
     }
 
@@ -6909,6 +6917,7 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner slidePicYSpinner;
         private final JSpinner slidePicWidthSpinner;
         private final JComboBox<String> slidePicShapeCombo;
+        private final JSpinner slidePicCornerSpinner;
 
         private File slideVideoOverlayFile;
         private int slideVideoOverlayDurationMs = -1;
@@ -7651,7 +7660,7 @@ public class GifSlideShowApp extends JFrame {
             JPanel toolbar4e = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
             toolbar4e.setBackground(new Color(45, 80, 95));
 
-            slidePictureItems.add(new SlidePictureData(false, null, null, 50, 50, 20, "Rectangle"));
+            slidePictureItems.add(new SlidePictureData(false, null, null, 50, 50, 20, "Rectangle", 0));
 
             slidePicSelector = new JComboBox<>(new String[]{"Pic 1"});
             slidePicSelector.setPreferredSize(new Dimension(65, 24));
@@ -7674,7 +7683,7 @@ public class GifSlideShowApp extends JFrame {
             addSlidePicBtn.setToolTipText("Add another slide picture overlay");
             addSlidePicBtn.addActionListener(e -> {
                 saveCurrentSlidePictureToItem();
-                slidePictureItems.add(new SlidePictureData(false, null, null, 50, 50, 20, "Rectangle"));
+                slidePictureItems.add(new SlidePictureData(false, null, null, 50, 50, 20, "Rectangle", 0));
                 currentSlidePictureIndex = slidePictureItems.size() - 1;
                 isLoadingSlidePicture = true;
                 try {
@@ -7785,6 +7794,11 @@ public class GifSlideShowApp extends JFrame {
             slidePicShapeCombo.setToolTipText("Picture shape: Rectangle or Circle");
             slidePicShapeCombo.addActionListener(e -> { if (!isLoadingSlidePicture) onFormatChanged(); });
 
+            slidePicCornerSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 200, 5));
+            slidePicCornerSpinner.setPreferredSize(new Dimension(50, 24));
+            slidePicCornerSpinner.setToolTipText("Corner radius for rectangular pictures (0 = sharp corners)");
+            slidePicCornerSpinner.addChangeListener(e -> { if (!isLoadingSlidePicture) onFormatChanged(); });
+
             JLabel tc4ePicLbl = styledLabel("\uD83D\uDDBC Pic:");
             tc4ePicLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
             tc4ePicLbl.setForeground(new Color(100, 200, 220));
@@ -7804,6 +7818,8 @@ public class GifSlideShowApp extends JFrame {
             toolbar4e.add(slidePicWidthSpinner);
             toolbar4e.add(styledLabel("Shape:"));
             toolbar4e.add(slidePicShapeCombo);
+            toolbar4e.add(styledLabel("Radius:"));
+            toolbar4e.add(slidePicCornerSpinner);
 
             // ===== Toolbar Row 5: Image Effects (3 rows) =====
             JPanel toolbar5a = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
@@ -8722,7 +8738,8 @@ public class GifSlideShowApp extends JFrame {
                     slidePicShowCheck.isSelected(), slidePicLoadedImage, slidePicLoadedFile,
                     (int) slidePicXSpinner.getValue(), (int) slidePicYSpinner.getValue(),
                     (int) slidePicWidthSpinner.getValue(),
-                    (String) slidePicShapeCombo.getSelectedItem()));
+                    (String) slidePicShapeCombo.getSelectedItem(),
+                    (int) slidePicCornerSpinner.getValue()));
         }
 
         private void loadSlidePictureFromItem(int index) {
@@ -8737,6 +8754,7 @@ public class GifSlideShowApp extends JFrame {
                 slidePicYSpinner.setValue(item.y);
                 slidePicWidthSpinner.setValue(item.widthPct);
                 slidePicShapeCombo.setSelectedItem(item.shape);
+                slidePicCornerSpinner.setValue(item.cornerRadius);
                 updateSlidePicPreview();
             } finally {
                 isLoadingSlidePicture = false;
@@ -8781,7 +8799,7 @@ public class GifSlideShowApp extends JFrame {
             if (formats == null || formats.isEmpty()) return;
             // Ensure we have at least as many items as the source.
             while (slidePictureItems.size() < formats.size()) {
-                slidePictureItems.add(new SlidePictureData(false, null, null, 50, 50, 20, "Rectangle"));
+                slidePictureItems.add(new SlidePictureData(false, null, null, 50, 50, 20, "Rectangle", 0));
             }
             // Sync position/size/shape from master, preserve each slide's own image and show state.
             for (int i = 0; i < formats.size(); i++) {
@@ -8790,7 +8808,7 @@ public class GifSlideShowApp extends JFrame {
                 boolean show = existing.image != null ? existing.show : fmt.show;
                 slidePictureItems.set(i, new SlidePictureData(show,
                         existing.image, existing.imageFile,
-                        fmt.x, fmt.y, fmt.widthPct, fmt.shape));
+                        fmt.x, fmt.y, fmt.widthPct, fmt.shape, fmt.cornerRadius));
             }
             if (currentSlidePictureIndex >= slidePictureItems.size()) {
                 currentSlidePictureIndex = 0;
