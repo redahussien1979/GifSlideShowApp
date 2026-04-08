@@ -2540,46 +2540,185 @@ public class GifSlideShowApp extends JFrame {
                         }
                     }
 
-                    // === Odometer: characters roll through random letters before landing ===
+                    // === Odometer: realistic mechanical drum per-character rendering ===
                     if (st.odometer && animFrameIndex >= 0) {
-                        // Calculate total chars across all lines for global char index
                         int odomCharsBefore = 0;
                         for (int tli = 0; tli < li; tli++) odomCharsBefore += stWrappedLines.get(tli).length();
-                        // Speed: 0 = very slow (many frames to settle), 100 = instant
                         double odomSpeed = st.odometerSpeed / 100.0;
-                        int settleBase = (int) (3 + 25 * (1.0 - odomSpeed));  // frames before first char lands
-                        int settleStagger = Math.max(1, (int) (1 + 8 * (1.0 - odomSpeed)));  // frames between each char landing
-                        char[] odomChars = visibleLine.toCharArray();
-                        boolean allLanded = true;
-                        for (int ci = 0; ci < odomChars.length; ci++) {
-                            char origChar = odomChars[ci];
-                            if (origChar == ' ') continue;  // don't roll spaces
+                        int settleBase = (int) (3 + 25 * (1.0 - odomSpeed));
+                        int settleStagger = Math.max(1, (int) (1 + 8 * (1.0 - odomSpeed)));
+                        int rollMul = Math.max(1, st.odometerRoll);
+                        int holdFrames = Math.max(1, 11 - rollMul);
+
+                        Graphics2D g2o = (Graphics2D) g.create();
+                        g2o.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                        g2o.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                        g2o.setFont(stFont);
+
+                        int cellPadX = (int)(scaledStSize * 0.2);
+                        int cellPadY = (int)(scaledStSize * 0.15);
+                        int cellH = stAscent + stFm.getDescent() + cellPadY * 2;
+                        int cellGap = Math.max(1, (int)(scaledStSize * 0.06));
+
+                        // Measure per-char widths and total width
+                        int[] charWidths = new int[visibleLine.length()];
+                        int[] cellWidths = new int[visibleLine.length()];
+                        int totalCellsWidth = 0;
+                        for (int ci = 0; ci < visibleLine.length(); ci++) {
+                            char ch = visibleLine.charAt(ci);
+                            if (ch == ' ') {
+                                charWidths[ci] = stFm.charWidth(' ');
+                                cellWidths[ci] = charWidths[ci]; // space = no box, just gap
+                            } else {
+                                charWidths[ci] = stFm.charWidth(ch);
+                                cellWidths[ci] = charWidths[ci] + cellPadX * 2;
+                            }
+                            totalCellsWidth += cellWidths[ci] + (ci < visibleLine.length() - 1 ? cellGap : 0);
+                        }
+
+                        // Starting X based on alignment
+                        int oStartX;
+                        if (st.alignment == SwingConstants.LEFT) {
+                            oStartX = stAlignLeft;
+                        } else if (st.alignment == SwingConstants.RIGHT) {
+                            oStartX = stAlignLeft + stAlignWidth - totalCellsWidth;
+                        } else {
+                            oStartX = stCenterX - totalCellsWidth / 2;
+                        }
+
+                        int cellTopY = lineY - stAscent - cellPadY;
+                        int cx = oStartX;
+
+                        for (int ci = 0; ci < visibleLine.length(); ci++) {
+                            char origChar = visibleLine.charAt(ci);
+
+                            if (origChar == ' ') {
+                                cx += cellWidths[ci] + cellGap;
+                                continue;
+                            }
+
+                            int cw = cellWidths[ci];
+
+                            // --- Cell background: dark with subtle gradient feel ---
+                            g2o.setColor(new Color(15, 15, 20, 210));
+                            g2o.fillRoundRect(cx, cellTopY, cw, cellH, 5, 5);
+                            // Inner shadow (top)
+                            g2o.setColor(new Color(0, 0, 0, 80));
+                            g2o.fillRect(cx + 1, cellTopY + 1, cw - 2, 3);
+                            // Subtle highlight (bottom)
+                            g2o.setColor(new Color(60, 60, 70, 60));
+                            g2o.fillRect(cx + 1, cellTopY + cellH - 4, cw - 2, 3);
+                            // Cell border
+                            g2o.setColor(new Color(70, 70, 80, 200));
+                            g2o.drawRoundRect(cx, cellTopY, cw, cellH, 5, 5);
+
+                            // --- Clip to cell interior ---
+                            Shape prevClip = g2o.getClip();
+                            g2o.clipRect(cx + 1, cellTopY + 1, cw - 2, cellH - 2);
+
                             int globalIdx = odomCharsBefore + ci;
                             int landFrame = settleBase + globalIdx * settleStagger;
-                            if (animFrameIndex < landFrame) {
-                                allLanded = false;
-                                // Cycling character: changes every frame, seeded by position for variety
-                                boolean isUpper = Character.isUpperCase(origChar);
-                                boolean isDigit = Character.isDigit(origChar);
-                                int rollMul = Math.max(1, st.odometerRoll);
-                                // Roll 1 = char changes every 10 frames (slow), 10 = every frame (fast)
-                                int holdFrames = Math.max(1, 11 - rollMul);
-                                int rollSeed = (animFrameIndex / holdFrames + globalIdx * 7);
-                                if (isDigit) {
-                                    odomChars[ci] = (char) ('0' + rollSeed % 10);
-                                } else if (origChar >= '\u0621' && origChar <= '\u064A') {
-                                    // Arabic letter — cycle through Arabic alphabet (28 letters)
-                                    odomChars[ci] = (char) ('\u0621' + rollSeed % 26);
-                                } else if (Character.isLetter(origChar)) {
-                                    int roll = rollSeed % 26;
-                                    odomChars[ci] = isUpper ? (char) ('A' + roll) : (char) ('a' + roll);
-                                } else {
-                                    // Non-letter, non-digit, non-space — keep as-is
-                                }
+                            int charCenterX = cx + cw / 2;
+
+                            // Determine effect color for this character
+                            Color charColor = stColor;
+                            if (effect.equals("Rainbow")) {
+                                float hue = ((ci * 8 + animFrameIndex * 3) % 360) / 360.0f;
+                                charColor = Color.getHSBColor(hue, 0.8f + 0.2f * (float) intensity, 1.0f);
+                            } else if (effect.equals("Fire")) {
+                                charColor = new Color(255, 220 + (int)(35 * Math.sin(animFrameIndex * 0.3 + ci)), 80);
+                            } else if (effect.equals("Ice")) {
+                                charColor = new Color(200, 230, 255);
+                            } else if (effect.equals("Neon")) {
+                                charColor = stColor.brighter();
                             }
+
+                            g2o.setFont(stFont);
+
+                            if (animFrameIndex >= landFrame) {
+                                // === LANDED: draw final character centered, stationary ===
+                                String chStr = String.valueOf(origChar);
+                                int chW = stFm.stringWidth(chStr);
+                                int chX = charCenterX - chW / 2;
+
+                                // Glow for Glow/Neon effects
+                                if (effect.equals("Glow") || effect.equals("Neon")) {
+                                    for (int gl = 3; gl >= 1; gl--) {
+                                        float gs = scaledStSize + gl * scaledStSize * 0.04f * (float) intensity;
+                                        Font gf = stFont.deriveFont(gs);
+                                        g2o.setFont(gf);
+                                        FontMetrics gfm = g2o.getFontMetrics();
+                                        int gAlpha = (int)(80 * intensity / gl);
+                                        g2o.setColor(new Color(charColor.getRed(), charColor.getGreen(), charColor.getBlue(), Math.min(255, gAlpha)));
+                                        int gChW = gfm.stringWidth(chStr);
+                                        g2o.drawString(chStr, charCenterX - gChW / 2, lineY - (gfm.getAscent() - stAscent) / 2);
+                                    }
+                                    g2o.setFont(stFont);
+                                }
+                                // Shadow
+                                if (effect.equals("Shadow")) {
+                                    int sOff = Math.max(1, (int)(scaledStSize * 0.05 * intensity));
+                                    g2o.setColor(new Color(0, 0, 0, (int)(120 * intensity)));
+                                    g2o.drawString(chStr, chX + sOff, lineY + sOff);
+                                }
+
+                                g2o.setColor(charColor);
+                                g2o.drawString(chStr, chX, lineY);
+                            } else {
+                                // === ROLLING: vertical drum scroll ===
+                                int rollFrame = animFrameIndex / holdFrames;
+                                double scrollProgress = (animFrameIndex % holdFrames) / (double) holdFrames;
+                                // Ease-out for mechanical feel
+                                double easedProgress = 1.0 - (1.0 - scrollProgress) * (1.0 - scrollProgress);
+                                int yOffset = (int)(cellH * easedProgress);
+
+                                // Get current and next drum characters
+                                char currChar = getOdometerDrumChar(origChar, rollFrame, globalIdx);
+                                char nextChar = getOdometerDrumChar(origChar, rollFrame + 1, globalIdx);
+                                String currStr = String.valueOf(currChar);
+                                String nextStr = String.valueOf(nextChar);
+                                int currW = stFm.stringWidth(currStr);
+                                int nextW = stFm.stringWidth(nextStr);
+
+                                // Glow layers for rolling chars (Glow/Neon)
+                                if (effect.equals("Glow") || effect.equals("Neon")) {
+                                    for (int gl = 2; gl >= 1; gl--) {
+                                        float gs = scaledStSize + gl * scaledStSize * 0.03f * (float) intensity;
+                                        Font gf = stFont.deriveFont(gs);
+                                        g2o.setFont(gf);
+                                        FontMetrics gfm = g2o.getFontMetrics();
+                                        int gAlpha = (int)(50 * intensity / gl);
+                                        g2o.setColor(new Color(charColor.getRed(), charColor.getGreen(), charColor.getBlue(), Math.min(255, gAlpha)));
+                                        int gcW = gfm.stringWidth(currStr);
+                                        int gnW = gfm.stringWidth(nextStr);
+                                        int gOffY = -(gfm.getAscent() - stAscent) / 2;
+                                        g2o.drawString(currStr, charCenterX - gcW / 2, lineY - yOffset + gOffY);
+                                        g2o.drawString(nextStr, charCenterX - gnW / 2, lineY - yOffset + cellH + gOffY);
+                                    }
+                                    g2o.setFont(stFont);
+                                }
+                                // Shadow for rolling chars
+                                if (effect.equals("Shadow")) {
+                                    int sOff = Math.max(1, (int)(scaledStSize * 0.04 * intensity));
+                                    g2o.setColor(new Color(0, 0, 0, (int)(100 * intensity)));
+                                    g2o.drawString(currStr, charCenterX - currW / 2 + sOff, lineY - yOffset + sOff);
+                                    g2o.drawString(nextStr, charCenterX - nextW / 2 + sOff, lineY - yOffset + cellH + sOff);
+                                }
+
+                                // Draw current char scrolling UP
+                                g2o.setColor(charColor);
+                                g2o.drawString(currStr, charCenterX - currW / 2, lineY - yOffset);
+                                // Draw next char entering from BELOW
+                                g2o.drawString(nextStr, charCenterX - nextW / 2, lineY - yOffset + cellH);
+                            }
+
+                            g2o.setClip(prevClip);
+                            cx += cw + cellGap;
                         }
-                        visibleLine = new String(odomChars);
-                        // On frame 0, show all rolling (no chars landed yet unless settleBase is 0)
+
+                        g2o.dispose();
+                        lineY += stLineHeight;
+                        continue; // skip normal effect rendering for this line
                     }
 
                     // === Build TextLayout for correct bidi/RTL visual positioning ===
@@ -3716,6 +3855,21 @@ public class GifSlideShowApp extends JFrame {
             g.drawString(w, (int) dx, y);
             dx += fm.stringWidth(w) + extraSpace;
         }
+    }
+
+    /** Get the character to display on the odometer drum at a given roll position. */
+    private static char getOdometerDrumChar(char target, int rollPosition, int globalIdx) {
+        int seed = rollPosition + globalIdx * 7;
+        if (Character.isDigit(target)) {
+            return (char) ('0' + seed % 10);
+        } else if (target >= '\u0621' && target <= '\u064A') {
+            return (char) ('\u0621' + seed % 26);
+        } else if (Character.isUpperCase(target)) {
+            return (char) ('A' + seed % 26);
+        } else if (Character.isLetter(target)) {
+            return (char) ('a' + seed % 26);
+        }
+        return target;
     }
 
     // ==================== Collect Slides & Ask Duration ====================
