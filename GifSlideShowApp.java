@@ -2562,7 +2562,9 @@ public class GifSlideShowApp extends JFrame {
                                 boolean isUpper = Character.isUpperCase(origChar);
                                 boolean isDigit = Character.isDigit(origChar);
                                 int rollMul = Math.max(1, st.odometerRoll);
-                                int rollSeed = (animFrameIndex * rollMul + globalIdx * 7);
+                                // Roll 1 = char changes every 10 frames (slow), 10 = every frame (fast)
+                                int holdFrames = Math.max(1, 11 - rollMul);
+                                int rollSeed = (animFrameIndex / holdFrames + globalIdx * 7);
                                 if (isDigit) {
                                     odomChars[ci] = (char) ('0' + rollSeed % 10);
                                 } else if (origChar >= '\u0621' && origChar <= '\u064A') {
