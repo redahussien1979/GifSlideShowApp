@@ -2561,11 +2561,17 @@ public class GifSlideShowApp extends JFrame {
                                 // Cycling character: changes every frame, seeded by position for variety
                                 boolean isUpper = Character.isUpperCase(origChar);
                                 boolean isDigit = Character.isDigit(origChar);
+                                int rollSeed = (animFrameIndex * 3 + globalIdx * 7);
                                 if (isDigit) {
-                                    odomChars[ci] = (char) ('0' + (animFrameIndex * 3 + globalIdx * 7) % 10);
-                                } else {
-                                    int roll = (animFrameIndex * 3 + globalIdx * 7) % 26;
+                                    odomChars[ci] = (char) ('0' + rollSeed % 10);
+                                } else if (origChar >= '\u0621' && origChar <= '\u064A') {
+                                    // Arabic letter — cycle through Arabic alphabet (28 letters)
+                                    odomChars[ci] = (char) ('\u0621' + rollSeed % 26);
+                                } else if (Character.isLetter(origChar)) {
+                                    int roll = rollSeed % 26;
                                     odomChars[ci] = isUpper ? (char) ('A' + roll) : (char) ('a' + roll);
+                                } else {
+                                    // Non-letter, non-digit, non-space — keep as-is
                                 }
                             }
                         }
