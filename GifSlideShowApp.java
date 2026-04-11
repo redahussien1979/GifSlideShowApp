@@ -2548,7 +2548,14 @@ public class GifSlideShowApp extends JFrame {
                         int settleBase = (int) (3 + 25 * (1.0 - odomSpeed));
                         int settleStagger = Math.max(1, (int) (1 + 8 * (1.0 - odomSpeed)));
                         int rollMul = Math.max(1, st.odometerRoll);
-                        int holdFrames = Math.max(1, 11 - rollMul);
+                        // Frames per full drum rotation (one character cycle).
+                        // Keep a minimum of 2 so the scroll is always visibly animated,
+                        // even at the fastest Roll setting.
+                        int holdFrames = Math.max(2, 12 - rollMul);
+                        // Guarantee each character completes at least 2 full drum rotations
+                        // before landing, so the mechanical scroll is always clearly visible.
+                        int minRotationFrames = holdFrames * 2;
+                        if (settleBase < minRotationFrames) settleBase = minRotationFrames;
 
                         // Landing order: Sequential = left→right, Random = shuffled order (deterministic per text)
                         boolean randomLand = "Random".equalsIgnoreCase(st.odometerLand);
@@ -2684,11 +2691,13 @@ public class GifSlideShowApp extends JFrame {
                                 g2o.drawString(chStr, chX, lineY);
                             } else {
                                 // === ROLLING: vertical drum scroll ===
+                                // A real mechanical odometer drum rotates at CONSTANT angular
+                                // velocity — use linear interpolation, not ease-out, so the
+                                // character physically slides upward at a uniform rate while
+                                // the next character enters from below at the same rate.
                                 int rollFrame = animFrameIndex / holdFrames;
                                 double scrollProgress = (animFrameIndex % holdFrames) / (double) holdFrames;
-                                // Ease-out for mechanical feel
-                                double easedProgress = 1.0 - (1.0 - scrollProgress) * (1.0 - scrollProgress);
-                                int yOffset = (int)(cellH * easedProgress);
+                                int yOffset = (int) (cellH * scrollProgress);
 
                                 // Get current and next drum characters
                                 char currChar = getOdometerDrumChar(origChar, rollFrame, globalIdx);
