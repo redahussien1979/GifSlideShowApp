@@ -327,6 +327,11 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(p + "italicText", t.italicText);
             props.setProperty(p + "colorText", t.colorText);
             props.setProperty(p + "colorTextColor", colorToHex(t.colorTextColor));
+            props.setProperty(p + "animEnabled", String.valueOf(t.animEnabled));
+            props.setProperty(p + "animPath", t.animPath);
+            props.setProperty(p + "animDurationMs", String.valueOf(t.animDurationMs));
+            props.setProperty(p + "animStartMs", String.valueOf(t.animStartMs));
+            props.setProperty(p + "animEasing", t.animEasing);
         }
 
         // Orientation
@@ -447,7 +452,13 @@ public class GifSlideShowApp extends JFrame {
                     props.getProperty(p + "boldText", ""),
                     props.getProperty(p + "italicText", ""),
                     props.getProperty(p + "colorText", ""),
-                    hexToColor(props.getProperty(p + "colorTextColor", "#FF5050"))
+                    hexToColor(props.getProperty(p + "colorTextColor", "#FF5050")),
+                    false, false, 50, 3, "Sequential",
+                    Boolean.parseBoolean(props.getProperty(p + "animEnabled", "false")),
+                    props.getProperty(p + "animPath", "From Left"),
+                    Integer.parseInt(props.getProperty(p + "animDurationMs", "1500")),
+                    Integer.parseInt(props.getProperty(p + "animStartMs", "0")),
+                    props.getProperty(p + "animEasing", "Ease Out")
             ));
         }
 
@@ -2462,6 +2473,27 @@ public class GifSlideShowApp extends JFrame {
                 int bgW = stMaxLineWidth + stPadX * 2;
                 int bgH = totalTextHeight + stPadY * 2;
 
+                // ===== Entry animation: fly text in from a start location to its final x/y.
+                // We apply a translate on the shared Graphics2D `g` so every subsequent
+                // draw (bg, text, odometer, highlight, effects) is offset by (animDx, animDy).
+                // The translate is reversed at the end of this per-text block. Static
+                // previews (live preview, one-shot exports) pass animFrameIndex < 0 which
+                // causes the helper to return {0,0} and show the text at its final x/y.
+                double animDx = 0, animDy = 0;
+                boolean animApplied = false;
+                if (st.animEnabled && animFrameIndex >= 0) {
+                    // 30fps is the canonical rate for all animated exports in this app.
+                    double[] off = computeSlideTextAnimOffset(
+                            st, animFrameIndex, 30.0,
+                            stCenterX, stCenterY, bgW, bgH, targetW, targetH);
+                    animDx = off[0];
+                    animDy = off[1];
+                    if (animDx != 0 || animDy != 0) {
+                        g.translate(animDx, animDy);
+                        animApplied = true;
+                    }
+                }
+
                 if (st.bgOpacity > 0) {
                     int alpha = (int) (st.bgOpacity / 100.0 * 255);
                     Color bgc = st.bgColor != null ? st.bgColor : Color.BLACK;
@@ -3587,6 +3619,12 @@ public class GifSlideShowApp extends JFrame {
 
                     lineY += stLineHeight;
                 }
+
+                // Reverse the entry-animation translate so other slide texts
+                // (and subsequent render stages) render at their absolute coords.
+                if (animApplied) {
+                    g.translate(-animDx, -animDy);
+                }
             }
         }
 
@@ -3768,6 +3806,170 @@ public class GifSlideShowApp extends JFrame {
 
         g.dispose();
         return frame;
+    }
+
+    // ========== Slide Text Entry Animation ==========
+
+    /**
+     * Compute the (dx, dy) pixel offset to translate the slide text's
+     * current rendering position, so the text appears to fly in from
+     * somewhere and land at its final X/Y.
+     *
+     * @param st          the SlideTextData (must have animEnabled == true)
+     * @param animFrameIndex current frame index within the slide (0-based)
+     * @param fps         frames per second of the output (30 for MP4, ~1000/duration for GIF)
+     * @param finalCx     final center X of the text (where it lands)
+     * @param finalCy     final center Y of the text (where it lands)
+     * @param bgW         text bounding box width (for off-screen start calculation)
+     * @param bgH         text bounding box height
+     * @param targetW     frame width
+     * @param targetH     frame height
+     * @return {dx, dy} pixel offset to apply BEFORE drawing (reverse it after)
+     */
+    static double[] computeSlideTextAnimOffset(SlideTextData st, int animFrameIndex, double fps,
+                                               int finalCx, int finalCy, int bgW, int bgH,
+                                               int targetW, int targetH) {
+        // Negative frame index = live preview / one-shot static render.
+        // Show the text at its final x/y (no fly-in offset) so the editor
+        // isn't cluttered with text that's been thrown off-screen.
+        if (animFrameIndex < 0) return new double[]{0.0, 0.0};
+        // Convert frame index → seconds since slide start
+        double tSec = animFrameIndex / Math.max(1.0, fps);
+        double startSec = Math.max(0.0, st.animStartMs / 1000.0);
+        double durSec = Math.max(0.05, st.animDurationMs / 1000.0);
+
+        // Before animation starts: text should be hidden off-screen at its start point.
+        // During [startSec, startSec+durSec]: interpolate from start → final.
+        // After: no offset (text stays at final x/y).
+        double rawProgress;
+        if (tSec < startSec) {
+            rawProgress = 0.0;
+        } else if (tSec >= startSec + durSec) {
+            return new double[]{0.0, 0.0};
+        } else {
+            rawProgress = (tSec - startSec) / durSec;
+        }
+
+        // Apply easing (satisfying deceleration into the final position).
+        double p = applyEasing(st.animEasing, rawProgress);
+
+        // Compute (startDx, startDy): the offset that places the text at its
+        // chosen starting location when progress = 0. The actual offset is
+        // startOffset * (1 - p) so that progress=0 gives full start offset
+        // and progress=1 gives (0,0).
+        int margin = Math.max(40, (bgW + bgH) / 4);
+        double startDx = 0, startDy = 0;
+
+        // For circular/spiral we use a parametric path rather than a simple
+        // linear interpolation of a fixed (startDx, startDy).
+        String path = st.animPath != null ? st.animPath : "From Left";
+        long seed = 0L;
+        if (st.text != null) seed = (long) st.text.hashCode() * 2654435761L;
+        java.util.Random rng = new java.util.Random(seed ^ 0x9E3779B97F4A7C15L);
+
+        // Resolve "Random Edge" to one of the four edges deterministically.
+        String resolvedPath = path;
+        if ("Random Edge".equals(path)) {
+            String[] edges = {"From Left", "From Right", "From Top", "From Bottom"};
+            resolvedPath = edges[Math.floorMod(rng.nextInt(), 4)];
+        }
+
+        switch (resolvedPath) {
+            case "From Left":
+                startDx = -(finalCx + bgW / 2.0 + margin);
+                startDy = 0;
+                break;
+            case "From Right":
+                startDx = (targetW - finalCx) + bgW / 2.0 + margin;
+                startDy = 0;
+                break;
+            case "From Top":
+                startDx = 0;
+                startDy = -(finalCy + bgH / 2.0 + margin);
+                break;
+            case "From Bottom":
+                startDx = 0;
+                startDy = (targetH - finalCy) + bgH / 2.0 + margin;
+                break;
+            case "Random Location": {
+                // Random point far from the final position, deterministic per text.
+                double ang = rng.nextDouble() * Math.PI * 2;
+                double dist = Math.max(targetW, targetH) * (0.55 + 0.3 * rng.nextDouble());
+                startDx = Math.cos(ang) * dist;
+                startDy = Math.sin(ang) * dist;
+                break;
+            }
+            case "Circular CW":
+            case "Circular CCW": {
+                // Arc swing: start at a fixed angle offset and rotate toward final.
+                // Radius shrinks slightly toward the end for a satisfying curve.
+                double radius = Math.min(targetW, targetH) * 0.35;
+                double startAng = rng.nextDouble() * Math.PI * 2;
+                // Rotate roughly 3/4 of a full turn over the duration.
+                double sweep = Math.PI * 1.5;
+                if ("Circular CCW".equals(resolvedPath)) sweep = -sweep;
+                double curAng = startAng + sweep * p;
+                // Radius interpolates from full → 0.
+                double curR = radius * (1.0 - p);
+                return new double[]{curR * Math.cos(curAng), curR * Math.sin(curAng)};
+            }
+            case "Spiral In": {
+                // Two full turns + radius shrink from big to 0.
+                double radius = Math.min(targetW, targetH) * 0.45;
+                double startAng = rng.nextDouble() * Math.PI * 2;
+                double sweep = Math.PI * 4.0; // 2 full rotations
+                double curAng = startAng + sweep * p;
+                double curR = radius * (1.0 - p);
+                return new double[]{curR * Math.cos(curAng), curR * Math.sin(curAng)};
+            }
+            default:
+                startDx = -(finalCx + bgW / 2.0 + margin);
+                startDy = 0;
+                break;
+        }
+
+        double dx = startDx * (1.0 - p);
+        double dy = startDy * (1.0 - p);
+        return new double[]{dx, dy};
+    }
+
+    /**
+     * Easing curves. All take t in [0,1] and return eased value in [0,1] (may
+     * slightly overshoot for Overshoot/Bounce — that's intentional).
+     */
+    static double applyEasing(String name, double t) {
+        if (t <= 0) return 0;
+        if (t >= 1) return 1;
+        String n = name != null ? name : "Ease Out";
+        switch (n) {
+            case "Linear":
+                return t;
+            case "Ease In Out": {
+                // cubic in/out
+                return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+            }
+            case "Bounce": {
+                // classic ease-out bounce
+                double n1 = 7.5625;
+                double d1 = 2.75;
+                double x = t;
+                if (x < 1 / d1) return n1 * x * x;
+                else if (x < 2 / d1) { x -= 1.5 / d1; return n1 * x * x + 0.75; }
+                else if (x < 2.5 / d1) { x -= 2.25 / d1; return n1 * x * x + 0.9375; }
+                else { x -= 2.625 / d1; return n1 * x * x + 0.984375; }
+            }
+            case "Overshoot": {
+                // easeOutBack — overshoots slightly then settles at 1
+                double c1 = 1.70158;
+                double c3 = c1 + 1;
+                return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+            }
+            case "Ease Out":
+            default: {
+                // cubic ease-out (very satisfying, snappy but smooth)
+                return 1 - Math.pow(1 - t, 3);
+            }
+        }
     }
 
     // ========== Stack Blur ==========
@@ -4491,6 +4693,7 @@ public class GifSlideShowApp extends JFrame {
                             if (!hasAnim && s.slideTexts != null) {
                                 for (SlideTextData stx : s.slideTexts) {
                                     if (stx.show && stx.odometer) { hasAnim = true; break; }
+                                    if (stx.show && stx.animEnabled) { hasAnim = true; break; }
                                     if (stx.show && stx.textEffect != null) {
                                         String fx = stx.textEffect;
                                         if (fx.equals("Water Ripple") || fx.equals("Fire") || fx.equals("Ice")
@@ -4724,6 +4927,7 @@ public class GifSlideShowApp extends JFrame {
                                 if (s.slideTexts != null) {
                                     for (SlideTextData stx : s.slideTexts) {
                                         if (stx.show && stx.odometer) { hasAnimatedText = true; break; }
+                                        if (stx.show && stx.animEnabled) { hasAnimatedText = true; break; }
                                         if (stx.show && stx.textEffect != null) {
                                             String fx = stx.textEffect;
                                             if (fx.equals("Water Ripple") || fx.equals("Fire") || fx.equals("Ice")
@@ -5621,6 +5825,7 @@ public class GifSlideShowApp extends JFrame {
                             if (s.slideTexts != null) {
                                 for (SlideTextData stx : s.slideTexts) {
                                     if (stx.show && stx.odometer) { hasAnimatedText = true; break; }
+                                    if (stx.show && stx.animEnabled) { hasAnimatedText = true; break; }
                                     if (stx.show && stx.textEffect != null) {
                                         String fx = stx.textEffect;
                                         if (fx.equals("Water Ripple") || fx.equals("Fire") || fx.equals("Ice")
@@ -6747,6 +6952,15 @@ public class GifSlideShowApp extends JFrame {
         final int odometerRoll;
         final String odometerLand; // "Sequential" or "Random"
 
+        // ---- Entry animation (text flies in from some location to its final x/y) ----
+        final boolean animEnabled;
+        final String animPath;     // "From Left", "From Right", "From Top", "From Bottom",
+                                   // "Random Edge", "Random Location", "Circular CW",
+                                   // "Circular CCW", "Spiral In"
+        final int animDurationMs;  // how long the fly-in takes (e.g. 1500 = 1.5 sec)
+        final int animStartMs;     // delay before animation starts (e.g. 2000 = start at second 2)
+        final String animEasing;   // "Ease Out", "Ease In Out", "Linear", "Bounce", "Overshoot"
+
         SlideTextData(boolean show, String text, String fontName, int fontSize,
                       int fontStyle, Color color, int x, int y, int bgOpacity,
                       Color bgColor, boolean justify, int widthPct, int shiftX,
@@ -6754,7 +6968,8 @@ public class GifSlideShowApp extends JFrame {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, "None", 50,
                     "", new Color(255, 100, 150, 180), "Regular", 50, "None", "",
-                    "", "", "", null, false, false, 50, 3, "Sequential");
+                    "", "", "", null, false, false, 50, 3, "Sequential",
+                    false, "From Left", 1500, 0, "Ease Out");
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -6764,7 +6979,8 @@ public class GifSlideShowApp extends JFrame {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     "", new Color(255, 100, 150, 180), "Regular", 50, "None", "",
-                    "", "", "", null, false, false, 50, 3, "Sequential");
+                    "", "", "", null, false, false, 50, 3, "Sequential",
+                    false, "From Left", 1500, 0, "Ease Out");
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -6775,7 +6991,8 @@ public class GifSlideShowApp extends JFrame {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     highlightText, highlightColor, highlightStyle, 50, "None", "",
-                    "", "", "", null, false, false, 50, 3, "Sequential");
+                    "", "", "", null, false, false, 50, 3, "Sequential",
+                    false, "From Left", 1500, 0, "Ease Out");
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -6787,7 +7004,8 @@ public class GifSlideShowApp extends JFrame {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, "",
-                    "", "", "", null, false, false, 50, 3, "Sequential");
+                    "", "", "", null, false, false, 50, 3, "Sequential",
+                    false, "From Left", 1500, 0, "Ease Out");
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -6799,7 +7017,8 @@ public class GifSlideShowApp extends JFrame {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, underlineText,
-                    "", "", "", null, false, false, 50, 3, "Sequential");
+                    "", "", "", null, false, false, 50, 3, "Sequential",
+                    false, "From Left", 1500, 0, "Ease Out");
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -6812,7 +7031,8 @@ public class GifSlideShowApp extends JFrame {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, underlineText,
-                    boldText, italicText, colorText, colorTextColor, false, false, 50, 3, "Sequential");
+                    boldText, italicText, colorText, colorTextColor, false, false, 50, 3, "Sequential",
+                    false, "From Left", 1500, 0, "Ease Out");
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -6826,7 +7046,8 @@ public class GifSlideShowApp extends JFrame {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, underlineText,
-                    boldText, italicText, colorText, colorTextColor, xLeftAligned, odometer, odometerSpeed, 3, "Sequential");
+                    boldText, italicText, colorText, colorTextColor, xLeftAligned, odometer, odometerSpeed, 3, "Sequential",
+                    false, "From Left", 1500, 0, "Ease Out");
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -6840,7 +7061,8 @@ public class GifSlideShowApp extends JFrame {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, underlineText,
-                    boldText, italicText, colorText, colorTextColor, xLeftAligned, odometer, odometerSpeed, odometerRoll, "Sequential");
+                    boldText, italicText, colorText, colorTextColor, xLeftAligned, odometer, odometerSpeed, odometerRoll, "Sequential",
+                    false, "From Left", 1500, 0, "Ease Out");
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -6852,6 +7074,24 @@ public class GifSlideShowApp extends JFrame {
                       String boldText, String italicText, String colorText, Color colorTextColor,
                       boolean xLeftAligned, boolean odometer, int odometerSpeed, int odometerRoll,
                       String odometerLand) {
+            this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
+                    bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
+                    highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, underlineText,
+                    boldText, italicText, colorText, colorTextColor, xLeftAligned, odometer, odometerSpeed, odometerRoll, odometerLand,
+                    false, "From Left", 1500, 0, "Ease Out");
+        }
+
+        SlideTextData(boolean show, String text, String fontName, int fontSize,
+                      int fontStyle, Color color, int x, int y, int bgOpacity,
+                      Color bgColor, boolean justify, int widthPct, int shiftX,
+                      int alignment, String textEffect, int textEffectIntensity,
+                      String highlightText, Color highlightColor, String highlightStyle,
+                      int highlightTightness, String underlineStyle, String underlineText,
+                      String boldText, String italicText, String colorText, Color colorTextColor,
+                      boolean xLeftAligned, boolean odometer, int odometerSpeed, int odometerRoll,
+                      String odometerLand,
+                      boolean animEnabled, String animPath, int animDurationMs,
+                      int animStartMs, String animEasing) {
             this.show = show;
             this.text = text;
             this.fontName = fontName;
@@ -6883,6 +7123,11 @@ public class GifSlideShowApp extends JFrame {
             this.odometerSpeed = odometerSpeed;
             this.odometerRoll = odometerRoll;
             this.odometerLand = odometerLand != null ? odometerLand : "Sequential";
+            this.animEnabled = animEnabled;
+            this.animPath = animPath != null ? animPath : "From Left";
+            this.animDurationMs = Math.max(100, animDurationMs);
+            this.animStartMs = Math.max(0, animStartMs);
+            this.animEasing = animEasing != null ? animEasing : "Ease Out";
         }
     }
 
@@ -7101,6 +7346,12 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner slideTextOdometerSpeedSpinner;
         private final JSpinner slideTextOdometerRollSpinner;
         private final JComboBox<String> slideTextOdometerLandCombo;
+        // Entry animation controls (toolbar 4f)
+        private final JCheckBox slideTextAnimCheck;
+        private final JComboBox<String> slideTextAnimPathCombo;
+        private final JSpinner slideTextAnimDurationSpinner; // seconds (double)
+        private final JSpinner slideTextAnimStartSpinner;    // seconds (double)
+        private final JComboBox<String> slideTextAnimEasingCombo;
         private final JTextField slideTextHighlightField;
         private final JButton slideTextHighlightColorBtn;
         private Color slideTextHighlightColor = new Color(255, 100, 150, 180);
@@ -7529,6 +7780,8 @@ public class GifSlideShowApp extends JFrame {
             toolbar4c.setBackground(new Color(50, 95, 60));
             JPanel toolbar4d = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
             toolbar4d.setBackground(new Color(50, 95, 60));
+            JPanel toolbar4f = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
+            toolbar4f.setBackground(new Color(60, 40, 95));
 
             // Initialize with one default slide text item
             slideTextItems.add(new SlideTextData(false, "", loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI",
@@ -7957,6 +8210,72 @@ public class GifSlideShowApp extends JFrame {
             toolbar4c2.add(tc4c2LandLbl);
             toolbar4c2.add(slideTextOdometerLandCombo);
             toolbar4c2.add(tc4c2HintLbl);
+
+            // --- Entry Animation controls ---
+            slideTextAnimCheck = new JCheckBox("Animate");
+            slideTextAnimCheck.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            slideTextAnimCheck.setForeground(new Color(220, 180, 255));
+            slideTextAnimCheck.setBackground(new Color(60, 40, 95));
+            slideTextAnimCheck.setFocusPainted(false);
+            slideTextAnimCheck.setToolTipText("Fly the text in from some location to its final X/Y. Does not affect static export.");
+            slideTextAnimCheck.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextAnimPathCombo = new JComboBox<>(new String[]{
+                    "From Left", "From Right", "From Top", "From Bottom",
+                    "Random Edge", "Random Location",
+                    "Circular CW", "Circular CCW", "Spiral In"
+            });
+            slideTextAnimPathCombo.setPreferredSize(new Dimension(120, 24));
+            slideTextAnimPathCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextAnimPathCombo.setToolTipText("Path the text takes before landing at its final X/Y. Circular/Spiral give curved arcs.");
+            slideTextAnimPathCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextAnimDurationSpinner = new JSpinner(new SpinnerNumberModel(1.5, 0.1, 10.0, 0.1));
+            slideTextAnimDurationSpinner.setPreferredSize(new Dimension(60, 24));
+            slideTextAnimDurationSpinner.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextAnimDurationSpinner.setToolTipText("Animation speed: duration in seconds (smaller = faster)");
+            slideTextAnimDurationSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextAnimStartSpinner = new JSpinner(new SpinnerNumberModel(0.0, 0.0, 120.0, 0.5));
+            slideTextAnimStartSpinner.setPreferredSize(new Dimension(60, 24));
+            slideTextAnimStartSpinner.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextAnimStartSpinner.setToolTipText("When the animation starts (seconds into the slide). 0 = immediately, 2 = at second 2, etc.");
+            slideTextAnimStartSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextAnimEasingCombo = new JComboBox<>(new String[]{
+                    "Ease Out", "Ease In Out", "Linear", "Bounce", "Overshoot"
+            });
+            slideTextAnimEasingCombo.setPreferredSize(new Dimension(95, 24));
+            slideTextAnimEasingCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextAnimEasingCombo.setToolTipText("Easing curve — how the motion decelerates as it lands");
+            slideTextAnimEasingCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            JLabel tc4fAnimLbl = styledLabel("      \u2708 Fly-In:");
+            tc4fAnimLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4fAnimLbl.setForeground(new Color(220, 180, 255));
+            JLabel tc4fPathLbl = styledLabel("Path:");
+            tc4fPathLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4fPathLbl.setForeground(new Color(220, 180, 255));
+            JLabel tc4fDurLbl = styledLabel("Dur(s):");
+            tc4fDurLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4fDurLbl.setForeground(new Color(220, 180, 255));
+            JLabel tc4fStartLbl = styledLabel("Start(s):");
+            tc4fStartLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4fStartLbl.setForeground(new Color(220, 180, 255));
+            JLabel tc4fEaseLbl = styledLabel("Ease:");
+            tc4fEaseLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4fEaseLbl.setForeground(new Color(220, 180, 255));
+
+            toolbar4f.add(tc4fAnimLbl);
+            toolbar4f.add(slideTextAnimCheck);
+            toolbar4f.add(tc4fPathLbl);
+            toolbar4f.add(slideTextAnimPathCombo);
+            toolbar4f.add(tc4fDurLbl);
+            toolbar4f.add(slideTextAnimDurationSpinner);
+            toolbar4f.add(tc4fStartLbl);
+            toolbar4f.add(slideTextAnimStartSpinner);
+            toolbar4f.add(tc4fEaseLbl);
+            toolbar4f.add(slideTextAnimEasingCombo);
 
             JLabel tc4dBLbl = styledLabel("      \uD835\uDC01 Bold:");
             tc4dBLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
@@ -8669,6 +8988,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(toolbar4b);
             toolbarsPanel.add(toolbar4c);
             toolbarsPanel.add(toolbar4c2);
+            toolbarsPanel.add(toolbar4f);
             toolbarsPanel.add(toolbar4d);
             toolbarsPanel.add(toolbar4e);
             toolbarsPanel.add(createToolbarSeparator());
@@ -8713,6 +9033,10 @@ public class GifSlideShowApp extends JFrame {
             }
             boolean prevXLeftAligned = currentSlideTextIndex < slideTextItems.size()
                     ? slideTextItems.get(currentSlideTextIndex).xLeftAligned : false;
+            double animDurSec = ((Number) slideTextAnimDurationSpinner.getValue()).doubleValue();
+            double animStartSec = ((Number) slideTextAnimStartSpinner.getValue()).doubleValue();
+            int animDurMs = (int) Math.round(animDurSec * 1000.0);
+            int animStartMs = (int) Math.round(animStartSec * 1000.0);
             slideTextItems.set(currentSlideTextIndex, new SlideTextData(
                     slideTextCheckBox.isSelected(), slideTextArea.getText(),
                     (String) slideTextFontCombo.getSelectedItem(), (int) slideTextSizeSpinner.getValue(),
@@ -8733,7 +9057,11 @@ public class GifSlideShowApp extends JFrame {
                     slideTextOdometerCheck.isSelected(),
                     (int) slideTextOdometerSpeedSpinner.getValue(),
                     (int) slideTextOdometerRollSpinner.getValue(),
-                    (String) slideTextOdometerLandCombo.getSelectedItem()));
+                    (String) slideTextOdometerLandCombo.getSelectedItem(),
+                    slideTextAnimCheck.isSelected(),
+                    (String) slideTextAnimPathCombo.getSelectedItem(),
+                    animDurMs, animStartMs,
+                    (String) slideTextAnimEasingCombo.getSelectedItem()));
         }
 
         private void loadSlideTextFromItem(int index) {
@@ -8780,6 +9108,11 @@ public class GifSlideShowApp extends JFrame {
                 slideTextOdometerSpeedSpinner.setValue(item.odometerSpeed);
                 slideTextOdometerRollSpinner.setValue(item.odometerRoll);
                 slideTextOdometerLandCombo.setSelectedItem(item.odometerLand != null ? item.odometerLand : "Sequential");
+                slideTextAnimCheck.setSelected(item.animEnabled);
+                slideTextAnimPathCombo.setSelectedItem(item.animPath != null ? item.animPath : "From Left");
+                slideTextAnimDurationSpinner.setValue(Math.max(0.1, item.animDurationMs / 1000.0));
+                slideTextAnimStartSpinner.setValue(Math.max(0.0, item.animStartMs / 1000.0));
+                slideTextAnimEasingCombo.setSelectedItem(item.animEasing != null ? item.animEasing : "Ease Out");
             } finally {
                 isLoadingSlideText = false;
             }
@@ -8832,7 +9165,8 @@ public class GifSlideShowApp extends JFrame {
                         fmt.textEffect, fmt.textEffectIntensity,
                         hlText, fmt.highlightColor, fmt.highlightStyle,
                         fmt.highlightTightness, fmt.underlineStyle, ulText,
-                        bText, iText, cText, fmt.colorTextColor, existing.xLeftAligned, fmt.odometer, fmt.odometerSpeed, fmt.odometerRoll, fmt.odometerLand));
+                        bText, iText, cText, fmt.colorTextColor, existing.xLeftAligned, fmt.odometer, fmt.odometerSpeed, fmt.odometerRoll, fmt.odometerLand,
+                        fmt.animEnabled, fmt.animPath, fmt.animDurationMs, fmt.animStartMs, fmt.animEasing));
             }
             // For extra items beyond what the source has, apply formatting
             // from the last source item so they get consistent styling.
@@ -8854,7 +9188,8 @@ public class GifSlideShowApp extends JFrame {
                             "None", 50,
                             hlText, lastFmt.highlightColor, lastFmt.highlightStyle,
                             lastFmt.highlightTightness, lastFmt.underlineStyle, ulText,
-                            bText, iText, cText, lastFmt.colorTextColor, existing.xLeftAligned, false, 50, 3, "Sequential"));
+                            bText, iText, cText, lastFmt.colorTextColor, existing.xLeftAligned, false, 50, 3, "Sequential",
+                            lastFmt.animEnabled, lastFmt.animPath, lastFmt.animDurationMs, lastFmt.animStartMs, lastFmt.animEasing));
                 }
             }
             if (currentSlideTextIndex >= slideTextItems.size()) {
@@ -9354,7 +9689,7 @@ public class GifSlideShowApp extends JFrame {
                     getFxScanline(), getFxRaised(),
                     isOverlayEnabled(),
                     getOverlayShape(), getOverlayBgMode(), getOverlayBgColor(),
-                    getOverlayX(), getOverlayY(), getOverlaySize(), 0,
+                    getOverlayX(), getOverlayY(), getOverlaySize(), -1,
                     isTextJustify(), getTextWidthPct(),
                     getHighlightText(), getHighlightColor(),
                     getTextShiftX(), getSlidePictureDataList());
