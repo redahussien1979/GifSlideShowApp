@@ -2550,6 +2550,23 @@ public class GifSlideShowApp extends JFrame {
                         int rollMul = Math.max(1, st.odometerRoll);
                         int holdFrames = Math.max(1, 11 - rollMul);
 
+                        // Landing order: Sequential = left→right, Random = shuffled order (deterministic per text)
+                        boolean randomLand = "Random".equalsIgnoreCase(st.odometerLand);
+                        int[] landStaggerOrder = null;
+                        if (randomLand) {
+                            // Build a list of non-space char positions within this line, shuffle with seed
+                            java.util.List<Integer> nonSpacePositions = new java.util.ArrayList<>();
+                            for (int ci = 0; ci < visibleLine.length(); ci++) {
+                                if (visibleLine.charAt(ci) != ' ') nonSpacePositions.add(ci);
+                            }
+                            long seed = (long) visibleLine.hashCode() * 31L + li * 131L + odomCharsBefore;
+                            java.util.Collections.shuffle(nonSpacePositions, new java.util.Random(seed));
+                            landStaggerOrder = new int[visibleLine.length()];
+                            for (int k = 0; k < nonSpacePositions.size(); k++) {
+                                landStaggerOrder[nonSpacePositions.get(k)] = k;
+                            }
+                        }
+
                         Graphics2D g2o = (Graphics2D) g.create();
                         g2o.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                         g2o.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
@@ -2617,7 +2634,8 @@ public class GifSlideShowApp extends JFrame {
                             g2o.clipRect(cx + 1, cellTopY + 1, cw - 2, cellH - 2);
 
                             int globalIdx = odomCharsBefore + ci;
-                            int landFrame = settleBase + globalIdx * settleStagger;
+                            int staggerIdx = (landStaggerOrder != null) ? landStaggerOrder[ci] : (odomCharsBefore + ci);
+                            int landFrame = settleBase + staggerIdx * settleStagger;
                             int charCenterX = cx + cw / 2;
 
                             // Determine effect color for this character
@@ -6540,7 +6558,7 @@ public class GifSlideShowApp extends JFrame {
                         st.textEffect, st.textEffectIntensity,
                         useHlText, useHlColor, useHlStyle,
                         st.highlightTightness, ulStyle, ulText,
-                        st.boldText, st.italicText, st.colorText, st.colorTextColor, st.xLeftAligned, st.odometer, st.odometerSpeed, st.odometerRoll));
+                        st.boldText, st.italicText, st.colorText, st.colorTextColor, st.xLeftAligned, st.odometer, st.odometerSpeed, st.odometerRoll, st.odometerLand));
             } else {
                 result.add(st);
             }
@@ -6718,6 +6736,7 @@ public class GifSlideShowApp extends JFrame {
         final boolean odometer;
         final int odometerSpeed;
         final int odometerRoll;
+        final String odometerLand; // "Sequential" or "Random"
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
                       int fontStyle, Color color, int x, int y, int bgOpacity,
@@ -6726,7 +6745,7 @@ public class GifSlideShowApp extends JFrame {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, "None", 50,
                     "", new Color(255, 100, 150, 180), "Regular", 50, "None", "",
-                    "", "", "", null, false, false, 50, 3);
+                    "", "", "", null, false, false, 50, 3, "Sequential");
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -6736,7 +6755,7 @@ public class GifSlideShowApp extends JFrame {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     "", new Color(255, 100, 150, 180), "Regular", 50, "None", "",
-                    "", "", "", null, false, false, 50, 3);
+                    "", "", "", null, false, false, 50, 3, "Sequential");
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -6747,7 +6766,7 @@ public class GifSlideShowApp extends JFrame {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     highlightText, highlightColor, highlightStyle, 50, "None", "",
-                    "", "", "", null, false, false, 50, 3);
+                    "", "", "", null, false, false, 50, 3, "Sequential");
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -6759,7 +6778,7 @@ public class GifSlideShowApp extends JFrame {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, "",
-                    "", "", "", null, false, false, 50, 3);
+                    "", "", "", null, false, false, 50, 3, "Sequential");
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -6771,7 +6790,7 @@ public class GifSlideShowApp extends JFrame {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, underlineText,
-                    "", "", "", null, false, false, 50, 3);
+                    "", "", "", null, false, false, 50, 3, "Sequential");
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -6784,7 +6803,7 @@ public class GifSlideShowApp extends JFrame {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, underlineText,
-                    boldText, italicText, colorText, colorTextColor, false, false, 50, 3);
+                    boldText, italicText, colorText, colorTextColor, false, false, 50, 3, "Sequential");
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -6798,7 +6817,7 @@ public class GifSlideShowApp extends JFrame {
             this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, underlineText,
-                    boldText, italicText, colorText, colorTextColor, xLeftAligned, odometer, odometerSpeed, 3);
+                    boldText, italicText, colorText, colorTextColor, xLeftAligned, odometer, odometerSpeed, 3, "Sequential");
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -6809,6 +6828,21 @@ public class GifSlideShowApp extends JFrame {
                       int highlightTightness, String underlineStyle, String underlineText,
                       String boldText, String italicText, String colorText, Color colorTextColor,
                       boolean xLeftAligned, boolean odometer, int odometerSpeed, int odometerRoll) {
+            this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
+                    bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
+                    highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, underlineText,
+                    boldText, italicText, colorText, colorTextColor, xLeftAligned, odometer, odometerSpeed, odometerRoll, "Sequential");
+        }
+
+        SlideTextData(boolean show, String text, String fontName, int fontSize,
+                      int fontStyle, Color color, int x, int y, int bgOpacity,
+                      Color bgColor, boolean justify, int widthPct, int shiftX,
+                      int alignment, String textEffect, int textEffectIntensity,
+                      String highlightText, Color highlightColor, String highlightStyle,
+                      int highlightTightness, String underlineStyle, String underlineText,
+                      String boldText, String italicText, String colorText, Color colorTextColor,
+                      boolean xLeftAligned, boolean odometer, int odometerSpeed, int odometerRoll,
+                      String odometerLand) {
             this.show = show;
             this.text = text;
             this.fontName = fontName;
@@ -6839,6 +6873,7 @@ public class GifSlideShowApp extends JFrame {
             this.odometer = odometer;
             this.odometerSpeed = odometerSpeed;
             this.odometerRoll = odometerRoll;
+            this.odometerLand = odometerLand != null ? odometerLand : "Sequential";
         }
     }
 
@@ -7056,6 +7091,7 @@ public class GifSlideShowApp extends JFrame {
         private final JCheckBox slideTextOdometerCheck;
         private final JSpinner slideTextOdometerSpeedSpinner;
         private final JSpinner slideTextOdometerRollSpinner;
+        private final JComboBox<String> slideTextOdometerLandCombo;
         private final JTextField slideTextHighlightField;
         private final JButton slideTextHighlightColorBtn;
         private Color slideTextHighlightColor = new Color(255, 100, 150, 180);
@@ -7746,6 +7782,12 @@ public class GifSlideShowApp extends JFrame {
             slideTextOdometerRollSpinner.setToolTipText("Roll speed — how fast characters cycle during spin (1=slow flip, 3=normal, 10=blur)");
             slideTextOdometerRollSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
+            slideTextOdometerLandCombo = new JComboBox<>(new String[]{"Sequential", "Random"});
+            slideTextOdometerLandCombo.setPreferredSize(new Dimension(95, 24));
+            slideTextOdometerLandCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextOdometerLandCombo.setToolTipText("Landing order — Sequential: chars land left→right. Random: chars land in random order.");
+            slideTextOdometerLandCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
             slideTextHighlightField = new JTextField(8);
             slideTextHighlightField.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             slideTextHighlightField.setPreferredSize(new Dimension(80, 24));
@@ -7891,6 +7933,9 @@ public class GifSlideShowApp extends JFrame {
             JLabel tc4c2RollLbl = styledLabel("Roll:");
             tc4c2RollLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
             tc4c2RollLbl.setForeground(new Color(255, 200, 100));
+            JLabel tc4c2LandLbl = styledLabel("Land:");
+            tc4c2LandLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4c2LandLbl.setForeground(new Color(255, 200, 100));
             JLabel tc4c2HintLbl = styledLabel("(Settle: 0=slow..100=instant  Roll: 1=slow flip..10=blur)");
             tc4c2HintLbl.setFont(new Font("Segoe UI", Font.ITALIC, 10));
             tc4c2HintLbl.setForeground(new Color(180, 180, 140));
@@ -7900,6 +7945,8 @@ public class GifSlideShowApp extends JFrame {
             toolbar4c2.add(slideTextOdometerSpeedSpinner);
             toolbar4c2.add(tc4c2RollLbl);
             toolbar4c2.add(slideTextOdometerRollSpinner);
+            toolbar4c2.add(tc4c2LandLbl);
+            toolbar4c2.add(slideTextOdometerLandCombo);
             toolbar4c2.add(tc4c2HintLbl);
 
             JLabel tc4dBLbl = styledLabel("      \uD835\uDC01 Bold:");
@@ -8676,7 +8723,8 @@ public class GifSlideShowApp extends JFrame {
                     slideTextColorTextField.getText(), slideTextColorTextColor, prevXLeftAligned,
                     slideTextOdometerCheck.isSelected(),
                     (int) slideTextOdometerSpeedSpinner.getValue(),
-                    (int) slideTextOdometerRollSpinner.getValue()));
+                    (int) slideTextOdometerRollSpinner.getValue(),
+                    (String) slideTextOdometerLandCombo.getSelectedItem()));
         }
 
         private void loadSlideTextFromItem(int index) {
@@ -8722,6 +8770,7 @@ public class GifSlideShowApp extends JFrame {
                 slideTextOdometerCheck.setSelected(item.odometer);
                 slideTextOdometerSpeedSpinner.setValue(item.odometerSpeed);
                 slideTextOdometerRollSpinner.setValue(item.odometerRoll);
+                slideTextOdometerLandCombo.setSelectedItem(item.odometerLand != null ? item.odometerLand : "Sequential");
             } finally {
                 isLoadingSlideText = false;
             }
@@ -8774,7 +8823,7 @@ public class GifSlideShowApp extends JFrame {
                         fmt.textEffect, fmt.textEffectIntensity,
                         hlText, fmt.highlightColor, fmt.highlightStyle,
                         fmt.highlightTightness, fmt.underlineStyle, ulText,
-                        bText, iText, cText, fmt.colorTextColor, existing.xLeftAligned, fmt.odometer, fmt.odometerSpeed, fmt.odometerRoll));
+                        bText, iText, cText, fmt.colorTextColor, existing.xLeftAligned, fmt.odometer, fmt.odometerSpeed, fmt.odometerRoll, fmt.odometerLand));
             }
             // For extra items beyond what the source has, apply formatting
             // from the last source item so they get consistent styling.
@@ -8796,7 +8845,7 @@ public class GifSlideShowApp extends JFrame {
                             "None", 50,
                             hlText, lastFmt.highlightColor, lastFmt.highlightStyle,
                             lastFmt.highlightTightness, lastFmt.underlineStyle, ulText,
-                            bText, iText, cText, lastFmt.colorTextColor, existing.xLeftAligned, false, 50, 3));
+                            bText, iText, cText, lastFmt.colorTextColor, existing.xLeftAligned, false, 50, 3, "Sequential"));
                 }
             }
             if (currentSlideTextIndex >= slideTextItems.size()) {
