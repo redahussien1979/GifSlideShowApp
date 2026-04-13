@@ -493,7 +493,7 @@ public class GifSlideShowApp extends JFrame {
                         textJustify, textWidthPct, highlightText, highlightColor,
                         textShiftX,
                         null, -1, 50, 25, 30,
-                        0.0);
+                        0.0, null, null);
             }
         } finally {
             isSyncingFormat = false;
@@ -626,7 +626,7 @@ public class GifSlideShowApp extends JFrame {
                 "Rectangular", "Blur", new Color(21, 32, 43), 50, 50, 20,
                 false, 100, "", new Color(255, 255, 0, 180), 0,
                 null, -1, 50, 25, 30,
-                0.0);
+                0.0, null, null);
 
         slideRows.add(0, titleRow);
         rebuildSlidesPanel();
@@ -1703,6 +1703,8 @@ public class GifSlideShowApp extends JFrame {
         int voY = source.getSlideVideoOverlayY();
         int voSize = source.getSlideVideoOverlaySize();
         double audioGapSeconds = ((Number) source.audioGapSpinner.getValue()).doubleValue();
+        Color audioHlColor = source.getAudioHlColor();
+        String audioHlEffects = source.getAudioHlEffects();
 
         isSyncingFormat = true;
         try {
@@ -1720,7 +1722,7 @@ public class GifSlideShowApp extends JFrame {
                         textJustify, textWidthPct, highlightText, hlColor,
                         textShiftX,
                         voFile, voDurationMs, voX, voY, voSize,
-                        audioGapSeconds);
+                        audioGapSeconds, audioHlColor, audioHlEffects);
             }
         } finally {
             isSyncingFormat = false;
@@ -8796,6 +8798,7 @@ public class GifSlideShowApp extends JFrame {
                 if (c != null) {
                     audioHlColor = new Color(c.getRed(), c.getGreen(), c.getBlue(), 160);
                     audioHlColorBtn.setForeground(audioHlColor);
+                    onFormatChanged();
                 }
             });
 
@@ -8828,6 +8831,7 @@ public class GifSlideShowApp extends JFrame {
             audioFxGlow.setBorder(BorderFactory.createLineBorder(fxBtnOnBorder, 1));
             audioFxGlow.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
             audioFxGlow.addItemListener(fxToggleStyler);
+            audioFxGlow.addItemListener(e -> onFormatChanged());
 
             audioFxEnlarge = new JToggleButton("Big");
             audioFxEnlarge.setFont(fxBtnFont); audioFxEnlarge.setPreferredSize(new Dimension(42, 24));
@@ -8836,6 +8840,7 @@ public class GifSlideShowApp extends JFrame {
             audioFxEnlarge.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
             audioFxEnlarge.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
             audioFxEnlarge.addItemListener(fxToggleStyler);
+            audioFxEnlarge.addItemListener(e -> onFormatChanged());
 
             audioFxBold = new JToggleButton("Bold");
             audioFxBold.setFont(fxBtnFont); audioFxBold.setPreferredSize(new Dimension(48, 24));
@@ -8844,6 +8849,7 @@ public class GifSlideShowApp extends JFrame {
             audioFxBold.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
             audioFxBold.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
             audioFxBold.addItemListener(fxToggleStyler);
+            audioFxBold.addItemListener(e -> onFormatChanged());
 
             audioFxUnderline = new JToggleButton("UL");
             audioFxUnderline.setFont(fxBtnFont); audioFxUnderline.setPreferredSize(new Dimension(36, 24));
@@ -8852,6 +8858,7 @@ public class GifSlideShowApp extends JFrame {
             audioFxUnderline.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
             audioFxUnderline.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
             audioFxUnderline.addItemListener(fxToggleStyler);
+            audioFxUnderline.addItemListener(e -> onFormatChanged());
 
             audioFxColor = new JToggleButton("Clr");
             audioFxColor.setFont(fxBtnFont); audioFxColor.setPreferredSize(new Dimension(38, 24));
@@ -8860,6 +8867,7 @@ public class GifSlideShowApp extends JFrame {
             audioFxColor.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
             audioFxColor.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
             audioFxColor.addItemListener(fxToggleStyler);
+            audioFxColor.addItemListener(e -> onFormatChanged());
 
             audioFxShake = new JToggleButton("Shake");
             audioFxShake.setFont(fxBtnFont); audioFxShake.setPreferredSize(new Dimension(52, 24));
@@ -8868,6 +8876,7 @@ public class GifSlideShowApp extends JFrame {
             audioFxShake.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
             audioFxShake.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
             audioFxShake.addItemListener(fxToggleStyler);
+            audioFxShake.addItemListener(e -> onFormatChanged());
 
             audioFxPulse = new JToggleButton("Pulse");
             audioFxPulse.setFont(fxBtnFont); audioFxPulse.setPreferredSize(new Dimension(52, 24));
@@ -8876,6 +8885,7 @@ public class GifSlideShowApp extends JFrame {
             audioFxPulse.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
             audioFxPulse.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
             audioFxPulse.addItemListener(fxToggleStyler);
+            audioFxPulse.addItemListener(e -> onFormatChanged());
 
             JLabel gapLbl = styledLabel("  \u23F1 Gap:");
             gapLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
@@ -9588,7 +9598,7 @@ public class GifSlideShowApp extends JFrame {
                              String highlightText, Color highlightColor,
                              int textShiftX,
                              File voFile, int voDurationMs, int voX, int voY, int voSize,
-                             double audioGapSeconds) {
+                             double audioGapSeconds, Color audioHlColorVal, String audioHlEffectsVal) {
             fontCombo.setSelectedItem(fontName);
             sizeSpinner.setValue(fontSize);
             boldBtn.setSelected((fontStyle & Font.BOLD) != 0);
@@ -9661,6 +9671,22 @@ public class GifSlideShowApp extends JFrame {
             }
 
             audioGapSpinner.setValue(audioGapSeconds);
+
+            // Sync audio highlight color and FX effects
+            if (audioHlColorVal != null) {
+                audioHlColor = audioHlColorVal;
+                audioHlColorBtn.setForeground(audioHlColor);
+            }
+            if (audioHlEffectsVal != null) {
+                Set<String> fxSet = new HashSet<>(Arrays.asList(audioHlEffectsVal.split(",")));
+                audioFxGlow.setSelected(fxSet.contains("Glow"));
+                audioFxEnlarge.setSelected(fxSet.contains("Enlarge"));
+                audioFxBold.setSelected(fxSet.contains("Bold"));
+                audioFxUnderline.setSelected(fxSet.contains("Underline"));
+                audioFxColor.setSelected(fxSet.contains("Color"));
+                audioFxShake.setSelected(fxSet.contains("Shake"));
+                audioFxPulse.setSelected(fxSet.contains("Pulse"));
+            }
 
             updateTextAreaStyle();
             schedulePreview();
