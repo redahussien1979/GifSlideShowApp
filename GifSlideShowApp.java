@@ -178,6 +178,11 @@ public class GifSlideShowApp extends JFrame {
         topRow.add(gifBtn);
         topRow.add(mp4Btn);
 
+        JButton clearAllBtn = createStyledButton("Clear All", new Color(180, 50, 50));
+        clearAllBtn.setToolTipText("Remove all slides and start fresh");
+        clearAllBtn.addActionListener(e -> clearAllSlides());
+        topRow.add(clearAllBtn);
+
         // Preset controls
         JLabel presetLabel = new JLabel("Preset:");
         presetLabel.setForeground(Color.LIGHT_GRAY);
@@ -994,8 +999,22 @@ public class GifSlideShowApp extends JFrame {
             return a.getName().compareToIgnoreCase(b.getName());
         });
 
-        if (slideRows.size() == 1 && slideRows.get(0).getImage() == null
-                && !slideRows.get(0).isTitleGridSlide) {
+        // If there are existing slides with content, ask user whether to add or overwrite
+        boolean hasContent = slideRows.size() > 1
+                || (slideRows.size() == 1 && (slideRows.get(0).getImage() != null || slideRows.get(0).isTitleGridSlide));
+        if (hasContent) {
+            String[] options = {"Add to existing", "Overwrite all"};
+            int choice = JOptionPane.showOptionDialog(this,
+                    "You have " + slideRows.size() + " existing slide(s).\nHow would you like to import?",
+                    "Bulk Import", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
+                    null, options, options[0]);
+            if (choice < 0) return;
+            if (choice == 1) {
+                slideRows.clear();
+                slidesPanel.removeAll();
+            }
+        } else {
+            // Single empty slide — just clear it
             slideRows.clear();
             slidesPanel.removeAll();
         }
@@ -1772,6 +1791,19 @@ public class GifSlideShowApp extends JFrame {
             JScrollBar vBar = scrollPane.getVerticalScrollBar();
             vBar.setValue(vBar.getMaximum());
         });
+    }
+
+    private void clearAllSlides() {
+        if (slideRows.isEmpty()) return;
+        int confirm = JOptionPane.showConfirmDialog(this,
+                "Remove all " + slideRows.size() + " slides and start fresh?",
+                "Clear All", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (confirm != JOptionPane.YES_OPTION) return;
+        slideRows.clear();
+        slidesPanel.removeAll();
+        slidesPanel.revalidate();
+        slidesPanel.repaint();
+        addSlideRow();
     }
 
     private void removeSlideRow(SlideRow row) {
@@ -5808,7 +5840,7 @@ public class GifSlideShowApp extends JFrame {
                         } else {
                             slideTextPart = String.format("slide_%03d", si + 1);
                         }
-                        String slideFileName = orientLabel + "-" + slideTextPart + "-" + perSlideTimestamp + ".mp4";
+                        String slideFileName = orientLabel + "-" + slideTextPart + "-" + String.format("%03d", si + 1) + "-" + perSlideTimestamp + ".mp4";
                         File slideOutFile = new File(outFolder, slideFileName);
 
                         publish("Exporting slide " + (si + 1) + "/" + totalSlides + "...");
