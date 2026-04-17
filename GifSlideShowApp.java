@@ -4143,9 +4143,9 @@ public class GifSlideShowApp extends JFrame {
         List<SlideData> slides = new ArrayList<>();
         for (int i = 0; i < slideRows.size(); i++) {
             SlideRow row = slideRows.get(i);
-            if (row.getImage() == null) {
+            if (row.getImage() == null && row.getSlideVideoOverlayFile() == null) {
                 JOptionPane.showMessageDialog(this,
-                        "Slide " + (i + 1) + " has no image.", "Missing Image", JOptionPane.WARNING_MESSAGE);
+                        "Slide " + (i + 1) + " has no image or video overlay.", "Missing Content", JOptionPane.WARNING_MESSAGE);
                 return null;
             }
             BufferedImage slideImage = row.getImage();
@@ -4155,6 +4155,14 @@ public class GifSlideShowApp extends JFrame {
                 if (row.titleBgImage == null) {
                     slideDisplayMode = "Direct";
                 }
+            }
+            if (slideImage == null) {
+                slideImage = new BufferedImage(getOutputWidth(), getOutputHeight(), BufferedImage.TYPE_INT_ARGB);
+                java.awt.Graphics2D bg = slideImage.createGraphics();
+                bg.setColor(Color.BLACK);
+                bg.fillRect(0, 0, slideImage.getWidth(), slideImage.getHeight());
+                bg.dispose();
+                slideDisplayMode = "Direct";
             }
             slides.add(new SlideData(slideImage, row.getSubtitleText(),
                     row.getSelectedFont(), row.getFontSize(), row.getFontStyle(),
