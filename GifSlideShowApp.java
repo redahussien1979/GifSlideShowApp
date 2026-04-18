@@ -4220,9 +4220,10 @@ public class GifSlideShowApp extends JFrame {
         List<SlideData> slides = new ArrayList<>();
         for (int i = 0; i < slideRows.size(); i++) {
             SlideRow row = slideRows.get(i);
-            if (row.getImage() == null && row.getSlideVideoOverlayFile() == null) {
+            if (row.getImage() == null && row.getSlideVideoOverlayFile() == null
+                    && row.getSourceVideoFile() == null) {
                 JOptionPane.showMessageDialog(this,
-                        "Slide " + (i + 1) + " has no image or video overlay.", "Missing Content", JOptionPane.WARNING_MESSAGE);
+                        "Slide " + (i + 1) + " has no image or video.", "Missing Content", JOptionPane.WARNING_MESSAGE);
                 return null;
             }
             BufferedImage slideImage = row.getImage();
@@ -4266,7 +4267,8 @@ public class GifSlideShowApp extends JFrame {
                     row.getSlideVideoOverlayFile(), row.getSlideVideoOverlayX(),
                     row.getSlideVideoOverlayY(), row.getSlideVideoOverlaySize(),
                     row.getSlideVideoOverlayDurationMs(),
-                    row.isSlideVideoOverlayFill(), row.isSlideVideoOverlayBehind()));
+                    row.isSlideVideoOverlayFill(), row.isSlideVideoOverlayBehind(),
+                    row.getSourceVideoFile(), row.getSourceVideoDurationMs()));
         }
         if (slides.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Add at least one slide.", "No Slides", JOptionPane.WARNING_MESSAGE);
@@ -4279,6 +4281,9 @@ public class GifSlideShowApp extends JFrame {
         int dur = baseDuration;
         if (s.videoOverlayDurationMs > 0 && s.videoOverlayDurationMs > dur) {
             dur = s.videoOverlayDurationMs;
+        }
+        if (s.sourceVideoDurationMs > 0 && s.sourceVideoDurationMs > dur) {
+            dur = s.sourceVideoDurationMs;
         }
         if (s.totalAudioDurationMs > 0 && s.totalAudioDurationMs > dur) {
             dur = s.totalAudioDurationMs;
@@ -5564,17 +5569,18 @@ public class GifSlideShowApp extends JFrame {
                         }
                     }
 
-                    // Step 4: Apply per-slide video overlays if any
+                    // Step 4: Apply per-slide video overlays AND source videos (uploaded-as-slide)
                     boolean anyVideoOverlay = false;
                     for (SlideData s : slides) {
-                        if (s.videoOverlayFile != null && s.videoOverlayFile.exists()) {
+                        if ((s.videoOverlayFile != null && s.videoOverlayFile.exists())
+                                || (s.sourceVideoFile != null && s.sourceVideoFile.exists())) {
                             anyVideoOverlay = true;
                             break;
                         }
                     }
 
                     if (anyVideoOverlay) {
-                        publish("Applying per-slide video overlays...");
+                        publish("Applying per-slide videos...");
 
                         // Compute each slide's start time and duration in seconds
                         double[] slideStartSec = new double[slides.size()];
@@ -5591,16 +5597,47 @@ public class GifSlideShowApp extends JFrame {
                         ovCmd.add("ffmpeg"); ovCmd.add("-y");
                         ovCmd.add("-i"); ovCmd.add(finalOut.getAbsolutePath());
 
-                        // Add overlay video inputs and track which slides have overlays
+                        // Track each overlay task: per-entry slide index, input index, file,
+                        // fill flag, behind flag, size%, x%, y%.
                         java.util.List<Integer> ovSlideIdx = new java.util.ArrayList<>();
                         java.util.List<Integer> ovInputIdx = new java.util.ArrayList<>();
+                        java.util.List<File> ovTaskFiles = new java.util.ArrayList<>();
+                        java.util.List<Boolean> ovTaskFill = new java.util.ArrayList<>();
+                        java.util.List<Boolean> ovTaskBehind = new java.util.ArrayList<>();
+                        java.util.List<Integer> ovTaskSize = new java.util.ArrayList<>();
+                        java.util.List<Integer> ovTaskX = new java.util.ArrayList<>();
+                        java.util.List<Integer> ovTaskY = new java.util.ArrayList<>();
                         int ovInIdx = 1;
+
+                        // Source videos first (underneath any explicit overlay), fill mode, on top of base frame
+                        for (int i = 0; i < slides.size(); i++) {
+                            SlideData s = slides.get(i);
+                            if (s.sourceVideoFile != null && s.sourceVideoFile.exists()) {
+                                ovCmd.add("-i"); ovCmd.add(s.sourceVideoFile.getAbsolutePath());
+                                ovSlideIdx.add(i);
+                                ovInputIdx.add(ovInIdx);
+                                ovTaskFiles.add(s.sourceVideoFile);
+                                ovTaskFill.add(Boolean.TRUE);
+                                ovTaskBehind.add(Boolean.FALSE);
+                                ovTaskSize.add(100);
+                                ovTaskX.add(50);
+                                ovTaskY.add(50);
+                                ovInIdx++;
+                            }
+                        }
+                        // Then user-specified video overlays (render above source video if both exist)
                         for (int i = 0; i < slides.size(); i++) {
                             SlideData s = slides.get(i);
                             if (s.videoOverlayFile != null && s.videoOverlayFile.exists()) {
                                 ovCmd.add("-i"); ovCmd.add(s.videoOverlayFile.getAbsolutePath());
                                 ovSlideIdx.add(i);
                                 ovInputIdx.add(ovInIdx);
+                                ovTaskFiles.add(s.videoOverlayFile);
+                                ovTaskFill.add(s.videoOverlayFill);
+                                ovTaskBehind.add(s.videoOverlayBehind);
+                                ovTaskSize.add(s.videoOverlaySize);
+                                ovTaskX.add(s.videoOverlayX);
+                                ovTaskY.add(s.videoOverlayY);
                                 ovInIdx++;
                             }
                         }
@@ -5611,7 +5648,11 @@ public class GifSlideShowApp extends JFrame {
                         for (int j = 0; j < ovSlideIdx.size(); j++) {
                             int si = ovSlideIdx.get(j);
                             int ii = ovInputIdx.get(j);
-                            SlideData s = slides.get(si);
+                            boolean fill = ovTaskFill.get(j);
+                            boolean behind = ovTaskBehind.get(j);
+                            int sz = ovTaskSize.get(j);
+                            int px = ovTaskX.get(j);
+                            int py = ovTaskY.get(j);
 
                             double tStart = slideStartSec[si];
                             double tEnd = tStart + slideDurSec[si];
@@ -5619,12 +5660,12 @@ public class GifSlideShowApp extends JFrame {
                             String outLbl = (j == ovSlideIdx.size() - 1) ? "[outv]" : "[tmp" + j + "]";
                             String enableExpr = ":enable='between(t," + String.format("%.3f", tStart) + "," + String.format("%.3f", tEnd) + ")'";
 
-                            if (s.videoOverlayFill) {
+                            if (fill) {
                                 int fillW = videoW; if (fillW % 2 != 0) fillW++;
                                 int fillH = videoH; if (fillH % 2 != 0) fillH++;
                                 vFilter.append("[").append(ii).append(":v]scale=").append(fillW).append(":").append(fillH)
                                         .append(":force_original_aspect_ratio=increase,crop=").append(fillW).append(":").append(fillH).append(scaledLbl).append(";");
-                                if (s.videoOverlayBehind) {
+                                if (behind) {
                                     vFilter.append(scaledLbl).append(currentVid).append("overlay=0:0")
                                             .append(enableExpr).append(":eof_action=pass").append(outLbl).append(";");
                                 } else {
@@ -5632,13 +5673,13 @@ public class GifSlideShowApp extends JFrame {
                                             .append(enableExpr).append(":eof_action=pass").append(outLbl).append(";");
                                 }
                             } else {
-                                int ovW = (int)(videoW * s.videoOverlaySize / 100.0);
+                                int ovW = (int)(videoW * sz / 100.0);
                                 if (ovW % 2 != 0) ovW++;
-                                int ovPxX = (int)(videoW * s.videoOverlayX / 100.0) - ovW / 2;
-                                int ovPxY = (int)(videoH * s.videoOverlayY / 100.0);
+                                int ovPxX = (int)(videoW * px / 100.0) - ovW / 2;
+                                int ovPxY = (int)(videoH * py / 100.0);
 
                                 vFilter.append("[").append(ii).append(":v]scale=").append(ovW).append(":-2").append(scaledLbl).append(";");
-                                if (s.videoOverlayBehind) {
+                                if (behind) {
                                     vFilter.append(scaledLbl).append("pad=").append(videoW).append(":").append(videoH).append(":").append(Math.max(0, ovPxX)).append(":").append(ovPxY)
                                             .append(":color=black@0[ovpad").append(j).append("];");
                                     vFilter.append("[ovpad").append(j).append("]").append(currentVid).append("overlay=0:0")
@@ -5661,9 +5702,9 @@ public class GifSlideShowApp extends JFrame {
                         for (int j = 0; j < ovSlideIdx.size(); j++) {
                             int si = ovSlideIdx.get(j);
                             int ii = ovInputIdx.get(j);
-                            SlideData s = slides.get(si);
+                            File f = ovTaskFiles.get(j);
                             // Probe if overlay video has audio
-                            if (probeHasAudio(s.videoOverlayFile)) {
+                            if (probeHasAudio(f)) {
                                 ovAudioInputIdx.add(ii);
                                 ovAudioDelay.add(slideStartSec[si] * 1000.0);
                             }
@@ -7410,6 +7451,9 @@ public class GifSlideShowApp extends JFrame {
         final int videoOverlayDurationMs;
         final boolean videoOverlayFill;
         final boolean videoOverlayBehind;
+        // Independent "this slide IS a video" source (separate from the overlay toolbar).
+        final File sourceVideoFile;
+        final int sourceVideoDurationMs;
 
         SlideData(BufferedImage image, String text, String fontName, int fontSize,
                   int fontStyle, Color fontColor, int alignment, boolean showPin, String displayMode,
@@ -7433,7 +7477,8 @@ public class GifSlideShowApp extends JFrame {
                   int audioGapMs, Color audioHlColor, String audioHlEffects, int audioGlowSize,
                   File videoOverlayFile, int videoOverlayX, int videoOverlayY,
                   int videoOverlaySize, int videoOverlayDurationMs,
-                  boolean videoOverlayFill, boolean videoOverlayBehind) {
+                  boolean videoOverlayFill, boolean videoOverlayBehind,
+                  File sourceVideoFile, int sourceVideoDurationMs) {
             this.image = image;
             this.text = text;
             this.fontName = fontName;
@@ -7494,6 +7539,8 @@ public class GifSlideShowApp extends JFrame {
             this.videoOverlayDurationMs = videoOverlayDurationMs;
             this.videoOverlayFill = videoOverlayFill;
             this.videoOverlayBehind = videoOverlayBehind;
+            this.sourceVideoFile = sourceVideoFile;
+            this.sourceVideoDurationMs = sourceVideoDurationMs;
         }
     }
 
@@ -7652,9 +7699,10 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner videoOverlaySizeSp;
         private final JCheckBox videoOverlayFillCheck;
         private final JCheckBox videoOverlayBehindCheck;
-        // Marks slides whose primary source was a video file (first frame + own video).
-        // When true, applyFormatting() must not overwrite this slide's video overlay.
-        private boolean isVideoSlide = false;
+        // Independent "this slide IS a video" source — separate from the video overlay toolbar.
+        // Set when the slide is populated via loadVideoAsSlide / setVideoSlideDirectly.
+        private File sourceVideoFile;
+        private int sourceVideoDurationMs = -1;
 
 
 
@@ -9899,21 +9947,17 @@ public class GifSlideShowApp extends JFrame {
             highlightColorBtn.setForeground(highlightColor);
             textShiftXSpinner.setValue(textShiftX);
 
-            // Sync video overlay from master slide — but preserve per-slide video
-            // for slides that were imported as video (each has its own source video).
-            if (!isVideoSlide) {
-                if (voFile != null && voFile.exists()) {
-                    setSlideVideoOverlay(voFile, voDurationMs, voX, voY, voSize);
-                } else {
-                    clearSlideVideoOverlay();
-                }
-                videoOverlayFillCheck.setSelected(voFill);
-                videoOverlayBehindCheck.setSelected(voBehind);
-                boolean fillNow = voFill;
-                videoOverlayXSp.setEnabled(!fillNow);
-                videoOverlayYSp.setEnabled(!fillNow);
-                videoOverlaySizeSp.setEnabled(!fillNow);
+            // Sync video overlay from master slide
+            if (voFile != null && voFile.exists()) {
+                setSlideVideoOverlay(voFile, voDurationMs, voX, voY, voSize);
+            } else {
+                clearSlideVideoOverlay();
             }
+            videoOverlayFillCheck.setSelected(voFill);
+            videoOverlayBehindCheck.setSelected(voBehind);
+            videoOverlayXSp.setEnabled(!voFill);
+            videoOverlayYSp.setEnabled(!voFill);
+            videoOverlaySizeSp.setEnabled(!voFill);
 
             audioGapSpinner.setValue(audioGapSeconds);
 
@@ -10089,11 +10133,9 @@ public class GifSlideShowApp extends JFrame {
                     updateImagePreviewThumb("BG: " + file.getName());
                 } else {
                     loadedImage = img;
-                    // Replacing with an image clears any prior video-slide state.
-                    if (isVideoSlide) {
-                        isVideoSlide = false;
-                        clearSlideVideoOverlay();
-                    }
+                    // Replacing with an image clears any prior video-slide source.
+                    sourceVideoFile = null;
+                    sourceVideoDurationMs = -1;
                     updateImagePreviewThumb(file.getName());
                 }
                 schedulePreview();
@@ -10127,39 +10169,30 @@ public class GifSlideShowApp extends JFrame {
                 return;
             }
             loadedImage = firstFrame;
+            sourceVideoFile = videoFile;
+            sourceVideoDurationMs = durationMs;
             updateImagePreviewThumb("\uD83C\uDFAC " + videoFile.getName());
-            setSlideVideoOverlay(videoFile, durationMs, 50, 25, 100);
-            videoOverlayFillCheck.setSelected(true);
-            videoOverlayBehindCheck.setSelected(true);
-            videoOverlayXSp.setEnabled(false);
-            videoOverlayYSp.setEnabled(false);
-            videoOverlaySizeSp.setEnabled(false);
-            isVideoSlide = true;
             schedulePreview();
         }
 
         void setImageDirectly(BufferedImage img, String fileName) {
             this.loadedImage = img;
-            if (isVideoSlide) {
-                isVideoSlide = false;
-                clearSlideVideoOverlay();
-            }
+            this.sourceVideoFile = null;
+            this.sourceVideoDurationMs = -1;
             updateImagePreviewThumb(fileName);
             schedulePreview();
         }
 
         void setVideoSlideDirectly(File videoFile, BufferedImage firstFrame, int durationMs) {
             this.loadedImage = firstFrame;
+            this.sourceVideoFile = videoFile;
+            this.sourceVideoDurationMs = durationMs;
             updateImagePreviewThumb("\uD83C\uDFAC " + videoFile.getName());
-            setSlideVideoOverlay(videoFile, durationMs, 50, 25, 100);
-            videoOverlayFillCheck.setSelected(true);
-            videoOverlayBehindCheck.setSelected(true);
-            videoOverlayXSp.setEnabled(false);
-            videoOverlayYSp.setEnabled(false);
-            videoOverlaySizeSp.setEnabled(false);
-            isVideoSlide = true;
             schedulePreview();
         }
+
+        File getSourceVideoFile() { return sourceVideoFile; }
+        int getSourceVideoDurationMs() { return sourceVideoDurationMs; }
 
         private void updateImagePreviewThumb(String fileName) {
             BufferedImage thumbSource = (isTitleGridSlide && titleBgImage != null) ? titleBgImage : loadedImage;
@@ -10343,7 +10376,6 @@ public class GifSlideShowApp extends JFrame {
             videoOverlayFileLbl.setForeground(Color.GRAY);
             videoOverlayDurLbl.setText("");
             videoOverlayClearButton.setVisible(false);
-            isVideoSlide = false;
             onFormatChanged();
         }
 
