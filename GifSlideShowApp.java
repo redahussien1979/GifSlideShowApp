@@ -5557,6 +5557,13 @@ public class GifSlideShowApp extends JFrame {
                                 if (txtLayer == null) continue;
                                 File txtPng = new File(tempDir, "text_layer_" + i + ".png");
                                 ImageIO.write(txtLayer, "png", txtPng);
+                                // -loop 1 turns the single PNG frame into a
+                                // continuous stream so the overlay filter has
+                                // a frame to composite during the entire
+                                // enable='between(t,...)' window. Without it,
+                                // the PNG EOFs immediately and text never
+                                // appears at the right time in the output.
+                                ovCmd.add("-loop"); ovCmd.add("1");
                                 ovCmd.add("-i"); ovCmd.add(txtPng.getAbsolutePath());
                                 txtSlideIdx.add(i);
                                 txtInputIdx.add(ovInIdx);
@@ -5632,7 +5639,7 @@ public class GifSlideShowApp extends JFrame {
                                         + String.format("%.3f", tEnd) + ")'";
                                 vFilter.append(currentVid).append("[").append(ii).append(":v]")
                                         .append("overlay=0:0").append(enableExpr)
-                                        .append(":eof_action=pass").append(outLbl).append(";");
+                                        .append(":eof_action=repeat").append(outLbl).append(";");
                                 currentVid = outLbl;
                             }
                         }
