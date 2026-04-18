@@ -10121,6 +10121,17 @@ public class GifSlideShowApp extends JFrame {
                 }
                 displayMode = (isTitleGridSlide && titleBgImage == null)
                         ? "Direct" : getDisplayMode();
+                if (frameImage == null) {
+                    // Video is set but thumbnail extraction failed and there
+                    // is no image — fall back to a black backdrop so text
+                    // still renders.
+                    frameImage = new BufferedImage(pw, ph, BufferedImage.TYPE_INT_RGB);
+                    Graphics2D bg = frameImage.createGraphics();
+                    bg.setColor(Color.BLACK);
+                    bg.fillRect(0, 0, pw, ph);
+                    bg.dispose();
+                    displayMode = "Direct";
+                }
             }
 
             // Final pass: draw text (and slide texts) on top. When we
