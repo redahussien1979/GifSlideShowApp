@@ -2082,13 +2082,59 @@ public class GifSlideShowApp extends JFrame {
                                      String highlightText, Color highlightColor,
                                      int textShiftX,
                                      List<SlidePictureData> slidePictures) {
-        BufferedImage frame = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
+        return renderFrame(image, text, fontName, fontSize, fontStyle, fontColor, alignment,
+                showPin, targetW, targetH, displayMode, subtitleY, subtitleBgOpacity,
+                showSlideNumber, slideNumberText, slideNumberFontName,
+                slideNumberX, slideNumberY, slideNumberSize, slideNumberColor,
+                slideTexts, fxRoundCorners, fxCornerRadius,
+                fxVignette, fxSepia, fxGrain, fxWaterRipple, fxGlitch, fxShake,
+                fxScanline, fxRaised, overlayEnabled,
+                overlayShape, overlayBgMode, overlayBgColor, overlayX, overlayY, overlaySize,
+                animFrameIndex, textJustify, textWidthPct, highlightText, highlightColor,
+                textShiftX, slidePictures, false);
+    }
+
+    /**
+     * Extended entry point for renderFrame that supports a transparent-base mode.
+     * When transparentBase=true, the base image, image-shape overlay, display-mode
+     * handling, and all FX effects are skipped; only the decoration layers
+     * (slide number, slide texts, subtitle/overlay text, slide pictures) are drawn
+     * on a fully-transparent TYPE_INT_ARGB canvas. Used to produce the PNG that
+     * overlays on top of an uploaded source video so decorations remain visible.
+     */
+    static BufferedImage renderFrame(BufferedImage image, String text,
+                                     String fontName, int fontSize, int fontStyle,
+                                     Color fontColor, int alignment,
+                                     boolean showPin, int targetW, int targetH,
+                                     String displayMode, int subtitleY, int subtitleBgOpacity,
+                                     boolean showSlideNumber, String slideNumberText,
+                                     String slideNumberFontName,
+                                     int slideNumberX, int slideNumberY,
+                                     int slideNumberSize, Color slideNumberColor,
+                                     List<SlideTextData> slideTexts,
+                                     boolean fxRoundCorners, int fxCornerRadius,
+                                     int fxVignette, int fxSepia,
+                                     int fxGrain, int fxWaterRipple,
+                                     int fxGlitch, int fxShake,
+                                     int fxScanline, int fxRaised,
+                                     boolean overlayEnabled,
+                                     String overlayShape, String overlayBgMode, Color overlayBgColor,
+                                     int overlayX, int overlayY, int overlaySize,
+                                     int animFrameIndex,
+                                     boolean textJustify, int textWidthPct,
+                                     String highlightText, Color highlightColor,
+                                     int textShiftX,
+                                     List<SlidePictureData> slidePictures,
+                                     boolean transparentBase) {
+        BufferedImage frame = new BufferedImage(targetW, targetH,
+                transparentBase ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB);
         Graphics2D g = frame.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_LCD_HRGB);
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
         g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_SPEED);
 
+      if (!transparentBase) {
         g.setColor(new Color(21, 32, 43));
         g.fillRect(0, 0, targetW, targetH);
 
@@ -2462,6 +2508,7 @@ public class GifSlideShowApp extends JFrame {
             vg.fillRect(0, 0, targetW, targetH);
             vg.dispose();
         }
+      } // end if (!transparentBase) — base image, image-shape, displayMode, FX
 
 
         // ========== SLIDE NUMBER OVERLAY ==========
@@ -5598,7 +5645,8 @@ public class GifSlideShowApp extends JFrame {
                         ovCmd.add("-i"); ovCmd.add(finalOut.getAbsolutePath());
 
                         // Track each overlay task: per-entry slide index, input index, file,
-                        // fill flag, behind flag, size%, x%, y%.
+                        // fill flag, behind flag, size%, x%, y%, and whether it's a static PNG
+                        // (decoration layer) vs a regular video input.
                         java.util.List<Integer> ovSlideIdx = new java.util.ArrayList<>();
                         java.util.List<Integer> ovInputIdx = new java.util.ArrayList<>();
                         java.util.List<File> ovTaskFiles = new java.util.ArrayList<>();
@@ -5607,9 +5655,10 @@ public class GifSlideShowApp extends JFrame {
                         java.util.List<Integer> ovTaskSize = new java.util.ArrayList<>();
                         java.util.List<Integer> ovTaskX = new java.util.ArrayList<>();
                         java.util.List<Integer> ovTaskY = new java.util.ArrayList<>();
+                        java.util.List<Boolean> ovTaskIsPng = new java.util.ArrayList<>();
                         int ovInIdx = 1;
 
-                        // Source videos first (underneath any explicit overlay), fill mode, on top of base frame
+                        // Source videos first (underneath decorations + explicit overlay), fill mode, on top of base frame
                         for (int i = 0; i < slides.size(); i++) {
                             SlideData s = slides.get(i);
                             if (s.sourceVideoFile != null && s.sourceVideoFile.exists()) {
@@ -5622,10 +5671,54 @@ public class GifSlideShowApp extends JFrame {
                                 ovTaskSize.add(100);
                                 ovTaskX.add(50);
                                 ovTaskY.add(50);
+                                ovTaskIsPng.add(Boolean.FALSE);
                                 ovInIdx++;
                             }
                         }
-                        // Then user-specified video overlays (render above source video if both exist)
+                        // Decoration layers for each source-video slide: a transparent PNG
+                        // that renders only the slide's text / slide number / slide texts /
+                        // slide pictures on top of the playing video. Without this, those
+                        // decorations are baked into the static first-frame base and get
+                        // hidden entirely while the source video plays.
+                        for (int i = 0; i < slides.size(); i++) {
+                            SlideData s = slides.get(i);
+                            if (s.sourceVideoFile != null && s.sourceVideoFile.exists()) {
+                                try {
+                                    BufferedImage decoImg = renderFrame(
+                                            s.image, s.text, s.fontName, s.fontSize,
+                                            s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                            videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                            s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                            s.slideNumberX, s.slideNumberY,
+                                            s.slideNumberSize, s.slideNumberColor,
+                                            s.slideTexts,
+                                            false, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                            false, null, null, null, 0, 0, 0,
+                                            Integer.MAX_VALUE,
+                                            s.textJustify, s.textWidthPct,
+                                            s.highlightText, s.highlightColor,
+                                            s.textShiftX, s.slidePictures,
+                                            true);
+                                    File decoPng = new File(tempDir, String.format("deco_%03d.png", i));
+                                    ImageIO.write(decoImg, "png", decoPng);
+                                    ovCmd.add("-loop"); ovCmd.add("1");
+                                    ovCmd.add("-i"); ovCmd.add(decoPng.getAbsolutePath());
+                                    ovSlideIdx.add(i);
+                                    ovInputIdx.add(ovInIdx);
+                                    ovTaskFiles.add(decoPng);
+                                    ovTaskFill.add(Boolean.TRUE);
+                                    ovTaskBehind.add(Boolean.FALSE);
+                                    ovTaskSize.add(100);
+                                    ovTaskX.add(50);
+                                    ovTaskY.add(50);
+                                    ovTaskIsPng.add(Boolean.TRUE);
+                                    ovInIdx++;
+                                } catch (IOException ioe) {
+                                    publish("Failed to write decoration layer for slide " + (i + 1) + ": " + ioe.getMessage());
+                                }
+                            }
+                        }
+                        // Then user-specified video overlays (render above source video + decorations if all exist)
                         for (int i = 0; i < slides.size(); i++) {
                             SlideData s = slides.get(i);
                             if (s.videoOverlayFile != null && s.videoOverlayFile.exists()) {
@@ -5638,6 +5731,7 @@ public class GifSlideShowApp extends JFrame {
                                 ovTaskSize.add(s.videoOverlaySize);
                                 ovTaskX.add(s.videoOverlayX);
                                 ovTaskY.add(s.videoOverlayY);
+                                ovTaskIsPng.add(Boolean.FALSE);
                                 ovInIdx++;
                             }
                         }
@@ -5653,6 +5747,7 @@ public class GifSlideShowApp extends JFrame {
                             int sz = ovTaskSize.get(j);
                             int px = ovTaskX.get(j);
                             int py = ovTaskY.get(j);
+                            boolean isPng = ovTaskIsPng.get(j);
 
                             double tStart = slideStartSec[si];
                             double tEnd = tStart + slideDurSec[si];
@@ -5663,12 +5758,14 @@ public class GifSlideShowApp extends JFrame {
                             // Shift this input's PTS so its frame 0 plays at tStart on the output timeline.
                             // Without this, overlay would pull second-stream frames by their native PTS=0..dur,
                             // so non-first slides would show the wrong (or EOF) frame.
-                            String ptsShift = "setpts=PTS-STARTPTS+" + String.format("%.3f", tStart) + "/TB";
+                            // PNG inputs are looped (-loop 1), every output time has a frame available,
+                            // so no PTS shift is needed — enable expression handles window-gating alone.
+                            String ptsShift = isPng ? "" : ("setpts=PTS-STARTPTS+" + String.format("%.3f", tStart) + "/TB,");
 
                             if (fill) {
                                 int fillW = videoW; if (fillW % 2 != 0) fillW++;
                                 int fillH = videoH; if (fillH % 2 != 0) fillH++;
-                                vFilter.append("[").append(ii).append(":v]").append(ptsShift).append(",scale=").append(fillW).append(":").append(fillH)
+                                vFilter.append("[").append(ii).append(":v]").append(ptsShift).append("scale=").append(fillW).append(":").append(fillH)
                                         .append(":force_original_aspect_ratio=increase,crop=").append(fillW).append(":").append(fillH).append(scaledLbl).append(";");
                                 if (behind) {
                                     vFilter.append(scaledLbl).append(currentVid).append("overlay=0:0")
@@ -5683,7 +5780,7 @@ public class GifSlideShowApp extends JFrame {
                                 int ovPxX = (int)(videoW * px / 100.0) - ovW / 2;
                                 int ovPxY = (int)(videoH * py / 100.0);
 
-                                vFilter.append("[").append(ii).append(":v]").append(ptsShift).append(",scale=").append(ovW).append(":-2").append(scaledLbl).append(";");
+                                vFilter.append("[").append(ii).append(":v]").append(ptsShift).append("scale=").append(ovW).append(":-2").append(scaledLbl).append(";");
                                 if (behind) {
                                     vFilter.append(scaledLbl).append("pad=").append(videoW).append(":").append(videoH).append(":").append(Math.max(0, ovPxX)).append(":").append(ovPxY)
                                             .append(":color=black@0[ovpad").append(j).append("];");
@@ -5708,6 +5805,8 @@ public class GifSlideShowApp extends JFrame {
                             int si = ovSlideIdx.get(j);
                             int ii = ovInputIdx.get(j);
                             File f = ovTaskFiles.get(j);
+                            // PNG decoration layers have no audio — skip
+                            if (ovTaskIsPng.get(j)) continue;
                             // Probe if overlay video has audio
                             if (probeHasAudio(f)) {
                                 ovAudioInputIdx.add(ii);
