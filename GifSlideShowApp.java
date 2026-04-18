@@ -130,7 +130,8 @@ public class GifSlideShowApp extends JFrame {
         JButton addBtn = createStyledButton("+ Add Slide", new Color(29, 161, 242));
         addBtn.addActionListener(e -> addSlideRow());
 
-        JButton bulkBtn = createStyledButton("Bulk Images", new Color(160, 100, 220));
+        JButton bulkBtn = createStyledButton("Bulk Media", new Color(160, 100, 220));
+        bulkBtn.setToolTipText("Bulk import images and/or videos (videos play full-screen with all toolbar features on top)");
         bulkBtn.addActionListener(e -> bulkImport());
 
         JButton bulkTextBtn = createStyledButton("Bulk Text", new Color(220, 160, 50));
@@ -983,8 +984,9 @@ public class GifSlideShowApp extends JFrame {
         JFileChooser fc = new JFileChooser();
         fc.setMultiSelectionEnabled(true);
         fc.setFileFilter(new FileNameExtensionFilter(
-                "Images (jpg, png, gif, bmp, webp, avif, heif)",
-                "jpg", "jpeg", "png", "gif", "bmp", "webp", "avif", "heif", "heic"));
+                "Images & Videos (jpg, png, gif, bmp, webp, avif, heif, mp4, mov, webm, mkv, avi, wmv, flv, m4v, mpg)",
+                "jpg", "jpeg", "png", "gif", "bmp", "webp", "avif", "heif", "heic",
+                "mp4", "avi", "mov", "mkv", "webm", "flv", "wmv", "m4v", "mpg", "mpeg"));
         if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
 
         File[] files = fc.getSelectedFiles();
@@ -1021,16 +1023,31 @@ public class GifSlideShowApp extends JFrame {
 
         int loaded = 0;
         int failed = 0;
+        int videos = 0;
         for (File file : files) {
             try {
-                BufferedImage img = loadImageFile(file);
-                if (img == null) { failed++; continue; }
-                SlideRow row = new SlideRow(slideRows.size() + 1);
-                row.setImageDirectly(img, file.getName());
-                slideRows.add(row);
-                slidesPanel.add(row.getPanel());
-                slidesPanel.add(Box.createRigidArea(new Dimension(0, 10)));
-                loaded++;
+                if (isVideoFile(file)) {
+                    int durationMs = probeAudioDurationMs(file);
+                    if (durationMs <= 0) { failed++; continue; }
+                    BufferedImage firstFrame = extractFirstVideoFrame(file);
+                    if (firstFrame == null) { failed++; continue; }
+                    SlideRow row = new SlideRow(slideRows.size() + 1);
+                    row.setVideoSlideDirectly(file, firstFrame, durationMs);
+                    slideRows.add(row);
+                    slidesPanel.add(row.getPanel());
+                    slidesPanel.add(Box.createRigidArea(new Dimension(0, 10)));
+                    loaded++;
+                    videos++;
+                } else {
+                    BufferedImage img = loadImageFile(file);
+                    if (img == null) { failed++; continue; }
+                    SlideRow row = new SlideRow(slideRows.size() + 1);
+                    row.setImageDirectly(img, file.getName());
+                    slideRows.add(row);
+                    slidesPanel.add(row.getPanel());
+                    slidesPanel.add(Box.createRigidArea(new Dimension(0, 10)));
+                    loaded++;
+                }
             } catch (IOException ex) {
                 failed++;
             }
@@ -1040,8 +1057,10 @@ public class GifSlideShowApp extends JFrame {
         slidesPanel.revalidate();
         slidesPanel.repaint();
 
-        String msg = loaded + " images imported successfully.";
-        if (failed > 0) msg += "\n" + failed + " files failed to load.";
+        int images = loaded - videos;
+        String msg = loaded + " item(s) imported successfully ("
+                + images + " image(s), " + videos + " video(s)).";
+        if (failed > 0) msg += "\n" + failed + " file(s) failed to load.";
         JOptionPane.showMessageDialog(this, msg, "Bulk Import", JOptionPane.INFORMATION_MESSAGE);
     }
 
@@ -1837,6 +1856,50 @@ public class GifSlideShowApp extends JFrame {
     }
 
     // ==================== Image Loading ====================
+
+    private static final String[] VIDEO_EXTS = {
+            "mp4", "avi", "mov", "mkv", "webm", "flv", "wmv", "m4v", "mpg", "mpeg"
+    };
+
+    private static boolean isVideoFile(File file) {
+        if (file == null) return false;
+        String name = file.getName().toLowerCase();
+        int dot = name.lastIndexOf('.');
+        if (dot < 0) return false;
+        String ext = name.substring(dot + 1);
+        for (String v : VIDEO_EXTS) if (v.equals(ext)) return true;
+        return false;
+    }
+
+    private static BufferedImage extractFirstVideoFrame(File videoFile) throws IOException {
+        File tempPng = File.createTempFile("video_frame_", ".png");
+        tempPng.deleteOnExit();
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    "ffmpeg", "-y", "-i", videoFile.getAbsolutePath(),
+                    "-vframes", "1", "-q:v", "2",
+                    tempPng.getAbsolutePath());
+            pb.redirectErrorStream(true);
+            Process proc = pb.start();
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(proc.getInputStream()))) {
+                while (br.readLine() != null) { /* drain */ }
+            }
+            int exitCode = proc.waitFor();
+            if (exitCode != 0) {
+                throw new IOException(
+                        "ffmpeg failed to read first frame (exit " + exitCode + ").\n" +
+                                "Ensure ffmpeg is installed: https://ffmpeg.org/download.html");
+            }
+            BufferedImage img = ImageIO.read(tempPng);
+            if (img == null) throw new IOException("Failed to read extracted video frame.");
+            return img;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Frame extraction interrupted.", e);
+        } finally {
+            tempPng.delete();
+        }
+    }
 
     private static BufferedImage loadImageFile(File file) throws IOException {
         String name = file.getName().toLowerCase();
@@ -7589,6 +7652,9 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner videoOverlaySizeSp;
         private final JCheckBox videoOverlayFillCheck;
         private final JCheckBox videoOverlayBehindCheck;
+        // Marks slides whose primary source was a video file (first frame + own video).
+        // When true, applyFormatting() must not overwrite this slide's video overlay.
+        private boolean isVideoSlide = false;
 
 
 
@@ -7640,7 +7706,7 @@ public class GifSlideShowApp extends JFrame {
             JPanel centerPanel = new JPanel(new BorderLayout(0, 6));
             centerPanel.setBackground(new Color(44, 47, 51));
 
-            imagePreview = new JLabel("Drag image here or click to browse", SwingConstants.CENTER);
+            imagePreview = new JLabel("Drag image/video here or click to browse", SwingConstants.CENTER);
             imagePreview.setFont(new Font("Segoe UI", Font.PLAIN, 12));
             imagePreview.setForeground(new Color(160, 170, 180));
             imagePreview.setPreferredSize(new Dimension(160, 70));
@@ -9833,17 +9899,21 @@ public class GifSlideShowApp extends JFrame {
             highlightColorBtn.setForeground(highlightColor);
             textShiftXSpinner.setValue(textShiftX);
 
-            // Sync video overlay from master slide
-            if (voFile != null && voFile.exists()) {
-                setSlideVideoOverlay(voFile, voDurationMs, voX, voY, voSize);
-            } else {
-                clearSlideVideoOverlay();
+            // Sync video overlay from master slide — but preserve per-slide video
+            // for slides that were imported as video (each has its own source video).
+            if (!isVideoSlide) {
+                if (voFile != null && voFile.exists()) {
+                    setSlideVideoOverlay(voFile, voDurationMs, voX, voY, voSize);
+                } else {
+                    clearSlideVideoOverlay();
+                }
+                videoOverlayFillCheck.setSelected(voFill);
+                videoOverlayBehindCheck.setSelected(voBehind);
+                boolean fillNow = voFill;
+                videoOverlayXSp.setEnabled(!fillNow);
+                videoOverlayYSp.setEnabled(!fillNow);
+                videoOverlaySizeSp.setEnabled(!fillNow);
             }
-            videoOverlayFillCheck.setSelected(voFill);
-            videoOverlayBehindCheck.setSelected(voBehind);
-            videoOverlayXSp.setEnabled(!voFill);
-            videoOverlayYSp.setEnabled(!voFill);
-            videoOverlaySizeSp.setEnabled(!voFill);
 
             audioGapSpinner.setValue(audioGapSeconds);
 
@@ -9994,14 +10064,19 @@ public class GifSlideShowApp extends JFrame {
         private void browseImage() {
             JFileChooser fc = new JFileChooser();
             fc.setFileFilter(new FileNameExtensionFilter(
-                    "Images (jpg, png, gif, bmp, webp, avif, heif)",
-                    "jpg", "jpeg", "png", "gif", "bmp", "webp", "avif", "heif", "heic"));
+                    "Images & Videos (jpg, png, gif, bmp, webp, avif, heif, mp4, mov, webm, mkv, avi, wmv, flv, m4v, mpg)",
+                    "jpg", "jpeg", "png", "gif", "bmp", "webp", "avif", "heif", "heic",
+                    "mp4", "avi", "mov", "mkv", "webm", "flv", "wmv", "m4v", "mpg", "mpeg"));
             if (fc.showOpenDialog(panel) == JFileChooser.APPROVE_OPTION)
                 loadImage(fc.getSelectedFile());
         }
 
 
         private void loadImage(File file) {
+            if (isVideoFile(file)) {
+                loadVideoAsSlide(file);
+                return;
+            }
             try {
                 BufferedImage img = loadImageFile(file);
                 if (img == null) {
@@ -10014,6 +10089,11 @@ public class GifSlideShowApp extends JFrame {
                     updateImagePreviewThumb("BG: " + file.getName());
                 } else {
                     loadedImage = img;
+                    // Replacing with an image clears any prior video-slide state.
+                    if (isVideoSlide) {
+                        isVideoSlide = false;
+                        clearSlideVideoOverlay();
+                    }
                     updateImagePreviewThumb(file.getName());
                 }
                 schedulePreview();
@@ -10023,9 +10103,61 @@ public class GifSlideShowApp extends JFrame {
             }
         }
 
+        private void loadVideoAsSlide(File videoFile) {
+            if (isTitleGridSlide) {
+                JOptionPane.showMessageDialog(panel,
+                        "Title grid slides accept only images, not video.",
+                        "Video Upload", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            int durationMs = probeAudioDurationMs(videoFile);
+            if (durationMs <= 0) {
+                JOptionPane.showMessageDialog(panel,
+                        "Could not read video duration.\nMake sure ffprobe is installed.",
+                        "Video Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            BufferedImage firstFrame;
+            try {
+                firstFrame = extractFirstVideoFrame(videoFile);
+            } catch (IOException ex) {
+                JOptionPane.showMessageDialog(panel,
+                        "Could not extract first frame:\n" + ex.getMessage(),
+                        "Video Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            loadedImage = firstFrame;
+            updateImagePreviewThumb("\uD83C\uDFAC " + videoFile.getName());
+            setSlideVideoOverlay(videoFile, durationMs, 50, 25, 100);
+            videoOverlayFillCheck.setSelected(true);
+            videoOverlayBehindCheck.setSelected(true);
+            videoOverlayXSp.setEnabled(false);
+            videoOverlayYSp.setEnabled(false);
+            videoOverlaySizeSp.setEnabled(false);
+            isVideoSlide = true;
+            schedulePreview();
+        }
+
         void setImageDirectly(BufferedImage img, String fileName) {
             this.loadedImage = img;
+            if (isVideoSlide) {
+                isVideoSlide = false;
+                clearSlideVideoOverlay();
+            }
             updateImagePreviewThumb(fileName);
+            schedulePreview();
+        }
+
+        void setVideoSlideDirectly(File videoFile, BufferedImage firstFrame, int durationMs) {
+            this.loadedImage = firstFrame;
+            updateImagePreviewThumb("\uD83C\uDFAC " + videoFile.getName());
+            setSlideVideoOverlay(videoFile, durationMs, 50, 25, 100);
+            videoOverlayFillCheck.setSelected(true);
+            videoOverlayBehindCheck.setSelected(true);
+            videoOverlayXSp.setEnabled(false);
+            videoOverlayYSp.setEnabled(false);
+            videoOverlaySizeSp.setEnabled(false);
+            isVideoSlide = true;
             schedulePreview();
         }
 
@@ -10211,6 +10343,7 @@ public class GifSlideShowApp extends JFrame {
             videoOverlayFileLbl.setForeground(Color.GRAY);
             videoOverlayDurLbl.setText("");
             videoOverlayClearButton.setVisible(false);
+            isVideoSlide = false;
             onFormatChanged();
         }
 
