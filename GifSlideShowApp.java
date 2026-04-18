@@ -5660,10 +5660,15 @@ public class GifSlideShowApp extends JFrame {
                             String outLbl = (j == ovSlideIdx.size() - 1) ? "[outv]" : "[tmp" + j + "]";
                             String enableExpr = ":enable='between(t," + String.format("%.3f", tStart) + "," + String.format("%.3f", tEnd) + ")'";
 
+                            // Shift this input's PTS so its frame 0 plays at tStart on the output timeline.
+                            // Without this, overlay would pull second-stream frames by their native PTS=0..dur,
+                            // so non-first slides would show the wrong (or EOF) frame.
+                            String ptsShift = "setpts=PTS-STARTPTS+" + String.format("%.3f", tStart) + "/TB";
+
                             if (fill) {
                                 int fillW = videoW; if (fillW % 2 != 0) fillW++;
                                 int fillH = videoH; if (fillH % 2 != 0) fillH++;
-                                vFilter.append("[").append(ii).append(":v]scale=").append(fillW).append(":").append(fillH)
+                                vFilter.append("[").append(ii).append(":v]").append(ptsShift).append(",scale=").append(fillW).append(":").append(fillH)
                                         .append(":force_original_aspect_ratio=increase,crop=").append(fillW).append(":").append(fillH).append(scaledLbl).append(";");
                                 if (behind) {
                                     vFilter.append(scaledLbl).append(currentVid).append("overlay=0:0")
@@ -5678,7 +5683,7 @@ public class GifSlideShowApp extends JFrame {
                                 int ovPxX = (int)(videoW * px / 100.0) - ovW / 2;
                                 int ovPxY = (int)(videoH * py / 100.0);
 
-                                vFilter.append("[").append(ii).append(":v]scale=").append(ovW).append(":-2").append(scaledLbl).append(";");
+                                vFilter.append("[").append(ii).append(":v]").append(ptsShift).append(",scale=").append(ovW).append(":-2").append(scaledLbl).append(";");
                                 if (behind) {
                                     vFilter.append(scaledLbl).append("pad=").append(videoW).append(":").append(videoH).append(":").append(Math.max(0, ovPxX)).append(":").append(ovPxY)
                                             .append(":color=black@0[ovpad").append(j).append("];");
