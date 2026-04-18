@@ -7580,6 +7580,7 @@ public class GifSlideShowApp extends JFrame {
 
         private File slideVideoOverlayFile;
         private int slideVideoOverlayDurationMs = -1;
+        private BufferedImage slideVideoOverlayPreviewFrame;
         private final JButton videoOverlayBtn;
         private final JLabel videoOverlayFileLbl;
         private final JLabel videoOverlayDurLbl;
@@ -9932,7 +9933,9 @@ public class GifSlideShowApp extends JFrame {
                     getHighlightText(), getHighlightColor(),
                     getTextShiftX(), getSlidePictureDataList());
 
-            // Draw video overlay indicator if this slide has a video overlay
+            // Draw video overlay preview if this slide has a video overlay.
+            // Honors Fill/Behind so the user can tell which texts will be
+            // visible vs. hidden by the overlay before generating the video.
             if (slideVideoOverlayFile != null) {
                 int pw = preview.getWidth();
                 int ph = preview.getHeight();
@@ -9942,28 +9945,86 @@ public class GifSlideShowApp extends JFrame {
                 copyG.dispose();
                 preview = argbPreview;
 
+                boolean voFill = videoOverlayFillCheck.isSelected();
+                boolean voBehind = videoOverlayBehindCheck.isSelected();
                 int vox = (int) videoOverlayXSp.getValue();
                 int voy = (int) videoOverlayYSp.getValue();
                 int vos = (int) videoOverlaySizeSp.getValue();
-                int ovW = Math.max(20, (int)(pw * vos / 100.0));
-                int ovH = Math.max(12, (int)(ovW * 9.0 / 16.0));
-                int ovPxX = (int)(pw * vox / 100.0) - ovW / 2;
-                int ovPxY = (int)(ph * voy / 100.0);
+
+                int ovPxX, ovPxY, ovW, ovH;
+                if (voFill) {
+                    ovPxX = 0; ovPxY = 0; ovW = pw; ovH = ph;
+                } else {
+                    ovW = Math.max(20, (int)(pw * vos / 100.0));
+                    double ar = 9.0 / 16.0;
+                    if (slideVideoOverlayPreviewFrame != null
+                            && slideVideoOverlayPreviewFrame.getWidth() > 0) {
+                        ar = (double) slideVideoOverlayPreviewFrame.getHeight()
+                                / slideVideoOverlayPreviewFrame.getWidth();
+                    }
+                    ovH = Math.max(12, (int)(ovW * ar));
+                    ovPxX = (int)(pw * vox / 100.0) - ovW / 2;
+                    ovPxY = (int)(ph * voy / 100.0);
+                }
+
                 Graphics2D pg = preview.createGraphics();
-                pg.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER));
-                pg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                pg.setColor(new Color(255, 180, 50, 60));
-                pg.fillRoundRect(ovPxX, ovPxY, ovW, ovH, 8, 8);
-                pg.setColor(new Color(255, 180, 50, 220));
-                pg.setStroke(new BasicStroke(2));
-                pg.drawRoundRect(ovPxX, ovPxY, ovW, ovH, 8, 8);
-                pg.setFont(new Font("Segoe UI", Font.BOLD, Math.max(9, ovW / 10)));
-                pg.setColor(Color.WHITE);
-                String voText = "Video";
-                FontMetrics fm = pg.getFontMetrics();
-                int tx = ovPxX + (ovW - fm.stringWidth(voText)) / 2;
-                int ty = ovPxY + (ovH + fm.getAscent()) / 2;
-                pg.drawString(voText, tx, ty);
+                pg.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                        RenderingHints.VALUE_ANTIALIAS_ON);
+                pg.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                        RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+
+                if (voBehind) {
+                    // Slide is drawn on top of overlay in the final render, so
+                    // text stays visible. Show a dashed outline only.
+                    pg.setColor(new Color(255, 180, 50, 220));
+                    pg.setStroke(new BasicStroke(2f, BasicStroke.CAP_BUTT,
+                            BasicStroke.JOIN_MITER, 10f,
+                            new float[]{6f, 4f}, 0f));
+                    pg.drawRoundRect(ovPxX, ovPxY,
+                            Math.max(1, ovW - 1), Math.max(1, ovH - 1), 8, 8);
+                    pg.setFont(new Font("Segoe UI", Font.BOLD,
+                            Math.max(9, Math.min(ovW, 160) / 10)));
+                    String label = "Video (behind)";
+                    FontMetrics fm = pg.getFontMetrics();
+                    int labelW = fm.stringWidth(label) + 8;
+                    int labelH = fm.getHeight();
+                    int lx = ovPxX + 4;
+                    int ly = ovPxY + 4;
+                    pg.setColor(new Color(0, 0, 0, 150));
+                    pg.fillRoundRect(lx, ly, labelW, labelH, 4, 4);
+                    pg.setColor(new Color(255, 220, 150));
+                    pg.drawString(label, lx + 4, ly + fm.getAscent());
+                } else {
+                    // Front mode: overlay covers slide content in the final
+                    // render. Draw the overlay thumbnail opaquely so the
+                    // user can see which texts will be occluded.
+                    java.awt.Shape oldClip = pg.getClip();
+                    pg.setClip(new java.awt.geom.RoundRectangle2D.Float(
+                            ovPxX, ovPxY, ovW, ovH, 8, 8));
+                    if (slideVideoOverlayPreviewFrame != null) {
+                        pg.drawImage(slideVideoOverlayPreviewFrame,
+                                ovPxX, ovPxY, ovW, ovH, null);
+                    } else {
+                        pg.setColor(new Color(30, 30, 30, 235));
+                        pg.fillRect(ovPxX, ovPxY, ovW, ovH);
+                    }
+                    pg.setClip(oldClip);
+
+                    pg.setColor(new Color(255, 180, 50, 220));
+                    pg.setStroke(new BasicStroke(2));
+                    pg.drawRoundRect(ovPxX, ovPxY, ovW, ovH, 8, 8);
+                    pg.setFont(new Font("Segoe UI", Font.BOLD,
+                            Math.max(9, Math.min(ovW, 160) / 10)));
+                    String label = "Video";
+                    FontMetrics fm = pg.getFontMetrics();
+                    int tx = ovPxX + Math.max(4, (ovW - fm.stringWidth(label)) / 2);
+                    int ty = ovPxY + Math.max(fm.getAscent() + 4,
+                            (ovH + fm.getAscent()) / 2);
+                    pg.setColor(new Color(0, 0, 0, 180));
+                    pg.drawString(label, tx + 1, ty + 1);
+                    pg.setColor(Color.WHITE);
+                    pg.drawString(label, tx, ty);
+                }
                 pg.dispose();
             }
 
@@ -10195,6 +10256,7 @@ public class GifSlideShowApp extends JFrame {
                 }
                 slideVideoOverlayFile = file;
                 slideVideoOverlayDurationMs = durationMs;
+                slideVideoOverlayPreviewFrame = extractVideoPreviewFrame(file);
                 videoOverlayFileLbl.setText(file.getName());
                 videoOverlayFileLbl.setForeground(Color.WHITE);
                 videoOverlayDurLbl.setText(String.format("(%d.%ds)",
@@ -10207,6 +10269,7 @@ public class GifSlideShowApp extends JFrame {
         private void clearSlideVideoOverlay() {
             slideVideoOverlayFile = null;
             slideVideoOverlayDurationMs = -1;
+            slideVideoOverlayPreviewFrame = null;
             videoOverlayFileLbl.setText("No video");
             videoOverlayFileLbl.setForeground(Color.GRAY);
             videoOverlayDurLbl.setText("");
@@ -10217,6 +10280,7 @@ public class GifSlideShowApp extends JFrame {
         void setSlideVideoOverlay(File file, int durationMs, int x, int y, int size) {
             slideVideoOverlayFile = file;
             slideVideoOverlayDurationMs = durationMs;
+            slideVideoOverlayPreviewFrame = extractVideoPreviewFrame(file);
             videoOverlayFileLbl.setText(file.getName());
             videoOverlayFileLbl.setForeground(Color.WHITE);
             videoOverlayDurLbl.setText(String.format("(%d.%ds)",
@@ -10225,6 +10289,34 @@ public class GifSlideShowApp extends JFrame {
             videoOverlayXSp.setValue(x);
             videoOverlayYSp.setValue(y);
             videoOverlaySizeSp.setValue(size);
+        }
+
+        private static BufferedImage extractVideoPreviewFrame(File videoFile) {
+            if (videoFile == null || !videoFile.exists()) return null;
+            try {
+                File tmp = File.createTempFile("vo_preview_", ".png");
+                tmp.deleteOnExit();
+                java.util.List<String> cmd = new java.util.ArrayList<>();
+                cmd.add("ffmpeg"); cmd.add("-y");
+                cmd.add("-ss"); cmd.add("0");
+                cmd.add("-i"); cmd.add(videoFile.getAbsolutePath());
+                cmd.add("-frames:v"); cmd.add("1");
+                cmd.add("-q:v"); cmd.add("2");
+                cmd.add(tmp.getAbsolutePath());
+                ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
+                Process p = pb.start();
+                try (java.io.InputStream is = p.getInputStream()) {
+                    byte[] buf = new byte[4096];
+                    while (is.read(buf) != -1) { /* drain */ }
+                }
+                int exit = p.waitFor();
+                if (exit != 0 || !tmp.exists() || tmp.length() == 0) return null;
+                BufferedImage img = javax.imageio.ImageIO.read(tmp);
+                tmp.delete();
+                return img;
+            } catch (Exception ex) {
+                return null;
+            }
         }
 
         private void browseSlideAudio() {
