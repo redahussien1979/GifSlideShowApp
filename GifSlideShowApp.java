@@ -5542,9 +5542,34 @@ public class GifSlideShowApp extends JFrame {
                             }
                         }
 
+                        // Render a transparent text-only PNG for each overlay
+                        // slide that has text, so text sits on top of the
+                        // overlay video in the final render.
+                        publish("Rendering text overlay layers...");
+                        java.util.List<Integer> txtSlideIdx = new java.util.ArrayList<>();
+                        java.util.List<Integer> txtInputIdx = new java.util.ArrayList<>();
+                        for (int i = 0; i < slides.size(); i++) {
+                            SlideData s = slides.get(i);
+                            if (s.videoOverlayFile == null || !s.videoOverlayFile.exists()) continue;
+                            if (!slideHasAnyText(s)) continue;
+                            try {
+                                BufferedImage txtLayer = extractTextLayer(s, videoW, videoH);
+                                if (txtLayer == null) continue;
+                                File txtPng = new File(tempDir, "text_layer_" + i + ".png");
+                                ImageIO.write(txtLayer, "png", txtPng);
+                                ovCmd.add("-i"); ovCmd.add(txtPng.getAbsolutePath());
+                                txtSlideIdx.add(i);
+                                txtInputIdx.add(ovInIdx);
+                                ovInIdx++;
+                            } catch (IOException ex) {
+                                // Non-fatal: skip this text layer
+                            }
+                        }
+
                         // Build video filter chain: scale + time-gated overlay for each
                         StringBuilder vFilter = new StringBuilder();
                         String currentVid = "[0:v]";
+                        boolean hasTextLayers = !txtSlideIdx.isEmpty();
                         for (int j = 0; j < ovSlideIdx.size(); j++) {
                             int si = ovSlideIdx.get(j);
                             int ii = ovInputIdx.get(j);
@@ -5553,7 +5578,10 @@ public class GifSlideShowApp extends JFrame {
                             double tStart = slideStartSec[si];
                             double tEnd = tStart + slideDurSec[si];
                             String scaledLbl = "[ov" + j + "]";
-                            String outLbl = (j == ovSlideIdx.size() - 1) ? "[outv]" : "[tmp" + j + "]";
+                            boolean isLastVideoOv = (j == ovSlideIdx.size() - 1);
+                            String outLbl = isLastVideoOv
+                                    ? (hasTextLayers ? "[vidmix]" : "[outv]")
+                                    : "[tmp" + j + "]";
                             String enableExpr = ":enable='between(t," + String.format("%.3f", tStart) + "," + String.format("%.3f", tEnd) + ")'";
 
                             if (s.videoOverlayFill) {
@@ -5587,6 +5615,28 @@ public class GifSlideShowApp extends JFrame {
                             }
                             currentVid = outLbl;
                         }
+
+                        // Chain text-only PNG overlays on top of the video
+                        // mix so text always appears over both image and
+                        // video, regardless of Fill/Behind settings.
+                        if (hasTextLayers) {
+                            for (int k = 0; k < txtSlideIdx.size(); k++) {
+                                int si = txtSlideIdx.get(k);
+                                int ii = txtInputIdx.get(k);
+                                double tStart = slideStartSec[si];
+                                double tEnd = tStart + slideDurSec[si];
+                                String outLbl = (k == txtSlideIdx.size() - 1)
+                                        ? "[outv]" : "[txtmp" + k + "]";
+                                String enableExpr = ":enable='between(t,"
+                                        + String.format("%.3f", tStart) + ","
+                                        + String.format("%.3f", tEnd) + ")'";
+                                vFilter.append(currentVid).append("[").append(ii).append(":v]")
+                                        .append("overlay=0:0").append(enableExpr)
+                                        .append(":eof_action=pass").append(outLbl).append(";");
+                                currentVid = outLbl;
+                            }
+                        }
+
                         // Remove trailing semicolon
                         if (vFilter.length() > 0 && vFilter.charAt(vFilter.length() - 1) == ';') {
                             vFilter.setLength(vFilter.length() - 1);
@@ -6955,6 +7005,81 @@ public class GifSlideShowApp extends JFrame {
             e.printStackTrace();
         }
         return -1;
+    }
+
+    /**
+     * Render a transparent PNG containing only the text layers (user text +
+     * slide text items) of a slide at the given output resolution. Used to
+     * re-composite text on top of a video overlay so it never gets hidden.
+     *
+     * Implementation: render the slide with text, render it without text,
+     * and keep pixels that differ. This preserves anti-aliasing quality and
+     * avoids duplicating the complex text-layout code from renderFrame.
+     */
+    private static BufferedImage extractTextLayer(SlideData s, int W, int H) {
+        BufferedImage withText = renderFrame(
+                s.image, s.text, s.fontName, s.fontSize, s.fontStyle,
+                s.fontColor, s.alignment, s.showPin, W, H,
+                s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                s.slideNumberX, s.slideNumberY,
+                s.slideNumberSize, s.slideNumberColor,
+                s.slideTexts,
+                s.fxRoundCorners, s.fxCornerRadius,
+                s.fxVignette, s.fxSepia, s.fxGrain,
+                s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                s.fxScanline, s.fxRaised,
+                s.overlayEnabled,
+                s.overlayShape, s.overlayBgMode, s.overlayBgColor,
+                s.overlayX, s.overlayY, s.overlaySize, 0,
+                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor,
+                s.textShiftX, s.slidePictures);
+
+        BufferedImage without = renderFrame(
+                s.image, "", s.fontName, s.fontSize, s.fontStyle,
+                s.fontColor, s.alignment, s.showPin, W, H,
+                s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                s.slideNumberX, s.slideNumberY,
+                s.slideNumberSize, s.slideNumberColor,
+                java.util.Collections.emptyList(),
+                s.fxRoundCorners, s.fxCornerRadius,
+                s.fxVignette, s.fxSepia, s.fxGrain,
+                s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                s.fxScanline, s.fxRaised,
+                s.overlayEnabled,
+                s.overlayShape, s.overlayBgMode, s.overlayBgColor,
+                s.overlayX, s.overlayY, s.overlaySize, 0,
+                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor,
+                s.textShiftX, s.slidePictures);
+
+        int[] wt = withText.getRGB(0, 0, W, H, null, 0, W);
+        int[] nt = without.getRGB(0, 0, W, H, null, 0, W);
+        int[] res = new int[W * H];
+        boolean anyChange = false;
+        for (int i = 0; i < wt.length; i++) {
+            if (wt[i] != nt[i]) {
+                res[i] = 0xFF000000 | (wt[i] & 0x00FFFFFF);
+                anyChange = true;
+            }
+        }
+        if (!anyChange) return null;
+        BufferedImage out = new BufferedImage(W, H, BufferedImage.TYPE_INT_ARGB);
+        out.setRGB(0, 0, W, H, res, 0, W);
+        return out;
+    }
+
+    private static boolean slideHasAnyText(SlideData s) {
+        if (s.text != null && !s.text.trim().isEmpty()) return true;
+        if (s.slideTexts != null) {
+            for (SlideTextData st : s.slideTexts) {
+                if (st != null && st.show
+                        && st.text != null && !st.text.trim().isEmpty()) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static boolean probeHasAudio(File file) {
@@ -9902,129 +10027,195 @@ public class GifSlideShowApp extends JFrame {
         }
 
         private void updateLivePreview() {
-            if (loadedImage == null) {
+            boolean hasImage = loadedImage != null;
+            boolean hasVideo = slideVideoOverlayFile != null;
+            BufferedImage thumb = slideVideoOverlayPreviewFrame;
+
+            if (!hasImage && !hasVideo) {
                 livePreviewLabel.setIcon(null);
-                livePreviewLabel.setText("Live Preview (add image first)");
+                livePreviewLabel.setText("Live Preview (add image or video first)");
                 return;
             }
-            BufferedImage frameImage = loadedImage;
-            if (isTitleGridSlide && gridSourceImages != null) {
-                frameImage = composeTitleGridFrame(getPreviewWidth(), getPreviewHeight());
-            }
-            BufferedImage preview = renderFrame(
-                    frameImage, textArea.getText(),
-                    getSelectedFont(), getFontSize(), getFontStyle(),
-                    getFontColor(), getTextAlignment(), isShowPin(),
-                    getPreviewWidth(), getPreviewHeight(),
-                    (isTitleGridSlide && titleBgImage == null) ? "Direct" : getDisplayMode(), getSubtitleY(),
-                    getSubtitleBgOpacity(),
-                    isShowSlideNumber(), getSlideNumberText(), getSlideNumberFontName(),
-                    getSlideNumberX(), getSlideNumberY(),
-                    getSlideNumberSize(), getSlideNumberColor(),
-                    getSlideTextDataList(),
-                    isFxRoundCorners(), getFxCornerRadius(),
-                    getFxVignette(), getFxSepia(), getFxGrain(),
-                    getFxWaterRipple(), getFxGlitch(), getFxShake(),
-                    getFxScanline(), getFxRaised(),
-                    isOverlayEnabled(),
-                    getOverlayShape(), getOverlayBgMode(), getOverlayBgColor(),
-                    getOverlayX(), getOverlayY(), getOverlaySize(), -1,
-                    isTextJustify(), getTextWidthPct(),
-                    getHighlightText(), getHighlightColor(),
-                    getTextShiftX(), getSlidePictureDataList());
 
-            // Draw video overlay preview if this slide has a video overlay.
-            // Honors Fill/Behind so the user can tell which texts will be
-            // visible vs. hidden by the overlay before generating the video.
-            if (slideVideoOverlayFile != null) {
-                int pw = preview.getWidth();
-                int ph = preview.getHeight();
-                BufferedImage argbPreview = new BufferedImage(pw, ph, BufferedImage.TYPE_INT_ARGB);
+            int pw = getPreviewWidth();
+            int ph = getPreviewHeight();
+
+            boolean voFill = hasVideo && videoOverlayFillCheck.isSelected();
+            boolean voBehind = hasVideo && videoOverlayBehindCheck.isSelected();
+            int vox = hasVideo ? (int) videoOverlayXSp.getValue() : 50;
+            int voy = hasVideo ? (int) videoOverlayYSp.getValue() : 25;
+            int vos = hasVideo ? (int) videoOverlaySizeSp.getValue() : 30;
+
+            // Keep text on top of the video in Front mode (and for video-only
+            // slides) by rendering in two passes: pass 1 = image + FX baked
+            // to a buffer, composite overlay thumbnail, pass 2 = draw text on
+            // top in Direct mode.
+            boolean layerVideoUnderText = hasVideo && thumb != null && (!hasImage || !voBehind);
+
+            BufferedImage frameImage;
+            String displayMode;
+
+            if (layerVideoUnderText) {
+                BufferedImage base;
+                if (hasImage) {
+                    BufferedImage baseSrc = loadedImage;
+                    if (isTitleGridSlide && gridSourceImages != null) {
+                        baseSrc = composeTitleGridFrame(pw, ph);
+                    }
+                    String baseDisplay = (isTitleGridSlide && titleBgImage == null)
+                            ? "Direct" : getDisplayMode();
+                    // Render image + FX + slide number + overlays + pictures,
+                    // with NO text, so we can composite the video on top.
+                    base = renderFrame(
+                            baseSrc, "",
+                            getSelectedFont(), getFontSize(), getFontStyle(),
+                            getFontColor(), getTextAlignment(), isShowPin(),
+                            pw, ph,
+                            baseDisplay, getSubtitleY(),
+                            getSubtitleBgOpacity(),
+                            isShowSlideNumber(), getSlideNumberText(), getSlideNumberFontName(),
+                            getSlideNumberX(), getSlideNumberY(),
+                            getSlideNumberSize(), getSlideNumberColor(),
+                            java.util.Collections.emptyList(),
+                            isFxRoundCorners(), getFxCornerRadius(),
+                            getFxVignette(), getFxSepia(), getFxGrain(),
+                            getFxWaterRipple(), getFxGlitch(), getFxShake(),
+                            getFxScanline(), getFxRaised(),
+                            isOverlayEnabled(),
+                            getOverlayShape(), getOverlayBgMode(), getOverlayBgColor(),
+                            getOverlayX(), getOverlayY(), getOverlaySize(), -1,
+                            isTextJustify(), getTextWidthPct(),
+                            getHighlightText(), getHighlightColor(),
+                            getTextShiftX(), getSlidePictureDataList());
+                } else {
+                    base = new BufferedImage(pw, ph, BufferedImage.TYPE_INT_RGB);
+                    Graphics2D bg = base.createGraphics();
+                    bg.setColor(Color.BLACK);
+                    bg.fillRect(0, 0, pw, ph);
+                    bg.dispose();
+                }
+
+                Graphics2D vg = base.createGraphics();
+                vg.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                        RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                if (voFill || !hasImage) {
+                    vg.drawImage(thumb, 0, 0, pw, ph, null);
+                } else {
+                    int ovW = Math.max(20, (int)(pw * vos / 100.0));
+                    double ar = (thumb.getWidth() > 0)
+                            ? (double) thumb.getHeight() / thumb.getWidth()
+                            : 9.0 / 16.0;
+                    int ovH = Math.max(12, (int)(ovW * ar));
+                    int ovX = (int)(pw * vox / 100.0) - ovW / 2;
+                    int ovY = (int)(ph * voy / 100.0);
+                    vg.drawImage(thumb, ovX, ovY, ovW, ovH, null);
+                }
+                vg.dispose();
+
+                frameImage = base;
+                displayMode = "Direct";
+            } else {
+                frameImage = loadedImage;
+                if (isTitleGridSlide && gridSourceImages != null) {
+                    frameImage = composeTitleGridFrame(pw, ph);
+                }
+                displayMode = (isTitleGridSlide && titleBgImage == null)
+                        ? "Direct" : getDisplayMode();
+            }
+
+            // Final pass: draw text (and slide texts) on top. When we
+            // pre-composited image+video into frameImage, disable the FX and
+            // non-text layers to avoid double application.
+            BufferedImage preview;
+            if (layerVideoUnderText) {
+                preview = renderFrame(
+                        frameImage, textArea.getText(),
+                        getSelectedFont(), getFontSize(), getFontStyle(),
+                        getFontColor(), getTextAlignment(), false,
+                        pw, ph,
+                        "Direct", getSubtitleY(),
+                        getSubtitleBgOpacity(),
+                        false, "", getSlideNumberFontName(),
+                        getSlideNumberX(), getSlideNumberY(),
+                        getSlideNumberSize(), getSlideNumberColor(),
+                        getSlideTextDataList(),
+                        false, 0,
+                        0, 0, 0, 0, 0, 0, 0, 0,
+                        false,
+                        getOverlayShape(), getOverlayBgMode(), getOverlayBgColor(),
+                        0, 0, 0, -1,
+                        isTextJustify(), getTextWidthPct(),
+                        getHighlightText(), getHighlightColor(),
+                        getTextShiftX(), null);
+            } else {
+                preview = renderFrame(
+                        frameImage, textArea.getText(),
+                        getSelectedFont(), getFontSize(), getFontStyle(),
+                        getFontColor(), getTextAlignment(), isShowPin(),
+                        pw, ph,
+                        displayMode, getSubtitleY(),
+                        getSubtitleBgOpacity(),
+                        isShowSlideNumber(), getSlideNumberText(), getSlideNumberFontName(),
+                        getSlideNumberX(), getSlideNumberY(),
+                        getSlideNumberSize(), getSlideNumberColor(),
+                        getSlideTextDataList(),
+                        isFxRoundCorners(), getFxCornerRadius(),
+                        getFxVignette(), getFxSepia(), getFxGrain(),
+                        getFxWaterRipple(), getFxGlitch(), getFxShake(),
+                        getFxScanline(), getFxRaised(),
+                        isOverlayEnabled(),
+                        getOverlayShape(), getOverlayBgMode(), getOverlayBgColor(),
+                        getOverlayX(), getOverlayY(), getOverlaySize(), -1,
+                        isTextJustify(), getTextWidthPct(),
+                        getHighlightText(), getHighlightColor(),
+                        getTextShiftX(), getSlidePictureDataList());
+            }
+
+            // Behind mode with an image: the overlay sits under the image so
+            // we can't show its content in the preview. Draw a dashed outline
+            // so the user can still see where the overlay is placed.
+            if (hasVideo && voBehind && hasImage) {
+                BufferedImage argbPreview = new BufferedImage(preview.getWidth(),
+                        preview.getHeight(), BufferedImage.TYPE_INT_ARGB);
                 Graphics2D copyG = argbPreview.createGraphics();
                 copyG.drawImage(preview, 0, 0, null);
                 copyG.dispose();
                 preview = argbPreview;
 
-                boolean voFill = videoOverlayFillCheck.isSelected();
-                boolean voBehind = videoOverlayBehindCheck.isSelected();
-                int vox = (int) videoOverlayXSp.getValue();
-                int voy = (int) videoOverlayYSp.getValue();
-                int vos = (int) videoOverlaySizeSp.getValue();
-
-                int ovPxX, ovPxY, ovW, ovH;
+                int ovW, ovH, ovPxX, ovPxY;
                 if (voFill) {
-                    ovPxX = 0; ovPxY = 0; ovW = pw; ovH = ph;
+                    ovPxX = 0; ovPxY = 0;
+                    ovW = preview.getWidth(); ovH = preview.getHeight();
                 } else {
-                    ovW = Math.max(20, (int)(pw * vos / 100.0));
-                    double ar = 9.0 / 16.0;
-                    if (slideVideoOverlayPreviewFrame != null
-                            && slideVideoOverlayPreviewFrame.getWidth() > 0) {
-                        ar = (double) slideVideoOverlayPreviewFrame.getHeight()
-                                / slideVideoOverlayPreviewFrame.getWidth();
-                    }
+                    ovW = Math.max(20, (int)(preview.getWidth() * vos / 100.0));
+                    double ar = (thumb != null && thumb.getWidth() > 0)
+                            ? (double) thumb.getHeight() / thumb.getWidth()
+                            : 9.0 / 16.0;
                     ovH = Math.max(12, (int)(ovW * ar));
-                    ovPxX = (int)(pw * vox / 100.0) - ovW / 2;
-                    ovPxY = (int)(ph * voy / 100.0);
+                    ovPxX = (int)(preview.getWidth() * vox / 100.0) - ovW / 2;
+                    ovPxY = (int)(preview.getHeight() * voy / 100.0);
                 }
 
                 Graphics2D pg = preview.createGraphics();
                 pg.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
                         RenderingHints.VALUE_ANTIALIAS_ON);
-                pg.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
-                        RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-
-                if (voBehind) {
-                    // Slide is drawn on top of overlay in the final render, so
-                    // text stays visible. Show a dashed outline only.
-                    pg.setColor(new Color(255, 180, 50, 220));
-                    pg.setStroke(new BasicStroke(2f, BasicStroke.CAP_BUTT,
-                            BasicStroke.JOIN_MITER, 10f,
-                            new float[]{6f, 4f}, 0f));
-                    pg.drawRoundRect(ovPxX, ovPxY,
-                            Math.max(1, ovW - 1), Math.max(1, ovH - 1), 8, 8);
-                    pg.setFont(new Font("Segoe UI", Font.BOLD,
-                            Math.max(9, Math.min(ovW, 160) / 10)));
-                    String label = "Video (behind)";
-                    FontMetrics fm = pg.getFontMetrics();
-                    int labelW = fm.stringWidth(label) + 8;
-                    int labelH = fm.getHeight();
-                    int lx = ovPxX + 4;
-                    int ly = ovPxY + 4;
-                    pg.setColor(new Color(0, 0, 0, 150));
-                    pg.fillRoundRect(lx, ly, labelW, labelH, 4, 4);
-                    pg.setColor(new Color(255, 220, 150));
-                    pg.drawString(label, lx + 4, ly + fm.getAscent());
-                } else {
-                    // Front mode: overlay covers slide content in the final
-                    // render. Draw the overlay thumbnail opaquely so the
-                    // user can see which texts will be occluded.
-                    java.awt.Shape oldClip = pg.getClip();
-                    pg.setClip(new java.awt.geom.RoundRectangle2D.Float(
-                            ovPxX, ovPxY, ovW, ovH, 8, 8));
-                    if (slideVideoOverlayPreviewFrame != null) {
-                        pg.drawImage(slideVideoOverlayPreviewFrame,
-                                ovPxX, ovPxY, ovW, ovH, null);
-                    } else {
-                        pg.setColor(new Color(30, 30, 30, 235));
-                        pg.fillRect(ovPxX, ovPxY, ovW, ovH);
-                    }
-                    pg.setClip(oldClip);
-
-                    pg.setColor(new Color(255, 180, 50, 220));
-                    pg.setStroke(new BasicStroke(2));
-                    pg.drawRoundRect(ovPxX, ovPxY, ovW, ovH, 8, 8);
-                    pg.setFont(new Font("Segoe UI", Font.BOLD,
-                            Math.max(9, Math.min(ovW, 160) / 10)));
-                    String label = "Video";
-                    FontMetrics fm = pg.getFontMetrics();
-                    int tx = ovPxX + Math.max(4, (ovW - fm.stringWidth(label)) / 2);
-                    int ty = ovPxY + Math.max(fm.getAscent() + 4,
-                            (ovH + fm.getAscent()) / 2);
-                    pg.setColor(new Color(0, 0, 0, 180));
-                    pg.drawString(label, tx + 1, ty + 1);
-                    pg.setColor(Color.WHITE);
-                    pg.drawString(label, tx, ty);
-                }
+                pg.setColor(new Color(255, 180, 50, 220));
+                pg.setStroke(new BasicStroke(2f, BasicStroke.CAP_BUTT,
+                        BasicStroke.JOIN_MITER, 10f, new float[]{6f, 4f}, 0f));
+                pg.drawRoundRect(ovPxX, ovPxY,
+                        Math.max(1, ovW - 1), Math.max(1, ovH - 1), 8, 8);
+                pg.setFont(new Font("Segoe UI", Font.BOLD,
+                        Math.max(9, Math.min(ovW, 160) / 10)));
+                String label = "Video (behind)";
+                FontMetrics fm = pg.getFontMetrics();
+                int labelW = fm.stringWidth(label) + 8;
+                int labelH = fm.getHeight();
+                int lx = ovPxX + 4;
+                int ly = ovPxY + 4;
+                pg.setColor(new Color(0, 0, 0, 150));
+                pg.fillRoundRect(lx, ly, labelW, labelH, 4, 4);
+                pg.setColor(new Color(255, 220, 150));
+                pg.drawString(label, lx + 4, ly + fm.getAscent());
                 pg.dispose();
             }
 
