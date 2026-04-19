@@ -5874,7 +5874,7 @@ public class GifSlideShowApp extends JFrame {
                             ovCmd.add("-map"); ovCmd.add(audioMap);
                         }
                         ovCmd.add("-c:v"); ovCmd.add("libx264");
-                        ovCmd.add("-preset"); ovCmd.add("medium");
+                        ovCmd.add("-preset"); ovCmd.add("fast");
                         ovCmd.add("-crf"); ovCmd.add(String.valueOf(crf));
                         ovCmd.add("-pix_fmt"); ovCmd.add("yuv420p");
                         if (audioMap != null) {
@@ -6433,6 +6433,37 @@ public class GifSlideShowApp extends JFrame {
                                 }
                             }
 
+                            // Apply uploaded source video (fullscreen) + decoration PNG
+                            if (s.sourceVideoFile != null && s.sourceVideoFile.exists()
+                                    && slideOutFile.exists()) {
+                                publish("Applying uploaded video to slide " + (si + 1) + "...");
+                                File svDecoPng = null;
+                                try {
+                                    BufferedImage decoImg = renderFrame(
+                                            s.image, s.text, s.fontName, s.fontSize,
+                                            s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                            videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                            s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                            s.slideNumberX, s.slideNumberY,
+                                            s.slideNumberSize, s.slideNumberColor,
+                                            s.slideTexts,
+                                            false, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                            false, null, null, null, 0, 0, 0,
+                                            Integer.MAX_VALUE,
+                                            s.textJustify, s.textWidthPct,
+                                            s.highlightText, s.highlightColor,
+                                            s.textShiftX, s.slidePictures,
+                                            true);
+                                    svDecoPng = new File(tempDir, "sv_deco.png");
+                                    ImageIO.write(decoImg, "png", svDecoPng);
+                                } catch (IOException ioe) {
+                                    publish("Failed to render decoration layer for slide " + (si + 1) + ": " + ioe.getMessage());
+                                    svDecoPng = null;
+                                }
+                                applySourceVideoAndDecoration(slideOutFile, s.sourceVideoFile,
+                                        svDecoPng, videoW, videoH, crf, tempDir);
+                            }
+
                             // Apply per-slide video overlay if set
                             if (s.videoOverlayFile != null && s.videoOverlayFile.exists()
                                     && slideOutFile.exists()) {
@@ -6630,6 +6661,84 @@ public class GifSlideShowApp extends JFrame {
             cmd.add(baseVideo.getAbsolutePath());
             runFfmpeg(cmd);
         }
+        preOverlay.delete();
+    }
+
+    /**
+     * Per-slide MP4 path: overlay an uploaded source video (fill+on-top) and a
+     * transparent decoration PNG (text/slide number/etc.) on top of the slide's
+     * base video. Single FFmpeg pass; mixes source video audio with base audio
+     * if the source has any. The decoration PNG is optional.
+     */
+    private static void applySourceVideoAndDecoration(File baseVideo, File sourceVideo,
+                                                      File decorationPng,
+                                                      int videoW, int videoH, int crf,
+                                                      File tempDir) throws IOException, InterruptedException {
+        File preOverlay = new File(tempDir, "pre_sv_" + System.currentTimeMillis() + ".mp4");
+        if (!baseVideo.renameTo(preOverlay)) {
+            java.nio.file.Files.copy(baseVideo.toPath(), preOverlay.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            baseVideo.delete();
+        }
+
+        int fillW = videoW; if (fillW % 2 != 0) fillW++;
+        int fillH = videoH; if (fillH % 2 != 0) fillH++;
+
+        // Build video filter: source video fill over base, then (if present) decoration PNG on top
+        StringBuilder vf = new StringBuilder();
+        vf.append("[1:v]scale=").append(fillW).append(":").append(fillH)
+                .append(":force_original_aspect_ratio=increase,crop=")
+                .append(fillW).append(":").append(fillH).append("[sv];");
+        if (decorationPng != null && decorationPng.exists()) {
+            vf.append("[0:v][sv]overlay=0:0:eof_action=pass[tmp];");
+            vf.append("[2:v]scale=").append(fillW).append(":").append(fillH)
+                    .append(":force_original_aspect_ratio=increase,crop=")
+                    .append(fillW).append(":").append(fillH).append("[deco];");
+            vf.append("[tmp][deco]overlay=0:0:eof_action=pass[outv]");
+        } else {
+            vf.append("[0:v][sv]overlay=0:0:eof_action=pass[outv]");
+        }
+
+        boolean baseHasAudio = probeHasAudio(preOverlay);
+        boolean srcHasAudio = probeHasAudio(sourceVideo);
+        String audioMap = null;
+        if (baseHasAudio && srcHasAudio) {
+            vf.append(";[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=0[outa]");
+            audioMap = "[outa]";
+        } else if (baseHasAudio) {
+            audioMap = "0:a";
+        } else if (srcHasAudio) {
+            audioMap = "1:a";
+        }
+
+        java.util.List<String> cmd = new java.util.ArrayList<>();
+        cmd.add("ffmpeg"); cmd.add("-y");
+        cmd.add("-i"); cmd.add(preOverlay.getAbsolutePath());
+        cmd.add("-i"); cmd.add(sourceVideo.getAbsolutePath());
+        if (decorationPng != null && decorationPng.exists()) {
+            cmd.add("-loop"); cmd.add("1");
+            cmd.add("-i"); cmd.add(decorationPng.getAbsolutePath());
+        }
+        cmd.add("-filter_complex"); cmd.add(vf.toString());
+        cmd.add("-map"); cmd.add("[outv]");
+        if (audioMap != null) {
+            cmd.add("-map"); cmd.add(audioMap);
+            cmd.add("-c:a"); cmd.add("aac");
+            cmd.add("-b:a"); cmd.add("192k");
+        } else {
+            cmd.add("-an");
+        }
+        cmd.add("-c:v"); cmd.add("libx264");
+        cmd.add("-preset"); cmd.add("fast");
+        cmd.add("-crf"); cmd.add(String.valueOf(crf));
+        cmd.add("-pix_fmt"); cmd.add("yuv420p");
+        cmd.add("-shortest");
+        cmd.add("-movflags"); cmd.add("+faststart");
+        cmd.add(baseVideo.getAbsolutePath());
+
+        System.err.println("[GifSlideShowApp] Per-slide source-video overlay command:");
+        for (String a : cmd) System.err.println("  " + a);
+        runFfmpeg(cmd);
         preOverlay.delete();
     }
 
