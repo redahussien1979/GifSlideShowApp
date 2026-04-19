@@ -5656,6 +5656,10 @@ public class GifSlideShowApp extends JFrame {
                         java.util.List<Integer> ovTaskX = new java.util.ArrayList<>();
                         java.util.List<Integer> ovTaskY = new java.util.ArrayList<>();
                         java.util.List<Boolean> ovTaskIsPng = new java.util.ArrayList<>();
+                        // ovTaskIsPngSeq: true if the input is a rendered PNG sequence for an
+                        // animated decoration layer. Sequences need tpad-based time alignment
+                        // (like a video) but have no audio stream.
+                        java.util.List<Boolean> ovTaskIsPngSeq = new java.util.ArrayList<>();
                         int ovInIdx = 1;
 
                         // Source videos first (underneath decorations + explicit overlay), fill mode, on top of base frame
@@ -5672,47 +5676,57 @@ public class GifSlideShowApp extends JFrame {
                                 ovTaskX.add(50);
                                 ovTaskY.add(50);
                                 ovTaskIsPng.add(Boolean.FALSE);
+                                ovTaskIsPngSeq.add(Boolean.FALSE);
                                 ovInIdx++;
                             }
                         }
                         // Decoration layers for each source-video slide: a transparent PNG
-                        // that renders only the slide's text / slide number / slide texts /
-                        // slide pictures on top of the playing video. Without this, those
-                        // decorations are baked into the static first-frame base and get
-                        // hidden entirely while the source video plays.
+                        // (or animated PNG sequence) that renders only the slide's text /
+                        // slide number / slide texts / slide pictures on top of the playing
+                        // video. Without this, those decorations are baked into the static
+                        // first-frame base and get hidden entirely while the source video
+                        // plays. If the slide has animated decorations (Fly-In, typewriter,
+                        // odometer, etc.), a PNG sequence is emitted so the animation plays
+                        // in sync with the video.
                         for (int i = 0; i < slides.size(); i++) {
                             SlideData s = slides.get(i);
                             if (s.sourceVideoFile != null && s.sourceVideoFile.exists()) {
                                 try {
-                                    BufferedImage decoImg = renderFrame(
-                                            s.image, s.text, s.fontName, s.fontSize,
-                                            s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                            videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
-                                            s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
-                                            s.slideNumberX, s.slideNumberY,
-                                            s.slideNumberSize, s.slideNumberColor,
-                                            s.slideTexts,
-                                            false, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                            false, null, null, null, 0, 0, 0,
-                                            Integer.MAX_VALUE,
-                                            s.textJustify, s.textWidthPct,
-                                            s.highlightText, s.highlightColor,
-                                            s.textShiftX, s.slidePictures,
-                                            true);
-                                    File decoPng = new File(tempDir, String.format("deco_%03d.png", i));
-                                    ImageIO.write(decoImg, "png", decoPng);
-                                    ovCmd.add("-loop"); ovCmd.add("1");
-                                    ovCmd.add("-i"); ovCmd.add(decoPng.getAbsolutePath());
-                                    ovSlideIdx.add(i);
-                                    ovInputIdx.add(ovInIdx);
-                                    ovTaskFiles.add(decoPng);
-                                    ovTaskFill.add(Boolean.TRUE);
-                                    ovTaskBehind.add(Boolean.FALSE);
-                                    ovTaskSize.add(100);
-                                    ovTaskX.add(50);
-                                    ovTaskY.add(50);
-                                    ovTaskIsPng.add(Boolean.TRUE);
-                                    ovInIdx++;
+                                    int slideFrames = Math.max(1, (int) Math.round(slideDurSec[i] * fps));
+                                    File decoDir = new File(tempDir, String.format("deco_%03d", i));
+                                    boolean[] isSeqOut = new boolean[1];
+                                    File decoOut = renderDecorationLayerToDisk(
+                                            s, videoW, videoH, fps, slideFrames, decoDir, isSeqOut);
+                                    if (isSeqOut[0]) {
+                                        ovCmd.add("-framerate"); ovCmd.add(String.valueOf(fps));
+                                        ovCmd.add("-i");
+                                        ovCmd.add(new File(decoOut, "%05d.png").getAbsolutePath());
+                                        ovSlideIdx.add(i);
+                                        ovInputIdx.add(ovInIdx);
+                                        ovTaskFiles.add(decoOut);
+                                        ovTaskFill.add(Boolean.TRUE);
+                                        ovTaskBehind.add(Boolean.FALSE);
+                                        ovTaskSize.add(100);
+                                        ovTaskX.add(50);
+                                        ovTaskY.add(50);
+                                        ovTaskIsPng.add(Boolean.FALSE);
+                                        ovTaskIsPngSeq.add(Boolean.TRUE);
+                                        ovInIdx++;
+                                    } else {
+                                        ovCmd.add("-loop"); ovCmd.add("1");
+                                        ovCmd.add("-i"); ovCmd.add(decoOut.getAbsolutePath());
+                                        ovSlideIdx.add(i);
+                                        ovInputIdx.add(ovInIdx);
+                                        ovTaskFiles.add(decoOut);
+                                        ovTaskFill.add(Boolean.TRUE);
+                                        ovTaskBehind.add(Boolean.FALSE);
+                                        ovTaskSize.add(100);
+                                        ovTaskX.add(50);
+                                        ovTaskY.add(50);
+                                        ovTaskIsPng.add(Boolean.TRUE);
+                                        ovTaskIsPngSeq.add(Boolean.FALSE);
+                                        ovInIdx++;
+                                    }
                                 } catch (IOException ioe) {
                                     publish("Failed to write decoration layer for slide " + (i + 1) + ": " + ioe.getMessage());
                                 }
@@ -5732,6 +5746,7 @@ public class GifSlideShowApp extends JFrame {
                                 ovTaskX.add(s.videoOverlayX);
                                 ovTaskY.add(s.videoOverlayY);
                                 ovTaskIsPng.add(Boolean.FALSE);
+                                ovTaskIsPngSeq.add(Boolean.FALSE);
                                 ovInIdx++;
                             }
                         }
@@ -5748,6 +5763,7 @@ public class GifSlideShowApp extends JFrame {
                             int px = ovTaskX.get(j);
                             int py = ovTaskY.get(j);
                             boolean isPng = ovTaskIsPng.get(j);
+                            boolean isPngSeq = ovTaskIsPngSeq.get(j);
 
                             double tStart = slideStartSec[si];
                             double tEnd = tStart + slideDurSec[si];
@@ -5757,15 +5773,24 @@ public class GifSlideShowApp extends JFrame {
                                     + String.format(java.util.Locale.US, "%.3f", tStart) + ","
                                     + String.format(java.util.Locale.US, "%.3f", tEnd) + ")'";
 
-                            // For video inputs: prepend `tpad` padding frames so the input's
-                            // content frames land at output time `tStart` in sync with the
-                            // main video. setpts alone was leaving the overlay with no second-
-                            // input frames during [0, tStart], which can stall the filter.
-                            // PNG inputs are looped (-loop 1), every output time has a frame
-                            // available, so no padding is needed — enable window alone gates it.
+                            // For video inputs and animated PNG sequences: prepend `tpad`
+                            // padding frames so the input's content frames land at output
+                            // time `tStart` in sync with the main video. Setpts alone was
+                            // leaving the overlay with no second-input frames during
+                            // [0, tStart], which can stall the filter. Static PNG inputs
+                            // are looped (-loop 1), every output time has a frame available,
+                            // so no padding is needed — enable window alone gates it.
+                            // PNG sequences use color=black@0 so the transparent pad frames
+                            // don't dim the base layer.
                             String ptsShift;
                             if (isPng) {
                                 ptsShift = "";
+                            } else if (isPngSeq && tStart > 0) {
+                                ptsShift = String.format(java.util.Locale.US,
+                                        "tpad=start_duration=%.3f:start_mode=add:color=black@0,setpts=PTS-STARTPTS,",
+                                        tStart);
+                            } else if (isPngSeq) {
+                                ptsShift = "setpts=PTS-STARTPTS,";
                             } else if (tStart > 0) {
                                 ptsShift = String.format(java.util.Locale.US,
                                         "tpad=start_duration=%.3f:start_mode=add:color=black,setpts=PTS-STARTPTS,",
@@ -5817,8 +5842,8 @@ public class GifSlideShowApp extends JFrame {
                             int si = ovSlideIdx.get(j);
                             int ii = ovInputIdx.get(j);
                             File f = ovTaskFiles.get(j);
-                            // PNG decoration layers have no audio — skip
-                            if (ovTaskIsPng.get(j)) continue;
+                            // PNG decoration layers (static or animated sequence) have no audio — skip
+                            if (ovTaskIsPng.get(j) || ovTaskIsPngSeq.get(j)) continue;
                             // Probe if overlay video has audio
                             if (probeHasAudio(f)) {
                                 ovAudioInputIdx.add(ii);
@@ -6433,35 +6458,25 @@ public class GifSlideShowApp extends JFrame {
                                 }
                             }
 
-                            // Apply uploaded source video (fullscreen) + decoration PNG
+                            // Apply uploaded source video (fullscreen) + decoration layer
+                            // (static PNG for still decorations, PNG sequence for animated ones)
                             if (s.sourceVideoFile != null && s.sourceVideoFile.exists()
                                     && slideOutFile.exists()) {
                                 publish("Applying uploaded video to slide " + (si + 1) + "...");
-                                File svDecoPng = null;
+                                File decoOut = null;
+                                boolean decoIsSeq = false;
                                 try {
-                                    BufferedImage decoImg = renderFrame(
-                                            s.image, s.text, s.fontName, s.fontSize,
-                                            s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                            videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
-                                            s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
-                                            s.slideNumberX, s.slideNumberY,
-                                            s.slideNumberSize, s.slideNumberColor,
-                                            s.slideTexts,
-                                            false, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                            false, null, null, null, 0, 0, 0,
-                                            Integer.MAX_VALUE,
-                                            s.textJustify, s.textWidthPct,
-                                            s.highlightText, s.highlightColor,
-                                            s.textShiftX, s.slidePictures,
-                                            true);
-                                    svDecoPng = new File(tempDir, "sv_deco.png");
-                                    ImageIO.write(decoImg, "png", svDecoPng);
+                                    File decoDir = new File(tempDir, "sv_deco");
+                                    boolean[] isSeqOut = new boolean[1];
+                                    decoOut = renderDecorationLayerToDisk(
+                                            s, videoW, videoH, fps, slideFrames, decoDir, isSeqOut);
+                                    decoIsSeq = isSeqOut[0];
                                 } catch (IOException ioe) {
                                     publish("Failed to render decoration layer for slide " + (si + 1) + ": " + ioe.getMessage());
-                                    svDecoPng = null;
+                                    decoOut = null;
                                 }
                                 applySourceVideoAndDecoration(slideOutFile, s.sourceVideoFile,
-                                        svDecoPng, videoW, videoH, crf, tempDir);
+                                        decoOut, decoIsSeq, fps, videoW, videoH, crf, tempDir);
                             }
 
                             // Apply per-slide video overlay if set
@@ -6671,7 +6686,8 @@ public class GifSlideShowApp extends JFrame {
      * if the source has any. The decoration PNG is optional.
      */
     private static void applySourceVideoAndDecoration(File baseVideo, File sourceVideo,
-                                                      File decorationPng,
+                                                      File decoration, boolean decorationIsSeq,
+                                                      int decoFps,
                                                       int videoW, int videoH, int crf,
                                                       File tempDir) throws IOException, InterruptedException {
         File preOverlay = new File(tempDir, "pre_sv_" + System.currentTimeMillis() + ".mp4");
@@ -6684,12 +6700,14 @@ public class GifSlideShowApp extends JFrame {
         int fillW = videoW; if (fillW % 2 != 0) fillW++;
         int fillH = videoH; if (fillH % 2 != 0) fillH++;
 
-        // Build video filter: source video fill over base, then (if present) decoration PNG on top
+        boolean hasDeco = decoration != null && decoration.exists();
+
+        // Build video filter: source video fill over base, then (if present) decoration on top
         StringBuilder vf = new StringBuilder();
         vf.append("[1:v]scale=").append(fillW).append(":").append(fillH)
                 .append(":force_original_aspect_ratio=increase,crop=")
                 .append(fillW).append(":").append(fillH).append("[sv];");
-        if (decorationPng != null && decorationPng.exists()) {
+        if (hasDeco) {
             vf.append("[0:v][sv]overlay=0:0:eof_action=pass[tmp];");
             vf.append("[2:v]scale=").append(fillW).append(":").append(fillH)
                     .append(":force_original_aspect_ratio=increase,crop=")
@@ -6715,9 +6733,14 @@ public class GifSlideShowApp extends JFrame {
         cmd.add("ffmpeg"); cmd.add("-y");
         cmd.add("-i"); cmd.add(preOverlay.getAbsolutePath());
         cmd.add("-i"); cmd.add(sourceVideo.getAbsolutePath());
-        if (decorationPng != null && decorationPng.exists()) {
-            cmd.add("-loop"); cmd.add("1");
-            cmd.add("-i"); cmd.add(decorationPng.getAbsolutePath());
+        if (hasDeco) {
+            if (decorationIsSeq) {
+                cmd.add("-framerate"); cmd.add(String.valueOf(decoFps));
+                cmd.add("-i"); cmd.add(new File(decoration, "%05d.png").getAbsolutePath());
+            } else {
+                cmd.add("-loop"); cmd.add("1");
+                cmd.add("-i"); cmd.add(decoration.getAbsolutePath());
+            }
         }
         cmd.add("-filter_complex"); cmd.add(vf.toString());
         cmd.add("-map"); cmd.add("[outv]");
@@ -7288,6 +7311,86 @@ public class GifSlideShowApp extends JFrame {
             e.printStackTrace();
         }
         return -1;
+    }
+
+    /**
+     * True if the slide has any decoration that animates frame-by-frame (Fly-In, odometer,
+     * typewriter, etc.). Used to decide whether the decoration-over-video layer should be
+     * a single looped PNG or a rendered PNG sequence at the output frame rate.
+     */
+    private static boolean hasAnimatedDecoration(SlideData s) {
+        if (s.slideTexts != null) {
+            for (SlideTextData stx : s.slideTexts) {
+                if (!stx.show) continue;
+                if (stx.animEnabled) return true;
+                if (stx.odometer) return true;
+                String fx = stx.textEffect;
+                if (fx != null && (fx.equals("Water Ripple") || fx.equals("Fire") || fx.equals("Ice")
+                        || fx.equals("Rainbow") || fx.equals("Typewriter")
+                        || fx.equals("Shake") || fx.equals("Pulse"))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Render the per-slide decoration overlay to disk.
+     *
+     * If the slide has animated decorations, writes `<outDir>/00001.png … 0NNNNN.png`
+     * (a PNG sequence at `fps` frames per second for `slideFrames` frames) and returns
+     * the directory. Callers should use `<outDir>/%05d.png` as the FFmpeg input pattern
+     * along with `-framerate <fps>`.
+     *
+     * If the slide has no animated decorations, writes a single `<outDir>/deco.png`
+     * and returns that file; callers should use `-loop 1 -i <file>`.
+     *
+     * The returned boolean (via out-array parameter `isSeqOut`) indicates which mode.
+     */
+    private static File renderDecorationLayerToDisk(SlideData s, int videoW, int videoH,
+                                                    int fps, int slideFrames,
+                                                    File outDir,
+                                                    boolean[] isSeqOut) throws IOException {
+        outDir.mkdirs();
+        boolean animated = hasAnimatedDecoration(s);
+        isSeqOut[0] = animated;
+        if (!animated) {
+            BufferedImage img = renderFrame(
+                    s.image, s.text, s.fontName, s.fontSize, s.fontStyle, s.fontColor,
+                    s.alignment, s.showPin, videoW, videoH, s.displayMode,
+                    s.subtitleY, s.subtitleBgOpacity,
+                    s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                    s.slideNumberX, s.slideNumberY, s.slideNumberSize, s.slideNumberColor,
+                    s.slideTexts,
+                    false, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    false, null, null, null, 0, 0, 0,
+                    Integer.MAX_VALUE,
+                    s.textJustify, s.textWidthPct,
+                    s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures,
+                    true);
+            File f = new File(outDir, "deco.png");
+            ImageIO.write(img, "png", f);
+            return f;
+        }
+        for (int f = 0; f < slideFrames; f++) {
+            BufferedImage img = renderFrame(
+                    s.image, s.text, s.fontName, s.fontSize, s.fontStyle, s.fontColor,
+                    s.alignment, s.showPin, videoW, videoH, s.displayMode,
+                    s.subtitleY, s.subtitleBgOpacity,
+                    s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                    s.slideNumberX, s.slideNumberY, s.slideNumberSize, s.slideNumberColor,
+                    s.slideTexts,
+                    false, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    false, null, null, null, 0, 0, 0,
+                    f,
+                    s.textJustify, s.textWidthPct,
+                    s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures,
+                    true);
+            File out = new File(outDir, String.format("%05d.png", f + 1));
+            ImageIO.write(img, "png", out);
+        }
+        return outDir;
     }
 
     private static boolean probeHasAudio(File file) {
