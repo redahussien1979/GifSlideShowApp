@@ -5660,6 +5660,11 @@ public class GifSlideShowApp extends JFrame {
                         // animated decoration layer. Sequences need tpad-based time alignment
                         // (like a video) but have no audio stream.
                         java.util.List<Boolean> ovTaskIsPngSeq = new java.util.ArrayList<>();
+                        // ovTaskIsSourceVideo: true if the input is an uploaded source
+                        // video (video-as-slide), false for Video Overlay toolbar videos and
+                        // PNG decoration layers. Used to attenuate the source video's audio
+                        // so the base slideshow audio stays dominant.
+                        java.util.List<Boolean> ovTaskIsSourceVideo = new java.util.ArrayList<>();
                         int ovInIdx = 1;
 
                         // Source videos first (underneath decorations + explicit overlay), fill mode, on top of base frame
@@ -5677,6 +5682,7 @@ public class GifSlideShowApp extends JFrame {
                                 ovTaskY.add(50);
                                 ovTaskIsPng.add(Boolean.FALSE);
                                 ovTaskIsPngSeq.add(Boolean.FALSE);
+                                ovTaskIsSourceVideo.add(Boolean.TRUE);
                                 ovInIdx++;
                             }
                         }
@@ -5711,6 +5717,7 @@ public class GifSlideShowApp extends JFrame {
                                         ovTaskY.add(50);
                                         ovTaskIsPng.add(Boolean.FALSE);
                                         ovTaskIsPngSeq.add(Boolean.TRUE);
+                                        ovTaskIsSourceVideo.add(Boolean.FALSE);
                                         ovInIdx++;
                                     } else {
                                         ovCmd.add("-loop"); ovCmd.add("1");
@@ -5725,6 +5732,7 @@ public class GifSlideShowApp extends JFrame {
                                         ovTaskY.add(50);
                                         ovTaskIsPng.add(Boolean.TRUE);
                                         ovTaskIsPngSeq.add(Boolean.FALSE);
+                                        ovTaskIsSourceVideo.add(Boolean.FALSE);
                                         ovInIdx++;
                                     }
                                 } catch (IOException ioe) {
@@ -5747,6 +5755,7 @@ public class GifSlideShowApp extends JFrame {
                                 ovTaskY.add(s.videoOverlayY);
                                 ovTaskIsPng.add(Boolean.FALSE);
                                 ovTaskIsPngSeq.add(Boolean.FALSE);
+                                ovTaskIsSourceVideo.add(Boolean.FALSE);
                                 ovInIdx++;
                             }
                         }
@@ -5838,6 +5847,9 @@ public class GifSlideShowApp extends JFrame {
                         // Check which overlay inputs have audio
                         java.util.List<Integer> ovAudioInputIdx = new java.util.ArrayList<>();
                         java.util.List<Double> ovAudioDelay = new java.util.ArrayList<>();
+                        // Track which audio inputs are from uploaded source videos so we can
+                        // attenuate them (base slideshow audio should dominate).
+                        java.util.List<Boolean> ovAudioIsSourceVideo = new java.util.ArrayList<>();
                         for (int j = 0; j < ovSlideIdx.size(); j++) {
                             int si = ovSlideIdx.get(j);
                             int ii = ovInputIdx.get(j);
@@ -5848,8 +5860,14 @@ public class GifSlideShowApp extends JFrame {
                             if (probeHasAudio(f)) {
                                 ovAudioInputIdx.add(ii);
                                 ovAudioDelay.add(slideStartSec[si] * 1000.0);
+                                ovAudioIsSourceVideo.add(ovTaskIsSourceVideo.get(j));
                             }
                         }
+
+                        // Attenuation applied to uploaded-source-video audio so that the
+                        // base slideshow audio stays clearly dominant in the mix. Video
+                        // Overlay toolbar audio is not attenuated.
+                        final String sourceVideoVolume = "0.25";
 
                         // Build audio filter: mix base audio with overlay audio
                         boolean baseHasAudio = probeHasAudio(finalOut);
@@ -5859,7 +5877,10 @@ public class GifSlideShowApp extends JFrame {
                             for (int j = 0; j < ovAudioInputIdx.size(); j++) {
                                 int ii = ovAudioInputIdx.get(j);
                                 long delayMs = Math.round(ovAudioDelay.get(j));
-                                aFilter.append("[").append(ii).append(":a]adelay=").append(delayMs).append("|").append(delayMs)
+                                String volPrefix = ovAudioIsSourceVideo.get(j)
+                                        ? ("volume=" + sourceVideoVolume + ",") : "";
+                                aFilter.append("[").append(ii).append(":a]").append(volPrefix)
+                                        .append("adelay=").append(delayMs).append("|").append(delayMs)
                                         .append("[oa").append(j).append("];");
                             }
                             aFilter.append("[0:a]");
@@ -5875,7 +5896,10 @@ public class GifSlideShowApp extends JFrame {
                             for (int j = 0; j < ovAudioInputIdx.size(); j++) {
                                 int ii = ovAudioInputIdx.get(j);
                                 long delayMs = Math.round(ovAudioDelay.get(j));
-                                aFilter.append("[").append(ii).append(":a]adelay=").append(delayMs).append("|").append(delayMs)
+                                String volPrefix = ovAudioIsSourceVideo.get(j)
+                                        ? ("volume=" + sourceVideoVolume + ",") : "";
+                                aFilter.append("[").append(ii).append(":a]").append(volPrefix)
+                                        .append("adelay=").append(delayMs).append("|").append(delayMs)
                                         .append("[oa").append(j).append("];");
                             }
                             if (ovAudioInputIdx.size() > 1) {
@@ -6719,14 +6743,19 @@ public class GifSlideShowApp extends JFrame {
 
         boolean baseHasAudio = probeHasAudio(preOverlay);
         boolean srcHasAudio = probeHasAudio(sourceVideo);
+        // Attenuate the uploaded source video's audio so that the base slideshow
+        // audio stays clearly dominant in the mix.
+        final String sourceVideoVolume = "0.25";
         String audioMap = null;
         if (baseHasAudio && srcHasAudio) {
-            vf.append(";[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=0[outa]");
+            vf.append(";[1:a]volume=").append(sourceVideoVolume).append("[sva];")
+                    .append("[0:a][sva]amix=inputs=2:duration=first:dropout_transition=0[outa]");
             audioMap = "[outa]";
         } else if (baseHasAudio) {
             audioMap = "0:a";
         } else if (srcHasAudio) {
-            audioMap = "1:a";
+            vf.append(";[1:a]volume=").append(sourceVideoVolume).append("[outa]");
+            audioMap = "[outa]";
         }
 
         java.util.List<String> cmd = new java.util.ArrayList<>();
