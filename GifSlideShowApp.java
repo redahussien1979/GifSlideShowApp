@@ -5753,14 +5753,26 @@ public class GifSlideShowApp extends JFrame {
                             double tEnd = tStart + slideDurSec[si];
                             String scaledLbl = "[ov" + j + "]";
                             String outLbl = (j == ovSlideIdx.size() - 1) ? "[outv]" : "[tmp" + j + "]";
-                            String enableExpr = ":enable='between(t," + String.format("%.3f", tStart) + "," + String.format("%.3f", tEnd) + ")'";
+                            String enableExpr = ":enable='between(t,"
+                                    + String.format(java.util.Locale.US, "%.3f", tStart) + ","
+                                    + String.format(java.util.Locale.US, "%.3f", tEnd) + ")'";
 
-                            // Shift this input's PTS so its frame 0 plays at tStart on the output timeline.
-                            // Without this, overlay would pull second-stream frames by their native PTS=0..dur,
-                            // so non-first slides would show the wrong (or EOF) frame.
-                            // PNG inputs are looped (-loop 1), every output time has a frame available,
-                            // so no PTS shift is needed — enable expression handles window-gating alone.
-                            String ptsShift = isPng ? "" : ("setpts=PTS-STARTPTS+" + String.format("%.3f", tStart) + "/TB,");
+                            // For video inputs: prepend `tpad` padding frames so the input's
+                            // content frames land at output time `tStart` in sync with the
+                            // main video. setpts alone was leaving the overlay with no second-
+                            // input frames during [0, tStart], which can stall the filter.
+                            // PNG inputs are looped (-loop 1), every output time has a frame
+                            // available, so no padding is needed — enable window alone gates it.
+                            String ptsShift;
+                            if (isPng) {
+                                ptsShift = "";
+                            } else if (tStart > 0) {
+                                ptsShift = String.format(java.util.Locale.US,
+                                        "tpad=start_duration=%.3f:start_mode=add:color=black,setpts=PTS-STARTPTS,",
+                                        tStart);
+                            } else {
+                                ptsShift = "setpts=PTS-STARTPTS,";
+                            }
 
                             if (fill) {
                                 int fillW = videoW; if (fillW % 2 != 0) fillW++;
@@ -5875,6 +5887,10 @@ public class GifSlideShowApp extends JFrame {
                         ovCmd.add(overlaidOut.getAbsolutePath());
 
                         publish("Encoding video with overlays...");
+                        System.err.println("[GifSlideShowApp] Overlay FFmpeg command:");
+                        for (String arg : ovCmd) {
+                            System.err.println("  " + arg);
+                        }
                         runFfmpeg(ovCmd);
 
                         if (overlaidOut.exists() && overlaidOut.length() > 0) {
