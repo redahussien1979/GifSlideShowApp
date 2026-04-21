@@ -5642,7 +5642,8 @@ public class GifSlideShowApp extends JFrame {
                         java.util.List<Long> audioDelays = new java.util.ArrayList<>();
                         long slideOffsetMs = 0;
 
-                        for (SlideData s : slides) {
+                        for (int si = 0; si < slides.size(); si++) {
+                            SlideData s = slides.get(si);
                             int slideDur = computeSlideDuration(s, duration);
                             // Each audio within the slide plays sequentially
                             long intraSlideOffset = 0;
@@ -5665,6 +5666,11 @@ public class GifSlideShowApp extends JFrame {
                                 }
                             }
                             slideOffsetMs += slideDur;
+                            // When scroll transitions are enabled, the video timeline has a silent
+                            // gap between slides. Shift subsequent slides' audio to match.
+                            if (scrollEnabled && si < slides.size() - 1) {
+                                slideOffsetMs += finalTransitionMs;
+                            }
                         }
 
                         // Build filter_complex string
@@ -5840,10 +5846,14 @@ public class GifSlideShowApp extends JFrame {
                         double[] slideStartSec = new double[slides.size()];
                         double[] slideDurSec = new double[slides.size()];
                         double timeOffset = 0;
+                        double transSec = finalTransitionMs / 1000.0;
                         for (int i = 0; i < slides.size(); i++) {
                             slideStartSec[i] = timeOffset;
                             slideDurSec[i] = computeSlideDuration(slides.get(i), duration) / 1000.0;
                             timeOffset += slideDurSec[i];
+                            if (scrollEnabled && i < slides.size() - 1) {
+                                timeOffset += transSec;
+                            }
                         }
 
                         // Build FFmpeg command with all overlay inputs and time-gated filters
