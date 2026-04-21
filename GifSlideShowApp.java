@@ -4675,7 +4675,8 @@ public class GifSlideShowApp extends JFrame {
         int modeChoice = JOptionPane.showOptionDialog(this,
                 "How would you like to export?",
                 "MP4 Export Mode", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
-                null, new String[]{"Normal Slideshow MP4", "Separate MP4 per Slide"}, "Normal Slideshow MP4");
+                null, new String[]{"Normal Slideshow MP4", "Separate MP4 per Slide", "nSlides per Video"},
+                "Normal Slideshow MP4");
         if (modeChoice < 0) return;
 
         if (modeChoice == 1) {
@@ -4683,8 +4684,40 @@ public class GifSlideShowApp extends JFrame {
             return;
         }
 
-        List<SlideData> slides = collectSlides();
-        if (slides == null) return;
+        List<SlideData> allSlides = collectSlides();
+        if (allSlides == null) return;
+
+        // If "nSlides per Video" mode, ask for chunk size and split slides into chunks
+        int chunkSize = 0; // 0 = single video (normal mode)
+        if (modeChoice == 2) {
+            String nStr = JOptionPane.showInputDialog(this,
+                    "How many slides per video?\n(Total slides: " + allSlides.size() + ")", "2");
+            if (nStr == null) return;
+            try {
+                chunkSize = Integer.parseInt(nStr.trim());
+                if (chunkSize < 1) throw new NumberFormatException();
+            } catch (NumberFormatException ex) {
+                JOptionPane.showMessageDialog(this,
+                        "Enter a positive integer.", "Invalid", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            if (chunkSize >= allSlides.size()) {
+                // N >= total: just one video with all slides
+                chunkSize = 0;
+            }
+        }
+
+        // Build chunk list: single chunk (all slides) for normal mode, multiple chunks otherwise
+        final List<List<SlideData>> slideChunks = new ArrayList<>();
+        if (chunkSize > 0) {
+            for (int ci = 0; ci < allSlides.size(); ci += chunkSize) {
+                slideChunks.add(new ArrayList<>(
+                        allSlides.subList(ci, Math.min(ci + chunkSize, allSlides.size()))));
+            }
+        } else {
+            slideChunks.add(allSlides);
+        }
+        final int chunkCount = slideChunks.size();
 
         int duration = askDuration();
         if (duration < 0) return;
@@ -4779,7 +4812,19 @@ public class GifSlideShowApp extends JFrame {
         String parentDir = outFile.getParent() != null ? outFile.getParent() : ".";
         String timestamp = new java.text.SimpleDateFormat("mmss").format(new java.util.Date());
 
-        final File finalOut = new File(parentDir, orientLabel + "-" + baseName + "-" + timestamp + ".mp4");
+        // Build one output file per chunk. Single-video mode keeps the original name;
+        // chunked mode appends a part index (partNNN) to the same base pattern.
+        final List<File> chunkOutFiles = new ArrayList<>();
+        if (chunkCount == 1) {
+            chunkOutFiles.add(new File(parentDir, orientLabel + "-" + baseName + "-" + timestamp + ".mp4"));
+        } else {
+            for (int ci = 0; ci < chunkCount; ci++) {
+                String partLabel = String.format("part%03d", ci + 1);
+                chunkOutFiles.add(new File(parentDir,
+                        orientLabel + "-" + baseName + "-" + partLabel + "-" + timestamp + ".mp4"));
+            }
+        }
+        final File finalOut = chunkOutFiles.get(0);
 
         JDialog progressDialog = createProgressDialog("Creating MP4 Video...");
         JProgressBar progressBar = getProgressBar(progressDialog);
@@ -4792,9 +4837,25 @@ public class GifSlideShowApp extends JFrame {
             @Override
             protected Void doInBackground() {
                 File tempDir = null;
+                StringBuilder finalInfoBuilder = new StringBuilder();
                 try {
+                  for (int __chunkIdx = 0; __chunkIdx < slideChunks.size(); __chunkIdx++) {
+                    final List<SlideData> slides = slideChunks.get(__chunkIdx);
+                    final File finalOut = chunkOutFiles.get(__chunkIdx);
+                    if (slideChunks.size() > 1) {
+                        publish("Encoding video " + (__chunkIdx + 1) + " of " + slideChunks.size()
+                                + " (" + slides.size() + " slides)...");
+                        SwingUtilities.invokeLater(() -> progressBar.setValue(0));
+                    }
+
+                    // Clean up previous chunk's temp dir before reusing the variable.
+                    if (tempDir != null) {
+                        cleanupTempDir(tempDir);
+                        tempDir = null;
+                    }
+
                     tempDir = new File(System.getProperty("java.io.tmpdir"),
-                            "mp4_frames_" + System.currentTimeMillis());
+                            "mp4_frames_" + System.currentTimeMillis() + "_p" + __chunkIdx);
                     if (!tempDir.mkdirs() && !tempDir.exists()) {
                         throw new IOException("Failed to create temp directory: " + tempDir);
                     }
@@ -5992,19 +6053,24 @@ public class GifSlideShowApp extends JFrame {
                             ? "Video Overlays: " + voCount + " slide(s)\n"
                             : "";
 
-                    finalInfo = String.format(
-                            "✅ MP4 Video created successfully!\n\n" +
+                    String perChunkHeader = (slideChunks.size() > 1)
+                            ? String.format("— Video %d of %d —%n", __chunkIdx + 1, slideChunks.size())
+                            : "";
+                    finalInfoBuilder.append(String.format(
+                            "%s✅ MP4 Video created successfully!\n\n" +
                                     "Resolution: %d×%d (%s)\n" +
                                     "Quality: CRF %d\n" +
                                     "Size: %.2f MB\n" +
                                     "Slides: %d (%d frames at %d fps)\n" +
                                     "Duration: %.1f seconds\n" +
                                     "%s%s%s\n" +
-                                    "File: %s\n\n" +
-                                    "Upload to Twitter/X for fullscreen playback!",
+                                    "File: %s\n\n",
+                            perChunkHeader,
                             videoW, videoH, orientLabel, crf, sizeMB, slides.size(),
                             totalFrames, fps, totalDurationSec,
-                            scrollInfo, videoOverlayInfo, audioInfo, finalOut.getAbsolutePath());
+                            scrollInfo, videoOverlayInfo, audioInfo, finalOut.getAbsolutePath()));
+                  } // end chunk loop
+                  finalInfo = finalInfoBuilder.toString() + "Upload to Twitter/X for fullscreen playback!";
 
                 } catch (Exception ex) {
                     errorMsg = ex.getMessage();
