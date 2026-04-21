@@ -4413,6 +4413,14 @@ public class GifSlideShowApp extends JFrame {
     private static final String SCROLL_UP    = "Scroll Up";
     private static final String SCROLL_DOWN  = "Scroll Down";
 
+    // Transition effects applied during the short move between slides
+    private static final String FX_SCROLL_ONLY      = "Scroll only";
+    private static final String FX_SCROLL_CROSSFADE = "Scroll + Cross-fade";
+    private static final String FX_SCROLL_DIM       = "Scroll + Dim";
+    private static final String FX_CROSSFADE_ONLY   = "Cross-fade only";
+    private static final String FX_DIM_FADE         = "Dim fade (to black)";
+    private static final int    DEFAULT_TRANSITION_MS = 500;
+
     private String askScrollDirection() {
         String[] options = { SCROLL_NONE, SCROLL_LEFT, SCROLL_RIGHT, SCROLL_UP, SCROLL_DOWN };
         int choice = JOptionPane.showOptionDialog(this,
@@ -4426,71 +4434,124 @@ public class GifSlideShowApp extends JFrame {
         return options[choice];
     }
 
+    private String askTransitionEffect(String scrollDir) {
+        boolean scrolling = !SCROLL_NONE.equals(scrollDir);
+        String[] options = scrolling
+                ? new String[]{FX_SCROLL_DIM, FX_SCROLL_ONLY, FX_SCROLL_CROSSFADE, FX_CROSSFADE_ONLY, FX_DIM_FADE}
+                : new String[]{FX_CROSSFADE_ONLY, FX_DIM_FADE};
+        int choice = JOptionPane.showOptionDialog(this,
+                "Transition effect between slides:\n"
+                + "• Scroll + Dim: slides scroll and darken mid-move (default)\n"
+                + "• Scroll only: plain slide-to-slide scroll\n"
+                + "• Scroll + Cross-fade: scroll with opacity blend\n"
+                + "• Cross-fade only: no scroll, just blend\n"
+                + "• Dim fade (to black): fade out then fade in",
+                "Transition Effect", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
+                null, options, options[0]);
+        if (choice < 0) return null;
+        return options[choice];
+    }
+
+    private int askTransitionMs() {
+        String s = JOptionPane.showInputDialog(this,
+                "Transition duration between slides (milliseconds):\n"
+                + "100–3000, default " + DEFAULT_TRANSITION_MS,
+                String.valueOf(DEFAULT_TRANSITION_MS));
+        if (s == null) return -1;
+        try {
+            int ms = Integer.parseInt(s.trim());
+            if (ms < 100 || ms > 3000) throw new NumberFormatException();
+            return ms;
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(this, "Enter 100–3000.", "Invalid", JOptionPane.ERROR_MESSAGE);
+            return -1;
+        }
+    }
+
     /**
-     * Renders a single scroll frame by compositing two adjacent rendered slides.
+     * Renders a transition frame between slideA and slideB at progress t in (0,1).
+     * t=0 means pure slideA, t=1 means pure slideB.
      * @param renderedSlides pre-rendered slide images at target resolution
-     * @param scrollDir scroll direction
-     * @param frameIndex current frame index (0-based across entire video)
-     * @param totalFrames total number of frames in video
+     * @param slideA index of outgoing slide
+     * @param slideB index of incoming slide
+     * @param t transition progress in (0.0, 1.0)
+     * @param scrollDir scroll direction (ignored for non-scroll effects)
+     * @param effect FX_SCROLL_ONLY / FX_SCROLL_CROSSFADE / FX_SCROLL_DIM / FX_CROSSFADE_ONLY / FX_DIM_FADE
      * @param w output width
      * @param h output height
      */
-    private static BufferedImage renderScrollFrame(List<BufferedImage> renderedSlides,
-                                                   String scrollDir, int frameIndex,
-                                                   int totalFrames, int w, int h) {
-        int numSlides = renderedSlides.size();
-        if (numSlides == 1) return renderedSlides.get(0);
-
-        // progress goes from 0.0 (start of first slide) to numSlides-1 (start of last slide)
-        // but we want the last slide to be fully visible at the end
-        double progress = (double) frameIndex / (totalFrames - 1) * (numSlides - 1);
-        progress = Math.max(0, Math.min(numSlides - 1, progress));
-
-        int slideA = (int) Math.floor(progress);
-        if (slideA >= numSlides - 1) slideA = numSlides - 1;
-        int slideB = Math.min(slideA + 1, numSlides - 1);
-        double t = progress - slideA; // 0.0 to 1.0 between slideA and slideB
-
+    private static BufferedImage renderTransitionFrame(List<BufferedImage> renderedSlides,
+                                                       int slideA, int slideB, double t,
+                                                       String scrollDir, String effect,
+                                                       int w, int h) {
+        if (t <= 0.0) return renderedSlides.get(slideA);
+        if (t >= 1.0) return renderedSlides.get(slideB);
         BufferedImage imgA = renderedSlides.get(slideA);
-
-        // If exactly on a slide boundary, just return that slide
-        if (slideA == slideB || t < 0.001) return imgA;
-
         BufferedImage imgB = renderedSlides.get(slideB);
         BufferedImage frame = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = frame.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
 
+        if (FX_CROSSFADE_ONLY.equals(effect)) {
+            g.drawImage(imgA, 0, 0, null);
+            g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) t));
+            g.drawImage(imgB, 0, 0, null);
+            g.dispose();
+            return frame;
+        }
+
+        if (FX_DIM_FADE.equals(effect)) {
+            if (t < 0.5) {
+                g.drawImage(imgA, 0, 0, null);
+                int alpha = (int) Math.round(255 * (2 * t));
+                g.setColor(new Color(0, 0, 0, Math.min(255, Math.max(0, alpha))));
+                g.fillRect(0, 0, w, h);
+            } else {
+                g.setColor(Color.BLACK);
+                g.fillRect(0, 0, w, h);
+                g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) ((t - 0.5) * 2)));
+                g.drawImage(imgB, 0, 0, null);
+            }
+            g.dispose();
+            return frame;
+        }
+
+        // Scroll-based effects (FX_SCROLL_ONLY / FX_SCROLL_CROSSFADE / FX_SCROLL_DIM)
         boolean horizontal = SCROLL_LEFT.equals(scrollDir) || SCROLL_RIGHT.equals(scrollDir);
         int dim = horizontal ? w : h;
         int offset = (int) Math.round(t * dim);
-
+        int ax = 0, ay = 0, bx = 0, by = 0;
         switch (scrollDir) {
-            case SCROLL_LEFT:
-                // Slides enter from the right, exit to the left
-                g.drawImage(imgA, -offset, 0, null);
-                g.drawImage(imgB, w - offset, 0, null);
-                break;
-            case SCROLL_RIGHT:
-                // Slides enter from the left, exit to the right
-                g.drawImage(imgA, offset, 0, null);
-                g.drawImage(imgB, -(w - offset), 0, null);
-                break;
-            case SCROLL_UP:
-                // Slides enter from the bottom, exit to the top
-                g.drawImage(imgA, 0, -offset, null);
-                g.drawImage(imgB, 0, h - offset, null);
-                break;
-            case SCROLL_DOWN:
-                // Slides enter from the top, exit to the bottom
-                g.drawImage(imgA, 0, offset, null);
-                g.drawImage(imgB, 0, -(h - offset), null);
-                break;
+            case SCROLL_LEFT:  ax = -offset;       bx = w - offset;       break;
+            case SCROLL_RIGHT: ax =  offset;       bx = -(w - offset);    break;
+            case SCROLL_UP:    ay = -offset;       by = h - offset;       break;
+            case SCROLL_DOWN:  ay =  offset;       by = -(h - offset);    break;
+            default: break;
+        }
+
+        if (FX_SCROLL_CROSSFADE.equals(effect)) {
+            g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) (1.0 - t)));
+            g.drawImage(imgA, ax, ay, null);
+            g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) t));
+            g.drawImage(imgB, bx, by, null);
+            g.setComposite(AlphaComposite.SrcOver);
+        } else {
+            g.drawImage(imgA, ax, ay, null);
+            g.drawImage(imgB, bx, by, null);
+        }
+
+        if (FX_SCROLL_DIM.equals(effect)) {
+            // Parabola peaking at t=0.5 → 70% darkness overlay; 0 at t=0 and t=1.
+            double dimAmt = 0.7 * 4.0 * t * (1.0 - t);
+            int alpha = (int) Math.round(255 * dimAmt);
+            g.setColor(new Color(0, 0, 0, Math.min(255, Math.max(0, alpha))));
+            g.fillRect(0, 0, w, h);
         }
 
         g.dispose();
         return frame;
     }
+
 
     // ==================== GIF Creation ====================
 
@@ -4501,11 +4562,22 @@ public class GifSlideShowApp extends JFrame {
         int duration = askDuration();
         if (duration < 0) return;
 
-        // Scroll direction
+        // Scroll direction + transition effect
         String scrollDir = askScrollDirection();
         if (scrollDir == null) return;
         final String gifScrollDir = scrollDir;
         final boolean gifScrollEnabled = !SCROLL_NONE.equals(scrollDir);
+
+        String gifTransEffect = FX_SCROLL_ONLY;
+        int gifTransitionMs = 0;
+        if (gifScrollEnabled) {
+            gifTransEffect = askTransitionEffect(scrollDir);
+            if (gifTransEffect == null) return;
+            gifTransitionMs = askTransitionMs();
+            if (gifTransitionMs < 0) return;
+        }
+        final String finalGifTransEffect = gifTransEffect;
+        final int finalGifTransitionMs = gifTransitionMs;
 
         String[] options = {"High-Quality GIF (ImageIO)", "Ultra-Quality GIF (ffmpeg)"};
         int method = JOptionPane.showOptionDialog(this,
@@ -4562,19 +4634,42 @@ public class GifSlideShowApp extends JFrame {
                         List<Integer> frameDelays;
 
                         if (gifScrollEnabled) {
-                            // Pre-render all slides, then generate scroll frames
+                            // Dwell + transition: each slide holds for its duration, then a short
+                            // transition animates to the next slide. Transition extends total time.
                             List<BufferedImage> renderedSlides = renderAllFrames(slides, w, h, progressBar, 40);
                             int gifFps = 15; // reasonable for GIF
-                            int framesPerSlide = Math.max(1, (int) Math.round(duration / 1000.0 * gifFps));
-                            int totalGifFrames = slides.size() * framesPerSlide;
                             int gifDelayMs = Math.max(20, 1000 / gifFps);
+                            int transFrames = Math.max(1, (int) Math.round(finalGifTransitionMs / 1000.0 * gifFps));
                             frames = new ArrayList<>();
                             frameDelays = new ArrayList<>();
-                            publish("Generating scroll frames (" + gifScrollDir + ")...");
-                            for (int f = 0; f < totalGifFrames; f++) {
-                                frames.add(renderScrollFrame(renderedSlides, gifScrollDir, f, totalGifFrames, w, h));
-                                frameDelays.add(gifDelayMs);
-                                int pct = 40 + (int) ((f + 1.0) / totalGifFrames * 20);
+                            publish("Generating frames (" + gifScrollDir + ", "
+                                    + finalGifTransEffect + ", " + finalGifTransitionMs + "ms)...");
+                            int totalExpected = 0;
+                            int[] dwellGif = new int[slides.size()];
+                            for (int i = 0; i < slides.size(); i++) {
+                                int slideDur = computeSlideDuration(slides.get(i), duration);
+                                dwellGif[i] = Math.max(1, (int) Math.round(slideDur / 1000.0 * gifFps));
+                                totalExpected += dwellGif[i];
+                                if (i < slides.size() - 1) totalExpected += transFrames;
+                            }
+                            int fCount = 0;
+                            for (int i = 0; i < slides.size(); i++) {
+                                BufferedImage dwellImg = renderedSlides.get(i);
+                                for (int df = 0; df < dwellGif[i]; df++) {
+                                    frames.add(dwellImg);
+                                    frameDelays.add(gifDelayMs);
+                                    fCount++;
+                                }
+                                if (i < slides.size() - 1) {
+                                    for (int tf = 0; tf < transFrames; tf++) {
+                                        double t = (tf + 1.0) / (transFrames + 1.0);
+                                        frames.add(renderTransitionFrame(renderedSlides, i, i + 1, t,
+                                                gifScrollDir, finalGifTransEffect, w, h));
+                                        frameDelays.add(gifDelayMs);
+                                        fCount++;
+                                    }
+                                }
+                                int pct = 40 + (int) (fCount * 20.0 / Math.max(1, totalExpected));
                                 final int p = pct;
                                 SwingUtilities.invokeLater(() -> progressBar.setValue(p));
                             }
@@ -4764,11 +4859,22 @@ public class GifSlideShowApp extends JFrame {
             default: crf = 18; break;
         }
 
-        // Scroll direction
+        // Scroll direction + transition effect
         String scrollDir = askScrollDirection();
         if (scrollDir == null) return;
         final String finalScrollDir = scrollDir;
         final boolean scrollEnabled = !SCROLL_NONE.equals(scrollDir);
+
+        String transEffect = FX_SCROLL_ONLY;
+        int transitionMs = 0;
+        if (scrollEnabled) {
+            transEffect = askTransitionEffect(scrollDir);
+            if (transEffect == null) return;
+            transitionMs = askTransitionMs();
+            if (transitionMs < 0) return;
+        }
+        final String finalTransEffect = transEffect;
+        final int finalTransitionMs = transitionMs;
 
         // Optional audio file
         int audioChoice = JOptionPane.showOptionDialog(this,
@@ -4905,18 +5011,58 @@ public class GifSlideShowApp extends JFrame {
                             publish("Rendered slide " + (i + 1) + "/" + slides.size());
                         }
 
-                        // Generate scroll frames
-                        publish("Generating scroll frames (" + finalScrollDir + ")...");
-                        for (int f = 0; f < totalFrames; f++) {
-                            BufferedImage scrollFrame = renderScrollFrame(
-                                    renderedSlides, finalScrollDir, f, totalFrames, videoW, videoH);
-                            ImageIO.write(scrollFrame, "png",
-                                    new File(tempDir, String.format("frame_%05d.png", f)));
-                            int pct = 30 + (int) ((f + 1.0) / totalFrames * 30);
-                            final int p = pct;
-                            SwingUtilities.invokeLater(() -> progressBar.setValue(p));
-                            if (f % fps == 0) {
-                                publish("Scroll frame " + (f + 1) + "/" + totalFrames);
+                        // Dwell + transition model: each slide holds static for its effective
+                        // duration, then a short transition moves to the next slide.
+                        int transFrames = Math.max(1, (int) Math.round(finalTransitionMs / 1000.0 * fps));
+                        int[] dwellFrames = new int[slides.size()];
+                        int dwellFramesTotal = 0;
+                        for (int i = 0; i < slides.size(); i++) {
+                            int slideDur = computeSlideDuration(slides.get(i), duration);
+                            dwellFrames[i] = Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
+                            dwellFramesTotal += dwellFrames[i];
+                        }
+                        int totalTransFrames = transFrames * Math.max(0, slides.size() - 1);
+                        totalFrames = dwellFramesTotal + totalTransFrames;
+
+                        publish("Generating frames (" + finalScrollDir + ", "
+                                + finalTransEffect + ", " + finalTransitionMs + "ms)...");
+                        int f = 0;
+                        for (int i = 0; i < slides.size(); i++) {
+                            BufferedImage dwellImg = renderedSlides.get(i);
+                            // Write first dwell frame, then hard-copy the file for identical frames
+                            // to avoid re-encoding the same PNG hundreds of times.
+                            java.nio.file.Path firstDwellPath = new File(tempDir,
+                                    String.format("frame_%05d.png", f)).toPath();
+                            ImageIO.write(dwellImg, "png", firstDwellPath.toFile());
+                            f++;
+                            for (int df = 1; df < dwellFrames[i]; df++) {
+                                java.nio.file.Path target = new File(tempDir,
+                                        String.format("frame_%05d.png", f)).toPath();
+                                java.nio.file.Files.copy(firstDwellPath, target);
+                                f++;
+                            }
+                            int pctA = 30 + (int) ((f) * 30.0 / totalFrames);
+                            final int pA = pctA;
+                            SwingUtilities.invokeLater(() -> progressBar.setValue(pA));
+                            publish("Slide " + (i + 1) + "/" + slides.size() + " held "
+                                    + dwellFrames[i] + " frames");
+
+                            // Transition to next slide (skip after last)
+                            if (i < slides.size() - 1) {
+                                for (int tf = 0; tf < transFrames; tf++) {
+                                    double t = (tf + 1.0) / (transFrames + 1.0); // (0,1)
+                                    BufferedImage transImg = renderTransitionFrame(
+                                            renderedSlides, i, i + 1, t,
+                                            finalScrollDir, finalTransEffect, videoW, videoH);
+                                    ImageIO.write(transImg, "png",
+                                            new File(tempDir, String.format("frame_%05d.png", f)));
+                                    f++;
+                                }
+                                int pctB = 30 + (int) ((f) * 30.0 / totalFrames);
+                                final int pB = pctB;
+                                SwingUtilities.invokeLater(() -> progressBar.setValue(pB));
+                                publish("Transition " + (i + 1) + "→" + (i + 2) + " ("
+                                        + transFrames + " frames)");
                             }
                         }
                         frameIndex = totalFrames;
@@ -6023,6 +6169,9 @@ public class GifSlideShowApp extends JFrame {
                     for (SlideData s : slides) {
                         totalDurationSec += (computeSlideDuration(s, duration)) / 1000.0;
                     }
+                    if (scrollEnabled && slides.size() > 1) {
+                        totalDurationSec += (slides.size() - 1) * (finalTransitionMs / 1000.0);
+                    }
 
                     int slideAudioCount = 0;
                     for (SlideData s : slides) {
@@ -6042,7 +6191,8 @@ public class GifSlideShowApp extends JFrame {
                     }
 
                     String scrollInfo = scrollEnabled
-                            ? "Scroll: " + finalScrollDir + "\n"
+                            ? "Transition: " + finalScrollDir + " · " + finalTransEffect
+                                    + " · " + finalTransitionMs + "ms\n"
                             : "";
 
                     int voCount = 0;
