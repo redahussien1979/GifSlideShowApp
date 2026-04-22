@@ -4419,6 +4419,14 @@ public class GifSlideShowApp extends JFrame {
     private static final String FX_SCROLL_DIM       = "Scroll + Dim";
     private static final String FX_CROSSFADE_ONLY   = "Cross-fade only";
     private static final String FX_DIM_FADE         = "Dim fade (to black)";
+    private static final String FX_FLASH_FADE       = "Flash fade (to white)";
+    private static final String FX_WIPE             = "Linear wipe";
+    private static final String FX_IRIS             = "Iris reveal";
+    private static final String FX_ZOOM_IN          = "Zoom-in punch";
+    private static final String FX_WHIP_PAN         = "Whip pan (motion blur)";
+    private static final String FX_LIGHT_LEAK       = "Light leak";
+    private static final String FX_FILM_BURN        = "Film burn";
+    private static final String FX_GLITCH_CUT       = "Glitch cut";
     private static final int    DEFAULT_TRANSITION_MS = 500;
 
     private String askScrollDirection() {
@@ -4436,20 +4444,24 @@ public class GifSlideShowApp extends JFrame {
 
     private String askTransitionEffect(String scrollDir) {
         boolean scrolling = !SCROLL_NONE.equals(scrollDir);
+        // Direction-aware effects listed first when a scroll direction is chosen
         String[] options = scrolling
-                ? new String[]{FX_SCROLL_DIM, FX_SCROLL_ONLY, FX_SCROLL_CROSSFADE, FX_CROSSFADE_ONLY, FX_DIM_FADE}
-                : new String[]{FX_CROSSFADE_ONLY, FX_DIM_FADE};
-        int choice = JOptionPane.showOptionDialog(this,
-                "Transition effect between slides:\n"
-                + "• Scroll + Dim: slides scroll and darken mid-move (default)\n"
-                + "• Scroll only: plain slide-to-slide scroll\n"
-                + "• Scroll + Cross-fade: scroll with opacity blend\n"
-                + "• Cross-fade only: no scroll, just blend\n"
-                + "• Dim fade (to black): fade out then fade in",
-                "Transition Effect", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
+                ? new String[]{
+                        FX_SCROLL_DIM, FX_SCROLL_ONLY, FX_SCROLL_CROSSFADE,
+                        FX_WHIP_PAN, FX_WIPE,
+                        FX_CROSSFADE_ONLY, FX_DIM_FADE, FX_FLASH_FADE,
+                        FX_IRIS, FX_ZOOM_IN,
+                        FX_LIGHT_LEAK, FX_FILM_BURN, FX_GLITCH_CUT}
+                : new String[]{
+                        FX_CROSSFADE_ONLY, FX_DIM_FADE, FX_FLASH_FADE,
+                        FX_IRIS, FX_ZOOM_IN,
+                        FX_LIGHT_LEAK, FX_FILM_BURN, FX_GLITCH_CUT};
+        Object choice = JOptionPane.showInputDialog(this,
+                "Transition effect between slides:",
+                "Transition Effect", JOptionPane.QUESTION_MESSAGE,
                 null, options, options[0]);
-        if (choice < 0) return null;
-        return options[choice];
+        if (choice == null) return null;
+        return choice.toString();
     }
 
     private int askTransitionMs() {
@@ -4516,7 +4528,166 @@ public class GifSlideShowApp extends JFrame {
             return frame;
         }
 
-        // Scroll-based effects (FX_SCROLL_ONLY / FX_SCROLL_CROSSFADE / FX_SCROLL_DIM)
+        if (FX_FLASH_FADE.equals(effect)) {
+            if (t < 0.5) {
+                g.drawImage(imgA, 0, 0, null);
+                int alpha = (int) Math.round(255 * (2 * t));
+                g.setColor(new Color(255, 255, 255, Math.min(255, Math.max(0, alpha))));
+                g.fillRect(0, 0, w, h);
+            } else {
+                g.setColor(Color.WHITE);
+                g.fillRect(0, 0, w, h);
+                g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) ((t - 0.5) * 2)));
+                g.drawImage(imgB, 0, 0, null);
+            }
+            g.dispose();
+            return frame;
+        }
+
+        if (FX_IRIS.equals(effect)) {
+            // Slide B is revealed through a growing circle centred on the frame.
+            g.drawImage(imgA, 0, 0, null);
+            double maxR = Math.hypot(w, h) / 2.0;
+            double r = t * maxR;
+            double cx = w / 2.0, cy = h / 2.0;
+            Shape oldClip = g.getClip();
+            g.setClip(new java.awt.geom.Ellipse2D.Double(cx - r, cy - r, 2 * r, 2 * r));
+            g.drawImage(imgB, 0, 0, null);
+            g.setClip(oldClip);
+            g.dispose();
+            return frame;
+        }
+
+        if (FX_ZOOM_IN.equals(effect)) {
+            // Slide B is the steady base; slide A zooms toward the camera and fades out.
+            g.drawImage(imgB, 0, 0, null);
+            double aScale = 1.0 + 0.3 * t;
+            float aAlpha = (float) Math.max(0.0, 1.0 - t);
+            g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, aAlpha));
+            AffineTransform oldTx = g.getTransform();
+            AffineTransform tx = new AffineTransform();
+            tx.translate(w / 2.0, h / 2.0);
+            tx.scale(aScale, aScale);
+            tx.translate(-w / 2.0, -h / 2.0);
+            g.transform(tx);
+            g.drawImage(imgA, 0, 0, null);
+            g.setTransform(oldTx);
+            g.setComposite(AlphaComposite.SrcOver);
+            g.dispose();
+            return frame;
+        }
+
+        if (FX_LIGHT_LEAK.equals(effect)) {
+            // Subtle: cross-fade underneath + warm radial gradient sweeping across.
+            g.drawImage(imgA, 0, 0, null);
+            g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) t));
+            g.drawImage(imgB, 0, 0, null);
+            g.setComposite(AlphaComposite.SrcOver);
+            double peak = 4.0 * t * (1.0 - t);
+            int maxAlpha = (int) Math.round(55 * peak); // subtle (~22%)
+            if (maxAlpha > 0) {
+                float cx = (float) (-w * 0.2 + w * 1.4 * t);
+                float cy = (float) (h * (0.25 + 0.5 * t));
+                float radius = Math.max(1f, (float) (w * 0.55));
+                java.awt.RadialGradientPaint rgp = new java.awt.RadialGradientPaint(
+                        cx, cy, radius,
+                        new float[]{0f, 1f},
+                        new Color[]{new Color(255, 180, 90, maxAlpha), new Color(255, 180, 90, 0)});
+                g.setPaint(rgp);
+                g.fillRect(0, 0, w, h);
+            }
+            g.dispose();
+            return frame;
+        }
+
+        if (FX_FILM_BURN.equals(effect)) {
+            // Crossfade + orange/red tint that peaks mid-transition + light grain.
+            g.drawImage(imgA, 0, 0, null);
+            g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) t));
+            g.drawImage(imgB, 0, 0, null);
+            g.setComposite(AlphaComposite.SrcOver);
+            double peak = 4.0 * t * (1.0 - t);
+            int tintAlpha = (int) Math.round(100 * peak);
+            g.setColor(new Color(255, 90, 30, tintAlpha));
+            g.fillRect(0, 0, w, h);
+            int grainCount = (int) (w * h * 0.0006 * peak);
+            if (grainCount > 0) {
+                java.util.Random rng = new java.util.Random(
+                        slideA * 131L + slideB * 17L + (long) (t * 1000));
+                g.setColor(new Color(255, 210, 140, 90));
+                for (int i = 0; i < grainCount; i++) {
+                    g.fillRect(rng.nextInt(w), rng.nextInt(h), 2, 2);
+                }
+            }
+            g.dispose();
+            return frame;
+        }
+
+        if (FX_GLITCH_CUT.equals(effect)) {
+            // Hard cut near t=0.5, with RGB channel split + scanlines whose intensity
+            // peaks mid-transition.
+            BufferedImage base = (t < 0.5) ? imgA : imgB;
+            double gi = 4.0 * t * (1.0 - t);
+            g.drawImage(base, 0, 0, null);
+            int shift = (int) Math.round(22 * gi);
+            if (shift > 0) {
+                BufferedImage src = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D sg = src.createGraphics();
+                sg.drawImage(base, 0, 0, null);
+                sg.dispose();
+                float intensity = (float) (0.6 * gi);
+                java.awt.image.RescaleOp redOp = new java.awt.image.RescaleOp(
+                        new float[]{1.0f, 0.0f, 0.0f, intensity},
+                        new float[]{0, 0, 0, 0}, null);
+                g.drawImage(redOp.filter(src, null), shift, 0, null);
+                java.awt.image.RescaleOp cyanOp = new java.awt.image.RescaleOp(
+                        new float[]{0.0f, 1.0f, 1.0f, intensity},
+                        new float[]{0, 0, 0, 0}, null);
+                g.drawImage(cyanOp.filter(src, null), -shift, 0, null);
+            }
+            int scanAlpha = (int) Math.round(70 * gi);
+            if (scanAlpha > 0) {
+                g.setColor(new Color(0, 0, 0, scanAlpha));
+                for (int y = 0; y < h; y += 4) g.fillRect(0, y, w, 1);
+            }
+            g.dispose();
+            return frame;
+        }
+
+        if (FX_WIPE.equals(effect)) {
+            // Hard edge sweeps across, revealing slide B. Direction = scroll direction.
+            g.drawImage(imgA, 0, 0, null);
+            int cx2 = 0, cy2 = 0, cw2 = w, ch2 = h;
+            switch (scrollDir) {
+                case SCROLL_LEFT:
+                    cw2 = (int) Math.round(w * t);
+                    cx2 = w - cw2;
+                    break;
+                case SCROLL_RIGHT:
+                    cw2 = (int) Math.round(w * t);
+                    break;
+                case SCROLL_UP:
+                    ch2 = (int) Math.round(h * t);
+                    cy2 = h - ch2;
+                    break;
+                case SCROLL_DOWN:
+                    ch2 = (int) Math.round(h * t);
+                    break;
+                default:
+                    cw2 = (int) Math.round(w * t);
+                    break;
+            }
+            if (cw2 > 0 && ch2 > 0) {
+                Shape oldClip = g.getClip();
+                g.setClip(cx2, cy2, cw2, ch2);
+                g.drawImage(imgB, 0, 0, null);
+                g.setClip(oldClip);
+            }
+            g.dispose();
+            return frame;
+        }
+
+        // Scroll-based effects (FX_SCROLL_ONLY / FX_SCROLL_CROSSFADE / FX_SCROLL_DIM / FX_WHIP_PAN)
         boolean horizontal = SCROLL_LEFT.equals(scrollDir) || SCROLL_RIGHT.equals(scrollDir);
         int dim = horizontal ? w : h;
         int offset = (int) Math.round(t * dim);
@@ -4534,6 +4705,29 @@ public class GifSlideShowApp extends JFrame {
             g.drawImage(imgA, ax, ay, null);
             g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) t));
             g.drawImage(imgB, bx, by, null);
+            g.setComposite(AlphaComposite.SrcOver);
+        } else if (FX_WHIP_PAN.equals(effect)) {
+            // Scroll with a motion-blur trail. The "trail" is a few ghost copies drawn
+            // behind the main image along the direction of travel; intensity peaks mid-move.
+            double blurAmt = 4.0 * t * (1.0 - t);
+            int trailPx = (int) Math.round(35 * blurAmt);
+            int tdx = 0, tdy = 0;
+            switch (scrollDir) {
+                case SCROLL_LEFT:  tdx =  trailPx; break;
+                case SCROLL_RIGHT: tdx = -trailPx; break;
+                case SCROLL_UP:    tdy =  trailPx; break;
+                case SCROLL_DOWN:  tdy = -trailPx; break;
+                default: break;
+            }
+            int steps = 4;
+            for (int i = steps; i >= 1; i--) {
+                float la = (i == 1) ? 1.0f : (float) (0.35 * i / (double) steps);
+                g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, la));
+                int ox = tdx * (i - 1) / steps;
+                int oy = tdy * (i - 1) / steps;
+                g.drawImage(imgA, ax + ox, ay + oy, null);
+                g.drawImage(imgB, bx + ox, by + oy, null);
+            }
             g.setComposite(AlphaComposite.SrcOver);
         } else {
             g.drawImage(imgA, ax, ay, null);
