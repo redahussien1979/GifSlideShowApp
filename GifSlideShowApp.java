@@ -3142,28 +3142,31 @@ public class GifSlideShowApp extends JFrame {
                                     break;
                                 }
                                 case "Circle": {
-                                    // Hand-drawn circle: smoothed-noise centerline rendered as a
-                                    // tapered variable-width ribbon (tier-3: looks like a marker annotation).
+                                    // Hand-drawn circle: tight ellipse hugging the word, drawn
+                                    // as a single confident marker stroke with smoothed low-
+                                    // frequency wobble, slight tilt, and overshoot at the end.
                                     long circleSeed = ((long) hlIdx * 131071L) ^ ((long) li * 524287L) ^ hlTerm.hashCode();
                                     Random cRng = new Random(circleSeed);
 
                                     double cx = hlRectX + hlRectW / 2.0;
                                     double cy = hlRectY + hlRectH / 2.0;
-                                    double baseRx = hlRectW * 0.62 + 4 * stScaleFactor;
-                                    double baseRy = Math.max(hlRectH * 0.85 + 4 * stScaleFactor, baseRx * 0.35);
-                                    double tilt = Math.toRadians((cRng.nextDouble() - 0.5) * 8.0);
+                                    // Tight: just a few pixels of breathing room beyond the rect.
+                                    double padX = Math.max(3.0, 5.0 * stScaleFactor);
+                                    double padY = Math.max(2.0, 3.5 * stScaleFactor);
+                                    double baseRx = hlRectW / 2.0 + padX;
+                                    double baseRy = hlRectH / 2.0 + padY;
+                                    double tilt = Math.toRadians(-4.0 + cRng.nextDouble() * 3.0);
                                     double cosT = Math.cos(tilt), sinT = Math.sin(tilt);
 
-                                    int noiseN = 10;
+                                    int noiseN = 14;
                                     double[] noise = new double[noiseN];
                                     for (int i = 0; i < noiseN; i++) noise[i] = (cRng.nextDouble() - 0.5) * 2.0;
 
-                                    int steps = 100;
-                                    double thetaStart = -Math.PI / 2.0 + Math.toRadians(-18 - cRng.nextInt(10));
-                                    double thetaEnd = -Math.PI / 2.0 + 2 * Math.PI + Math.toRadians(18 + cRng.nextInt(16));
+                                    int steps = 140;
+                                    double thetaStart = -Math.PI / 2.0 + Math.toRadians(-8 - cRng.nextInt(10));
+                                    double thetaEnd = -Math.PI / 2.0 + 2 * Math.PI + Math.toRadians(22 + cRng.nextInt(16));
 
-                                    double[] px = new double[steps + 1];
-                                    double[] py = new double[steps + 1];
+                                    java.awt.geom.Path2D.Double path = new java.awt.geom.Path2D.Double();
                                     for (int i = 0; i <= steps; i++) {
                                         double u = i / (double) steps;
                                         double theta = thetaStart + (thetaEnd - thetaStart) * u;
@@ -3173,77 +3176,24 @@ public class GifSlideShowApp extends JFrame {
                                         double a = noise[Math.min(noiseN - 1, ni)];
                                         double b = noise[Math.min(noiseN - 1, ni + 1)];
                                         double smooth = a + (b - a) * (1 - Math.cos(nf * Math.PI)) / 2.0;
-                                        double jitter = 1.0 + smooth * 0.035;
+                                        double jitter = 1.0 + smooth * 0.045;
                                         double ex = Math.cos(theta) * baseRx * jitter;
                                         double ey = Math.sin(theta) * baseRy * jitter;
-                                        px[i] = cx + ex * cosT - ey * sinT;
-                                        py[i] = cy + ex * sinT + ey * cosT;
+                                        double pxp = cx + ex * cosT - ey * sinT;
+                                        double pyp = cy + ex * sinT + ey * cosT;
+                                        if (i == 0) path.moveTo(pxp, pyp);
+                                        else path.lineTo(pxp, pyp);
                                     }
 
-                                    double maxW = Math.max(2.2, 3.0 * stScaleFactor);
-                                    double minW = Math.max(0.5, 0.7 * stScaleFactor);
-                                    double startTaperEnd = 0.09;
-                                    double endTaperStart = 0.92;
-
-                                    double[] topX = new double[steps + 1];
-                                    double[] topY = new double[steps + 1];
-                                    double[] botX = new double[steps + 1];
-                                    double[] botY = new double[steps + 1];
-
-                                    for (int i = 0; i <= steps; i++) {
-                                        double u = i / (double) steps;
-                                        double taper;
-                                        if (u < startTaperEnd) {
-                                            taper = Math.pow(u / startTaperEnd, 0.7);
-                                        } else if (u > endTaperStart) {
-                                            taper = Math.pow((1.0 - u) / (1.0 - endTaperStart), 0.85);
-                                        } else {
-                                            double npos = u * (noiseN - 1);
-                                            int ni = (int) Math.floor(npos);
-                                            double nf = npos - ni;
-                                            double a = noise[Math.min(noiseN - 1, ni)];
-                                            double b = noise[Math.min(noiseN - 1, ni + 1)];
-                                            double smooth = a + (b - a) * (1 - Math.cos(nf * Math.PI)) / 2.0;
-                                            taper = 0.88 + smooth * 0.12;
-                                        }
-                                        double halfW = (minW + (maxW - minW) * taper) / 2.0;
-
-                                        double tx, ty;
-                                        if (i == 0) { tx = px[1] - px[0]; ty = py[1] - py[0]; }
-                                        else if (i == steps) { tx = px[steps] - px[steps - 1]; ty = py[steps] - py[steps - 1]; }
-                                        else { tx = px[i + 1] - px[i - 1]; ty = py[i + 1] - py[i - 1]; }
-                                        double tlen = Math.sqrt(tx * tx + ty * ty);
-                                        if (tlen < 1e-6) tlen = 1;
-                                        double nxn = -ty / tlen;
-                                        double nyn = tx / tlen;
-                                        topX[i] = px[i] + nxn * halfW;
-                                        topY[i] = py[i] + nyn * halfW;
-                                        botX[i] = px[i] - nxn * halfW;
-                                        botY[i] = py[i] - nyn * halfW;
-                                    }
-
-                                    java.awt.geom.Path2D.Double ribbon = new java.awt.geom.Path2D.Double();
-                                    ribbon.moveTo(topX[0], topY[0]);
-                                    for (int i = 1; i <= steps; i++) ribbon.lineTo(topX[i], topY[i]);
-                                    for (int i = steps; i >= 0; i--) ribbon.lineTo(botX[i], botY[i]);
-                                    ribbon.closePath();
-
+                                    float strokeW = Math.max(2.2f, 2.8f * stScaleFactor);
+                                    gHL.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
                                     gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()));
-                                    gHL.fill(ribbon);
+                                    gHL.draw(path);
                                     break;
                                 }
                                 case "Strikethrough": {
-                                    // Clean horizontal strike through the text mid-line, with
-                                    // subtle shadow for a printed look.
-                                    float strokeW = Math.max(2f, hlRectH * 0.09f);
-                                    int sy = hlRectY + (int) Math.round(hlRectH * 0.48);
-                                    int sx1 = hlRectX - (int)(2 * stScaleFactor);
-                                    int sx2 = hlRectX + hlRectW + (int)(2 * stScaleFactor);
-                                    gHL.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                                    gHL.setColor(new Color(0, 0, 0, Math.min(60, hlC.getAlpha() / 4)));
-                                    gHL.drawLine(sx1 + (int) Math.max(1, stScaleFactor), sy + (int) Math.max(1, stScaleFactor), sx2 + (int) Math.max(1, stScaleFactor), sy + (int) Math.max(1, stScaleFactor));
-                                    gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()));
-                                    gHL.drawLine(sx1, sy, sx2, sy);
+                                    // Rendered in the post-text foreground overlay pass so
+                                    // the strike appears on top of the text, not behind it.
                                     break;
                                 }
                                 case "Tag": {
@@ -3359,54 +3309,49 @@ public class GifSlideShowApp extends JFrame {
                                     break;
                                 }
                                 case "Marker": {
-                                    // Translucent highlighter: slightly shifted, leans a touch,
-                                    // double-tap start, feathered trailing edge.
-                                    long mSeed = ((long) hlIdx * 61L) + ((long) li * 1021L) + hlTerm.hashCode();
-                                    Random mRng = new Random(mSeed);
+                                    // Clean translucent highlighter band: horizontal fade at
+                                    // both ends for a "pen-lift" feel, small lean, and a subtle
+                                    // wet-edge at the top. No per-occurrence random noise so
+                                    // it reads as a deliberate annotation.
+                                    int mx = hlRectX - (int)(3 * stScaleFactor);
+                                    int my = hlRectY + (int)(hlRectH * 0.08f);
+                                    int mw = Math.max(4, hlRectW + (int)(6 * stScaleFactor));
+                                    int mh = Math.max(2, (int)(hlRectH * 0.86f));
+                                    int mArc = Math.max(1, (int)(3 * stScaleFactor));
 
-                                    int dyOff = (int) (hlRectH * 0.12f);
-                                    int mx = hlRectX - (int)(2 * stScaleFactor);
-                                    int my = hlRectY + dyOff;
-                                    int mw = hlRectW + (int)(4 * stScaleFactor);
-                                    int mh = Math.max(2, (int)(hlRectH * 0.78f));
-
-                                    int baseAlpha = Math.min(hlC.getAlpha(), 140);
-                                    int r = hlC.getRed();
+                                    int baseAlpha = Math.min(hlC.getAlpha(), 150);
+                                    int rC = hlC.getRed();
                                     int gC = hlC.getGreen();
-                                    int b = hlC.getBlue();
+                                    int bC = hlC.getBlue();
 
                                     java.awt.geom.AffineTransform savedMTx = gHL.getTransform();
-                                    double lean = Math.toRadians(-1.2 + (mRng.nextDouble() - 0.5) * 1.2);
-                                    gHL.rotate(lean, mx + mw / 2.0, my + mh / 2.0);
+                                    gHL.rotate(Math.toRadians(-0.8), mx + mw / 2.0, my + mh / 2.0);
 
-                                    int mArc = Math.max(1, (int)(3 * stScaleFactor));
-                                    // Main translucent band
-                                    gHL.setColor(new Color(r, gC, b, baseAlpha));
-                                    gHL.fillRoundRect(mx, my, mw, mh, mArc, mArc);
+                                    java.awt.Shape clipBefore = gHL.getClip();
+                                    gHL.clip(new java.awt.geom.RoundRectangle2D.Float(mx, my, mw, mh, mArc, mArc));
 
-                                    // Double-tap overlap at the start (marker laid down twice)
-                                    int overlapW = Math.max(2, (int)(mw * 0.16));
-                                    gHL.setColor(new Color(r, gC, b, Math.min(255, baseAlpha + 45)));
-                                    gHL.fillRoundRect(mx - (int)(2 * stScaleFactor),
-                                            my + (int)(1 * stScaleFactor),
-                                            overlapW, mh - (int)(1 * stScaleFactor), mArc, mArc);
+                                    // Horizontal fade at both ends via 4-stop gradient so the
+                                    // band looks swept, not stamped.
+                                    float fadeFrac = Math.min(0.14f, (20f * stScaleFactor) / mw);
+                                    float[] fractions = { 0f, fadeFrac, 1f - fadeFrac, 1f };
+                                    Color transparent = new Color(rC, gC, bC, 0);
+                                    Color full = new Color(rC, gC, bC, baseAlpha);
+                                    Color[] colors = { transparent, full, full, transparent };
+                                    java.awt.LinearGradientPaint lgp = new java.awt.LinearGradientPaint(
+                                            mx, my, mx + mw, my, fractions, colors);
+                                    gHL.setPaint(lgp);
+                                    gHL.fillRect(mx, my, mw, mh);
 
-                                    // Trailing feather: lighter, slimmer end
-                                    int trailW = Math.max(2, (int)(mw * 0.12));
-                                    gHL.setColor(new Color(r, gC, b, Math.max(10, baseAlpha - 55)));
-                                    gHL.fillRoundRect(mx + mw - trailW,
-                                            my + (int)(2 * stScaleFactor),
-                                            trailW + (int)(3 * stScaleFactor),
-                                            Math.max(2, mh - (int)(3 * stScaleFactor)),
-                                            mArc, mArc);
+                                    // Wet-edge: slightly darker band at the top of the stroke.
+                                    Color wetTop = new Color(rC, gC, bC, Math.min(255, baseAlpha + 35));
+                                    Color wetBot = new Color(rC, gC, bC, 0);
+                                    GradientPaint wetGrad = new GradientPaint(
+                                            mx, my, wetTop,
+                                            mx, my + mh * 0.35f, wetBot);
+                                    gHL.setPaint(wetGrad);
+                                    gHL.fillRect(mx, my, mw, (int)(mh * 0.35f));
 
-                                    // Subtle top edge darker band — highlighter "wetness" look
-                                    gHL.setColor(new Color(r, gC, b, Math.min(255, baseAlpha + 20)));
-                                    gHL.fillRect(mx + (int)(2 * stScaleFactor),
-                                            my + (int) Math.max(1, mh * 0.08f),
-                                            mw - (int)(4 * stScaleFactor),
-                                            Math.max(1, (int)(mh * 0.14f)));
-
+                                    gHL.setClip(clipBefore);
                                     gHL.setTransform(savedMTx);
                                     break;
                                 }
@@ -4042,6 +3987,62 @@ public class GifSlideShowApp extends JFrame {
                             gOv.drawString(wordText, ovX, lineY);
                         }
                         gOv.dispose();
+                    }
+
+                    // === Post-text foreground highlight overlays ===
+                    // Effects that must appear ON TOP of the text (e.g. Strikethrough).
+                    if (st.highlightText != null && !st.highlightText.isEmpty()) {
+                        String rawHlStyleFG = st.highlightStyle != null ? st.highlightStyle : "Regular";
+                        String hlStyleFG = rawHlStyleFG;
+                        int colonIdxFG = rawHlStyleFG.indexOf(':');
+                        if (colonIdxFG > 0) hlStyleFG = rawHlStyleFG.substring(0, colonIdxFG);
+
+                        if ("Strikethrough".equals(hlStyleFG)) {
+                            String lineLowerFG = line.toLowerCase();
+                            Color hlCFG = st.highlightColor != null ? st.highlightColor : new Color(255, 100, 150, 180);
+                            String[] hlTermsFG = st.highlightText.split(",");
+                            for (String hlTermFG : hlTermsFG) {
+                                hlTermFG = hlTermFG.trim();
+                                if (hlTermFG.isEmpty()) continue;
+                                String hlLowerFG = hlTermFG.toLowerCase();
+                                int searchFromFG = 0;
+                                while (searchFromFG < lineLowerFG.length()) {
+                                    int hlIdxFG = lineLowerFG.indexOf(hlLowerFG, searchFromFG);
+                                    if (hlIdxFG < 0) break;
+                                    int hlXFG, hlWFG;
+                                    if (stTextLayout != null) {
+                                        java.awt.Shape hlVisShapeFG = stTextLayout.getLogicalHighlightShape(hlIdxFG, hlIdxFG + hlTermFG.length());
+                                        java.awt.geom.Rectangle2D hlVisBoundsFG = hlVisShapeFG.getBounds2D();
+                                        hlXFG = lineX + (int) hlVisBoundsFG.getX();
+                                        hlWFG = (int) Math.ceil(hlVisBoundsFG.getWidth());
+                                    } else {
+                                        String beforeFG = line.substring(0, hlIdxFG);
+                                        String matchFG = line.substring(hlIdxFG, hlIdxFG + hlTermFG.length());
+                                        hlXFG = lineX + stFm.stringWidth(beforeFG);
+                                        hlWFG = stFm.stringWidth(matchFG);
+                                    }
+                                    Graphics2D gFG = (Graphics2D) g.create();
+                                    gFG.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                                    // Strike through the visual center of the text
+                                    int strikeY = lineY - (int) Math.round(stFm.getAscent() * 0.32);
+                                    int sx1 = hlXFG - (int)(2 * stScaleFactor);
+                                    int sx2 = hlXFG + hlWFG + (int)(2 * stScaleFactor);
+                                    float strokeSW = Math.max(2f, stFm.getAscent() * 0.10f);
+                                    gFG.setStroke(new BasicStroke(strokeSW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                    // Subtle shadow for legibility on any background
+                                    int shOff = (int) Math.max(1, stScaleFactor);
+                                    gFG.setColor(new Color(0, 0, 0, Math.min(70, hlCFG.getAlpha() / 4)));
+                                    gFG.drawLine(sx1 + shOff, strikeY + shOff, sx2 + shOff, strikeY + shOff);
+                                    // Main strike
+                                    gFG.setColor(new Color(hlCFG.getRed(), hlCFG.getGreen(), hlCFG.getBlue(), hlCFG.getAlpha()));
+                                    gFG.drawLine(sx1, strikeY, sx2, strikeY);
+                                    gFG.dispose();
+
+                                    searchFromFG = hlIdxFG + hlTermFG.length();
+                                }
+                            }
+                        }
                     }
 
                     g2.dispose();
