@@ -3191,6 +3191,203 @@ public class GifSlideShowApp extends JFrame {
                                     gHL.draw(path);
                                     break;
                                 }
+                                case "Scribble": {
+                                    // Energetic multi-pass scribble: 2-3 overlapping loops,
+                                    // each with its own tilt, overshoot, and center offset so
+                                    // the strokes stack and wobble differently.
+                                    long sSeed = ((long) hlIdx * 131071L) ^ ((long) li * 524287L) ^ hlTerm.hashCode();
+                                    Random sRng = new Random(sSeed);
+
+                                    double cx = hlRectX + hlRectW / 2.0;
+                                    double cy = hlRectY + hlRectH / 2.0;
+                                    double padX = Math.max(3.0, 5.0 * stScaleFactor);
+                                    double padY = Math.max(2.0, 3.5 * stScaleFactor);
+                                    double baseRx = hlRectW / 2.0 + padX;
+                                    double baseRy = hlRectH / 2.0 + padY;
+
+                                    int passes = 2 + sRng.nextInt(2);
+                                    float strokeW = Math.max(1.8f, 2.4f * stScaleFactor);
+                                    int baseAlpha = Math.max(80, hlC.getAlpha() * 3 / 4);
+                                    gHL.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+
+                                    for (int p = 0; p < passes; p++) {
+                                        double tilt = Math.toRadians(-6.0 + sRng.nextDouble() * 10.0);
+                                        double cosT = Math.cos(tilt), sinT = Math.sin(tilt);
+                                        double ocx = cx + (sRng.nextDouble() - 0.5) * padX * 0.7;
+                                        double ocy = cy + (sRng.nextDouble() - 0.5) * padY * 0.7;
+
+                                        int noiseN = 12;
+                                        double[] noise = new double[noiseN];
+                                        for (int i = 0; i < noiseN; i++) noise[i] = (sRng.nextDouble() - 0.5) * 2.0;
+
+                                        int steps = 110;
+                                        double thetaStart = -Math.PI / 2.0 + Math.toRadians(-12 - sRng.nextInt(20));
+                                        double thetaEnd = -Math.PI / 2.0 + 2 * Math.PI + Math.toRadians(20 + sRng.nextInt(30));
+
+                                        java.awt.geom.Path2D.Double path = new java.awt.geom.Path2D.Double();
+                                        for (int i = 0; i <= steps; i++) {
+                                            double u = i / (double) steps;
+                                            double theta = thetaStart + (thetaEnd - thetaStart) * u;
+                                            double npos = u * (noiseN - 1);
+                                            int ni = (int) Math.floor(npos);
+                                            double nf = npos - ni;
+                                            double a = noise[Math.min(noiseN - 1, ni)];
+                                            double b = noise[Math.min(noiseN - 1, ni + 1)];
+                                            double smooth = a + (b - a) * (1 - Math.cos(nf * Math.PI)) / 2.0;
+                                            double jitter = 1.0 + smooth * 0.06;
+                                            double ex = Math.cos(theta) * baseRx * jitter;
+                                            double ey = Math.sin(theta) * baseRy * jitter;
+                                            double pxp = ocx + ex * cosT - ey * sinT;
+                                            double pyp = ocy + ex * sinT + ey * cosT;
+                                            if (i == 0) path.moveTo(pxp, pyp);
+                                            else path.lineTo(pxp, pyp);
+                                        }
+
+                                        int passAlpha = Math.max(50, baseAlpha - p * 20);
+                                        gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), passAlpha));
+                                        gHL.draw(path);
+                                    }
+                                    break;
+                                }
+                                case "Sketch": {
+                                    // Pencil-on-paper: 3-4 thin, light passes with per-pass
+                                    // radius variance so the loops diverge, giving a drafty,
+                                    // exploratory feel.
+                                    long skSeed = ((long) hlIdx * 131071L) ^ ((long) li * 524287L) ^ hlTerm.hashCode();
+                                    Random sRng = new Random(skSeed);
+
+                                    double cx = hlRectX + hlRectW / 2.0;
+                                    double cy = hlRectY + hlRectH / 2.0;
+                                    double padX = Math.max(3.0, 5.0 * stScaleFactor);
+                                    double padY = Math.max(2.0, 3.5 * stScaleFactor);
+                                    double baseRx = hlRectW / 2.0 + padX;
+                                    double baseRy = hlRectH / 2.0 + padY;
+
+                                    int passes = 3 + sRng.nextInt(2);
+                                    float strokeW = Math.max(1f, 1.4f * stScaleFactor);
+                                    int baseAlpha = Math.max(40, hlC.getAlpha() / 2);
+                                    gHL.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+
+                                    for (int p = 0; p < passes; p++) {
+                                        double tilt = Math.toRadians(-8.0 + sRng.nextDouble() * 16.0);
+                                        double cosT = Math.cos(tilt), sinT = Math.sin(tilt);
+                                        double ocx = cx + (sRng.nextDouble() - 0.5) * padX * 1.2;
+                                        double ocy = cy + (sRng.nextDouble() - 0.5) * padY * 1.2;
+                                        double rxMul = 0.94 + sRng.nextDouble() * 0.14;
+                                        double ryMul = 0.94 + sRng.nextDouble() * 0.14;
+
+                                        int noiseN = 10;
+                                        double[] noise = new double[noiseN];
+                                        for (int i = 0; i < noiseN; i++) noise[i] = (sRng.nextDouble() - 0.5) * 2.0;
+
+                                        int steps = 100;
+                                        double thetaStart = -Math.PI / 2.0 + Math.toRadians(-25 - sRng.nextInt(30));
+                                        double thetaEnd = -Math.PI / 2.0 + 2 * Math.PI + Math.toRadians(25 + sRng.nextInt(35));
+
+                                        java.awt.geom.Path2D.Double path = new java.awt.geom.Path2D.Double();
+                                        for (int i = 0; i <= steps; i++) {
+                                            double u = i / (double) steps;
+                                            double theta = thetaStart + (thetaEnd - thetaStart) * u;
+                                            double npos = u * (noiseN - 1);
+                                            int ni = (int) Math.floor(npos);
+                                            double nf = npos - ni;
+                                            double a = noise[Math.min(noiseN - 1, ni)];
+                                            double b = noise[Math.min(noiseN - 1, ni + 1)];
+                                            double smooth = a + (b - a) * (1 - Math.cos(nf * Math.PI)) / 2.0;
+                                            double jitter = 1.0 + smooth * 0.04;
+                                            double ex = Math.cos(theta) * baseRx * rxMul * jitter;
+                                            double ey = Math.sin(theta) * baseRy * ryMul * jitter;
+                                            double pxp = ocx + ex * cosT - ey * sinT;
+                                            double pyp = ocy + ex * sinT + ey * cosT;
+                                            if (i == 0) path.moveTo(pxp, pyp);
+                                            else path.lineTo(pxp, pyp);
+                                        }
+
+                                        int passAlpha = Math.max(30, baseAlpha - p * 10);
+                                        gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), passAlpha));
+                                        gHL.draw(path);
+                                    }
+                                    break;
+                                }
+                                case "Ink": {
+                                    // Calligraphy loop: single confident stroke with variable
+                                    // width — thick on the sides (downstroke), thin on top and
+                                    // bottom (horizontal), mimicking a broad-nib pen held at a
+                                    // fixed angle.
+                                    long inkSeed = ((long) hlIdx * 131071L) ^ ((long) li * 524287L) ^ hlTerm.hashCode();
+                                    Random iRng = new Random(inkSeed);
+
+                                    double cx = hlRectX + hlRectW / 2.0;
+                                    double cy = hlRectY + hlRectH / 2.0;
+                                    double padX = Math.max(4.0, 6.0 * stScaleFactor);
+                                    double padY = Math.max(3.0, 4.5 * stScaleFactor);
+                                    double baseRx = hlRectW / 2.0 + padX;
+                                    double baseRy = hlRectH / 2.0 + padY;
+                                    double tilt = Math.toRadians(-3.0 + iRng.nextDouble() * 3.0);
+                                    double cosT = Math.cos(tilt), sinT = Math.sin(tilt);
+
+                                    int noiseN = 12;
+                                    double[] noise = new double[noiseN];
+                                    for (int i = 0; i < noiseN; i++) noise[i] = (iRng.nextDouble() - 0.5) * 2.0;
+
+                                    int steps = 160;
+                                    double thetaStart = -Math.PI / 2.0 + Math.toRadians(-8 - iRng.nextInt(8));
+                                    double thetaEnd = -Math.PI / 2.0 + 2 * Math.PI + Math.toRadians(18 + iRng.nextInt(12));
+
+                                    double maxHalfW = Math.max(2.5, 3.5 * stScaleFactor);
+                                    double minHalfW = Math.max(0.4, 0.6 * stScaleFactor);
+
+                                    double[] px = new double[steps + 1];
+                                    double[] py = new double[steps + 1];
+                                    double[] halfW = new double[steps + 1];
+                                    for (int i = 0; i <= steps; i++) {
+                                        double u = i / (double) steps;
+                                        double theta = thetaStart + (thetaEnd - thetaStart) * u;
+                                        double npos = u * (noiseN - 1);
+                                        int ni = (int) Math.floor(npos);
+                                        double nf = npos - ni;
+                                        double a = noise[Math.min(noiseN - 1, ni)];
+                                        double b = noise[Math.min(noiseN - 1, ni + 1)];
+                                        double smooth = a + (b - a) * (1 - Math.cos(nf * Math.PI)) / 2.0;
+                                        double jitter = 1.0 + smooth * 0.035;
+                                        double ex = Math.cos(theta) * baseRx * jitter;
+                                        double ey = Math.sin(theta) * baseRy * jitter;
+                                        px[i] = cx + ex * cosT - ey * sinT;
+                                        py[i] = cy + ex * sinT + ey * cosT;
+                                        // Width varies with theta: thick at sides, thin at top/bottom.
+                                        double widthFactor = Math.abs(Math.cos(theta));
+                                        halfW[i] = minHalfW + (maxHalfW - minHalfW) * widthFactor;
+                                    }
+
+                                    double[] topX = new double[steps + 1];
+                                    double[] topY = new double[steps + 1];
+                                    double[] botX = new double[steps + 1];
+                                    double[] botY = new double[steps + 1];
+                                    for (int i = 0; i <= steps; i++) {
+                                        double tx, ty;
+                                        if (i == 0) { tx = px[1] - px[0]; ty = py[1] - py[0]; }
+                                        else if (i == steps) { tx = px[steps] - px[steps - 1]; ty = py[steps] - py[steps - 1]; }
+                                        else { tx = px[i + 1] - px[i - 1]; ty = py[i + 1] - py[i - 1]; }
+                                        double tlen = Math.sqrt(tx * tx + ty * ty);
+                                        if (tlen < 1e-6) tlen = 1;
+                                        double nxn = -ty / tlen;
+                                        double nyn = tx / tlen;
+                                        topX[i] = px[i] + nxn * halfW[i];
+                                        topY[i] = py[i] + nyn * halfW[i];
+                                        botX[i] = px[i] - nxn * halfW[i];
+                                        botY[i] = py[i] - nyn * halfW[i];
+                                    }
+
+                                    java.awt.geom.Path2D.Double ribbon = new java.awt.geom.Path2D.Double();
+                                    ribbon.moveTo(topX[0], topY[0]);
+                                    for (int i = 1; i <= steps; i++) ribbon.lineTo(topX[i], topY[i]);
+                                    for (int i = steps; i >= 0; i--) ribbon.lineTo(botX[i], botY[i]);
+                                    ribbon.closePath();
+
+                                    gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()));
+                                    gHL.fill(ribbon);
+                                    break;
+                                }
                                 case "Strikethrough": {
                                     // Rendered in the post-text foreground overlay pass so
                                     // the strike appears on top of the text, not behind it.
@@ -8203,7 +8400,7 @@ public class GifSlideShowApp extends JFrame {
         "Shake", "Pulse"
     };
 
-    static final String[] HIGHLIGHT_STYLES = { "Regular", "Brush", "Brush2", "Pill", "Gradient", "Glow", "Box", "Circle", "Strikethrough", "Tag", "Speech Bubble", "Marker" };
+    static final String[] HIGHLIGHT_STYLES = { "Regular", "Brush", "Brush2", "Pill", "Gradient", "Glow", "Box", "Circle", "Scribble", "Sketch", "Ink", "Strikethrough", "Tag", "Speech Bubble", "Marker" };
     static final String[] UNDERLINE_STYLES = { "None", "Straight", "Wavy", "Double", "Dotted", "Dashed", "Thick", "Zigzag" };
 
     static class SlideTextData {
