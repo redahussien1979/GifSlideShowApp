@@ -3309,6 +3309,67 @@ public class GifSlideShowApp extends JFrame {
                                     }
                                     break;
                                 }
+                                case "Sketch Bold": {
+                                    // Bold sibling of Sketch: same multi-pass architecture but
+                                    // thicker strokes and higher per-pass opacity so the overlaps
+                                    // build into a dense, confident loop. Tighter radius/center
+                                    // jitter keeps the passes stacked rather than smeared.
+                                    long sbSeed = ((long) hlIdx * 131071L) ^ ((long) li * 524287L) ^ hlTerm.hashCode();
+                                    Random sRng = new Random(sbSeed);
+
+                                    double cx = hlRectX + hlRectW / 2.0;
+                                    double cy = hlRectY + hlRectH / 2.0;
+                                    double padX = Math.max(3.0, 5.0 * stScaleFactor);
+                                    double padY = Math.max(2.0, 3.5 * stScaleFactor);
+                                    double baseRx = hlRectW / 2.0 + padX;
+                                    double baseRy = hlRectH / 2.0 + padY;
+
+                                    int passes = 3;
+                                    float strokeW = Math.max(3f, 3.5f * stScaleFactor);
+                                    int baseAlpha = Math.min(180, (int) (hlC.getAlpha() * 0.7));
+                                    gHL.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+
+                                    for (int p = 0; p < passes; p++) {
+                                        double tilt = Math.toRadians(-5.0 + sRng.nextDouble() * 10.0);
+                                        double cosT = Math.cos(tilt), sinT = Math.sin(tilt);
+                                        double ocx = cx + (sRng.nextDouble() - 0.5) * padX * 0.5;
+                                        double ocy = cy + (sRng.nextDouble() - 0.5) * padY * 0.5;
+                                        double rxMul = 0.97 + sRng.nextDouble() * 0.06;
+                                        double ryMul = 0.97 + sRng.nextDouble() * 0.06;
+
+                                        int noiseN = 10;
+                                        double[] noise = new double[noiseN];
+                                        for (int i = 0; i < noiseN; i++) noise[i] = (sRng.nextDouble() - 0.5) * 2.0;
+
+                                        int steps = 120;
+                                        double thetaStart = -Math.PI / 2.0 + Math.toRadians(-15 - sRng.nextInt(20));
+                                        double thetaEnd = -Math.PI / 2.0 + 2 * Math.PI + Math.toRadians(20 + sRng.nextInt(25));
+
+                                        java.awt.geom.Path2D.Double path = new java.awt.geom.Path2D.Double();
+                                        for (int i = 0; i <= steps; i++) {
+                                            double u = i / (double) steps;
+                                            double theta = thetaStart + (thetaEnd - thetaStart) * u;
+                                            double npos = u * (noiseN - 1);
+                                            int ni = (int) Math.floor(npos);
+                                            double nf = npos - ni;
+                                            double a = noise[Math.min(noiseN - 1, ni)];
+                                            double b = noise[Math.min(noiseN - 1, ni + 1)];
+                                            double smooth = a + (b - a) * (1 - Math.cos(nf * Math.PI)) / 2.0;
+                                            double jitter = 1.0 + smooth * 0.045;
+                                            double ex = Math.cos(theta) * baseRx * rxMul * jitter;
+                                            double ey = Math.sin(theta) * baseRy * ryMul * jitter;
+                                            double pxp = ocx + ex * cosT - ey * sinT;
+                                            double pyp = ocy + ex * sinT + ey * cosT;
+                                            if (i == 0) path.moveTo(pxp, pyp);
+                                            else path.lineTo(pxp, pyp);
+                                        }
+
+                                        int passAlpha = Math.max(90, baseAlpha - p * 15);
+                                        gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), passAlpha));
+                                        gHL.draw(path);
+                                    }
+                                    break;
+                                }
                                 case "Ink": {
                                     // Calligraphy loop: single confident stroke with variable
                                     // width — thick on the sides (downstroke), thin on top and
@@ -8400,7 +8461,7 @@ public class GifSlideShowApp extends JFrame {
         "Shake", "Pulse"
     };
 
-    static final String[] HIGHLIGHT_STYLES = { "Regular", "Brush", "Brush2", "Pill", "Gradient", "Glow", "Box", "Circle", "Scribble", "Sketch", "Ink", "Strikethrough", "Tag", "Speech Bubble", "Marker" };
+    static final String[] HIGHLIGHT_STYLES = { "Regular", "Brush", "Brush2", "Pill", "Gradient", "Glow", "Box", "Circle", "Scribble", "Sketch", "Sketch Bold", "Ink", "Strikethrough", "Tag", "Speech Bubble", "Marker" };
     static final String[] UNDERLINE_STYLES = { "None", "Straight", "Wavy", "Double", "Dotted", "Dashed", "Thick", "Zigzag" };
 
     static class SlideTextData {
