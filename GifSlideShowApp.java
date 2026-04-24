@@ -5831,18 +5831,104 @@ public class GifSlideShowApp extends JFrame {
                                 + finalTransEffect + ", " + finalTransitionMs + "ms)...");
                         int f = 0;
                         for (int i = 0; i < slides.size(); i++) {
+                            SlideData s = slides.get(i);
                             BufferedImage dwellImg = renderedSlides.get(i);
-                            // Write first dwell frame, then hard-copy the file for identical frames
-                            // to avoid re-encoding the same PNG hundreds of times.
-                            java.nio.file.Path firstDwellPath = new File(tempDir,
-                                    String.format("frame_%05d.png", f)).toPath();
-                            ImageIO.write(dwellImg, "png", firstDwellPath.toFile());
-                            f++;
-                            for (int df = 1; df < dwellFrames[i]; df++) {
-                                java.nio.file.Path target = new File(tempDir,
+
+                            // Count valid audio files to decide whether this slide needs
+                            // per-audio-segment highlight FX applied during its dwell.
+                            int validAudioCount = 0;
+                            for (int ai = 0; ai < s.audioFiles.size(); ai++) {
+                                File af = s.audioFiles.get(ai);
+                                int adur = ai < s.audioDurationsMs.size() ? s.audioDurationsMs.get(ai) : 0;
+                                if (af != null && af.exists() && adur > 0) validAudioCount++;
+                            }
+                            boolean hasMultiAudio = validAudioCount >= 2;
+                            boolean needsAnimatedFx = hasMultiAudio && s.audioHlEffects != null
+                                    && (s.audioHlEffects.contains("Pulse") || s.audioHlEffects.contains("Shake"));
+
+                            if (hasMultiAudio) {
+                                // Render dwell frames honoring per-segment audio highlight.
+                                // Pulse/Shake need animation → render every frame.
+                                // Other FX (Glow/Enlarge/Bold/Color/Underline/None) are
+                                // constant within a segment → render once per segment
+                                // and hard-copy for the rest of the segment's frames.
+                                String lastWrittenName = null;
+                                int lastActive = -2;
+                                for (int df = 0; df < dwellFrames[i]; df++) {
+                                    long elapsedMs = (long)(df * 1000.0 / fps);
+                                    int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
+                                    String frameName = String.format("frame_%05d.png", f);
+                                    File frameFile = new File(tempDir, frameName);
+
+                                    if (needsAnimatedFx) {
+                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(
+                                                s.slideTexts, activeIdx, s.audioHlColor,
+                                                s.audioHlEffects, df, s.audioGlowSize);
+                                        BufferedImage frame = renderFrame(
+                                                s.image, s.text, s.fontName, s.fontSize,
+                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                s.slideNumberX, s.slideNumberY,
+                                                s.slideNumberSize, s.slideNumberColor,
+                                                hlTexts,
+                                                s.fxRoundCorners, s.fxCornerRadius,
+                                                s.fxVignette, s.fxSepia, s.fxGrain,
+                                                s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                                s.fxScanline, s.fxRaised,
+                                                s.overlayEnabled,
+                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, df,
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
+                                        ImageIO.write(frame, "png", frameFile);
+                                        lastWrittenName = frameName;
+                                        lastActive = activeIdx;
+                                    } else if (activeIdx != lastActive || lastWrittenName == null) {
+                                        BufferedImage frame;
+                                        if (activeIdx < 0) {
+                                            frame = dwellImg;
+                                        } else {
+                                            List<SlideTextData> hlTexts = applyActiveTextHighlight(
+                                                    s.slideTexts, activeIdx, s.audioHlColor,
+                                                    s.audioHlEffects, -1, s.audioGlowSize);
+                                            frame = renderFrame(
+                                                    s.image, s.text, s.fontName, s.fontSize,
+                                                    s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                    videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                    s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                    s.slideNumberX, s.slideNumberY,
+                                                    s.slideNumberSize, s.slideNumberColor,
+                                                    hlTexts,
+                                                    s.fxRoundCorners, s.fxCornerRadius,
+                                                    s.fxVignette, s.fxSepia, s.fxGrain,
+                                                    s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                                    s.fxScanline, s.fxRaised,
+                                                    s.overlayEnabled,
+                                                    s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                                    s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
+                                        }
+                                        ImageIO.write(frame, "png", frameFile);
+                                        lastWrittenName = frameName;
+                                        lastActive = activeIdx;
+                                    } else {
+                                        java.nio.file.Files.copy(
+                                                new File(tempDir, lastWrittenName).toPath(),
+                                                frameFile.toPath());
+                                    }
+                                    f++;
+                                }
+                            } else {
+                                // Fast path: no multi-audio highlight needed — write
+                                // once, then hard-copy for identical dwell frames.
+                                java.nio.file.Path firstDwellPath = new File(tempDir,
                                         String.format("frame_%05d.png", f)).toPath();
-                                java.nio.file.Files.copy(firstDwellPath, target);
+                                ImageIO.write(dwellImg, "png", firstDwellPath.toFile());
                                 f++;
+                                for (int df = 1; df < dwellFrames[i]; df++) {
+                                    java.nio.file.Path target = new File(tempDir,
+                                            String.format("frame_%05d.png", f)).toPath();
+                                    java.nio.file.Files.copy(firstDwellPath, target);
+                                    f++;
+                                }
                             }
                             int pctA = 30 + (int) ((f) * 30.0 / totalFrames);
                             final int pA = pctA;
