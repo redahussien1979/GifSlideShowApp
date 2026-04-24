@@ -1009,9 +1009,15 @@ public class GifSlideShowApp extends JFrame {
             return a.getName().compareToIgnoreCase(b.getName());
         });
 
-        // If there are existing slides with content, ask user whether to add or overwrite
+        // Modes:
+        //   0 = Add to existing   — fill slides that have no photo; leave photo-bearing slides alone.
+        //   1 = Overwrite all     — replace only the photo on each eligible slide; keep texts/controls/settings.
+        //   2 = Fresh             — no existing content; build from scratch.
+        // In modes 0/1 we skip title-grid slides and video slides. Extra files beyond
+        // the existing slots are appended as new slides.
         boolean hasContent = slideRows.size() > 1
                 || (slideRows.size() == 1 && (slideRows.get(0).getImage() != null || slideRows.get(0).isTitleGridSlide));
+        int mode = 2;
         if (hasContent) {
             String[] options = {"Add to existing", "Overwrite all"};
             int choice = JOptionPane.showOptionDialog(this,
@@ -1019,10 +1025,7 @@ public class GifSlideShowApp extends JFrame {
                     "Bulk Import", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
                     null, options, options[0]);
             if (choice < 0) return;
-            if (choice == 1) {
-                slideRows.clear();
-                slidesPanel.removeAll();
-            }
+            mode = choice;
         } else {
             // Single empty slide — just clear it
             slideRows.clear();
@@ -1032,7 +1035,42 @@ public class GifSlideShowApp extends JFrame {
         int loaded = 0;
         int failed = 0;
         int videos = 0;
-        for (File file : files) {
+        int fileIdx = 0;
+
+        if (mode == 0 || mode == 1) {
+            for (int i = 0; i < slideRows.size() && fileIdx < files.length; i++) {
+                SlideRow row = slideRows.get(i);
+                if (row.isTitleGridSlide) continue;
+                if (row.getSourceVideoFile() != null) continue;
+                if (mode == 0 && row.getImage() != null) continue;
+
+                while (fileIdx < files.length) {
+                    File file = files[fileIdx++];
+                    try {
+                        if (isVideoFile(file)) {
+                            int durationMs = probeAudioDurationMs(file);
+                            if (durationMs <= 0) { failed++; continue; }
+                            BufferedImage firstFrame = extractFirstVideoFrame(file);
+                            if (firstFrame == null) { failed++; continue; }
+                            row.setVideoSlideDirectly(file, firstFrame, durationMs);
+                            loaded++;
+                            videos++;
+                        } else {
+                            BufferedImage img = loadImageFile(file);
+                            if (img == null) { failed++; continue; }
+                            row.setImageDirectly(img, file.getName());
+                            loaded++;
+                        }
+                        break;
+                    } catch (IOException ex) {
+                        failed++;
+                    }
+                }
+            }
+        }
+
+        while (fileIdx < files.length) {
+            File file = files[fileIdx++];
             try {
                 if (isVideoFile(file)) {
                     int durationMs = probeAudioDurationMs(file);
@@ -1061,7 +1099,11 @@ public class GifSlideShowApp extends JFrame {
             }
         }
 
-        applyFirstSlideFormattingToAll();
+        // Only broadcast first-slide formatting when building from scratch. In Add/Overwrite
+        // modes, each existing slide's texts/controls/settings must remain intact.
+        if (mode == 2) {
+            applyFirstSlideFormattingToAll();
+        }
         slidesPanel.revalidate();
         slidesPanel.repaint();
 
