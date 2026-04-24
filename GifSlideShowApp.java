@@ -338,6 +338,10 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(p + "animDurationMs", String.valueOf(t.animDurationMs));
             props.setProperty(p + "animStartMs", String.valueOf(t.animStartMs));
             props.setProperty(p + "animEasing", t.animEasing);
+            props.setProperty(p + "tiltDegrees", String.valueOf(t.tiltDegrees));
+            props.setProperty(p + "letterSpacing", String.valueOf(t.letterSpacing));
+            props.setProperty(p + "lineSpacing", String.valueOf(t.lineSpacing));
+            props.setProperty(p + "opacity", String.valueOf(t.opacity));
         }
 
         // Orientation
@@ -464,7 +468,11 @@ public class GifSlideShowApp extends JFrame {
                     props.getProperty(p + "animPath", "From Left"),
                     Integer.parseInt(props.getProperty(p + "animDurationMs", "1500")),
                     Integer.parseInt(props.getProperty(p + "animStartMs", "0")),
-                    props.getProperty(p + "animEasing", "Ease Out")
+                    props.getProperty(p + "animEasing", "Ease Out"),
+                    Integer.parseInt(props.getProperty(p + "tiltDegrees", "0")),
+                    Integer.parseInt(props.getProperty(p + "letterSpacing", "0")),
+                    Integer.parseInt(props.getProperty(p + "lineSpacing", "0")),
+                    Integer.parseInt(props.getProperty(p + "opacity", "100"))
             ));
         }
 
@@ -2560,6 +2568,11 @@ public class GifSlideShowApp extends JFrame {
                 } else {
                     stFont = new Font(st.fontName, st.fontStyle, scaledStSize);
                 }
+                if (st.letterSpacing != 0) {
+                    java.util.Map<java.awt.font.TextAttribute, Object> attrs = new java.util.HashMap<>();
+                    attrs.put(java.awt.font.TextAttribute.TRACKING, st.letterSpacing * 0.01f);
+                    stFont = stFont.deriveFont(attrs);
+                }
                 g.setFont(stFont);
                 FontMetrics stFm = g.getFontMetrics();
 
@@ -2575,7 +2588,7 @@ public class GifSlideShowApp extends JFrame {
                     stWrappedLines.addAll(wrapped);
                 }
 
-                int stLineHeight = stFm.getHeight();
+                int stLineHeight = stFm.getHeight() + (int) Math.round(st.lineSpacing * stScaleFactor);
                 int stAscent = stFm.getAscent();
 
                 int stCenterX = (int) (st.x / 100.0 * targetW);
@@ -2639,6 +2652,25 @@ public class GifSlideShowApp extends JFrame {
                         g.translate(animDx, animDy);
                         animApplied = true;
                     }
+                }
+
+                // ===== Tilt + opacity wrap the entire text-block render =====
+                // Save AFTER the animation translate so the tilt rotates around the
+                // currently-displayed block center, and the post-block reverse
+                // cleanly returns to the animation-translated state before that
+                // translate is itself reversed.
+                java.awt.geom.AffineTransform savedSlideTextTx = g.getTransform();
+                java.awt.Composite savedSlideTextComposite = g.getComposite();
+                boolean transformWrapApplied = false;
+                if (st.tiltDegrees != 0) {
+                    g.rotate(Math.toRadians(st.tiltDegrees), stCenterX, stCenterY);
+                    transformWrapApplied = true;
+                }
+                if (st.opacity < 100) {
+                    g.setComposite(java.awt.AlphaComposite.getInstance(
+                            java.awt.AlphaComposite.SRC_OVER,
+                            Math.max(0f, Math.min(1f, st.opacity / 100f))));
+                    transformWrapApplied = true;
                 }
 
                 if (st.bgOpacity > 0) {
@@ -4306,6 +4338,13 @@ public class GifSlideShowApp extends JFrame {
                     g2.dispose();
 
                     lineY += stLineHeight;
+                }
+
+                // Reverse the tilt + opacity wrap before the animation translate is
+                // reversed, so the absolute matrix returns to its pre-text state.
+                if (transformWrapApplied) {
+                    g.setTransform(savedSlideTextTx);
+                    g.setComposite(savedSlideTextComposite);
                 }
 
                 // Reverse the entry-animation translate so other slide texts
@@ -8506,6 +8545,12 @@ public class GifSlideShowApp extends JFrame {
         final int animStartMs;     // delay before animation starts (e.g. 2000 = start at second 2)
         final String animEasing;   // "Ease Out", "Ease In Out", "Linear", "Bounce", "Overshoot"
 
+        // ---- Typography transforms ----
+        final int tiltDegrees;     // -180..180, rotates the whole text block around its center
+        final int letterSpacing;   // -10..40, font tracking expressed in 0.01 units (so 10 = +0.10 tracking)
+        final int lineSpacing;     // -20..60, extra pixels between wrapped/paragraph lines
+        final int opacity;         // 0..100, applied to the whole text block via AlphaComposite
+
         SlideTextData(boolean show, String text, String fontName, int fontSize,
                       int fontStyle, Color color, int x, int y, int bgOpacity,
                       Color bgColor, boolean justify, int widthPct, int shiftX,
@@ -8514,7 +8559,7 @@ public class GifSlideShowApp extends JFrame {
                     bgColor, justify, widthPct, shiftX, alignment, "None", 50,
                     "", new Color(255, 100, 150, 180), "Regular", 50, "None", "",
                     "", "", "", null, false, false, 50, 3, "Sequential",
-                    false, "From Left", 1500, 0, "Ease Out");
+                    false, "From Left", 1500, 0, "Ease Out", 0, 0, 0, 100);
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -8525,7 +8570,7 @@ public class GifSlideShowApp extends JFrame {
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     "", new Color(255, 100, 150, 180), "Regular", 50, "None", "",
                     "", "", "", null, false, false, 50, 3, "Sequential",
-                    false, "From Left", 1500, 0, "Ease Out");
+                    false, "From Left", 1500, 0, "Ease Out", 0, 0, 0, 100);
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -8537,7 +8582,7 @@ public class GifSlideShowApp extends JFrame {
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     highlightText, highlightColor, highlightStyle, 50, "None", "",
                     "", "", "", null, false, false, 50, 3, "Sequential",
-                    false, "From Left", 1500, 0, "Ease Out");
+                    false, "From Left", 1500, 0, "Ease Out", 0, 0, 0, 100);
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -8550,7 +8595,7 @@ public class GifSlideShowApp extends JFrame {
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, "",
                     "", "", "", null, false, false, 50, 3, "Sequential",
-                    false, "From Left", 1500, 0, "Ease Out");
+                    false, "From Left", 1500, 0, "Ease Out", 0, 0, 0, 100);
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -8563,7 +8608,7 @@ public class GifSlideShowApp extends JFrame {
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, underlineText,
                     "", "", "", null, false, false, 50, 3, "Sequential",
-                    false, "From Left", 1500, 0, "Ease Out");
+                    false, "From Left", 1500, 0, "Ease Out", 0, 0, 0, 100);
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -8577,7 +8622,7 @@ public class GifSlideShowApp extends JFrame {
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, underlineText,
                     boldText, italicText, colorText, colorTextColor, false, false, 50, 3, "Sequential",
-                    false, "From Left", 1500, 0, "Ease Out");
+                    false, "From Left", 1500, 0, "Ease Out", 0, 0, 0, 100);
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -8592,7 +8637,7 @@ public class GifSlideShowApp extends JFrame {
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, underlineText,
                     boldText, italicText, colorText, colorTextColor, xLeftAligned, odometer, odometerSpeed, 3, "Sequential",
-                    false, "From Left", 1500, 0, "Ease Out");
+                    false, "From Left", 1500, 0, "Ease Out", 0, 0, 0, 100);
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -8607,7 +8652,7 @@ public class GifSlideShowApp extends JFrame {
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, underlineText,
                     boldText, italicText, colorText, colorTextColor, xLeftAligned, odometer, odometerSpeed, odometerRoll, "Sequential",
-                    false, "From Left", 1500, 0, "Ease Out");
+                    false, "From Left", 1500, 0, "Ease Out", 0, 0, 0, 100);
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -8623,7 +8668,7 @@ public class GifSlideShowApp extends JFrame {
                     bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
                     highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, underlineText,
                     boldText, italicText, colorText, colorTextColor, xLeftAligned, odometer, odometerSpeed, odometerRoll, odometerLand,
-                    false, "From Left", 1500, 0, "Ease Out");
+                    false, "From Left", 1500, 0, "Ease Out", 0, 0, 0, 100);
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -8637,6 +8682,26 @@ public class GifSlideShowApp extends JFrame {
                       String odometerLand,
                       boolean animEnabled, String animPath, int animDurationMs,
                       int animStartMs, String animEasing) {
+            this(show, text, fontName, fontSize, fontStyle, color, x, y, bgOpacity,
+                    bgColor, justify, widthPct, shiftX, alignment, textEffect, textEffectIntensity,
+                    highlightText, highlightColor, highlightStyle, highlightTightness, underlineStyle, underlineText,
+                    boldText, italicText, colorText, colorTextColor, xLeftAligned, odometer, odometerSpeed, odometerRoll, odometerLand,
+                    animEnabled, animPath, animDurationMs, animStartMs, animEasing,
+                    0, 0, 0, 100);
+        }
+
+        SlideTextData(boolean show, String text, String fontName, int fontSize,
+                      int fontStyle, Color color, int x, int y, int bgOpacity,
+                      Color bgColor, boolean justify, int widthPct, int shiftX,
+                      int alignment, String textEffect, int textEffectIntensity,
+                      String highlightText, Color highlightColor, String highlightStyle,
+                      int highlightTightness, String underlineStyle, String underlineText,
+                      String boldText, String italicText, String colorText, Color colorTextColor,
+                      boolean xLeftAligned, boolean odometer, int odometerSpeed, int odometerRoll,
+                      String odometerLand,
+                      boolean animEnabled, String animPath, int animDurationMs,
+                      int animStartMs, String animEasing,
+                      int tiltDegrees, int letterSpacing, int lineSpacing, int opacity) {
             this.show = show;
             this.text = text;
             this.fontName = fontName;
@@ -8673,6 +8738,10 @@ public class GifSlideShowApp extends JFrame {
             this.animDurationMs = Math.max(100, animDurationMs);
             this.animStartMs = Math.max(0, animStartMs);
             this.animEasing = animEasing != null ? animEasing : "Ease Out";
+            this.tiltDegrees = Math.max(-180, Math.min(180, tiltDegrees));
+            this.letterSpacing = Math.max(-10, Math.min(40, letterSpacing));
+            this.lineSpacing = Math.max(-20, Math.min(60, lineSpacing));
+            this.opacity = Math.max(0, Math.min(100, opacity));
         }
     }
 
@@ -8885,6 +8954,10 @@ public class GifSlideShowApp extends JFrame {
         private final JTextArea slideTextArea;
         private final JComboBox<String> slideTextFontCombo;
         private final JSpinner slideTextSizeSpinner;
+        private final JSpinner slideTextTiltSpinner;
+        private final JSpinner slideTextLetterSpacingSpinner;
+        private final JSpinner slideTextLineSpacingSpinner;
+        private final JSpinner slideTextOpacitySpinner;
         private final JToggleButton slideTextBoldBtn;
         private final JToggleButton slideTextItalicBtn;
         private final JButton slideTextColorBtn;
@@ -9471,6 +9544,26 @@ public class GifSlideShowApp extends JFrame {
             slideTextSizeSpinner.setToolTipText("Slide text font size");
             slideTextSizeSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
+            slideTextTiltSpinner = new JSpinner(new SpinnerNumberModel(0, -180, 180, 5));
+            slideTextTiltSpinner.setPreferredSize(new Dimension(60, 28));
+            slideTextTiltSpinner.setToolTipText("Tilt (degrees, -180 to 180)");
+            slideTextTiltSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextLetterSpacingSpinner = new JSpinner(new SpinnerNumberModel(0, -10, 40, 1));
+            slideTextLetterSpacingSpinner.setPreferredSize(new Dimension(50, 28));
+            slideTextLetterSpacingSpinner.setToolTipText("Letter spacing (tracking, percent of font size)");
+            slideTextLetterSpacingSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextLineSpacingSpinner = new JSpinner(new SpinnerNumberModel(0, -20, 60, 1));
+            slideTextLineSpacingSpinner.setPreferredSize(new Dimension(50, 28));
+            slideTextLineSpacingSpinner.setToolTipText("Extra line spacing (pixels at scale 1)");
+            slideTextLineSpacingSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextOpacitySpinner = new JSpinner(new SpinnerNumberModel(100, 0, 100, 5));
+            slideTextOpacitySpinner.setPreferredSize(new Dimension(55, 28));
+            slideTextOpacitySpinner.setToolTipText("Text opacity (%) — applies to text, highlight and underline");
+            slideTextOpacitySpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
             slideTextBoldBtn = new JToggleButton("B");
             slideTextBoldBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
             slideTextBoldBtn.setPreferredSize(new Dimension(32, 28));
@@ -9511,6 +9604,14 @@ public class GifSlideShowApp extends JFrame {
             toolbar4a.add(slideTextBoldBtn);
             toolbar4a.add(slideTextItalicBtn);
             toolbar4a.add(slideTextColorBtn);
+            toolbar4a.add(styledLabel("Tilt:"));
+            toolbar4a.add(slideTextTiltSpinner);
+            toolbar4a.add(styledLabel("Spacing:"));
+            toolbar4a.add(slideTextLetterSpacingSpinner);
+            toolbar4a.add(styledLabel("Lines:"));
+            toolbar4a.add(slideTextLineSpacingSpinner);
+            toolbar4a.add(styledLabel("Opacity:"));
+            toolbar4a.add(slideTextOpacitySpinner);
 
             slideTextXSpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
             slideTextXSpinner.setPreferredSize(new Dimension(50, 28));
@@ -10694,7 +10795,11 @@ public class GifSlideShowApp extends JFrame {
                     slideTextAnimCheck.isSelected(),
                     (String) slideTextAnimPathCombo.getSelectedItem(),
                     animDurMs, animStartMs,
-                    (String) slideTextAnimEasingCombo.getSelectedItem()));
+                    (String) slideTextAnimEasingCombo.getSelectedItem(),
+                    (int) slideTextTiltSpinner.getValue(),
+                    (int) slideTextLetterSpacingSpinner.getValue(),
+                    (int) slideTextLineSpacingSpinner.getValue(),
+                    (int) slideTextOpacitySpinner.getValue()));
         }
 
         private void loadSlideTextFromItem(int index) {
@@ -10746,6 +10851,10 @@ public class GifSlideShowApp extends JFrame {
                 slideTextAnimDurationSpinner.setValue(Math.max(0.1, item.animDurationMs / 1000.0));
                 slideTextAnimStartSpinner.setValue(Math.max(0.0, item.animStartMs / 1000.0));
                 slideTextAnimEasingCombo.setSelectedItem(item.animEasing != null ? item.animEasing : "Ease Out");
+                slideTextTiltSpinner.setValue(item.tiltDegrees);
+                slideTextLetterSpacingSpinner.setValue(item.letterSpacing);
+                slideTextLineSpacingSpinner.setValue(item.lineSpacing);
+                slideTextOpacitySpinner.setValue(item.opacity);
             } finally {
                 isLoadingSlideText = false;
             }
