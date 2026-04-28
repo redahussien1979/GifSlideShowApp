@@ -5968,6 +5968,11 @@ public class GifSlideShowApp extends JFrame {
                         boolean anyAnimatedFx = false;
                         for (SlideData s : slides) {
                             boolean hasAnim = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxRaised > 0;
+                            // Audio-highlight Pulse/Shake also need per-frame rendering.
+                            if (!hasAnim && s.audioHlEffects != null
+                                    && (s.audioHlEffects.contains("Pulse") || s.audioHlEffects.contains("Shake"))) {
+                                hasAnim = true;
+                            }
                             if (!hasAnim && s.slideTexts != null) {
                                 for (SlideTextData stx : s.slideTexts) {
                                     if (stx.show && stx.odometer) { hasAnim = true; break; }
@@ -6201,8 +6206,11 @@ public class GifSlideShowApp extends JFrame {
                                 int slideDur = computeSlideDuration(s, duration);
                                 int slideFrames = Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
                                 boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxRaised > 0;
-                                boolean hasAnimatedText = false;
-                                if (s.slideTexts != null) {
+                                // Audio-highlight Pulse/Shake animate per-frame too.
+                                boolean hasAudioHlAnim = s.audioHlEffects != null
+                                        && (s.audioHlEffects.contains("Pulse") || s.audioHlEffects.contains("Shake"));
+                                boolean hasAnimatedText = hasAudioHlAnim;
+                                if (!hasAnimatedText && s.slideTexts != null) {
                                     for (SlideTextData stx : s.slideTexts) {
                                         if (stx.show && stx.odometer) { hasAnimatedText = true; break; }
                                         if (stx.show && stx.animEnabled) { hasAnimatedText = true; break; }
@@ -7297,8 +7305,11 @@ public class GifSlideShowApp extends JFrame {
 
                         try {
                             boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxRaised > 0;
-                            boolean hasAnimatedText = false;
-                            if (s.slideTexts != null) {
+                            // Audio-highlight Pulse/Shake animate per-frame too.
+                            boolean hasAudioHlAnim = s.audioHlEffects != null
+                                    && (s.audioHlEffects.contains("Pulse") || s.audioHlEffects.contains("Shake"));
+                            boolean hasAnimatedText = hasAudioHlAnim;
+                            if (!hasAnimatedText && s.slideTexts != null) {
                                 for (SlideTextData stx : s.slideTexts) {
                                     if (stx.show && stx.odometer) { hasAnimatedText = true; break; }
                                     if (stx.show && stx.animEnabled) { hasAnimatedText = true; break; }
