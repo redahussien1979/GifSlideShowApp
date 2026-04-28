@@ -2714,6 +2714,14 @@ public class GifSlideShowApp extends JFrame {
                             Math.max(0f, Math.min(1f, st.opacity / 100f))));
                     transformWrapApplied = true;
                 }
+                // Audio-highlight Pulse: visually scale around the text-block center
+                // without altering fontSize, so wrapping stays identical between beats.
+                if (st.pulseRenderScale != 1.0) {
+                    g.translate(stCenterX, stCenterY);
+                    g.scale(st.pulseRenderScale, st.pulseRenderScale);
+                    g.translate(-stCenterX, -stCenterY);
+                    transformWrapApplied = true;
+                }
 
                 if (st.bgOpacity > 0) {
                     int alpha = (int) (st.bgOpacity / 100.0 * 255);
@@ -8338,27 +8346,34 @@ public class GifSlideShowApp extends JFrame {
                 Color useHlColor = fx.contains("Glow") ? hlColor : st.highlightColor;
                 String useHlStyle = fx.contains("Glow") ? ("Glow:" + glowSize) : st.highlightStyle;
 
-                // Enlarge / Pulse: modify font size
+                // Enlarge: modify font size (this WILL re-wrap, which is intentional
+                // for Enlarge — the user expects bigger boxes). Pulse is handled below
+                // as a render-time scale so it does NOT trigger re-wrap.
                 int fontSize = st.fontSize;
                 if (fx.contains("Enlarge")) fontSize = (int)(fontSize * 1.30);
+
+                // Pulse: smooth heartbeat scale applied at draw time only (does NOT
+                // change fontSize → wrapping remains constant frame-to-frame).
+                // ~72 bpm "lub-dub" cycle, subtle peak amplitude.
+                double pulseScale = 1.0;
                 if (fx.contains("Pulse")) {
-                    double baseMul = fx.contains("Enlarge") ? 1.30 : 1.0;
                     if (animFrame >= 0) {
-                        // Heartbeat cadence: one "lub-dub" per ~30 frames (~60 bpm at 30fps)
-                        double cyclePos = (animFrame * 0.033) % 1.0;
+                        // 25 frames @ 30fps ≈ 0.83 s/cycle ≈ 72 bpm.
+                        double cyclePos = (animFrame % 25) / 25.0;
                         double beat;
-                        if (cyclePos < 0.10) {
-                            beat = Math.sin(cyclePos / 0.10 * Math.PI);
-                        } else if (cyclePos >= 0.16 && cyclePos < 0.26) {
-                            beat = 0.55 * Math.sin((cyclePos - 0.16) / 0.10 * Math.PI);
+                        if (cyclePos < 0.18) {
+                            // "lub" — primary contraction, smooth half-sine
+                            beat = Math.sin(cyclePos / 0.18 * Math.PI);
+                        } else if (cyclePos >= 0.26 && cyclePos < 0.42) {
+                            // "dub" — secondary, smaller, smooth half-sine
+                            beat = 0.55 * Math.sin((cyclePos - 0.26) / 0.16 * Math.PI);
                         } else {
                             beat = 0.0;
                         }
-                        double pulse = 1.0 + 0.22 * beat;
-                        fontSize = (int)(st.fontSize * baseMul * pulse);
+                        pulseScale = 1.0 + 0.07 * beat;
                     } else {
-                        // Static path: apply a small scale-up to indicate pulse is active
-                        fontSize = (int)(st.fontSize * baseMul * 1.10);
+                        // Static preview path: small scale-up to indicate pulse is on.
+                        pulseScale = 1.05;
                     }
                 }
 
@@ -8380,31 +8395,45 @@ public class GifSlideShowApp extends JFrame {
                     ulText = allText;
                 }
 
-                // Shake: offset x and y position for visible shaking
+                // Shake: ball-bounce — text lifts up, falls back to its resting Y,
+                // "lands" with a brief settle, then bounces again. Vertical only; X
+                // is unchanged so wrapping/justification stay untouched.
+                // st.y is in PERCENT of frame height, so we encode the bounce as a
+                // small percent offset (negative = up, since y grows downward).
                 int x = st.x;
                 int y = st.y;
                 if (fx.contains("Shake")) {
                     if (animFrame >= 0) {
-                        // Subtle professional vibration: small amplitude, mixed frequencies
-                        double sx = 1.2 * Math.sin(animFrame * 0.9)
-                                + 0.7 * Math.sin(animFrame * 2.4 + 1.1);
-                        double sy = 0.9 * Math.cos(animFrame * 0.8 + 0.6)
-                                + 0.5 * Math.cos(animFrame * 2.1 + 0.3);
-                        x = st.x + (int) Math.round(sx);
-                        y = st.y + (int) Math.round(sy);
+                        // 30 frames @ 30fps = 1 s/cycle. Bounce occupies the first
+                        // 70% of the cycle; the last 30% is rest on the "ground".
+                        int cycleLen = 30;
+                        int phase = animFrame % cycleLen;
+                        int bounceFrames = (int) (cycleLen * 0.70); // 21 frames in air
+                        if (phase < bounceFrames) {
+                            // Projectile motion: y(t) = -h * 4t(1-t), peak at t=0.5
+                            double t = phase / (double) bounceFrames;
+                            double arc = 4.0 * t * (1.0 - t); // 0 → 1 → 0
+                            // Bounce height as % of frame height. ~1.6% ≈ 17 px on
+                            // a 1080p frame — visibly clear, not jarring.
+                            double heightPct = 1.6;
+                            y = st.y - (int) Math.round(heightPct * arc);
+                        }
+                        // else: phase >= bounceFrames → resting at st.y (the "ground")
                     } else {
-                        // Static path: tiny offset to show shake is active
-                        x = st.x + 1;
+                        // Static preview: lift slightly so the user sees Shake is on.
+                        y = st.y - 1;
                     }
                 }
 
-                result.add(new SlideTextData(st.show, st.text, st.fontName, fontSize,
+                SlideTextData hl = new SlideTextData(st.show, st.text, st.fontName, fontSize,
                         fontStyle, textColor, x, y, st.bgOpacity, st.bgColor,
                         st.justify, st.widthPct, st.shiftX, st.alignment,
                         st.textEffect, st.textEffectIntensity,
                         useHlText, useHlColor, useHlStyle,
                         st.highlightTightness, ulStyle, ulText,
-                        st.boldText, st.italicText, st.colorText, st.colorTextColor, st.xLeftAligned, st.odometer, st.odometerSpeed, st.odometerRoll, st.odometerLand));
+                        st.boldText, st.italicText, st.colorText, st.colorTextColor, st.xLeftAligned, st.odometer, st.odometerSpeed, st.odometerRoll, st.odometerLand);
+                hl.pulseRenderScale = pulseScale;
+                result.add(hl);
             } else {
                 result.add(st);
             }
@@ -8678,6 +8707,12 @@ public class GifSlideShowApp extends JFrame {
         final int letterSpacing;   // -10..40, font tracking expressed in 0.01 units (so 10 = +0.10 tracking)
         final int lineSpacing;     // -20..60, extra pixels between wrapped/paragraph lines
         final int opacity;         // 0..100, applied to the whole text block via AlphaComposite
+
+        // ---- Per-frame audio-highlight animation state (transient, not persisted) ----
+        // pulseRenderScale: visual scale applied around the text-block center at draw time.
+        // Set by applyActiveTextHighlight when the "Pulse" highlight effect is active so
+        // the text visibly heartbeats without changing fontSize (which would re-wrap text).
+        double pulseRenderScale = 1.0;
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
                       int fontStyle, Color color, int x, int y, int bgOpacity,
