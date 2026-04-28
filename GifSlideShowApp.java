@@ -2722,6 +2722,13 @@ public class GifSlideShowApp extends JFrame {
                     g.translate(-stCenterX, -stCenterY);
                     transformWrapApplied = true;
                 }
+                // Audio-highlight Shake: smooth ball-bounce expressed as a fractional
+                // vertical translate (negative = up). Sub-pixel so the motion is fluid
+                // instead of stepping in integer-percent increments of st.y.
+                if (st.shakeRenderDyFrac != 0.0) {
+                    g.translate(0.0, st.shakeRenderDyFrac * targetH);
+                    transformWrapApplied = true;
+                }
 
                 if (st.bgOpacity > 0) {
                     int alpha = (int) (st.bgOpacity / 100.0 * 255);
@@ -8406,33 +8413,36 @@ public class GifSlideShowApp extends JFrame {
                     ulText = allText;
                 }
 
-                // Shake: ball-bounce — text lifts up, falls back to its resting Y,
-                // "lands" with a brief settle, then bounces again. Vertical only; X
-                // is unchanged so wrapping/justification stay untouched.
-                // st.y is in PERCENT of frame height, so we encode the bounce as a
-                // small percent offset (negative = up, since y grows downward).
+                // Shake: smooth ball-bounce. Resting at st.y, the text lifts up,
+                // peaks, falls back, "lands", and rests briefly before bouncing again.
+                // Encoded as a sub-pixel fractional translate so the motion is smooth
+                // (modifying st.y directly would quantize to ~11 px steps on 1080p).
+                // Vertical only — X stays put so wrapping/justification are untouched.
                 int x = st.x;
                 int y = st.y;
+                double shakeDyFrac = 0.0;
                 if (fx.contains("Shake")) {
                     if (animFrame >= 0) {
-                        // 30 frames @ 30fps = 1 s/cycle. Bounce occupies the first
-                        // 70% of the cycle; the last 30% is rest on the "ground".
-                        int cycleLen = 30;
-                        int phase = animFrame % cycleLen;
-                        int bounceFrames = (int) (cycleLen * 0.70); // 21 frames in air
-                        if (phase < bounceFrames) {
-                            // Projectile motion: y(t) = -h * 4t(1-t), peak at t=0.5
-                            double t = phase / (double) bounceFrames;
-                            double arc = 4.0 * t * (1.0 - t); // 0 → 1 → 0
-                            // Bounce height as % of frame height. ~1.6% ≈ 17 px on
-                            // a 1080p frame — visibly clear, not jarring.
-                            double heightPct = 1.6;
-                            y = st.y - (int) Math.round(heightPct * arc);
+                        // 36 frames @ 30fps = 1.2 s/cycle. Bounce takes ~75 % of the
+                        // cycle, the rest is settle on the "ground".
+                        double cycleLen = 36.0;
+                        double phase = (animFrame % 36) / cycleLen;     // 0..1
+                        double bounceEnd = 0.75;
+                        if (phase < bounceEnd) {
+                            // Re-map phase to t in 0..1 over the airborne segment.
+                            double t = phase / bounceEnd;
+                            // Smoothed parabola: smoothstep on each half so the
+                            // text eases off the ground and eases back into it
+                            // (zero velocity at landing) — no velocity discontinuity.
+                            double half = (t < 0.5) ? (t * 2.0) : ((1.0 - t) * 2.0);
+                            double smooth = half * half * (3.0 - 2.0 * half); // smoothstep
+                            // Peak height = 2.2 % of frame height (~24 px on 1080p).
+                            shakeDyFrac = -0.022 * smooth;
                         }
-                        // else: phase >= bounceFrames → resting at st.y (the "ground")
+                        // else: settle phase → resting on the ground (dy = 0).
                     } else {
-                        // Static preview: lift slightly so the user sees Shake is on.
-                        y = st.y - 1;
+                        // Static preview: small lift so the user sees Shake is on.
+                        shakeDyFrac = -0.006;
                     }
                 }
 
@@ -8444,6 +8454,7 @@ public class GifSlideShowApp extends JFrame {
                         st.highlightTightness, ulStyle, ulText,
                         st.boldText, st.italicText, st.colorText, st.colorTextColor, st.xLeftAligned, st.odometer, st.odometerSpeed, st.odometerRoll, st.odometerLand);
                 hl.pulseRenderScale = pulseScale;
+                hl.shakeRenderDyFrac = shakeDyFrac;
                 result.add(hl);
             } else {
                 result.add(st);
@@ -8724,6 +8735,11 @@ public class GifSlideShowApp extends JFrame {
         // Set by applyActiveTextHighlight when the "Pulse" highlight effect is active so
         // the text visibly heartbeats without changing fontSize (which would re-wrap text).
         double pulseRenderScale = 1.0;
+        // shakeRenderDyFrac: vertical offset as a fraction of frame height (negative = up).
+        // Applied as a sub-pixel Graphics2D translate so the bounce stays smooth even at
+        // small amplitudes (st.y is integer-percent and would otherwise quantize the
+        // motion into ~11 px steps on 1080p, looking jumpy instead of bouncy).
+        double shakeRenderDyFrac = 0.0;
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
                       int fontStyle, Color color, int x, int y, int bgOpacity,
