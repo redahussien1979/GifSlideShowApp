@@ -344,6 +344,23 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(p + "opacity", String.valueOf(t.opacity));
         }
 
+        // Per-text audio highlight settings (FX, HL color, glow size).
+        // Stored parallel to the slideText.<i>.* block above; index aligns with
+        // text-row index. First slide is the master, so these get broadcast to
+        // every slide on Load Preset via applyFormatting.
+        java.util.List<String>  audioHlEffectsList = source.getAudioHlEffectsList();
+        java.util.List<Color>   audioHlColorList   = source.getAudioHlColorList();
+        java.util.List<Integer> audioGlowSizeList  = source.getAudioGlowSizeList();
+        for (int i = 0; i < texts.size(); i++) {
+            String p = "slideText." + i + ".";
+            String  fx    = i < audioHlEffectsList.size() ? audioHlEffectsList.get(i) : DEFAULT_AUDIO_HL_EFFECTS;
+            Color   color = i < audioHlColorList.size()   ? audioHlColorList.get(i)   : DEFAULT_AUDIO_HL_COLOR;
+            Integer glow  = i < audioGlowSizeList.size()  ? audioGlowSizeList.get(i)  : DEFAULT_AUDIO_GLOW_SIZE;
+            props.setProperty(p + "audioHlEffects", fx != null ? fx : DEFAULT_AUDIO_HL_EFFECTS);
+            props.setProperty(p + "audioHlColor",   colorToHex(color != null ? color : DEFAULT_AUDIO_HL_COLOR));
+            props.setProperty(p + "audioGlowSize",  String.valueOf(glow != null && glow > 0 ? glow : DEFAULT_AUDIO_GLOW_SIZE));
+        }
+
         // Orientation
         props.setProperty("orientation", isPortrait() ? "Portrait" : "Landscape");
 
@@ -476,6 +493,22 @@ public class GifSlideShowApp extends JFrame {
             ));
         }
 
+        // Per-text audio highlight settings (parallel to slideTextFormats).
+        // Older preset files written before this feature won't have these keys —
+        // hexToColor / parseInt fall back to the static defaults so older presets
+        // still load and behave like the original single-effect "Glow" highlight.
+        List<String>  audioHlEffectsList = new ArrayList<>();
+        List<Color>   audioHlColorList   = new ArrayList<>();
+        List<Integer> audioGlowSizeList  = new ArrayList<>();
+        for (int i = 0; i < slideTextCount; i++) {
+            String p = "slideText." + i + ".";
+            audioHlEffectsList.add(props.getProperty(p + "audioHlEffects", DEFAULT_AUDIO_HL_EFFECTS));
+            audioHlColorList.add(hexToColor(props.getProperty(p + "audioHlColor",
+                    colorToHex(DEFAULT_AUDIO_HL_COLOR))));
+            audioGlowSizeList.add(Integer.parseInt(
+                    props.getProperty(p + "audioGlowSize", String.valueOf(DEFAULT_AUDIO_GLOW_SIZE))));
+        }
+
         // Orientation
         String orientation = props.getProperty("orientation", "Landscape");
         if ("Portrait".equals(orientation)) {
@@ -502,7 +535,7 @@ public class GifSlideShowApp extends JFrame {
                         textJustify, textWidthPct, highlightText, highlightColor,
                         textShiftX,
                         null, -1, 50, 25, 30, false, false,
-                        0.0, null, null, 7);
+                        0.0, audioHlColorList, audioHlEffectsList, audioGlowSizeList);
             }
         } finally {
             isSyncingFormat = false;
@@ -634,8 +667,9 @@ public class GifSlideShowApp extends JFrame {
                 false, 50, false, 50,
                 "Rectangular", "Blur", new Color(21, 32, 43), 50, 50, 20,
                 false, 100, "", new Color(255, 255, 0, 180), 0,
+
                 null, -1, 50, 25, 30, false, false,
-                0.0, null, null, 7);
+                0.0, null, null, null);
 
         slideRows.add(0, titleRow);
         rebuildSlidesPanel();
@@ -1774,9 +1808,10 @@ public class GifSlideShowApp extends JFrame {
         boolean voFill = source.isSlideVideoOverlayFill();
         boolean voBehind = source.isSlideVideoOverlayBehind();
         double audioGapSeconds = ((Number) source.audioGapSpinner.getValue()).doubleValue();
-        Color audioHlColor = source.getAudioHlColor();
-        String audioHlEffects = source.getAudioHlEffects();
-        int audioGlowSize = source.getAudioGlowSize();
+        // First slide is the master: broadcast its full per-text-row HL lists.
+        List<Color>   audioHlColorList   = source.getAudioHlColorList();
+        List<String>  audioHlEffectsList = source.getAudioHlEffectsList();
+        List<Integer> audioGlowSizeList  = source.getAudioGlowSizeList();
 
         isSyncingFormat = true;
         try {
@@ -1794,7 +1829,7 @@ public class GifSlideShowApp extends JFrame {
                         textJustify, textWidthPct, highlightText, hlColor,
                         textShiftX,
                         voFile, voDurationMs, voX, voY, voSize, voFill, voBehind,
-                        audioGapSeconds, audioHlColor, audioHlEffects, audioGlowSize);
+                        audioGapSeconds, audioHlColorList, audioHlEffectsList, audioGlowSizeList);
             }
         } finally {
             isSyncingFormat = false;
@@ -4934,7 +4969,8 @@ public class GifSlideShowApp extends JFrame {
                     row.getHighlightText(), row.getHighlightColor(),
                     row.getTextShiftX(),
                     row.getSlideAudioDurationsMsList(), row.getSlideAudioFilesList(),
-                    row.getAudioGapMs(), row.getAudioHlColor(), row.getAudioHlEffects(), row.getAudioGlowSize(),
+                    row.getAudioGapMs(),
+                    row.getAudioHlColorList(), row.getAudioHlEffectsList(), row.getAudioGlowSizeList(),
                     row.getSlideVideoOverlayFile(), row.getSlideVideoOverlayX(),
                     row.getSlideVideoOverlayY(), row.getSlideVideoOverlaySize(),
                     row.getSlideVideoOverlayDurationMs(),
@@ -5858,8 +5894,7 @@ public class GifSlideShowApp extends JFrame {
                                 if (af != null && af.exists() && adur > 0) validAudioCount++;
                             }
                             boolean hasMultiAudio = validAudioCount >= 2;
-                            boolean needsAnimatedFx = hasMultiAudio && s.audioHlEffects != null
-                                    && (s.audioHlEffects.contains("Pulse") || s.audioHlEffects.contains("Shake"));
+                            boolean needsAnimatedFx = hasMultiAudio && anyAudioHlAnimates(s.audioHlEffects);
 
                             if (hasMultiAudio) {
                                 // Render dwell frames honoring per-segment audio highlight.
@@ -5877,8 +5912,11 @@ public class GifSlideShowApp extends JFrame {
 
                                     if (needsAnimatedFx) {
                                         List<SlideTextData> hlTexts = applyActiveTextHighlight(
-                                                s.slideTexts, activeIdx, s.audioHlColor,
-                                                s.audioHlEffects, df, s.audioGlowSize);
+                                                s.slideTexts, activeIdx,
+                                                hlColorAt(s.audioHlColor, activeIdx),
+                                                hlEffectsAt(s.audioHlEffects, activeIdx),
+                                                df,
+                                                hlGlowSizeAt(s.audioGlowSize, activeIdx));
                                         BufferedImage frame = renderFrame(
                                                 s.image, s.text, s.fontName, s.fontSize,
                                                 s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -5903,8 +5941,11 @@ public class GifSlideShowApp extends JFrame {
                                             frame = dwellImg;
                                         } else {
                                             List<SlideTextData> hlTexts = applyActiveTextHighlight(
-                                                    s.slideTexts, activeIdx, s.audioHlColor,
-                                                    s.audioHlEffects, -1, s.audioGlowSize);
+                                                    s.slideTexts, activeIdx,
+                                                    hlColorAt(s.audioHlColor, activeIdx),
+                                                    hlEffectsAt(s.audioHlEffects, activeIdx),
+                                                    -1,
+                                                    hlGlowSizeAt(s.audioGlowSize, activeIdx));
                                             frame = renderFrame(
                                                     s.image, s.text, s.fontName, s.fontSize,
                                                     s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -5976,8 +6017,7 @@ public class GifSlideShowApp extends JFrame {
                         for (SlideData s : slides) {
                             boolean hasAnim = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxRaised > 0;
                             // Audio-highlight Pulse/Shake also need per-frame rendering.
-                            if (!hasAnim && s.audioHlEffects != null
-                                    && (s.audioHlEffects.contains("Pulse") || s.audioHlEffects.contains("Shake"))) {
+                            if (!hasAnim && anyAudioHlAnimates(s.audioHlEffects)) {
                                 hasAnim = true;
                             }
                             if (!hasAnim && s.slideTexts != null) {
@@ -6059,7 +6099,12 @@ public class GifSlideShowApp extends JFrame {
                                             segIdx++;
                                         }
 
-                                        List<SlideTextData> highlightedTexts = applyActiveTextHighlight(s.slideTexts, ai, s.audioHlColor, s.audioHlEffects, -1, s.audioGlowSize);
+                                        List<SlideTextData> highlightedTexts = applyActiveTextHighlight(
+                                                s.slideTexts, ai,
+                                                hlColorAt(s.audioHlColor, ai),
+                                                hlEffectsAt(s.audioHlEffects, ai),
+                                                -1,
+                                                hlGlowSizeAt(s.audioGlowSize, ai));
                                         BufferedImage frame = renderFrame(
                                                 s.image, s.text, s.fontName, s.fontSize,
                                                 s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -6214,8 +6259,7 @@ public class GifSlideShowApp extends JFrame {
                                 int slideFrames = Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
                                 boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxRaised > 0;
                                 // Audio-highlight Pulse/Shake animate per-frame too.
-                                boolean hasAudioHlAnim = s.audioHlEffects != null
-                                        && (s.audioHlEffects.contains("Pulse") || s.audioHlEffects.contains("Shake"));
+                                boolean hasAudioHlAnim = anyAudioHlAnimates(s.audioHlEffects);
                                 boolean hasAnimatedText = hasAudioHlAnim;
                                 if (!hasAnimatedText && s.slideTexts != null) {
                                     for (SlideTextData stx : s.slideTexts) {
@@ -6244,7 +6288,12 @@ public class GifSlideShowApp extends JFrame {
                                     for (int d = 0; d < slideFrames; d++) {
                                         long elapsedMs = (long)(d * 1000.0 / fps);
                                         int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
-                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(s.slideTexts, activeIdx, s.audioHlColor, s.audioHlEffects, d, s.audioGlowSize);
+                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(
+                                                s.slideTexts, activeIdx,
+                                                hlColorAt(s.audioHlColor, activeIdx),
+                                                hlEffectsAt(s.audioHlEffects, activeIdx),
+                                                d,
+                                                hlGlowSizeAt(s.audioGlowSize, activeIdx));
                                         BufferedImage frame = renderFrame(
                                                 s.image, s.text, s.fontName, s.fontSize,
                                                 s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -6303,7 +6352,12 @@ public class GifSlideShowApp extends JFrame {
                                         }
 
                                         int segFrameCount = Math.max(1, (int) Math.round(adur / 1000.0 * fps));
-                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(s.slideTexts, ai, s.audioHlColor, s.audioHlEffects, -1, s.audioGlowSize);
+                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(
+                                                s.slideTexts, ai,
+                                                hlColorAt(s.audioHlColor, ai),
+                                                hlEffectsAt(s.audioHlEffects, ai),
+                                                -1,
+                                                hlGlowSizeAt(s.audioGlowSize, ai));
                                         BufferedImage segFrame = renderFrame(
                                                 s.image, s.text, s.fontName, s.fontSize,
                                                 s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -7313,8 +7367,7 @@ public class GifSlideShowApp extends JFrame {
                         try {
                             boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxRaised > 0;
                             // Audio-highlight Pulse/Shake animate per-frame too.
-                            boolean hasAudioHlAnim = s.audioHlEffects != null
-                                    && (s.audioHlEffects.contains("Pulse") || s.audioHlEffects.contains("Shake"));
+                            boolean hasAudioHlAnim = anyAudioHlAnimates(s.audioHlEffects);
                             boolean hasAnimatedText = hasAudioHlAnim;
                             if (!hasAnimatedText && s.slideTexts != null) {
                                 for (SlideTextData stx : s.slideTexts) {
@@ -7380,7 +7433,12 @@ public class GifSlideShowApp extends JFrame {
                                             segIdx++;
                                         }
 
-                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(s.slideTexts, ai, s.audioHlColor, s.audioHlEffects, -1, s.audioGlowSize);
+                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(
+                                                s.slideTexts, ai,
+                                                hlColorAt(s.audioHlColor, ai),
+                                                hlEffectsAt(s.audioHlEffects, ai),
+                                                -1,
+                                                hlGlowSizeAt(s.audioGlowSize, ai));
                                         BufferedImage frame = renderFrame(
                                                 s.image, s.text, s.fontName, s.fontSize,
                                                 s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -7536,7 +7594,12 @@ public class GifSlideShowApp extends JFrame {
                                     for (int d = 0; d < slideFrames; d++) {
                                         long elapsedMs = (long)(d * 1000.0 / fps);
                                         int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
-                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(s.slideTexts, activeIdx, s.audioHlColor, s.audioHlEffects, d, s.audioGlowSize);
+                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(
+                                                s.slideTexts, activeIdx,
+                                                hlColorAt(s.audioHlColor, activeIdx),
+                                                hlEffectsAt(s.audioHlEffects, activeIdx),
+                                                d,
+                                                hlGlowSizeAt(s.audioGlowSize, activeIdx));
                                         BufferedImage frame = renderFrame(
                                                 s.image, s.text, s.fontName, s.fontSize,
                                                 s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -8322,6 +8385,39 @@ public class GifSlideShowApp extends JFrame {
         return validAudios.get(0);
     }
 
+    // ---- Per-text audio-highlight lookup helpers (with safe defaults) ----
+    // Audio highlight settings are stored as parallel lists on SlideData (one entry
+    // per text row). These helpers fall back to the project's traditional defaults
+    // when the active text index has no entry, the list is null/short, or the value
+    // is null — so older slides and brand-new text rows render predictably.
+    private static final String DEFAULT_AUDIO_HL_EFFECTS = "Glow";
+    private static final Color  DEFAULT_AUDIO_HL_COLOR   = new Color(255, 200, 50, 160);
+    private static final int    DEFAULT_AUDIO_GLOW_SIZE  = 7;
+
+    private static String hlEffectsAt(List<String> list, int idx) {
+        if (list == null || idx < 0 || idx >= list.size()) return DEFAULT_AUDIO_HL_EFFECTS;
+        String v = list.get(idx);
+        return v != null ? v : DEFAULT_AUDIO_HL_EFFECTS;
+    }
+    private static Color hlColorAt(List<Color> list, int idx) {
+        if (list == null || idx < 0 || idx >= list.size()) return DEFAULT_AUDIO_HL_COLOR;
+        Color v = list.get(idx);
+        return v != null ? v : DEFAULT_AUDIO_HL_COLOR;
+    }
+    private static int hlGlowSizeAt(List<Integer> list, int idx) {
+        if (list == null || idx < 0 || idx >= list.size()) return DEFAULT_AUDIO_GLOW_SIZE;
+        Integer v = list.get(idx);
+        return (v != null && v > 0) ? v : DEFAULT_AUDIO_GLOW_SIZE;
+    }
+    /** True iff any text row's effects contain Pulse or Shake (used to route the export path). */
+    private static boolean anyAudioHlAnimates(List<String> list) {
+        if (list == null) return false;
+        for (String fx : list) {
+            if (fx != null && (fx.contains("Pulse") || fx.contains("Shake"))) return true;
+        }
+        return false;
+    }
+
     /**
      * Create a modified copy of slideTexts with the active text (by index) fully highlighted.
      * Supports multiple combinable effects: Glow, Enlarge, Bold, Underline, Color, Shake, Pulse.
@@ -9008,9 +9104,11 @@ public class GifSlideShowApp extends JFrame {
         final List<File> audioFiles;
         final List<Integer> audioDurationsMs;
         final int audioGapMs;
-        final Color audioHlColor;
-        final String audioHlEffects;
-        final int audioGlowSize;
+        // Per-text-row audio highlight settings, parallel to audioFiles.
+        // Index N applies when the audio at audioFiles.get(N) is active.
+        final List<Color> audioHlColor;
+        final List<String> audioHlEffects;
+        final List<Integer> audioGlowSize;
         final int totalAudioDurationMs;
         final File videoOverlayFile;
         final int videoOverlayX;
@@ -9042,7 +9140,8 @@ public class GifSlideShowApp extends JFrame {
                   String highlightText, Color highlightColor,
                   int textShiftX,
                   List<Integer> audioDurationsMs, List<File> audioFiles,
-                  int audioGapMs, Color audioHlColor, String audioHlEffects, int audioGlowSize,
+                  int audioGapMs,
+                  List<Color> audioHlColor, List<String> audioHlEffects, List<Integer> audioGlowSize,
                   File videoOverlayFile, int videoOverlayX, int videoOverlayY,
                   int videoOverlaySize, int videoOverlayDurationMs,
                   boolean videoOverlayFill, boolean videoOverlayBehind,
@@ -9092,9 +9191,9 @@ public class GifSlideShowApp extends JFrame {
             this.audioFiles = audioFiles != null ? audioFiles : new java.util.ArrayList<>();
             this.audioDurationsMs = audioDurationsMs != null ? audioDurationsMs : new java.util.ArrayList<>();
             this.audioGapMs = audioGapMs;
-            this.audioHlColor = audioHlColor != null ? audioHlColor : new Color(255, 200, 50, 160);
-            this.audioHlEffects = audioHlEffects != null ? audioHlEffects : "Glow";
-            this.audioGlowSize = audioGlowSize > 0 ? audioGlowSize : 7;
+            this.audioHlColor = audioHlColor != null ? audioHlColor : new java.util.ArrayList<>();
+            this.audioHlEffects = audioHlEffects != null ? audioHlEffects : new java.util.ArrayList<>();
+            this.audioGlowSize = audioGlowSize != null ? audioGlowSize : new java.util.ArrayList<>();
             int totalMs = 0;
             int numValid = 0;
             for (int d : this.audioDurationsMs) { if (d > 0) { totalMs += d; numValid++; } }
@@ -9231,6 +9330,15 @@ public class GifSlideShowApp extends JFrame {
 
         private final java.util.Map<Integer, File> slideAudioFiles = new java.util.HashMap<>();
         private final java.util.Map<Integer, Integer> slideAudioDurationsMs = new java.util.HashMap<>();
+        // Per-text-row audio highlight settings (key = text-row index).
+        // Whatever the toolbar's FX toggles / HL color / Sz spinner show is the
+        // editable view of these maps for the currentSlideTextIndex; switching
+        // text rows reads from the map; mutating UI writes back to the map.
+        private final java.util.Map<Integer, String>  slideAudioHlEffectsMap = new java.util.HashMap<>();
+        private final java.util.Map<Integer, Color>   slideAudioHlColorMap   = new java.util.HashMap<>();
+        private final java.util.Map<Integer, Integer> slideAudioHlGlowSizeMap = new java.util.HashMap<>();
+        // Suppresses listener-driven write-back during programmatic UI repopulation.
+        private boolean isLoadingAudioHl = false;
         private final JButton audioBtn;
         private final JLabel audioFileLabel;
         private final JLabel audioDurationLabel;
@@ -9625,9 +9733,11 @@ public class GifSlideShowApp extends JFrame {
                 int newIndex = slideTextSelector.getSelectedIndex();
                 if (newIndex >= 0 && newIndex < slideTextItems.size()) {
                     saveCurrentSlideTextToItem();
+                    saveAudioHlForCurrentText();   // capture leaving text's HL state
                     currentSlideTextIndex = newIndex;
                     loadSlideTextFromItem(currentSlideTextIndex);
                     updateAudioUI();
+                    loadAudioHlForCurrentText();   // populate toolbar for new text
                 }
             });
 
@@ -9638,9 +9748,16 @@ public class GifSlideShowApp extends JFrame {
             addSlideTextBtn.setToolTipText("Add another slide text overlay");
             addSlideTextBtn.addActionListener(e -> {
                 saveCurrentSlideTextToItem();
+                saveAudioHlForCurrentText();
                 slideTextItems.add(new SlideTextData(false, "", loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI",
                         40, Font.PLAIN, Color.YELLOW, 50, 50, 0, Color.BLACK, false, 100, 0, SwingConstants.CENTER));
-                currentSlideTextIndex = slideTextItems.size() - 1;
+                int newIdx = slideTextItems.size() - 1;
+                // Seed new text row's HL from text-row 0 (the master), so adding a
+                // row mid-project inherits the existing project's highlight style.
+                slideAudioHlEffectsMap.put(newIdx, slideAudioHlEffectsMap.getOrDefault(0, DEFAULT_AUDIO_HL_EFFECTS));
+                slideAudioHlColorMap.put(newIdx, slideAudioHlColorMap.getOrDefault(0, DEFAULT_AUDIO_HL_COLOR));
+                slideAudioHlGlowSizeMap.put(newIdx, slideAudioHlGlowSizeMap.getOrDefault(0, DEFAULT_AUDIO_GLOW_SIZE));
+                currentSlideTextIndex = newIdx;
                 isLoadingSlideText = true;
                 try {
                     rebuildSlideTextSelector();
@@ -9649,6 +9766,7 @@ public class GifSlideShowApp extends JFrame {
                     isLoadingSlideText = false;
                 }
                 loadSlideTextFromItem(currentSlideTextIndex);
+                loadAudioHlForCurrentText();
                 onFormatChanged();
             });
 
@@ -9664,8 +9782,14 @@ public class GifSlideShowApp extends JFrame {
                 // Remove audio for the deleted text and shift higher indices down
                 slideAudioFiles.remove(removedIdx);
                 slideAudioDurationsMs.remove(removedIdx);
+                slideAudioHlEffectsMap.remove(removedIdx);
+                slideAudioHlColorMap.remove(removedIdx);
+                slideAudioHlGlowSizeMap.remove(removedIdx);
                 java.util.Map<Integer, File> shiftedFiles = new java.util.HashMap<>();
                 java.util.Map<Integer, Integer> shiftedDurations = new java.util.HashMap<>();
+                java.util.Map<Integer, String>  shiftedHlEffects = new java.util.HashMap<>();
+                java.util.Map<Integer, Color>   shiftedHlColor   = new java.util.HashMap<>();
+                java.util.Map<Integer, Integer> shiftedHlGlow    = new java.util.HashMap<>();
                 for (java.util.Map.Entry<Integer, File> entry : slideAudioFiles.entrySet()) {
                     int key = entry.getKey();
                     shiftedFiles.put(key > removedIdx ? key - 1 : key, entry.getValue());
@@ -9674,10 +9798,28 @@ public class GifSlideShowApp extends JFrame {
                     int key = entry.getKey();
                     shiftedDurations.put(key > removedIdx ? key - 1 : key, entry.getValue());
                 }
+                for (java.util.Map.Entry<Integer, String> entry : slideAudioHlEffectsMap.entrySet()) {
+                    int key = entry.getKey();
+                    shiftedHlEffects.put(key > removedIdx ? key - 1 : key, entry.getValue());
+                }
+                for (java.util.Map.Entry<Integer, Color> entry : slideAudioHlColorMap.entrySet()) {
+                    int key = entry.getKey();
+                    shiftedHlColor.put(key > removedIdx ? key - 1 : key, entry.getValue());
+                }
+                for (java.util.Map.Entry<Integer, Integer> entry : slideAudioHlGlowSizeMap.entrySet()) {
+                    int key = entry.getKey();
+                    shiftedHlGlow.put(key > removedIdx ? key - 1 : key, entry.getValue());
+                }
                 slideAudioFiles.clear();
                 slideAudioFiles.putAll(shiftedFiles);
                 slideAudioDurationsMs.clear();
                 slideAudioDurationsMs.putAll(shiftedDurations);
+                slideAudioHlEffectsMap.clear();
+                slideAudioHlEffectsMap.putAll(shiftedHlEffects);
+                slideAudioHlColorMap.clear();
+                slideAudioHlColorMap.putAll(shiftedHlColor);
+                slideAudioHlGlowSizeMap.clear();
+                slideAudioHlGlowSizeMap.putAll(shiftedHlGlow);
                 if (currentSlideTextIndex >= slideTextItems.size()) {
                     currentSlideTextIndex = slideTextItems.size() - 1;
                 }
@@ -9690,6 +9832,7 @@ public class GifSlideShowApp extends JFrame {
                 }
                 loadSlideTextFromItem(currentSlideTextIndex);
                 updateAudioUI();
+                loadAudioHlForCurrentText();
                 onFormatChanged();
             });
 
@@ -11489,8 +11632,10 @@ public class GifSlideShowApp extends JFrame {
                              int textShiftX,
                              File voFile, int voDurationMs, int voX, int voY, int voSize,
                              boolean voFill, boolean voBehind,
-                             double audioGapSeconds, Color audioHlColorVal, String audioHlEffectsVal,
-                             int audioGlowSizeVal) {
+                             double audioGapSeconds,
+                             List<Color> audioHlColorList,
+                             List<String> audioHlEffectsList,
+                             List<Integer> audioGlowSizeList) {
             fontCombo.setSelectedItem(fontName);
             sizeSpinner.setValue(fontSize);
             boldBtn.setSelected((fontStyle & Font.BOLD) != 0);
@@ -11569,26 +11714,12 @@ public class GifSlideShowApp extends JFrame {
 
             audioGapSpinner.setValue(audioGapSeconds);
 
-            // Sync audio highlight color and FX effects
-            if (audioHlColorVal != null) {
-                audioHlColor = audioHlColorVal;
-                audioHlColorBtn.setForeground(audioHlColor);
-            }
-            if (audioHlEffectsVal != null) {
-                Set<String> fxSet = new HashSet<>(Arrays.asList(audioHlEffectsVal.split(",")));
-                audioFxGlow.setSelected(fxSet.contains("Glow"));
-                audioFxEnlarge.setSelected(fxSet.contains("Enlarge"));
-                audioFxBold.setSelected(fxSet.contains("Bold"));
-                audioFxUnderline.setSelected(fxSet.contains("Underline"));
-                audioFxColor.setSelected(fxSet.contains("Color"));
-                audioFxShake.setSelected(fxSet.contains("Shake"));
-                audioFxPulse.setSelected(fxSet.contains("Pulse"));
-                audioFxNone.setSelected(fxSet.contains("None")
-                        || audioHlEffectsVal.isEmpty());
-            }
-            if (audioGlowSizeVal > 0) {
-                audioGlowSizeSp.setValue(audioGlowSizeVal);
-            }
+            // Broadcast master's per-text-row HL lists into this row's maps.
+            // For each of THIS row's text indices, take master's matching index;
+            // if master has fewer text rows, fall back to master[0] (or default).
+            applyAudioHlListsFromMaster(audioHlColorList, audioHlEffectsList, audioGlowSizeList);
+            // Repaint the toolbar from the (now updated) map for the visible text.
+            loadAudioHlForCurrentText();
 
             updateTextAreaStyle();
             schedulePreview();
@@ -11927,20 +12058,118 @@ public class GifSlideShowApp extends JFrame {
         }
 
         int getAudioGapMs() { return (int)(((Number) audioGapSpinner.getValue()).doubleValue() * 1000); }
-        Color getAudioHlColor() { return audioHlColor; }
-        int getAudioGlowSize() { return (int) audioGlowSizeSp.getValue(); }
-        String getAudioHlEffects() {
+
+        // ---------- Per-text audio highlight: storage helpers ----------
+
+        /** Read the current toolbar UI's effects toggles into a single comma-separated string. */
+        private String computeAudioHlEffectsString() {
             if (audioFxNone.isSelected()) return "None";
             StringBuilder sb = new StringBuilder();
-            if (audioFxGlow.isSelected()) sb.append("Glow,");
-            if (audioFxEnlarge.isSelected()) sb.append("Enlarge,");
-            if (audioFxBold.isSelected()) sb.append("Bold,");
+            if (audioFxGlow.isSelected())      sb.append("Glow,");
+            if (audioFxEnlarge.isSelected())   sb.append("Enlarge,");
+            if (audioFxBold.isSelected())      sb.append("Bold,");
             if (audioFxUnderline.isSelected()) sb.append("Underline,");
-            if (audioFxColor.isSelected()) sb.append("Color,");
-            if (audioFxShake.isSelected()) sb.append("Shake,");
-            if (audioFxPulse.isSelected()) sb.append("Pulse,");
+            if (audioFxColor.isSelected())     sb.append("Color,");
+            if (audioFxShake.isSelected())     sb.append("Shake,");
+            if (audioFxPulse.isSelected())     sb.append("Pulse,");
             if (sb.length() > 0) sb.setLength(sb.length() - 1);
             return sb.toString();
+        }
+
+        /** Capture current toolbar HL state into the maps for currentSlideTextIndex. */
+        private void saveAudioHlForCurrentText() {
+            if (isLoadingAudioHl) return;
+            int idx = currentSlideTextIndex;
+            if (idx < 0) return;
+            slideAudioHlEffectsMap.put(idx, computeAudioHlEffectsString());
+            slideAudioHlColorMap.put(idx, audioHlColor);
+            slideAudioHlGlowSizeMap.put(idx, (int) audioGlowSizeSp.getValue());
+        }
+
+        /** Populate the toolbar HL UI from the maps for currentSlideTextIndex. */
+        private void loadAudioHlForCurrentText() {
+            int idx = currentSlideTextIndex;
+            String effects = slideAudioHlEffectsMap.getOrDefault(idx, DEFAULT_AUDIO_HL_EFFECTS);
+            Color color   = slideAudioHlColorMap.getOrDefault(idx, DEFAULT_AUDIO_HL_COLOR);
+            int glow      = slideAudioHlGlowSizeMap.getOrDefault(idx, DEFAULT_AUDIO_GLOW_SIZE);
+            isLoadingAudioHl = true;
+            try {
+                Set<String> fxSet = new HashSet<>(Arrays.asList(effects.split(",")));
+                audioFxGlow.setSelected(fxSet.contains("Glow"));
+                audioFxEnlarge.setSelected(fxSet.contains("Enlarge"));
+                audioFxBold.setSelected(fxSet.contains("Bold"));
+                audioFxUnderline.setSelected(fxSet.contains("Underline"));
+                audioFxColor.setSelected(fxSet.contains("Color"));
+                audioFxShake.setSelected(fxSet.contains("Shake"));
+                audioFxPulse.setSelected(fxSet.contains("Pulse"));
+                audioFxNone.setSelected(fxSet.contains("None") || effects.isEmpty());
+
+                audioHlColor = color;
+                audioHlColorBtn.setForeground(audioHlColor);
+                audioGlowSizeSp.setValue(glow);
+            } finally {
+                isLoadingAudioHl = false;
+            }
+        }
+
+        /**
+         * Overwrite this row's per-text HL maps from the master slide's lists.
+         * For each of THIS row's text indices, take master[idx] when present,
+         * otherwise master[0], otherwise the static default. Preserves the
+         * "first slide is the master" semantic when broadcast to other slides.
+         */
+        private void applyAudioHlListsFromMaster(java.util.List<Color>   masterColors,
+                                                 java.util.List<String>  masterEffects,
+                                                 java.util.List<Integer> masterGlow) {
+            int n = slideTextItems.size();
+            slideAudioHlColorMap.clear();
+            slideAudioHlEffectsMap.clear();
+            slideAudioHlGlowSizeMap.clear();
+            for (int i = 0; i < n; i++) {
+                slideAudioHlColorMap.put(i, pickFromMaster(masterColors,  i, DEFAULT_AUDIO_HL_COLOR));
+                slideAudioHlEffectsMap.put(i, pickFromMaster(masterEffects, i, DEFAULT_AUDIO_HL_EFFECTS));
+                slideAudioHlGlowSizeMap.put(i, pickFromMaster(masterGlow,   i, DEFAULT_AUDIO_GLOW_SIZE));
+            }
+        }
+
+        private static <T> T pickFromMaster(java.util.List<T> list, int idx, T defaultVal) {
+            if (list == null || list.isEmpty()) return defaultVal;
+            if (idx >= 0 && idx < list.size()) {
+                T v = list.get(idx);
+                if (v != null) return v;
+            }
+            T v0 = list.get(0);
+            return v0 != null ? v0 : defaultVal;
+        }
+
+        // ---------- Parallel-list getters (used at SlideData construction time) ----------
+
+        java.util.List<String> getAudioHlEffectsList() {
+            saveAudioHlForCurrentText();
+            int n = slideTextItems.size();
+            java.util.List<String> out = new java.util.ArrayList<>(n);
+            for (int i = 0; i < n; i++) {
+                out.add(slideAudioHlEffectsMap.getOrDefault(i, DEFAULT_AUDIO_HL_EFFECTS));
+            }
+            return out;
+        }
+        java.util.List<Color> getAudioHlColorList() {
+            saveAudioHlForCurrentText();
+            int n = slideTextItems.size();
+            java.util.List<Color> out = new java.util.ArrayList<>(n);
+            for (int i = 0; i < n; i++) {
+                out.add(slideAudioHlColorMap.getOrDefault(i, DEFAULT_AUDIO_HL_COLOR));
+            }
+            return out;
+        }
+        java.util.List<Integer> getAudioGlowSizeList() {
+            saveAudioHlForCurrentText();
+            int n = slideTextItems.size();
+            java.util.List<Integer> out = new java.util.ArrayList<>(n);
+            for (int i = 0; i < n; i++) {
+                out.add(slideAudioHlGlowSizeMap.getOrDefault(i, DEFAULT_AUDIO_GLOW_SIZE));
+            }
+            return out;
         }
 
         File getSlideVideoOverlayFile() { return slideVideoOverlayFile; }
