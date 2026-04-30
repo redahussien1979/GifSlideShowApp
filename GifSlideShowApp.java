@@ -560,6 +560,26 @@ public class GifSlideShowApp extends JFrame {
         refreshPresetCombo();
     }
 
+    // Arabic script uses cursive shaping: each letter has different glyph forms
+    // (initial/medial/final/isolated) chosen by the shaper based on neighbors.
+    // Drawing per-character forces every glyph into its isolated form, breaking
+    // ligatures. Effects that iterate per char (Water Ripple, Shake) must
+    // fall back to a whole-line/word path when this returns true.
+    private static boolean containsArabic(String s) {
+        if (s == null) return false;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if ((c >= 0x0600 && c <= 0x06FF)
+                    || (c >= 0x0750 && c <= 0x077F)
+                    || (c >= 0x08A0 && c <= 0x08FF)
+                    || (c >= 0xFB50 && c <= 0xFDFF)
+                    || (c >= 0xFE70 && c <= 0xFEFF)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static String colorToHex(Color c) {
         if (c.getAlpha() == 255) {
             return String.format("#%02X%02X%02X", c.getRed(), c.getGreen(), c.getBlue());
@@ -4083,7 +4103,62 @@ public class GifSlideShowApp extends JFrame {
                             double amplitude = scaledStSize * 0.15 * intensity;
                             double freq = 2.0 * Math.PI / (scaledStSize * 3.0);
                             double phase = animFrameIndex * 0.2;
-                            if (justified) {
+                            if (containsArabic(visibleLine)) {
+                                // Arabic uses cursive shaping; per-char drawString breaks
+                                // ligatures. Rasterize the line once, then displace 1px-wide
+                                // vertical strips by the wave function. Connections survive
+                                // because the strips are sampled from already-shaped glyphs.
+                                int padX = (int) Math.ceil(amplitude * 0.3) + 4;
+                                int padY = (int) Math.ceil(amplitude) + 4;
+                                int stripH = stFm.getHeight() + padY * 2;
+                                if (justified) {
+                                    double dx = stBlockLeft;
+                                    for (String w : justifyWords) {
+                                        int wW = stFm.stringWidth(w);
+                                        BufferedImage wImg = new BufferedImage(wW + padX * 2, stripH, BufferedImage.TYPE_INT_ARGB);
+                                        Graphics2D wg = wImg.createGraphics();
+                                        wg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                                        wg.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                                        wg.setFont(stFont);
+                                        wg.setColor(stColor);
+                                        wg.drawString(w, padX, padY + stAscent);
+                                        wg.dispose();
+                                        int destX0 = (int) dx - padX;
+                                        int destY0 = lineY - stAscent - padY;
+                                        for (int col = 0; col < wImg.getWidth(); col++) {
+                                            int absX = destX0 + col;
+                                            int dyW = (int) Math.round(amplitude * Math.sin(freq * absX + phase));
+                                            int dxW = (int) Math.round(amplitude * 0.3 * Math.cos(freq * lineY + phase * 1.3));
+                                            g2.drawImage(wImg,
+                                                    absX + dxW, destY0 + dyW,
+                                                    absX + dxW + 1, destY0 + dyW + stripH,
+                                                    col, 0, col + 1, stripH, null);
+                                        }
+                                        dx += wW + justifyExtraSpace;
+                                    }
+                                } else {
+                                    int lW = stFm.stringWidth(visibleLine);
+                                    BufferedImage lImg = new BufferedImage(lW + padX * 2, stripH, BufferedImage.TYPE_INT_ARGB);
+                                    Graphics2D lg = lImg.createGraphics();
+                                    lg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                                    lg.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                                    lg.setFont(stFont);
+                                    lg.setColor(stColor);
+                                    lg.drawString(visibleLine, padX, padY + stAscent);
+                                    lg.dispose();
+                                    int destX0 = lineX - padX;
+                                    int destY0 = lineY - stAscent - padY;
+                                    for (int col = 0; col < lImg.getWidth(); col++) {
+                                        int absX = destX0 + col;
+                                        int dyW = (int) Math.round(amplitude * Math.sin(freq * absX + phase));
+                                        int dxW = (int) Math.round(amplitude * 0.3 * Math.cos(freq * lineY + phase * 1.3));
+                                        g2.drawImage(lImg,
+                                                absX + dxW, destY0 + dyW,
+                                                absX + dxW + 1, destY0 + dyW + stripH,
+                                                col, 0, col + 1, stripH, null);
+                                    }
+                                }
+                            } else if (justified) {
                                 double dx = stBlockLeft;
                                 for (String w : justifyWords) {
                                     for (int ci = 0; ci < w.length(); ci++) {
@@ -4260,7 +4335,23 @@ public class GifSlideShowApp extends JFrame {
                             // Per-character random shake/jitter effect
                             double shakeAmp = scaledStSize * 0.12 * intensity;
                             Random shakeRng = new Random(animFrameIndex * 7L);
-                            if (justified) {
+                            if (containsArabic(visibleLine)) {
+                                // Arabic uses cursive shaping; per-char drawString breaks
+                                // ligatures. Shake the line as a single shaped run, with
+                                // a small rotation to keep the motion lively.
+                                double sx = shakeAmp * (shakeRng.nextDouble() * 2 - 1);
+                                double sy = shakeAmp * (shakeRng.nextDouble() * 2 - 1);
+                                double rot = Math.toRadians(2.0 * intensity * (shakeRng.nextDouble() * 2 - 1));
+                                AffineTransform savedTx = g2.getTransform();
+                                int pivotX = (justified ? stBlockLeft + stMaxLineWidth / 2 : lineX + stFm.stringWidth(visibleLine) / 2);
+                                int pivotY = lineY - stAscent / 2;
+                                g2.translate(sx, sy);
+                                g2.rotate(rot, pivotX, pivotY);
+                                g2.setColor(stColor);
+                                if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
+                                else g2.drawString(visibleLine, lineX, lineY);
+                                g2.setTransform(savedTx);
+                            } else if (justified) {
                                 double dx = stBlockLeft;
                                 for (String w : justifyWords) {
                                     for (int ci = 0; ci < w.length(); ci++) {
