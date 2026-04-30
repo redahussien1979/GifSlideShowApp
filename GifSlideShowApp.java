@@ -6990,6 +6990,11 @@ public class GifSlideShowApp extends JFrame {
                         for (int i = 0; i < slides.size(); i++) {
                             SlideData s = slides.get(i);
                             if (s.sourceVideoFile != null && s.sourceVideoFile.exists()) {
+                                // Loop the input infinitely so a short uploaded clip fills
+                                // the audio-anchored slide duration. The existing
+                                // enable=between(tStart,tEnd) window and the audio atrim
+                                // cut the loop cleanly at the slide's end.
+                                ovCmd.add("-stream_loop"); ovCmd.add("-1");
                                 ovCmd.add("-i"); ovCmd.add(s.sourceVideoFile.getAbsolutePath());
                                 ovSlideIdx.add(i);
                                 ovInputIdx.add(ovInIdx);
@@ -8118,6 +8123,10 @@ public class GifSlideShowApp extends JFrame {
         java.util.List<String> cmd = new java.util.ArrayList<>();
         cmd.add("ffmpeg"); cmd.add("-y");
         cmd.add("-i"); cmd.add(preOverlay.getAbsolutePath());
+        // Loop the source video so a short uploaded clip fills the slide
+        // duration. -shortest below ends the output at the (audio-anchored)
+        // base length, so the loop is cut cleanly when the slide ends.
+        cmd.add("-stream_loop"); cmd.add("-1");
         cmd.add("-i"); cmd.add(sourceVideo.getAbsolutePath());
         if (hasDeco) {
             if (decorationIsSeq) {
