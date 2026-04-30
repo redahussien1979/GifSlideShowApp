@@ -5119,11 +5119,17 @@ public class GifSlideShowApp extends JFrame {
         if (s.videoOverlayDurationMs > 0 && s.videoOverlayDurationMs > dur) {
             dur = s.videoOverlayDurationMs;
         }
-        if (s.sourceVideoDurationMs > 0 && s.sourceVideoDurationMs > dur) {
-            dur = s.sourceVideoDurationMs;
-        }
         if (s.totalAudioDurationMs > 0 && s.totalAudioDurationMs > dur) {
             dur = s.totalAudioDurationMs;
+        }
+        // Source (full-frame uploaded) video extends the slide ONLY when there
+        // is no audio. With audio present the audio length anchors the slide:
+        // the source video (and its audio) are trimmed via the overlay's
+        // enable=between(...) window and an atrim on the mixed-in audio, so
+        // playback stops cleanly when the audio ends.
+        if (s.totalAudioDurationMs <= 0
+                && s.sourceVideoDurationMs > 0 && s.sourceVideoDurationMs > dur) {
+            dur = s.sourceVideoDurationMs;
         }
         return dur;
     }
@@ -7192,7 +7198,17 @@ public class GifSlideShowApp extends JFrame {
                                 long delayMs = Math.round(ovAudioDelay.get(j));
                                 String volPrefix = ovAudioIsSourceVideo.get(j)
                                         ? ("volume=" + sourceVideoVolume + ",") : "";
-                                aFilter.append("[").append(ii).append(":a]").append(volPrefix)
+                                // Source-video audio: trim to the slide's duration so it
+                                // can't leak into the next slide when the uploaded video
+                                // is longer than the slide's audio anchor.
+                                String trim = "";
+                                if (ovAudioIsSourceVideo.get(j)) {
+                                    int si = ovSlideIdx.get(j);
+                                    trim = String.format(java.util.Locale.US,
+                                            "atrim=duration=%.3f,asetpts=PTS-STARTPTS,",
+                                            slideDurSec[si]);
+                                }
+                                aFilter.append("[").append(ii).append(":a]").append(volPrefix).append(trim)
                                         .append("adelay=").append(delayMs).append("|").append(delayMs)
                                         .append("[oa").append(j).append("];");
                             }
@@ -7211,7 +7227,14 @@ public class GifSlideShowApp extends JFrame {
                                 long delayMs = Math.round(ovAudioDelay.get(j));
                                 String volPrefix = ovAudioIsSourceVideo.get(j)
                                         ? ("volume=" + sourceVideoVolume + ",") : "";
-                                aFilter.append("[").append(ii).append(":a]").append(volPrefix)
+                                String trim = "";
+                                if (ovAudioIsSourceVideo.get(j)) {
+                                    int si = ovSlideIdx.get(j);
+                                    trim = String.format(java.util.Locale.US,
+                                            "atrim=duration=%.3f,asetpts=PTS-STARTPTS,",
+                                            slideDurSec[si]);
+                                }
+                                aFilter.append("[").append(ii).append(":a]").append(volPrefix).append(trim)
                                         .append("adelay=").append(delayMs).append("|").append(delayMs)
                                         .append("[oa").append(j).append("];");
                             }
