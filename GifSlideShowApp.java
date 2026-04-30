@@ -4068,17 +4068,35 @@ public class GifSlideShowApp extends JFrame {
                             float strokeW = Math.max(1, (float) (scaledStSize * 0.08 * intensity));
                             g2.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
                             g2.setColor(new Color(0, 0, 0, (int) (220 * intensity)));
+                            // Font.createGlyphVector skips script shaping, so for Arabic the
+                            // stroke would trace isolated forms while drawString fills the
+                            // shaped run. TextLayout performs full bidi/shaping and yields
+                            // an outline that matches the rendered glyphs.
+                            boolean useShaped = containsArabic(visibleLine);
+                            java.awt.font.FontRenderContext frc = g2.getFontRenderContext();
                             if (justified) {
                                 double dx = stBlockLeft;
                                 for (String w : justifyWords) {
-                                    java.awt.font.GlyphVector gv = stFont.createGlyphVector(g2.getFontRenderContext(), w);
-                                    Shape shape = gv.getOutline((int) dx, lineY);
+                                    Shape shape;
+                                    if (useShaped) {
+                                        shape = new java.awt.font.TextLayout(w, stFont, frc)
+                                                .getOutline(AffineTransform.getTranslateInstance((int) dx, lineY));
+                                    } else {
+                                        java.awt.font.GlyphVector gv = stFont.createGlyphVector(frc, w);
+                                        shape = gv.getOutline((int) dx, lineY);
+                                    }
                                     g2.draw(shape);
                                     dx += stFm.stringWidth(w) + justifyExtraSpace;
                                 }
                             } else {
-                                java.awt.font.GlyphVector gv = stFont.createGlyphVector(g2.getFontRenderContext(), visibleLine);
-                                Shape shape = gv.getOutline(lineX, lineY);
+                                Shape shape;
+                                if (useShaped) {
+                                    shape = new java.awt.font.TextLayout(visibleLine, stFont, frc)
+                                            .getOutline(AffineTransform.getTranslateInstance(lineX, lineY));
+                                } else {
+                                    java.awt.font.GlyphVector gv = stFont.createGlyphVector(frc, visibleLine);
+                                    shape = gv.getOutline(lineX, lineY);
+                                }
                                 g2.draw(shape);
                             }
                             g2.setColor(stColor);
@@ -4265,7 +4283,28 @@ public class GifSlideShowApp extends JFrame {
                             break;
                         }
                         case "Rainbow": {
-                            if (justified) {
+                            if (containsArabic(visibleLine)) {
+                                // Arabic: paint the shaped line in one drawString through a
+                                // horizontal HSB gradient that scrolls with animFrameIndex.
+                                // Per-char drawString would force isolated glyph forms.
+                                int gx0 = justified ? stBlockLeft : lineX;
+                                int gx1 = gx0 + (justified ? stMaxLineWidth : Math.max(1, lineW));
+                                if (gx1 <= gx0) gx1 = gx0 + 1;
+                                int stops = 13;
+                                float[] frac = new float[stops];
+                                Color[] cols = new Color[stops];
+                                float scroll = (animFrameIndex * 3) / 360.0f;
+                                for (int s = 0; s < stops; s++) {
+                                    frac[s] = s / (float) (stops - 1);
+                                    float hue = ((frac[s] + scroll) % 1.0f + 1.0f) % 1.0f;
+                                    cols[s] = Color.getHSBColor(hue, 0.8f + 0.2f * (float) intensity, 1.0f);
+                                }
+                                Paint savedPaint = g2.getPaint();
+                                g2.setPaint(new LinearGradientPaint(gx0, lineY, gx1, lineY, frac, cols));
+                                if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
+                                else g2.drawString(visibleLine, lineX, lineY);
+                                g2.setPaint(savedPaint);
+                            } else if (justified) {
                                 double dx = stBlockLeft;
                                 int charIdx = 0;
                                 for (String w : justifyWords) {
