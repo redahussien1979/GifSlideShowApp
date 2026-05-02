@@ -6789,7 +6789,7 @@ public class GifSlideShowApp extends JFrame {
                             filterComplex.append("[a").append(ai).append("]");
                         }
                         filterComplex.append("amix=inputs=").append(audioInputIndices.size())
-                                .append(":duration=longest:dropout_transition=0[aout]");
+                                .append(":duration=longest:dropout_transition=0:normalize=0[aout]");
 
                         mergeCmd.add("-filter_complex");
                         mergeCmd.add(filterComplex.toString());
@@ -8504,7 +8504,7 @@ public class GifSlideShowApp extends JFrame {
                     fc.append("[a").append(ai).append("]");
                 }
                 fc.append("amix=inputs=").append(validAudios.size())
-                        .append(":duration=longest:dropout_transition=0[out]");
+                        .append(":duration=longest:dropout_transition=0:normalize=0[out]");
                 cmd.add("-filter_complex"); cmd.add(fc.toString());
                 cmd.add("-map"); cmd.add("[out]");
                 cmd.add("-c:a"); cmd.add("aac");
