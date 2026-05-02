@@ -2490,18 +2490,7 @@ public class GifSlideShowApp extends JFrame {
         }
 
         if (fxGrain > 0) {
-            int range = (int)(60 * fxGrain / 50.0);
-            int half = range / 2;
-            int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
-            Random grainRng = new Random(42L + animFrameIndex * 17L);
-            for (int i = 0; i < px.length; i++) {
-                int noise = grainRng.nextInt(Math.max(1, range)) - half;
-                int r = Math.max(0, Math.min(255, ((px[i] >> 16) & 0xFF) + noise));
-                int gv = Math.max(0, Math.min(255, ((px[i] >> 8) & 0xFF) + noise));
-                int b = Math.max(0, Math.min(255, (px[i] & 0xFF) + noise));
-                px[i] = (0xFF << 24) | (r << 16) | (gv << 8) | b;
-            }
-            frame.setRGB(0, 0, targetW, targetH, px, 0, targetW);
+            applyGrain(frame, fxGrain, animFrameIndex);
         }
 
         if (fxShake > 0) {
@@ -8310,6 +8299,75 @@ public class GifSlideShowApp extends JFrame {
         out.write(rgbBytes);
     }
 
+    // Monochromatic uniform grain: same noise added to R, G, B; alpha forced to 0xFF
+    // (matches the original behavior). Optimized via direct raster access, branchless
+    // clamp LUT, inline xorshift64 PRNG, and per-chunk parallelism. Output distribution
+    // is identical to the original; exact per-pixel noise values differ.
+    static void applyGrain(BufferedImage frame, int fxGrain, int animFrameIndex) {
+        int range = (int) (60 * fxGrain / 50.0);
+        if (range <= 1) return;
+        int half = range / 2;
+        int w = frame.getWidth();
+        int h = frame.getHeight();
+        int n = w * h;
+        long baseSeed = 42L + animFrameIndex * 17L;
+
+        int lutSize = 256 + range;
+        int[] clamp = new int[lutSize];
+        for (int i = 0; i < lutSize; i++) {
+            int v = i - half;
+            clamp[i] = v < 0 ? 0 : (v > 255 ? 255 : v);
+        }
+
+        int[] px;
+        boolean direct;
+        DataBuffer db = frame.getRaster().getDataBuffer();
+        if (db instanceof DataBufferInt) {
+            px = ((DataBufferInt) db).getData();
+            direct = true;
+        } else {
+            px = frame.getRGB(0, 0, w, h, null, 0, w);
+            direct = false;
+        }
+
+        int cores = Math.max(1, Runtime.getRuntime().availableProcessors());
+        int chunks = Math.min(cores, Math.max(1, n / 65536));
+        if (chunks <= 1) {
+            grainChunk(px, 0, n, range, clamp, baseSeed);
+        } else {
+            final int chunkSize = (n + chunks - 1) / chunks;
+            final int chunksF = chunks;
+            final int[] pxF = px;
+            final int rangeF = range;
+            final int[] clampF = clamp;
+            java.util.stream.IntStream.range(0, chunksF).parallel().forEach(c -> {
+                int start = c * chunkSize;
+                int end = Math.min(n, start + chunkSize);
+                long seed = baseSeed ^ ((long) (c + 1) * 0x9E3779B97F4A7C15L);
+                grainChunk(pxF, start, end, rangeF, clampF, seed);
+            });
+        }
+
+        if (!direct) {
+            frame.setRGB(0, 0, w, h, px, 0, w);
+        }
+    }
+
+    private static void grainChunk(int[] px, int start, int end, int range, int[] clamp, long seed) {
+        long s = (seed == 0L) ? 0x9E3779B97F4A7C15L : seed;
+        for (int i = start; i < end; i++) {
+            s ^= s << 13;
+            s ^= s >>> 7;
+            s ^= s << 17;
+            int rnd = ((int) s & 0x7FFFFFFF) % range;
+            int p = px[i];
+            int r = clamp[((p >> 16) & 0xFF) + rnd];
+            int g = clamp[((p >> 8)  & 0xFF) + rnd];
+            int b = clamp[(p & 0xFF) + rnd];
+            px[i] = 0xFF000000 | (r << 16) | (g << 8) | b;
+        }
+    }
+
     /**
      * Apply only the animated effects (water ripple, glitch, grain, shake) to a frame.
      * Used to avoid re-rendering the entire base image for every animation frame.
@@ -8373,18 +8431,7 @@ public class GifSlideShowApp extends JFrame {
         }
 
         if (fxGrain > 0) {
-            int range = (int)(60 * fxGrain / 50.0);
-            int half = range / 2;
-            int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
-            Random grainRng = new Random(42L + animFrameIndex * 17L);
-            for (int i = 0; i < px.length; i++) {
-                int noise = grainRng.nextInt(Math.max(1, range)) - half;
-                int r = Math.max(0, Math.min(255, ((px[i] >> 16) & 0xFF) + noise));
-                int gv = Math.max(0, Math.min(255, ((px[i] >> 8) & 0xFF) + noise));
-                int b = Math.max(0, Math.min(255, (px[i] & 0xFF) + noise));
-                px[i] = (0xFF << 24) | (r << 16) | (gv << 8) | b;
-            }
-            frame.setRGB(0, 0, targetW, targetH, px, 0, targetW);
+            applyGrain(frame, fxGrain, animFrameIndex);
         }
 
         if (fxShake > 0) {
