@@ -3949,6 +3949,11 @@ public class GifSlideShowApp extends JFrame {
                     g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
                     g2.setFont(stFont);
 
+                    // Effectively-final aliases for capture in lambdas used by some effect cases.
+                    final Font fxFont = stFont;
+                    final int fxLineY = lineY;
+                    final int fxAscent = stAscent;
+
                     switch (effect) {
                         case "Shadow": {
                             // Multi-layer soft drop shadow for professional look
@@ -4430,6 +4435,515 @@ public class GifSlideShowApp extends JFrame {
                                 g2.drawString(visibleLine, pOffX, pOffY);
                             }
                             g2.setFont(stFont);
+                            break;
+                        }
+                        case "Chalk": {
+                            // Rasterize each word, then apply per-pixel grain (alpha jitter)
+                            // to simulate chalk dust. Whole-word rasterization preserves Arabic
+                            // shaping/ligatures.
+                            final double grain = 0.35 + 0.5 * intensity;
+                            final long seedBase = (long) animFrameIndex * 1009L;
+                            java.util.function.BiConsumer<Integer, String> drawChalk = (xPos, word) -> {
+                                int wW = stFm.stringWidth(word);
+                                if (wW <= 0) return;
+                                int padX = 3;
+                                int padY = Math.max(2, (int) (scaledStSize * 0.05));
+                                int imgH = stFm.getHeight() + padY * 2;
+                                BufferedImage img = new BufferedImage(wW + padX * 2, imgH, BufferedImage.TYPE_INT_ARGB);
+                                Graphics2D ig = img.createGraphics();
+                                ig.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                                ig.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                                ig.setFont(fxFont);
+                                ig.setColor(stColor);
+                                ig.drawString(word, padX, padY + fxAscent);
+                                ig.dispose();
+                                int[] pix = img.getRGB(0, 0, img.getWidth(), img.getHeight(), null, 0, img.getWidth());
+                                Random rng = new Random(word.hashCode() * 2654435761L + seedBase);
+                                int rr = stColor.getRed(), gg = stColor.getGreen(), bb = stColor.getBlue();
+                                for (int p = 0; p < pix.length; p++) {
+                                    int a = (pix[p] >>> 24) & 0xFF;
+                                    if (a == 0) continue;
+                                    double mul = 1.0 - grain * rng.nextDouble();
+                                    int newA = Math.max(0, (int) (a * mul));
+                                    pix[p] = (newA << 24) | (pix[p] & 0x00FFFFFF);
+                                }
+                                int sprinkles = (int) (wW * 0.6 * intensity);
+                                for (int s = 0; s < sprinkles; s++) {
+                                    int sx = rng.nextInt(img.getWidth());
+                                    int sy = rng.nextInt(img.getHeight());
+                                    int idx = sy * img.getWidth() + sx;
+                                    int alpha = (pix[idx] >>> 24) & 0xFF;
+                                    if (alpha < 200) {
+                                        int dustA = 25 + rng.nextInt(70);
+                                        pix[idx] = (dustA << 24) | (rr << 16) | (gg << 8) | bb;
+                                    }
+                                }
+                                img.setRGB(0, 0, img.getWidth(), img.getHeight(), pix, 0, img.getWidth());
+                                g2.drawImage(img, xPos - padX, fxLineY - fxAscent - padY, null);
+                            };
+                            if (justified) {
+                                double dx = stBlockLeft;
+                                for (String w : justifyWords) {
+                                    drawChalk.accept((int) dx, w);
+                                    dx += stFm.stringWidth(w) + justifyExtraSpace;
+                                }
+                            } else {
+                                drawChalk.accept(lineX, visibleLine);
+                            }
+                            break;
+                        }
+                        case "Distressed": {
+                            // Rasterize, then punch random irregular holes to mimic eroded /
+                            // grunge-stamped ink. Hole density scales with intensity.
+                            final long seedBase = (long) animFrameIndex * 1597L;
+                            java.util.function.BiConsumer<Integer, String> drawDistressed = (xPos, word) -> {
+                                int wW = stFm.stringWidth(word);
+                                if (wW <= 0) return;
+                                int padX = 3;
+                                int padY = Math.max(2, (int) (scaledStSize * 0.05));
+                                int imgW = wW + padX * 2;
+                                int imgH = stFm.getHeight() + padY * 2;
+                                BufferedImage img = new BufferedImage(imgW, imgH, BufferedImage.TYPE_INT_ARGB);
+                                Graphics2D ig = img.createGraphics();
+                                ig.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                                ig.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                                ig.setFont(fxFont);
+                                ig.setColor(stColor);
+                                ig.drawString(word, padX, padY + fxAscent);
+                                ig.dispose();
+                                int[] pix = img.getRGB(0, 0, imgW, imgH, null, 0, imgW);
+                                Random rng = new Random(word.hashCode() * 1442695040888963407L + seedBase);
+                                int holes = (int) (12 + 80 * intensity * (wW / (double) Math.max(1, scaledStSize)));
+                                for (int h = 0; h < holes; h++) {
+                                    int hx = rng.nextInt(imgW);
+                                    int hy = rng.nextInt(imgH);
+                                    int hr = 1 + rng.nextInt(Math.max(2, (int) (scaledStSize * 0.06)));
+                                    int hr2 = hr * hr;
+                                    for (int dy = -hr; dy <= hr; dy++) {
+                                        int yy = hy + dy;
+                                        if (yy < 0 || yy >= imgH) continue;
+                                        for (int dx2 = -hr; dx2 <= hr; dx2++) {
+                                            int xx = hx + dx2;
+                                            if (xx < 0 || xx >= imgW) continue;
+                                            if (dx2 * dx2 + dy * dy <= hr2) {
+                                                pix[yy * imgW + xx] = 0;
+                                            }
+                                        }
+                                    }
+                                }
+                                // Fine grain on remaining pixels
+                                for (int p = 0; p < pix.length; p++) {
+                                    int a = (pix[p] >>> 24) & 0xFF;
+                                    if (a == 0) continue;
+                                    if (rng.nextDouble() < 0.15 * intensity) {
+                                        int newA = (int) (a * (0.4 + 0.4 * rng.nextDouble()));
+                                        pix[p] = (newA << 24) | (pix[p] & 0x00FFFFFF);
+                                    }
+                                }
+                                img.setRGB(0, 0, imgW, imgH, pix, 0, imgW);
+                                g2.drawImage(img, xPos - padX, fxLineY - fxAscent - padY, null);
+                            };
+                            if (justified) {
+                                double dx = stBlockLeft;
+                                for (String w : justifyWords) {
+                                    drawDistressed.accept((int) dx, w);
+                                    dx += stFm.stringWidth(w) + justifyExtraSpace;
+                                }
+                            } else {
+                                drawDistressed.accept(lineX, visibleLine);
+                            }
+                            break;
+                        }
+                        case "Gold Foil": {
+                            // Soft drop shadow + vertical metallic gradient fill (dark gold ->
+                            // bright -> dark gold) + thin dark outline. Operates on the shaped
+                            // outline via TextLayout so Arabic ligatures are preserved.
+                            boolean useShaped = containsArabic(visibleLine);
+                            java.awt.font.FontRenderContext frc = g2.getFontRenderContext();
+                            int shadowOff = Math.max(2, (int) (scaledStSize * 0.05 * intensity));
+                            int contrastBoost = (int) (40 * intensity);
+                            Color goldDark = new Color(Math.max(0, 120 - contrastBoost / 2), 70, 0);
+                            Color goldMid = new Color(Math.min(255, 230 + contrastBoost / 4), 200, 60);
+                            Color goldHi = new Color(255, 245, 180);
+                            float strokeW = Math.max(1f, (float) (scaledStSize * 0.025));
+                            java.util.function.BiConsumer<Integer, String> drawGold = (xPos, word) -> {
+                                Shape shape = useShaped
+                                        ? new java.awt.font.TextLayout(word, fxFont, frc)
+                                                .getOutline(AffineTransform.getTranslateInstance(xPos, fxLineY))
+                                        : fxFont.createGlyphVector(frc, word).getOutline(xPos, fxLineY);
+                                Rectangle b = shape.getBounds();
+                                if (b.width <= 0 || b.height <= 0) return;
+                                // Drop shadow
+                                Graphics2D sg = (Graphics2D) g2.create();
+                                sg.translate(shadowOff, shadowOff);
+                                sg.setColor(new Color(0, 0, 0, (int) (140 * intensity)));
+                                sg.fill(shape);
+                                sg.dispose();
+                                // Metallic vertical gradient
+                                float[] frac = { 0f, 0.25f, 0.5f, 0.6f, 0.85f, 1f };
+                                Color[] cols = { goldDark, goldMid, goldHi, goldMid, goldDark, new Color(80, 50, 0) };
+                                Paint saved = g2.getPaint();
+                                g2.setPaint(new LinearGradientPaint(
+                                        b.x, b.y, b.x, b.y + b.height, frac, cols));
+                                g2.fill(shape);
+                                g2.setPaint(saved);
+                                // Dark outline
+                                Stroke savedStroke = g2.getStroke();
+                                g2.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                g2.setColor(new Color(60, 35, 0, 220));
+                                g2.draw(shape);
+                                g2.setStroke(savedStroke);
+                            };
+                            if (justified) {
+                                double dx = stBlockLeft;
+                                for (String w : justifyWords) {
+                                    drawGold.accept((int) dx, w);
+                                    dx += stFm.stringWidth(w) + justifyExtraSpace;
+                                }
+                            } else {
+                                drawGold.accept(lineX, visibleLine);
+                            }
+                            break;
+                        }
+                        case "Chrome": {
+                            // Polished metal: blue-grey vertical gradient with a sharp white
+                            // highlight band, dark outline, soft shadow.
+                            boolean useShaped = containsArabic(visibleLine);
+                            java.awt.font.FontRenderContext frc = g2.getFontRenderContext();
+                            int shadowOff = Math.max(2, (int) (scaledStSize * 0.05 * intensity));
+                            float strokeW = Math.max(1f, (float) (scaledStSize * 0.025));
+                            float band = (float) (0.45 + 0.05 * Math.sin(animFrameIndex * 0.1));
+                            java.util.function.BiConsumer<Integer, String> drawChrome = (xPos, word) -> {
+                                Shape shape = useShaped
+                                        ? new java.awt.font.TextLayout(word, fxFont, frc)
+                                                .getOutline(AffineTransform.getTranslateInstance(xPos, fxLineY))
+                                        : fxFont.createGlyphVector(frc, word).getOutline(xPos, fxLineY);
+                                Rectangle b = shape.getBounds();
+                                if (b.width <= 0 || b.height <= 0) return;
+                                Graphics2D sg = (Graphics2D) g2.create();
+                                sg.translate(shadowOff, shadowOff);
+                                sg.setColor(new Color(0, 0, 0, (int) (140 * intensity)));
+                                sg.fill(shape);
+                                sg.dispose();
+                                float[] frac = {
+                                        0f,
+                                        Math.max(0.01f, band - 0.08f),
+                                        band,
+                                        Math.min(0.99f, band + 0.08f),
+                                        0.7f,
+                                        1f };
+                                Color[] cols = {
+                                        new Color(60, 75, 95),
+                                        new Color(170, 185, 205),
+                                        new Color(255, 255, 255),
+                                        new Color(140, 160, 185),
+                                        new Color(90, 105, 130),
+                                        new Color(40, 55, 80) };
+                                Paint saved = g2.getPaint();
+                                g2.setPaint(new LinearGradientPaint(
+                                        b.x, b.y, b.x, b.y + b.height, frac, cols));
+                                g2.fill(shape);
+                                g2.setPaint(saved);
+                                Stroke savedStroke = g2.getStroke();
+                                g2.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                g2.setColor(new Color(20, 30, 50, 220));
+                                g2.draw(shape);
+                                g2.setStroke(savedStroke);
+                            };
+                            if (justified) {
+                                double dx = stBlockLeft;
+                                for (String w : justifyWords) {
+                                    drawChrome.accept((int) dx, w);
+                                    dx += stFm.stringWidth(w) + justifyExtraSpace;
+                                }
+                            } else {
+                                drawChrome.accept(lineX, visibleLine);
+                            }
+                            break;
+                        }
+                        case "Marble": {
+                            // Rasterize text, then overlay layered sinusoidal noise inside the
+                            // glyph mask to produce marble veining. Pixel-mask approach is
+                            // Arabic-safe.
+                            final long seedBase = (long) animFrameIndex * 524287L;
+                            java.util.function.BiConsumer<Integer, String> drawMarble = (xPos, word) -> {
+                                int wW = stFm.stringWidth(word);
+                                if (wW <= 0) return;
+                                int padX = 3;
+                                int padY = Math.max(2, (int) (scaledStSize * 0.05));
+                                int imgW = wW + padX * 2;
+                                int imgH = stFm.getHeight() + padY * 2;
+                                BufferedImage img = new BufferedImage(imgW, imgH, BufferedImage.TYPE_INT_ARGB);
+                                Graphics2D ig = img.createGraphics();
+                                ig.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                                ig.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                                ig.setFont(fxFont);
+                                ig.setColor(stColor);
+                                ig.drawString(word, padX, padY + fxAscent);
+                                ig.dispose();
+                                int[] pix = img.getRGB(0, 0, imgW, imgH, null, 0, imgW);
+                                int baseR = stColor.getRed(), baseG = stColor.getGreen(), baseB = stColor.getBlue();
+                                Random rng = new Random(word.hashCode() * 6364136223846793005L + seedBase);
+                                double phase1 = rng.nextDouble() * Math.PI * 2;
+                                double phase2 = rng.nextDouble() * Math.PI * 2;
+                                double f1 = 0.04;
+                                double f2 = 0.11;
+                                double veinThresh = 0.92 - 0.15 * intensity;
+                                double tint = 0.5 * intensity;
+                                for (int y = 0; y < imgH; y++) {
+                                    for (int x = 0; x < imgW; x++) {
+                                        int idx = y * imgW + x;
+                                        int a = (pix[idx] >>> 24) & 0xFF;
+                                        if (a == 0) continue;
+                                        double n = 0.5 + 0.5 * Math.sin(x * f1 + y * f2 + phase1)
+                                                * Math.cos(x * f2 - y * f1 + phase2);
+                                        double mix = (1.0 - tint) + tint * n;
+                                        int rr = (int) (baseR * mix);
+                                        int gg = (int) (baseG * mix);
+                                        int bb = (int) (baseB * mix);
+                                        if (n > veinThresh) {
+                                            // Vein - lighten dramatically
+                                            rr = Math.min(255, rr + 80);
+                                            gg = Math.min(255, gg + 80);
+                                            bb = Math.min(255, bb + 80);
+                                        }
+                                        pix[idx] = (a << 24) | (clamp255(rr) << 16) | (clamp255(gg) << 8) | clamp255(bb);
+                                    }
+                                }
+                                img.setRGB(0, 0, imgW, imgH, pix, 0, imgW);
+                                g2.drawImage(img, xPos - padX, fxLineY - fxAscent - padY, null);
+                            };
+                            if (justified) {
+                                double dx = stBlockLeft;
+                                for (String w : justifyWords) {
+                                    drawMarble.accept((int) dx, w);
+                                    dx += stFm.stringWidth(w) + justifyExtraSpace;
+                                }
+                            } else {
+                                drawMarble.accept(lineX, visibleLine);
+                            }
+                            break;
+                        }
+                        case "Watercolor": {
+                            // Soft blurred color underlay + crisp top stroke. Multiple
+                            // expanded-font passes simulate paint bleed.
+                            int layers = 3 + (int) (4 * intensity);
+                            for (int wl = layers; wl >= 1; wl--) {
+                                float spread = wl * scaledStSize * 0.06f * (float) intensity;
+                                double t = (double) wl / layers;
+                                int alpha = (int) (50 * intensity * t);
+                                g2.setColor(new Color(stColor.getRed(), stColor.getGreen(), stColor.getBlue(),
+                                        Math.min(255, alpha)));
+                                Font wf = stFont.deriveFont((float) (scaledStSize + spread));
+                                g2.setFont(wf);
+                                FontMetrics wfm = g2.getFontMetrics();
+                                int offY = lineY - (wfm.getAscent() - stAscent) / 2;
+                                if (justified) {
+                                    double dx = stBlockLeft;
+                                    for (String w : justifyWords) {
+                                        int origW = stFm.stringWidth(w);
+                                        int offX = (int) dx - (wfm.stringWidth(w) - origW) / 2;
+                                        // Slight random offset per layer for bleed effect
+                                        int jitter = (int) (spread * 0.15);
+                                        g2.drawString(w, offX + ((wl % 2 == 0) ? jitter : -jitter), offY);
+                                        dx += origW + justifyExtraSpace;
+                                    }
+                                } else {
+                                    int wLineW = wfm.stringWidth(visibleLine);
+                                    int offX = lineX - (wLineW - lineW) / 2;
+                                    int jitter = (int) (spread * 0.15);
+                                    g2.drawString(visibleLine, offX + ((wl % 2 == 0) ? jitter : -jitter), offY);
+                                }
+                            }
+                            g2.setFont(stFont);
+                            // Crisp top stroke darker than fill for definition
+                            int dr = (int) (stColor.getRed() * 0.55);
+                            int dg = (int) (stColor.getGreen() * 0.55);
+                            int db = (int) (stColor.getBlue() * 0.55);
+                            g2.setColor(new Color(dr, dg, db));
+                            if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
+                            else g2.drawString(visibleLine, lineX, lineY);
+                            break;
+                        }
+                        case "Glitch": {
+                            // RGB channel split: draw text three times with horizontal offsets
+                            // in red / green / blue using additive (screen) blending.
+                            int off = Math.max(1, (int) (scaledStSize * 0.06 * intensity));
+                            // Slight per-frame jitter in offset to feel alive
+                            int jitterX = (int) (off * 0.3 * Math.sin(animFrameIndex * 0.7));
+                            int jitterY = (int) (off * 0.2 * Math.cos(animFrameIndex * 0.5));
+                            Composite savedComp = g2.getComposite();
+                            // Red channel - offset left
+                            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.85f));
+                            g2.setColor(new Color(255, 30, 60));
+                            if (justified) drawJustified(g2, justifyWords, stBlockLeft - off + jitterX, lineY + jitterY, justifyExtraSpace, stFm);
+                            else g2.drawString(visibleLine, lineX - off + jitterX, lineY + jitterY);
+                            // Blue channel - offset right
+                            g2.setColor(new Color(30, 180, 255));
+                            if (justified) drawJustified(g2, justifyWords, stBlockLeft + off - jitterX, lineY - jitterY, justifyExtraSpace, stFm);
+                            else g2.drawString(visibleLine, lineX + off - jitterX, lineY - jitterY);
+                            g2.setComposite(savedComp);
+                            // Center text in original color
+                            g2.setColor(stColor);
+                            if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
+                            else g2.drawString(visibleLine, lineX, lineY);
+                            break;
+                        }
+                        case "Long Shadow": {
+                            // Flat 45-degree shadow that extends from the text. Drawn as
+                            // many incrementally offset copies so the silhouette is solid.
+                            int len = Math.max(8, (int) (scaledStSize * 0.6 * intensity));
+                            int alpha = (int) (140 * intensity);
+                            g2.setColor(new Color(0, 0, 0, Math.min(255, alpha)));
+                            for (int s = len; s >= 1; s--) {
+                                if (justified) drawJustified(g2, justifyWords, stBlockLeft + s, lineY + s, justifyExtraSpace, stFm);
+                                else g2.drawString(visibleLine, lineX + s, lineY + s);
+                            }
+                            g2.setColor(stColor);
+                            if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
+                            else g2.drawString(visibleLine, lineX, lineY);
+                            break;
+                        }
+                        case "Spotlight": {
+                            // Radial gradient fill: bright at the spotlight center, darker
+                            // toward the edges. Center sweeps slowly with animFrameIndex.
+                            boolean useShaped = containsArabic(visibleLine);
+                            java.awt.font.FontRenderContext frc = g2.getFontRenderContext();
+                            int blockX = justified ? stBlockLeft : lineX;
+                            int blockW = justified ? stMaxLineWidth : Math.max(1, lineW);
+                            float sweep = (float) (0.5 + 0.4 * Math.sin(animFrameIndex * 0.06));
+                            float cx = blockX + blockW * sweep;
+                            float cy = lineY - stAscent / 2f;
+                            float radius = Math.max(blockW * 0.55f, scaledStSize * 1.2f);
+                            int br = stColor.getRed(), bg = stColor.getGreen(), bb = stColor.getBlue();
+                            Color hot = new Color(
+                                    Math.min(255, br + (int) (140 * intensity)),
+                                    Math.min(255, bg + (int) (140 * intensity)),
+                                    Math.min(255, bb + (int) (140 * intensity)));
+                            Color dim = new Color(
+                                    (int) (br * (1.0 - 0.7 * intensity)),
+                                    (int) (bg * (1.0 - 0.7 * intensity)),
+                                    (int) (bb * (1.0 - 0.7 * intensity)));
+                            Paint saved = g2.getPaint();
+                            g2.setPaint(new RadialGradientPaint(
+                                    cx, cy, radius,
+                                    new float[]{ 0f, 0.5f, 1f },
+                                    new Color[]{ hot, stColor, dim }));
+                            java.util.function.BiConsumer<Integer, String> drawSpot = (xPos, word) -> {
+                                Shape shape = useShaped
+                                        ? new java.awt.font.TextLayout(word, fxFont, frc)
+                                                .getOutline(AffineTransform.getTranslateInstance(xPos, fxLineY))
+                                        : fxFont.createGlyphVector(frc, word).getOutline(xPos, fxLineY);
+                                g2.fill(shape);
+                            };
+                            if (justified) {
+                                double dx = stBlockLeft;
+                                for (String w : justifyWords) {
+                                    drawSpot.accept((int) dx, w);
+                                    dx += stFm.stringWidth(w) + justifyExtraSpace;
+                                }
+                            } else {
+                                drawSpot.accept(lineX, visibleLine);
+                            }
+                            g2.setPaint(saved);
+                            break;
+                        }
+                        case "Sticker": {
+                            // Thick white outline (Instagram-style sticker) + soft drop shadow.
+                            boolean useShaped = containsArabic(visibleLine);
+                            java.awt.font.FontRenderContext frc = g2.getFontRenderContext();
+                            float strokeW = Math.max(2f, (float) (scaledStSize * 0.12 * (0.4 + 0.6 * intensity)));
+                            int shadowOff = Math.max(2, (int) (scaledStSize * 0.05 * intensity));
+                            java.util.function.BiConsumer<Integer, String> drawSticker = (xPos, word) -> {
+                                Shape shape = useShaped
+                                        ? new java.awt.font.TextLayout(word, fxFont, frc)
+                                                .getOutline(AffineTransform.getTranslateInstance(xPos, fxLineY))
+                                        : fxFont.createGlyphVector(frc, word).getOutline(xPos, fxLineY);
+                                // Drop shadow of the dilated outline
+                                Graphics2D sg = (Graphics2D) g2.create();
+                                sg.translate(shadowOff, shadowOff);
+                                sg.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                sg.setColor(new Color(0, 0, 0, (int) (130 * intensity)));
+                                sg.draw(shape);
+                                sg.setColor(new Color(0, 0, 0, (int) (130 * intensity)));
+                                sg.fill(shape);
+                                sg.dispose();
+                                // White sticker border (stroke is centered on path so it grows
+                                // the silhouette in both directions)
+                                Stroke savedStroke = g2.getStroke();
+                                g2.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                g2.setColor(Color.WHITE);
+                                g2.draw(shape);
+                                g2.setStroke(savedStroke);
+                                // Fill text in original color on top
+                                g2.setColor(stColor);
+                                g2.fill(shape);
+                            };
+                            if (justified) {
+                                double dx = stBlockLeft;
+                                for (String w : justifyWords) {
+                                    drawSticker.accept((int) dx, w);
+                                    dx += stFm.stringWidth(w) + justifyExtraSpace;
+                                }
+                            } else {
+                                drawSticker.accept(lineX, visibleLine);
+                            }
+                            break;
+                        }
+                        case "Inner Glow": {
+                            // Glow concentrated at the inside edges of glyphs: clip to the
+                            // text outline, then stroke the same outline progressively wider
+                            // and softer. Strokes outside the clip are discarded.
+                            boolean useShaped = containsArabic(visibleLine);
+                            java.awt.font.FontRenderContext frc = g2.getFontRenderContext();
+                            int layers = 4 + (int) (5 * intensity);
+                            int gr = Math.min(255, stColor.getRed() + 100);
+                            int gg = Math.min(255, stColor.getGreen() + 100);
+                            int gb = Math.min(255, stColor.getBlue() + 100);
+                            java.util.function.BiConsumer<Integer, String> drawInnerGlow = (xPos, word) -> {
+                                Shape shape = useShaped
+                                        ? new java.awt.font.TextLayout(word, fxFont, frc)
+                                                .getOutline(AffineTransform.getTranslateInstance(xPos, fxLineY))
+                                        : fxFont.createGlyphVector(frc, word).getOutline(xPos, fxLineY);
+                                // Base fill
+                                int br = (int) (stColor.getRed() * 0.5);
+                                int bgC = (int) (stColor.getGreen() * 0.5);
+                                int bb = (int) (stColor.getBlue() * 0.5);
+                                g2.setColor(new Color(br, bgC, bb));
+                                g2.fill(shape);
+                                // Clip to glyph interior, then stroke outward to fill it with
+                                // soft rim light
+                                Graphics2D cg = (Graphics2D) g2.create();
+                                cg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                                cg.clip(shape);
+                                for (int gl = layers; gl >= 1; gl--) {
+                                    float sw = gl * (float) (scaledStSize * 0.04 * intensity);
+                                    if (sw < 0.5f) continue;
+                                    double t = (double) gl / layers;
+                                    int alpha = (int) (90 * intensity * (1.0 - t));
+                                    cg.setStroke(new BasicStroke(sw, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                    cg.setColor(new Color(gr, gg, gb, Math.min(255, alpha)));
+                                    cg.draw(shape);
+                                }
+                                cg.dispose();
+                                // Crisp center fill clipped doesn't apply; just outline thinly
+                                // for definition
+                                Stroke savedStroke = g2.getStroke();
+                                g2.setStroke(new BasicStroke(Math.max(0.5f, (float) (scaledStSize * 0.012)),
+                                        BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                g2.setColor(new Color(gr, gg, gb, 200));
+                                g2.draw(shape);
+                                g2.setStroke(savedStroke);
+                            };
+                            if (justified) {
+                                double dx = stBlockLeft;
+                                for (String w : justifyWords) {
+                                    drawInnerGlow.accept((int) dx, w);
+                                    dx += stFm.stringWidth(w) + justifyExtraSpace;
+                                }
+                            } else {
+                                drawInnerGlow.accept(lineX, visibleLine);
+                            }
                             break;
                         }
                         default: { // "None" and "Typewriter" (typewriter just limits chars above)
@@ -4990,6 +5504,10 @@ public class GifSlideShowApp extends JFrame {
 
     private static int clamp(int val, int min, int max) {
         return Math.max(min, Math.min(max, val));
+    }
+
+    private static int clamp255(int v) {
+        return v < 0 ? 0 : (v > 255 ? 255 : v);
     }
 
     // ========== Text Wrapping ==========
@@ -8981,7 +9499,9 @@ public class GifSlideShowApp extends JFrame {
     static final String[] TEXT_EFFECTS = {
         "None", "Shadow", "Glow", "Neon", "Outline", "Emboss",
         "Water Ripple", "Fire", "Ice", "Rainbow", "Typewriter", "Stone Engraving",
-        "Shake", "Pulse"
+        "Shake", "Pulse",
+        "Chalk", "Distressed", "Gold Foil", "Chrome", "Marble", "Watercolor",
+        "Glitch", "Long Shadow", "Spotlight", "Sticker", "Inner Glow"
     };
 
     static final String[] HIGHLIGHT_STYLES = { "Regular", "Brush", "Brush2", "Pill", "Gradient", "Glow", "Box", "Circle", "Scribble", "Sketch", "Sketch Bold", "Ink", "Strikethrough", "Tag", "Speech Bubble", "Marker" };
