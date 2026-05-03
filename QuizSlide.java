@@ -1033,12 +1033,12 @@ public class QuizSlide {
 
         if ("AtSlideStart".equals(quiz.timerStartMode)) {
             // Mix mode: question + tick play together from t=0 with the
-            // question dominant (weight 1.0) and tick at 30% so the
-            // narration stays clearly audible. Ding plays at the tick's end.
-            // amix's `normalize=0` keeps the tick at 0.30 even after the
-            // question ends (without it, the remaining lone tick gets
-            // boosted back up to full volume which is exactly what we don't
-            // want).
+            // question dominant (weight 1.0) and tick BARELY audible
+            // (volume ~0.08, ~-22dB) so the narration is clearly heard
+            // and the ticks sit as a faint background pulse. Ding plays
+            // at the tick's end. amix's `normalize=0` keeps the tick at
+            // 0.08 even after the question ends (without it, the lone
+            // remaining tick gets boosted back up which we don't want).
             runFfmpeg(new String[] {
                     "ffmpeg", "-y",
                     "-i", quiz.questionAudioFile.getAbsolutePath(),
@@ -1046,7 +1046,7 @@ public class QuizSlide {
                     "-i", dingSrc.getAbsolutePath(),
                     "-filter_complex",
                     "[0:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=1.0[q];"
-                  + "[1:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=0.30[t];"
+                  + "[1:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=0.08[t];"
                   + "[q][t]amix=inputs=2:duration=longest:normalize=0[mix];"
                   + "[2:a]aformat=sample_rates=44100:channel_layouts=stereo[d];"
                   + "[mix][d]concat=n=2:v=0:a=1[out]",
