@@ -364,6 +364,31 @@ public class GifSlideShowApp extends JFrame {
         // Orientation
         props.setProperty("orientation", isPortrait() ? "Portrait" : "Landscape");
 
+        // Quiz timer shared/visual settings (per-slide fields like the
+        // "enabled" flag, correct option, and question audio file are NOT
+        // saved — those belong to the slide, not the preset).
+        QuizSlide qs = source.getQuiz();
+        if (qs != null) {
+            props.setProperty("quiz.timerStyle",         qs.timerStyle);
+            props.setProperty("quiz.timerXPct",          String.valueOf(qs.timerXPct));
+            props.setProperty("quiz.timerYPct",          String.valueOf(qs.timerYPct));
+            props.setProperty("quiz.timerSizePct",       String.valueOf(qs.timerSizePct));
+            props.setProperty("quiz.timerWidthPct",      String.valueOf(qs.timerWidthPct));
+            props.setProperty("quiz.timerColor",         colorToHex(qs.timerColor != null
+                    ? qs.timerColor : new Color(80, 200, 255)));
+            props.setProperty("quiz.timerLabel",         qs.timerLabel != null ? qs.timerLabel : "");
+            props.setProperty("quiz.timerSeconds",       String.valueOf(qs.timerSeconds));
+            props.setProperty("quiz.redThresholdSeconds", String.valueOf(qs.redThresholdSeconds));
+            props.setProperty("quiz.timerStartMode",     qs.timerStartMode != null
+                    ? qs.timerStartMode : "AfterQuestion");
+            props.setProperty("quiz.tickPreset",         qs.tickPreset != null ? qs.tickPreset : "Stock: Classic Clock");
+            props.setProperty("quiz.dingPreset",         qs.dingPreset != null ? qs.dingPreset : "Stock: Bell");
+            if (qs.customTickFile != null)
+                props.setProperty("quiz.customTickFile", qs.customTickFile.getAbsolutePath());
+            if (qs.customDingFile != null)
+                props.setProperty("quiz.customDingFile", qs.customDingFile.getAbsolutePath());
+        }
+
         File file = new File(PRESETS_DIR, name + ".preset");
         try (FileOutputStream fos = new FileOutputStream(file)) {
             props.store(fos, "GifSlideShowApp Preset: " + name);
@@ -517,6 +542,33 @@ public class GifSlideShowApp extends JFrame {
             orientationCombo.setSelectedItem("Landscape (1920×1080)");
         }
 
+        // Quiz timer shared/visual settings — read from preset (defaults
+        // mirror QuizSlide field defaults so older presets still load).
+        QuizSlide tmpl = new QuizSlide();
+        tmpl.timerStyle         = props.getProperty("quiz.timerStyle", tmpl.timerStyle);
+        tmpl.timerXPct          = Integer.parseInt(props.getProperty("quiz.timerXPct",
+                String.valueOf(tmpl.timerXPct)));
+        tmpl.timerYPct          = Integer.parseInt(props.getProperty("quiz.timerYPct",
+                String.valueOf(tmpl.timerYPct)));
+        tmpl.timerSizePct       = Integer.parseInt(props.getProperty("quiz.timerSizePct",
+                String.valueOf(tmpl.timerSizePct)));
+        tmpl.timerWidthPct      = Integer.parseInt(props.getProperty("quiz.timerWidthPct",
+                String.valueOf(tmpl.timerWidthPct)));
+        tmpl.timerColor         = hexToColor(props.getProperty("quiz.timerColor",
+                colorToHex(tmpl.timerColor)));
+        tmpl.timerLabel         = props.getProperty("quiz.timerLabel", "");
+        tmpl.timerSeconds       = Integer.parseInt(props.getProperty("quiz.timerSeconds",
+                String.valueOf(tmpl.timerSeconds)));
+        tmpl.redThresholdSeconds = Integer.parseInt(props.getProperty("quiz.redThresholdSeconds",
+                String.valueOf(tmpl.redThresholdSeconds)));
+        tmpl.timerStartMode     = props.getProperty("quiz.timerStartMode", tmpl.timerStartMode);
+        tmpl.tickPreset         = props.getProperty("quiz.tickPreset", tmpl.tickPreset);
+        tmpl.dingPreset         = props.getProperty("quiz.dingPreset", tmpl.dingPreset);
+        String ctp = props.getProperty("quiz.customTickFile");
+        if (ctp != null && !ctp.isEmpty()) tmpl.customTickFile = new File(ctp);
+        String cdp = props.getProperty("quiz.customDingFile");
+        if (cdp != null && !cdp.isEmpty()) tmpl.customDingFile = new File(cdp);
+
         // Apply to all non-title-grid slides
         isSyncingFormat = true;
         try {
@@ -536,6 +588,8 @@ public class GifSlideShowApp extends JFrame {
                         textShiftX,
                         null, -1, 50, 25, 30, false, false,
                         0.0, audioHlColorList, audioHlEffectsList, audioGlowSizeList);
+                row.getQuiz().copyVisualSettingsFrom(tmpl);
+                row.refreshQuizToolbarFromState();
             }
         } finally {
             isSyncingFormat = false;
@@ -1850,6 +1904,11 @@ public class GifSlideShowApp extends JFrame {
                         textShiftX,
                         voFile, voDurationMs, voX, voY, voSize, voFill, voBehind,
                         audioGapSeconds, audioHlColorList, audioHlEffectsList, audioGlowSizeList);
+                // Broadcast the master row's quiz visual / shared settings
+                // (everything except the per-slide enabled flag, correct
+                // answer index, and question/generated audio files).
+                row.getQuiz().copyVisualSettingsFrom(source.getQuiz());
+                row.refreshQuizToolbarFromState();
             }
         } finally {
             isSyncingFormat = false;
@@ -10136,6 +10195,13 @@ public class GifSlideShowApp extends JFrame {
         private final QuizSlide quiz = new QuizSlide();
         private final JButton quizBtn;
         private final JLabel quizStatusLabel;
+        // toolbar7c controls (promoted to fields so they can be refreshed
+        // when the first-slide-as-master sync / preset-load updates the
+        // underlying QuizSlide visual settings).
+        private JComboBox<String> quizStyleCombo;
+        private JSpinner quizXSp, quizYSp, quizSzSp, quizWSp;
+        private JButton  quizColorBtn;
+        private JTextField quizLabelField;
         // Audio highlight effect controls
         private final JSpinner audioGapSpinner;
         private final JButton audioHlColorBtn;
@@ -11737,7 +11803,7 @@ public class GifSlideShowApp extends JFrame {
             quizTimerLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
             quizTimerLbl.setForeground(new Color(190, 160, 240));
 
-            JComboBox<String> quizStyleCombo = new JComboBox<>(new String[] {
+            quizStyleCombo = new JComboBox<>(new String[] {
                     "Number Circle", "Progress Bar H", "Progress Bar V",
                     "Ring Arc", "Analog Clock"
             });
@@ -11751,7 +11817,7 @@ public class GifSlideShowApp extends JFrame {
             });
 
             JLabel xLbl = styledLabel("X%");
-            JSpinner quizXSp = new JSpinner(
+            quizXSp = new JSpinner(
                     new SpinnerNumberModel(quiz.timerXPct, 0, 100, 1));
             quizXSp.setPreferredSize(new Dimension(56, 24));
             quizXSp.setToolTipText("Horizontal position (% of frame width)");
@@ -11761,7 +11827,7 @@ public class GifSlideShowApp extends JFrame {
             });
 
             JLabel yLbl = styledLabel("Y%");
-            JSpinner quizYSp = new JSpinner(
+            quizYSp = new JSpinner(
                     new SpinnerNumberModel(quiz.timerYPct, 0, 100, 1));
             quizYSp.setPreferredSize(new Dimension(56, 24));
             quizYSp.setToolTipText("Vertical position (% of frame height)");
@@ -11771,7 +11837,7 @@ public class GifSlideShowApp extends JFrame {
             });
 
             JLabel szLbl = styledLabel("Size%");
-            JSpinner quizSzSp = new JSpinner(
+            quizSzSp = new JSpinner(
                     new SpinnerNumberModel(quiz.timerSizePct, 3, 60, 1));
             quizSzSp.setPreferredSize(new Dimension(56, 24));
             quizSzSp.setToolTipText("Diameter (Circle/Ring), font height (Numeric), or bar thickness");
@@ -11781,7 +11847,7 @@ public class GifSlideShowApp extends JFrame {
             });
 
             JLabel wLbl = styledLabel("Width%");
-            JSpinner quizWSp = new JSpinner(
+            quizWSp = new JSpinner(
                     new SpinnerNumberModel(quiz.timerWidthPct, 5, 100, 1));
             quizWSp.setPreferredSize(new Dimension(56, 24));
             quizWSp.setToolTipText("Bar length (% of frame). Used for Progress Bar styles only.");
@@ -11792,7 +11858,7 @@ public class GifSlideShowApp extends JFrame {
 
             // Color picker for the timer accent (ring/hand/digit color).
             JLabel colorLbl = styledLabel("Color");
-            JButton quizColorBtn = new JButton("■");
+            quizColorBtn = new JButton("■");
             quizColorBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
             quizColorBtn.setPreferredSize(new Dimension(28, 24));
             quizColorBtn.setForeground(quiz.timerColor);
@@ -11809,7 +11875,7 @@ public class GifSlideShowApp extends JFrame {
 
             // Optional label drawn alongside the digit (e.g. "Time:").
             JLabel labelLbl = styledLabel("Label");
-            JTextField quizLabelField = new JTextField(quiz.timerLabel != null
+            quizLabelField = new JTextField(quiz.timerLabel != null
                     ? quiz.timerLabel : "", 8);
             quizLabelField.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             quizLabelField.setPreferredSize(new Dimension(110, 24));
@@ -13217,6 +13283,29 @@ public class GifSlideShowApp extends JFrame {
         }
 
         QuizSlide getQuiz() { return quiz; }
+
+        /**
+         * Push the current QuizSlide visual fields back into the toolbar7c
+         * widgets without firing their listeners (sync uses isSyncingFormat
+         * to suppress format-change broadcasts).
+         */
+        void refreshQuizToolbarFromState() {
+            if (quizStyleCombo == null) return;  // not yet built
+            boolean prev = isSyncingFormat;
+            isSyncingFormat = true;
+            try {
+                quizStyleCombo.setSelectedItem(quiz.timerStyle);
+                quizXSp.setValue(quiz.timerXPct);
+                quizYSp.setValue(quiz.timerYPct);
+                quizSzSp.setValue(quiz.timerSizePct);
+                quizWSp.setValue(quiz.timerWidthPct);
+                if (quiz.timerColor != null) quizColorBtn.setForeground(quiz.timerColor);
+                quizLabelField.setText(quiz.timerLabel != null ? quiz.timerLabel : "");
+                updateQuizStatus();
+            } finally {
+                isSyncingFormat = prev;
+            }
+        }
 
         void setSlideAudio(File file, int durationMs) {
             setSlideAudio(0, file, durationMs);
