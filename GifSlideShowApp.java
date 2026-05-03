@@ -5613,6 +5613,10 @@ public class GifSlideShowApp extends JFrame {
                     row.getSlideVideoOverlayDurationMs(),
                     row.isSlideVideoOverlayFill(), row.isSlideVideoOverlayBehind(),
                     row.getSourceVideoFile(), row.getSourceVideoDurationMs()));
+            // Quiz settings: copy snapshot onto SlideData so the export pipeline
+            // can paint the countdown / reveal overlay per frame.
+            slides.get(slides.size() - 1).quiz = row.getQuiz() != null
+                    ? row.getQuiz().copy() : null;
         }
         if (slides.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Add at least one slide.", "No Slides", JOptionPane.WARNING_MESSAGE);
@@ -6537,9 +6541,10 @@ public class GifSlideShowApp extends JFrame {
                                 if (af != null && af.exists() && adur > 0) validAudioCount++;
                             }
                             boolean hasMultiAudio = validAudioCount >= 2;
-                            boolean needsAnimatedFx = hasMultiAudio && anyAudioHlAnimates(s.audioHlEffects);
+                            boolean needsAnimatedFx = (hasMultiAudio && anyAudioHlAnimates(s.audioHlEffects))
+                                    || isQuizSlide(s);
 
-                            if (hasMultiAudio) {
+                            if (hasMultiAudio || isQuizSlide(s)) {
                                 // Render dwell frames honoring per-segment audio highlight.
                                 // Pulse/Shake need animation → render every frame.
                                 // Other FX (Glow/Enlarge/Bold/Color/Underline/None) are
@@ -6575,6 +6580,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.overlayEnabled,
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, df,
                                                 s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
+                                        paintQuizOverlay(frame, s, elapsedMs);
                                         ImageIO.write(frame, "png", frameFile);
                                         lastWrittenName = frameName;
                                         lastActive = activeIdx;
@@ -6605,6 +6611,7 @@ public class GifSlideShowApp extends JFrame {
                                                     s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
                                                     s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
                                         }
+                                        paintQuizOverlay(frame, s, elapsedMs);
                                         ImageIO.write(frame, "png", frameFile);
                                         lastWrittenName = frameName;
                                         lastActive = activeIdx;
@@ -6900,6 +6907,37 @@ public class GifSlideShowApp extends JFrame {
                                 SlideData s = slides.get(i);
                                 int slideDur = computeSlideDuration(s, duration);
                                 int slideFrames = Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
+
+                                // Quiz slide: timer changes per frame and reveal flashes after t=0,
+                                // so render every frame and stamp the quiz overlay on top.
+                                if (isQuizSlide(s)) {
+                                    publish("Rendering slide " + (i + 1) + " (quiz, " + slideFrames + " frames)...");
+                                    for (int d = 0; d < slideFrames; d++) {
+                                        long elapsedMs = (long)(d * 1000.0 / fps);
+                                        BufferedImage frame = renderFrame(
+                                                s.image, s.text, s.fontName, s.fontSize,
+                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                s.slideNumberX, s.slideNumberY,
+                                                s.slideNumberSize, s.slideNumberColor,
+                                                s.slideTexts,
+                                                s.fxRoundCorners, s.fxCornerRadius,
+                                                s.fxVignette, s.fxSepia, s.fxGrain,
+                                                s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                                s.fxScanline, s.fxRaised,
+                                                s.overlayEnabled,
+                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
+                                        paintQuizOverlay(frame, s, elapsedMs);
+                                        writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
+                                        frameIndex++;
+                                    }
+                                    int pct = (int) ((i + 1.0) / slides.size() * 60);
+                                    SwingUtilities.invokeLater(() -> progressBar.setValue(30 + pct));
+                                    continue;
+                                }
+
                                 boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxRaised > 0;
                                 // Audio-highlight Pulse/Shake animate per-frame too.
                                 boolean hasAudioHlAnim = anyAudioHlAnimates(s.audioHlEffects);
@@ -8049,6 +8087,8 @@ public class GifSlideShowApp extends JFrame {
                                     }
                                 }
                             }
+                            // Quiz slides require per-frame rendering for the countdown timer.
+                            if (isQuizSlide(s)) hasAnimatedText = true;
 
                             if (!hasAnimatedFx && !hasAnimatedText) {
                                 // Static slide — use concat demuxer
@@ -8324,6 +8364,8 @@ public class GifSlideShowApp extends JFrame {
                                                 s.overlayEnabled,
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
                                                 s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
+                                        long elapsedMsQ = (long)(d * 1000.0 / fps);
+                                        paintQuizOverlay(frame, s, elapsedMsQ);
                                         writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
                                     }
                                 }
@@ -9145,6 +9187,17 @@ public class GifSlideShowApp extends JFrame {
         return false;
     }
 
+    /** True when the slide carries an enabled quiz (timer + reveal). */
+    private static boolean isQuizSlide(SlideData s) {
+        return s != null && s.quiz != null && s.quiz.enabled;
+    }
+
+    /** Paint the quiz countdown / reveal overlay onto a frame in place. No-op when not a quiz. */
+    private static void paintQuizOverlay(BufferedImage frame, SlideData s, long elapsedMs) {
+        if (frame == null || !isQuizSlide(s)) return;
+        QuizSlide.applyOverlay(frame, s.quiz, elapsedMs, s.slideTexts);
+    }
+
     /**
      * Create a modified copy of slideTexts with the active text (by index) fully highlighted.
      * Supports multiple combinable effects: Glow, Enlarge, Bold, Underline, Color, Shake, Pulse.
@@ -9849,6 +9902,9 @@ public class GifSlideShowApp extends JFrame {
         // Independent "this slide IS a video" source (separate from the overlay toolbar).
         final File sourceVideoFile;
         final int sourceVideoDurationMs;
+        // Quiz config snapshot (timer + reveal). Set externally after construction
+        // so we don't have to thread another arg through the giant ctor.
+        QuizSlide quiz;
 
         SlideData(BufferedImage image, String text, String fontName, int fontSize,
                   int fontStyle, Color fontColor, int alignment, boolean showPin, String displayMode,
@@ -10073,6 +10129,10 @@ public class GifSlideShowApp extends JFrame {
         private final JLabel audioDurationLabel;
         private final JButton audioClearBtn;
         private final JLabel audioLabel;
+        // Quiz feature (timer + reveal). See QuizSlide.java.
+        private final QuizSlide quiz = new QuizSlide();
+        private final JButton quizBtn;
+        private final JLabel quizStatusLabel;
         // Audio highlight effect controls
         private final JSpinner audioGapSpinner;
         private final JButton audioHlColorBtn;
@@ -11467,6 +11527,25 @@ public class GifSlideShowApp extends JFrame {
             toolbar7.add(audioFileLabel);
             toolbar7.add(audioDurationLabel);
             toolbar7.add(audioClearBtn);
+
+            // Quiz button (opens timer + reveal config dialog).
+            quizBtn = new JButton("🎯 Quiz…");
+            quizBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            quizBtn.setPreferredSize(new Dimension(95, 26));
+            quizBtn.setFocusPainted(false);
+            quizBtn.setBackground(new Color(140, 70, 170));
+            quizBtn.setForeground(Color.WHITE);
+            quizBtn.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(new Color(180, 110, 220), 1),
+                    BorderFactory.createEmptyBorder(2, 8, 2, 8)));
+            quizBtn.setToolTipText("Configure a timer + correct-answer reveal for this slide.");
+            quizBtn.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+            quizStatusLabel = new JLabel("(no quiz)");
+            quizStatusLabel.setFont(new Font("Segoe UI", Font.ITALIC, 11));
+            quizStatusLabel.setForeground(new Color(120, 125, 145));
+            quizBtn.addActionListener(e -> openQuizDialog());
+            toolbar7.add(quizBtn);
+            toolbar7.add(quizStatusLabel);
 
             // ===== Toolbar Row 7b: Audio Highlight Effects =====
             JPanel toolbar7b = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
@@ -12982,6 +13061,36 @@ public class GifSlideShowApp extends JFrame {
             slideAudioDurationsMs.remove(currentSlideTextIndex);
             updateAudioUI();
         }
+
+        // Quiz config dialog. On save, the dialog builds the combined audio
+        // (question + tick × N + ding) and we attach it as the slide's audio,
+        // which makes the slide auto-extend to fit through the existing pipeline.
+        private void openQuizDialog() {
+            int textCount = Math.max(slideTextItems.size(), 2);
+            QuizSlide.openConfigDialog(
+                    SwingUtilities.getWindowAncestor(panel),
+                    quiz,
+                    textCount,
+                    (combinedFile, durationMs) -> {
+                        if (combinedFile != null && durationMs > 0) {
+                            setSlideAudio(0, combinedFile, durationMs);
+                        }
+                    });
+            updateQuizStatus();
+        }
+
+        private void updateQuizStatus() {
+            if (quiz.enabled) {
+                quizStatusLabel.setText("✓ quiz on • " + quiz.timerSeconds
+                        + "s • correct=#" + quiz.correctOptionIndex);
+                quizStatusLabel.setForeground(new Color(140, 220, 160));
+            } else {
+                quizStatusLabel.setText("(no quiz)");
+                quizStatusLabel.setForeground(new Color(120, 125, 145));
+            }
+        }
+
+        QuizSlide getQuiz() { return quiz; }
 
         void setSlideAudio(File file, int durationMs) {
             setSlideAudio(0, file, durationMs);
