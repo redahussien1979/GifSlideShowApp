@@ -128,7 +128,9 @@ public class QuizSlide {
             long revealAt = qEndMs + timerMs;
 
             if (elapsedMs < qEndMs) {
-                // Question is still being read — no timer, no reveal.
+                // Question is being read — timer is visible but FROZEN at full
+                // seconds (no progress yet). Counting starts when the audio ends.
+                drawCountdown(g, w, h, quiz, quiz.timerSeconds, false, 0.0);
                 return;
             }
 
@@ -148,6 +150,29 @@ public class QuizSlide {
                 // Show "0" timer or a fully-filled bar briefly.
                 drawCountdown(g, w, h, quiz, 0, true, 1.0);
             }
+        } finally {
+            g.dispose();
+        }
+    }
+
+    /**
+     * Render-time-independent preview: draw the timer at its FULL value with
+     * a faint "PREVIEW" tag, so the user can tweak style/position/size in the
+     * editor and see the result without exporting. No-op when quiz disabled.
+     */
+    public static void applyPreviewOverlay(BufferedImage frame, QuizSlide quiz) {
+        if (quiz == null || !quiz.enabled || frame == null) return;
+        int w = frame.getWidth();
+        int h = frame.getHeight();
+        Graphics2D g = frame.createGraphics();
+        try {
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                    RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+                    RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            // Frozen at full seconds, no progress depletion — what the viewer
+            // sees the instant the question begins reading.
+            drawCountdown(g, w, h, quiz, quiz.timerSeconds, false, 0.0);
         } finally {
             g.dispose();
         }
