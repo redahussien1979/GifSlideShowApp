@@ -11739,7 +11739,7 @@ public class GifSlideShowApp extends JFrame {
 
             JComboBox<String> quizStyleCombo = new JComboBox<>(new String[] {
                     "Number Circle", "Progress Bar H", "Progress Bar V",
-                    "Ring Arc", "Numeric Only"
+                    "Ring Arc", "Analog Clock"
             });
             quizStyleCombo.setSelectedItem(quiz.timerStyle);
             quizStyleCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
@@ -11790,12 +11790,49 @@ public class GifSlideShowApp extends JFrame {
                 onFormatChanged();
             });
 
+            // Color picker for the timer accent (ring/hand/digit color).
+            JLabel colorLbl = styledLabel("Color");
+            JButton quizColorBtn = new JButton("■");
+            quizColorBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            quizColorBtn.setPreferredSize(new Dimension(28, 24));
+            quizColorBtn.setForeground(quiz.timerColor);
+            quizColorBtn.setToolTipText("Timer accent color (red overrides this in the last few seconds)");
+            quizColorBtn.addActionListener(e -> {
+                Color picked = JColorChooser.showDialog(panel,
+                        "Timer color", quiz.timerColor);
+                if (picked != null) {
+                    quiz.timerColor = picked;
+                    quizColorBtn.setForeground(picked);
+                    onFormatChanged();
+                }
+            });
+
+            // Optional label drawn alongside the digit (e.g. "Time:").
+            JLabel labelLbl = styledLabel("Label");
+            JTextField quizLabelField = new JTextField(quiz.timerLabel != null
+                    ? quiz.timerLabel : "", 8);
+            quizLabelField.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            quizLabelField.setPreferredSize(new Dimension(110, 24));
+            quizLabelField.setToolTipText("Optional text drawn above the timer (leave empty for none)");
+            quizLabelField.getDocument().addDocumentListener(
+                    new javax.swing.event.DocumentListener() {
+                        private void sync() {
+                            quiz.timerLabel = quizLabelField.getText();
+                            onFormatChanged();
+                        }
+                        @Override public void insertUpdate(javax.swing.event.DocumentEvent e) { sync(); }
+                        @Override public void removeUpdate(javax.swing.event.DocumentEvent e) { sync(); }
+                        @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { sync(); }
+                    });
+
             toolbar7c.add(quizTimerLbl);
             toolbar7c.add(quizStyleCombo);
             toolbar7c.add(xLbl); toolbar7c.add(quizXSp);
             toolbar7c.add(yLbl); toolbar7c.add(quizYSp);
             toolbar7c.add(szLbl); toolbar7c.add(quizSzSp);
             toolbar7c.add(wLbl); toolbar7c.add(quizWSp);
+            toolbar7c.add(colorLbl); toolbar7c.add(quizColorBtn);
+            toolbar7c.add(labelLbl); toolbar7c.add(quizLabelField);
 
             // ===== Toolbar Row 8: Per-Slide Video Overlay =====
             JPanel toolbar8 = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 3));
