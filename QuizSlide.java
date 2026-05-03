@@ -60,19 +60,30 @@ public class QuizSlide {
 
     // ---- Timer visual style (configured via the toolbar7c row) ----
     // Style: "Number Circle" (default), "Progress Bar H", "Progress Bar V",
-    //        "Ring Arc", "Numeric Only".
+    //        "Ring Arc", "Analog Clock".
     public String timerStyle = "Number Circle";
     // Anchor in % of frame size (0..100). Interpreted as the CENTER of the
-    // timer for Circle / Ring / Numeric, and as the TOP-LEFT for Progress Bars.
+    // timer for Circle / Ring / Clock, and as the TOP-LEFT for Progress Bars.
     public int timerXPct  = 92;
     public int timerYPct  = 12;
-    // "Size" = diameter (% of frame height) for Circle / Ring,
-    //          font height (% of frame height) for Numeric Only,
+    // "Size" = diameter (% of frame height) for Circle / Ring / Clock,
     //          bar thickness (% of frame height) for Progress Bar H/V.
     public int timerSizePct  = 14;
     // "Width" = bar length (% of frame width for horiz, % of frame height
-    //           for vert). Ignored for Circle / Ring / Numeric Only.
+    //           for vert). Ignored for Circle / Ring / Clock.
     public int timerWidthPct = 30;
+    // Accent color of the ring/arc/bar/hand (digit too). Switches to red for
+    // the last `redThresholdSeconds` regardless of this setting.
+    public Color timerColor = new Color(80, 200, 255);
+    // Optional label drawn above the digit (e.g., "Time:", "⏱ Remaining").
+    public String timerLabel = "";
+    // When does the countdown start?
+    //  "AfterQuestion" (default): timer is shown frozen during question audio;
+    //                             counting begins when question audio ends.
+    //  "AtSlideStart":            timer counts from t=0 alongside the question
+    //                             audio; tick sound is mixed UNDER the question
+    //                             so the narration stays clearly audible.
+    public String timerStartMode = "AfterQuestion";
 
     public QuizSlide copy() {
         QuizSlide c = new QuizSlide();
@@ -89,11 +100,14 @@ public class QuizSlide {
         c.generatedAudioFile = generatedAudioFile;
         c.generatedAudioDurationMs = generatedAudioDurationMs;
         c.questionEndMs = questionEndMs;
-        c.timerStyle    = timerStyle;
-        c.timerXPct     = timerXPct;
-        c.timerYPct     = timerYPct;
-        c.timerSizePct  = timerSizePct;
-        c.timerWidthPct = timerWidthPct;
+        c.timerStyle     = timerStyle;
+        c.timerXPct      = timerXPct;
+        c.timerYPct      = timerYPct;
+        c.timerSizePct   = timerSizePct;
+        c.timerWidthPct  = timerWidthPct;
+        c.timerColor     = timerColor;
+        c.timerLabel     = timerLabel;
+        c.timerStartMode = timerStartMode;
         return c;
     }
 
@@ -125,17 +139,21 @@ public class QuizSlide {
 
             long qEndMs   = Math.max(0, quiz.questionEndMs);
             long timerMs  = quiz.timerSeconds * 1000L;
-            long revealAt = qEndMs + timerMs;
+            // Counting starts at slide start when the user picks "AtSlideStart",
+            // otherwise after the question audio finishes.
+            boolean atSlideStart = "AtSlideStart".equals(quiz.timerStartMode);
+            long timerStart = atSlideStart ? 0L : qEndMs;
+            long revealAt   = timerStart + timerMs;
 
-            if (elapsedMs < qEndMs) {
-                // Question is being read — timer is visible but FROZEN at full
-                // seconds (no progress yet). Counting starts when the audio ends.
+            if (elapsedMs < timerStart) {
+                // Question is being read and start-mode is "AfterQuestion":
+                // timer is visible but FROZEN at full seconds (no progress yet).
                 drawCountdown(g, w, h, quiz, quiz.timerSeconds, false, 0.0);
                 return;
             }
 
             if (elapsedMs < revealAt) {
-                long timerElapsed = elapsedMs - qEndMs;
+                long timerElapsed = elapsedMs - timerStart;
                 long remainingMs  = Math.max(0, timerMs - timerElapsed);
                 int  remainingSec = (int) Math.ceil(remainingMs / 1000.0);
                 if (remainingSec < 1) remainingSec = 1;
@@ -181,7 +199,11 @@ public class QuizSlide {
     private static void drawCountdown(Graphics2D g, int w, int h, QuizSlide quiz,
                                       int remainingSec, boolean red,
                                       double progress) {
-        Color accent = red ? new Color(235, 70, 70) : new Color(80, 200, 255);
+        // User-chosen accent unless the urgent-red threshold has triggered;
+        // red wins so the urgency cue is preserved.
+        Color userColor = quiz.timerColor != null ? quiz.timerColor
+                : new Color(80, 200, 255);
+        Color accent = red ? new Color(235, 70, 70) : userColor;
         Color bg     = new Color(15, 18, 25, 220);
         Color textCol = red ? new Color(255, 235, 235) : Color.WHITE;
         String style = quiz.timerStyle != null ? quiz.timerStyle : "Number Circle";
@@ -194,16 +216,58 @@ public class QuizSlide {
                 drawProgressBar(g, w, h, quiz, remainingSec, accent, bg, textCol, red, progress, false);
                 break;
             case "Ring Arc":
-                drawRingArc(g, w, h, quiz, remainingSec, accent, bg, textCol, red, progress);
+                drawRingArc(g, w, h, quiz, remainingSec, accent, textCol, red, progress);
                 break;
-            case "Numeric Only":
-                drawNumericOnly(g, w, h, quiz, remainingSec, textCol, red);
+            case "Analog Clock":
+                drawAnalogClock(g, w, h, quiz, remainingSec, accent, bg, textCol, red, progress);
                 break;
+            case "Numeric Only":   // legacy alias — fall through to Analog Clock
             case "Number Circle":
             default:
-                drawNumberCircle(g, w, h, quiz, remainingSec, accent, bg, textCol, red);
+                if ("Numeric Only".equals(style)) {
+                    drawAnalogClock(g, w, h, quiz, remainingSec, accent, bg, textCol, red, progress);
+                } else {
+                    drawNumberCircle(g, w, h, quiz, remainingSec, accent, bg, textCol, red);
+                }
                 break;
         }
+        drawTimerLabel(g, w, h, quiz, accent);
+    }
+
+    /** Draws the user-supplied label string above (or beside) the timer shape. */
+    private static void drawTimerLabel(Graphics2D g, int w, int h, QuizSlide quiz,
+                                       Color color) {
+        if (quiz.timerLabel == null || quiz.timerLabel.isEmpty()) return;
+        boolean horizontalBar = "Progress Bar H".equals(quiz.timerStyle);
+        int cx = (int) (w * quiz.timerXPct / 100.0);
+        int cy = (int) (h * quiz.timerYPct / 100.0);
+        int diameter = Math.max(40, (int) (h * quiz.timerSizePct / 100.0));
+        int fontPx = Math.max(12, diameter / 4);
+        Font f = new Font("Segoe UI", Font.BOLD, fontPx);
+        g.setFont(f);
+        FontMetrics fm = g.getFontMetrics();
+        int tw = fm.stringWidth(quiz.timerLabel);
+        int tx, ty;
+        if (horizontalBar) {
+            // Bar's anchor (cx,cy) is the top-left; label sits just above.
+            tx = cx;
+            ty = cy - 6;
+        } else if ("Progress Bar V".equals(quiz.timerStyle)) {
+            tx = cx;
+            ty = cy - 6;
+        } else {
+            // Circle / Ring / Clock: label centered above the shape.
+            tx = cx - tw / 2;
+            ty = cy - diameter / 2 - 6;
+        }
+        // Subtle shadow for contrast on bright slides.
+        Composite oc = g.getComposite();
+        g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.6f));
+        g.setColor(Color.BLACK);
+        g.drawString(quiz.timerLabel, tx + 2, ty + 2);
+        g.setComposite(oc);
+        g.setColor(color);
+        g.drawString(quiz.timerLabel, tx, ty);
     }
 
     /** Filled disc with a ring border and the digit centered. */
@@ -230,26 +294,28 @@ public class QuizSlide {
         drawDigit(g, cx, cy, diameter, remainingSec, textCol, red);
     }
 
-    /** Disc with a sweeping arc that depletes as the timer ticks down. */
+    /**
+     * Hollow ring (no fill behind it) with a depleting sweep arc and the
+     * digit centered in the open middle. Visually distinct from Number
+     * Circle which is a solid filled disc.
+     */
     private static void drawRingArc(Graphics2D g, int w, int h, QuizSlide quiz,
-                                    int remainingSec, Color accent, Color bg,
+                                    int remainingSec, Color accent,
                                     Color textCol, boolean red, double progress) {
         int diameter = Math.max(40, (int) (h * quiz.timerSizePct / 100.0));
         int cx = (int) (w * quiz.timerXPct / 100.0);
         int cy = (int) (h * quiz.timerYPct / 100.0);
 
-        g.setColor(bg);
-        g.fillOval(cx - diameter / 2, cy - diameter / 2, diameter, diameter);
-
-        // Faint full circle behind the arc (track).
         Stroke s0 = g.getStroke();
-        float ringWidth = Math.max(4, diameter / 12f);
-        g.setStroke(new BasicStroke(ringWidth, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-        g.setColor(new Color(255, 255, 255, 40));
+        float ringWidth = Math.max(5, diameter / 9f);
         int r = diameter - (int) ringWidth;
+
+        // Faint full track ring (no filled disc).
+        g.setStroke(new BasicStroke(ringWidth, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.setColor(new Color(255, 255, 255, 70));
         g.drawOval(cx - r / 2, cy - r / 2, r, r);
 
-        // Active arc — starts at 12 o'clock, sweeps clockwise, depletes as time runs out.
+        // Depleting arc starting at 12 o'clock, sweeping clockwise.
         g.setColor(accent);
         int sweep = (int) Math.round((1.0 - progress) * 360.0);
         g.draw(new Arc2D.Double(cx - r / 2.0, cy - r / 2.0, r, r,
@@ -259,7 +325,78 @@ public class QuizSlide {
         drawDigit(g, cx, cy, diameter, remainingSec, textCol, red);
     }
 
-    /** Just the number (no shape). */
+    /**
+     * Analog wall-clock face with hour markers, a fixed hour/minute hand and
+     * a sweeping second hand that completes one full revolution over the
+     * timer duration. Used to be "Numeric Only" which wasn't useful.
+     */
+    private static void drawAnalogClock(Graphics2D g, int w, int h, QuizSlide quiz,
+                                        int remainingSec, Color accent, Color bg,
+                                        Color textCol, boolean red, double progress) {
+        int diameter = Math.max(60, (int) (h * quiz.timerSizePct / 100.0));
+        int cx = (int) (w * quiz.timerXPct / 100.0);
+        int cy = (int) (h * quiz.timerYPct / 100.0);
+        int radius = diameter / 2;
+
+        Stroke s0 = g.getStroke();
+
+        // Subtle drop shadow.
+        Composite oc = g.getComposite();
+        g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.45f));
+        g.setColor(Color.BLACK);
+        g.fillOval(cx - radius + 4, cy - radius + 4, diameter, diameter);
+        g.setComposite(oc);
+
+        // Face.
+        g.setColor(bg);
+        g.fillOval(cx - radius, cy - radius, diameter, diameter);
+
+        // Outer rim.
+        g.setStroke(new BasicStroke(Math.max(3, diameter / 22f)));
+        g.setColor(accent);
+        g.drawOval(cx - radius + 1, cy - radius + 1, diameter - 2, diameter - 2);
+
+        // Hour ticks (12) + minor minute ticks (every 5°).
+        for (int i = 0; i < 60; i++) {
+            double ang = Math.toRadians(i * 6 - 90);
+            boolean major = (i % 5 == 0);
+            int tickInner = radius - (major ? diameter / 9 : diameter / 18);
+            int tickOuter = radius - 4;
+            int x1 = cx + (int) (tickInner * Math.cos(ang));
+            int y1 = cy + (int) (tickInner * Math.sin(ang));
+            int x2 = cx + (int) (tickOuter * Math.cos(ang));
+            int y2 = cy + (int) (tickOuter * Math.sin(ang));
+            g.setStroke(new BasicStroke(major ? Math.max(2, diameter / 50f)
+                                              : Math.max(1, diameter / 90f)));
+            g.setColor(major ? Color.WHITE : new Color(255, 255, 255, 110));
+            g.drawLine(x1, y1, x2, y2);
+        }
+
+        // Sweeping "second" hand: one full clockwise revolution across the
+        // timer duration. Starts at 12 (top) and ends back at 12.
+        double sweepAng = Math.toRadians(progress * 360.0 - 90.0);
+        int handLen = radius - diameter / 8;
+        int hx = cx + (int) (handLen * Math.cos(sweepAng));
+        int hy = cy + (int) (handLen * Math.sin(sweepAng));
+        g.setStroke(new BasicStroke(Math.max(3, diameter / 24f),
+                BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.setColor(accent);
+        g.drawLine(cx, cy, hx, hy);
+
+        // Centre stud.
+        int stud = Math.max(4, diameter / 22);
+        g.setColor(accent);
+        g.fillOval(cx - stud / 2, cy - stud / 2, stud, stud);
+        g.setColor(Color.WHITE);
+        g.fillOval(cx - stud / 4, cy - stud / 4, stud / 2, stud / 2);
+
+        g.setStroke(s0);
+
+        // Digit, smaller and pushed up a bit so it doesn't fight the hand.
+        drawDigit(g, cx, cy + radius / 4, diameter / 2, remainingSec, textCol, red);
+    }
+
+    /** (Legacy hook — no longer used; kept so old presets don't NPE.) */
     private static void drawNumericOnly(Graphics2D g, int w, int h, QuizSlide quiz,
                                         int remainingSec, Color textCol, boolean red) {
         int fontPx = Math.max(28, (int) (h * quiz.timerSizePct / 100.0));
@@ -537,6 +674,27 @@ public class QuizSlide {
         gc.gridwidth = 1;
         row++;
 
+        // Start mode.
+        gc.gridx = 0; gc.gridy = row;
+        form.add(new JLabel("Timer starts:"), gc);
+        JRadioButton afterQRadio = new JRadioButton(
+                "After question audio finishes",
+                "AfterQuestion".equals(quiz.timerStartMode));
+        JRadioButton atStartRadio = new JRadioButton(
+                "At slide start (ticks under question, narration louder)",
+                "AtSlideStart".equals(quiz.timerStartMode));
+        ButtonGroup startGroup = new ButtonGroup();
+        startGroup.add(afterQRadio);
+        startGroup.add(atStartRadio);
+        JPanel startPanel = new JPanel(new GridLayout(2, 1));
+        startPanel.setOpaque(false);
+        startPanel.add(afterQRadio);
+        startPanel.add(atStartRadio);
+        gc.gridx = 1; gc.gridwidth = 2;
+        form.add(startPanel, gc);
+        gc.gridwidth = 1;
+        row++;
+
         // Question audio.
         gc.gridx = 0; gc.gridy = row;
         form.add(new JLabel("Question audio (required):"), gc);
@@ -636,6 +794,8 @@ public class QuizSlide {
             quiz.correctOptionIndex  = (Integer) correctCombo.getSelectedItem();
             quiz.timerSeconds        = (Integer) timerSpinner.getValue();
             quiz.redThresholdSeconds = (Integer) redSpinner.getValue();
+            quiz.timerStartMode      = atStartRadio.isSelected()
+                    ? "AtSlideStart" : "AfterQuestion";
 
             if (quiz.enabled) {
                 if (quiz.questionAudioFile == null
@@ -868,23 +1028,49 @@ public class QuizSlide {
                 tickLoop.getAbsolutePath()
         });
 
-        // Step 2: concat question + tick-loop + ding into the final WAV.
         File out = File.createTempFile("quizslide-combined-", ".wav");
         out.deleteOnExit();
-        runFfmpeg(new String[] {
-                "ffmpeg", "-y",
-                "-i", quiz.questionAudioFile.getAbsolutePath(),
-                "-i", tickLoop.getAbsolutePath(),
-                "-i", dingSrc.getAbsolutePath(),
-                "-filter_complex",
-                "[0:a]aformat=sample_rates=44100:channel_layouts=stereo[a0];"
-              + "[1:a]aformat=sample_rates=44100:channel_layouts=stereo[a1];"
-              + "[2:a]aformat=sample_rates=44100:channel_layouts=stereo[a2];"
-              + "[a0][a1][a2]concat=n=3:v=0:a=1[out]",
-                "-map", "[out]",
-                "-ac", "2", "-ar", "44100",
-                out.getAbsolutePath()
-        });
+
+        if ("AtSlideStart".equals(quiz.timerStartMode)) {
+            // Mix mode: question + tick play together from t=0 with the
+            // question dominant (weight 1.0) and tick at 30% so the
+            // narration stays clearly audible. Ding plays at the tick's end.
+            // amix's `normalize=0` keeps the tick at 0.30 even after the
+            // question ends (without it, the remaining lone tick gets
+            // boosted back up to full volume which is exactly what we don't
+            // want).
+            runFfmpeg(new String[] {
+                    "ffmpeg", "-y",
+                    "-i", quiz.questionAudioFile.getAbsolutePath(),
+                    "-i", tickLoop.getAbsolutePath(),
+                    "-i", dingSrc.getAbsolutePath(),
+                    "-filter_complex",
+                    "[0:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=1.0[q];"
+                  + "[1:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=0.30[t];"
+                  + "[q][t]amix=inputs=2:duration=longest:normalize=0[mix];"
+                  + "[2:a]aformat=sample_rates=44100:channel_layouts=stereo[d];"
+                  + "[mix][d]concat=n=2:v=0:a=1[out]",
+                    "-map", "[out]",
+                    "-ac", "2", "-ar", "44100",
+                    out.getAbsolutePath()
+            });
+        } else {
+            // Default mode: concat question + tick-loop + ding sequentially.
+            runFfmpeg(new String[] {
+                    "ffmpeg", "-y",
+                    "-i", quiz.questionAudioFile.getAbsolutePath(),
+                    "-i", tickLoop.getAbsolutePath(),
+                    "-i", dingSrc.getAbsolutePath(),
+                    "-filter_complex",
+                    "[0:a]aformat=sample_rates=44100:channel_layouts=stereo[a0];"
+                  + "[1:a]aformat=sample_rates=44100:channel_layouts=stereo[a1];"
+                  + "[2:a]aformat=sample_rates=44100:channel_layouts=stereo[a2];"
+                  + "[a0][a1][a2]concat=n=3:v=0:a=1[out]",
+                    "-map", "[out]",
+                    "-ac", "2", "-ar", "44100",
+                    out.getAbsolutePath()
+            });
+        }
         return out;
     }
 
