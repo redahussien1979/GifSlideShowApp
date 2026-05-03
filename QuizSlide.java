@@ -111,6 +111,31 @@ public class QuizSlide {
         return c;
     }
 
+    /**
+     * Broadcast the visual / shared-config fields from another QuizSlide
+     * onto this one. Used when the first slide acts as the "master" and
+     * also when loading presets. Per-slide fields (enabled flag, correct
+     * answer, question audio, generated audio) are intentionally NOT
+     * copied so each slide keeps its own quiz content.
+     */
+    public void copyVisualSettingsFrom(QuizSlide src) {
+        if (src == null) return;
+        this.timerStyle        = src.timerStyle;
+        this.timerXPct         = src.timerXPct;
+        this.timerYPct         = src.timerYPct;
+        this.timerSizePct      = src.timerSizePct;
+        this.timerWidthPct     = src.timerWidthPct;
+        this.timerColor        = src.timerColor;
+        this.timerLabel        = src.timerLabel;
+        this.timerSeconds      = src.timerSeconds;
+        this.redThresholdSeconds = src.redThresholdSeconds;
+        this.timerStartMode    = src.timerStartMode;
+        this.tickPreset        = src.tickPreset;
+        this.dingPreset        = src.dingPreset;
+        this.customTickFile    = src.customTickFile;
+        this.customDingFile    = src.customDingFile;
+    }
+
     // ============================================================
     //                 PUBLIC OVERLAY DRAW HOOK
     // ============================================================
