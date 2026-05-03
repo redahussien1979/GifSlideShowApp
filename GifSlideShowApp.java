@@ -11726,6 +11726,67 @@ public class GifSlideShowApp extends JFrame {
             toolbar7b.add(audioFxShake);
             toolbar7b.add(audioFxPulse);
 
+            // ===== Toolbar Row 7c: Quiz Timer Style + Position =====
+            JPanel toolbar7c = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            toolbar7c.setBackground(new Color(38, 28, 56));
+            toolbar7c.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(80, 60, 130)),
+                    BorderFactory.createEmptyBorder(2, 4, 2, 4)));
+
+            JLabel quizTimerLbl = styledLabel("⏱ Timer:");
+            quizTimerLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            quizTimerLbl.setForeground(new Color(190, 160, 240));
+
+            JComboBox<String> quizStyleCombo = new JComboBox<>(new String[] {
+                    "Number Circle", "Progress Bar H", "Progress Bar V",
+                    "Ring Arc", "Numeric Only"
+            });
+            quizStyleCombo.setSelectedItem(quiz.timerStyle);
+            quizStyleCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            quizStyleCombo.setPreferredSize(new Dimension(125, 24));
+            quizStyleCombo.setToolTipText("Visual style of the countdown timer");
+            quizStyleCombo.addActionListener(e ->
+                    quiz.timerStyle = (String) quizStyleCombo.getSelectedItem());
+
+            JLabel xLbl = styledLabel("X%");
+            JSpinner quizXSp = new JSpinner(
+                    new SpinnerNumberModel(quiz.timerXPct, 0, 100, 1));
+            quizXSp.setPreferredSize(new Dimension(56, 24));
+            quizXSp.setToolTipText("Horizontal position (% of frame width)");
+            quizXSp.addChangeListener(e ->
+                    quiz.timerXPct = ((Number) quizXSp.getValue()).intValue());
+
+            JLabel yLbl = styledLabel("Y%");
+            JSpinner quizYSp = new JSpinner(
+                    new SpinnerNumberModel(quiz.timerYPct, 0, 100, 1));
+            quizYSp.setPreferredSize(new Dimension(56, 24));
+            quizYSp.setToolTipText("Vertical position (% of frame height)");
+            quizYSp.addChangeListener(e ->
+                    quiz.timerYPct = ((Number) quizYSp.getValue()).intValue());
+
+            JLabel szLbl = styledLabel("Size%");
+            JSpinner quizSzSp = new JSpinner(
+                    new SpinnerNumberModel(quiz.timerSizePct, 3, 60, 1));
+            quizSzSp.setPreferredSize(new Dimension(56, 24));
+            quizSzSp.setToolTipText("Diameter (Circle/Ring), font height (Numeric), or bar thickness");
+            quizSzSp.addChangeListener(e ->
+                    quiz.timerSizePct = ((Number) quizSzSp.getValue()).intValue());
+
+            JLabel wLbl = styledLabel("Width%");
+            JSpinner quizWSp = new JSpinner(
+                    new SpinnerNumberModel(quiz.timerWidthPct, 5, 100, 1));
+            quizWSp.setPreferredSize(new Dimension(56, 24));
+            quizWSp.setToolTipText("Bar length (% of frame). Used for Progress Bar styles only.");
+            quizWSp.addChangeListener(e ->
+                    quiz.timerWidthPct = ((Number) quizWSp.getValue()).intValue());
+
+            toolbar7c.add(quizTimerLbl);
+            toolbar7c.add(quizStyleCombo);
+            toolbar7c.add(xLbl); toolbar7c.add(quizXSp);
+            toolbar7c.add(yLbl); toolbar7c.add(quizYSp);
+            toolbar7c.add(szLbl); toolbar7c.add(quizSzSp);
+            toolbar7c.add(wLbl); toolbar7c.add(quizWSp);
+
             // ===== Toolbar Row 8: Per-Slide Video Overlay =====
             JPanel toolbar8 = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 3));
             toolbar8.setBackground(new Color(42, 32, 22));
@@ -11880,6 +11941,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar7);
             toolbarsPanel.add(toolbar7b);
+            toolbarsPanel.add(toolbar7c);
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar8);
 

@@ -58,6 +58,22 @@ public class QuizSlide {
     // Cached question-end offset in ms (== questionAudioDurationMs at attach time).
     public int  questionEndMs = 0;
 
+    // ---- Timer visual style (configured via the toolbar7c row) ----
+    // Style: "Number Circle" (default), "Progress Bar H", "Progress Bar V",
+    //        "Ring Arc", "Numeric Only".
+    public String timerStyle = "Number Circle";
+    // Anchor in % of frame size (0..100). Interpreted as the CENTER of the
+    // timer for Circle / Ring / Numeric, and as the TOP-LEFT for Progress Bars.
+    public int timerXPct  = 92;
+    public int timerYPct  = 12;
+    // "Size" = diameter (% of frame height) for Circle / Ring,
+    //          font height (% of frame height) for Numeric Only,
+    //          bar thickness (% of frame height) for Progress Bar H/V.
+    public int timerSizePct  = 14;
+    // "Width" = bar length (% of frame width for horiz, % of frame height
+    //           for vert). Ignored for Circle / Ring / Numeric Only.
+    public int timerWidthPct = 30;
+
     public QuizSlide copy() {
         QuizSlide c = new QuizSlide();
         c.enabled = enabled;
@@ -73,6 +89,11 @@ public class QuizSlide {
         c.generatedAudioFile = generatedAudioFile;
         c.generatedAudioDurationMs = generatedAudioDurationMs;
         c.questionEndMs = questionEndMs;
+        c.timerStyle    = timerStyle;
+        c.timerXPct     = timerXPct;
+        c.timerYPct     = timerYPct;
+        c.timerSizePct  = timerSizePct;
+        c.timerWidthPct = timerWidthPct;
         return c;
     }
 
@@ -116,63 +137,195 @@ public class QuizSlide {
                 long remainingMs  = Math.max(0, timerMs - timerElapsed);
                 int  remainingSec = (int) Math.ceil(remainingMs / 1000.0);
                 if (remainingSec < 1) remainingSec = 1;
-                drawCountdown(g, w, h, remainingSec,
-                        remainingSec <= quiz.redThresholdSeconds);
+                double progress = Math.max(0.0,
+                        Math.min(1.0, timerElapsed / (double) timerMs));
+                drawCountdown(g, w, h, quiz, remainingSec,
+                        remainingSec <= quiz.redThresholdSeconds, progress);
             } else {
                 // Reveal phase: highlight the correct option.
                 long sinceReveal = elapsedMs - revealAt;
                 drawReveal(g, w, h, slideTexts, quiz.correctOptionIndex, sinceReveal);
-                // Show "0" timer or a check, briefly.
-                drawCountdown(g, w, h, 0, true);
+                // Show "0" timer or a fully-filled bar briefly.
+                drawCountdown(g, w, h, quiz, 0, true, 1.0);
             }
         } finally {
             g.dispose();
         }
     }
 
-    private static void drawCountdown(Graphics2D g, int w, int h,
-                                      int remainingSec, boolean red) {
-        // Top-right circle with the number inside.
-        // Margins kept generous on the top so the timer sits clearly inside
-        // the safe area (the previous tight top margin made it look "high above").
-        int diameter = Math.max(110, h / 7);
-        int marginX  = Math.max(36, h / 22);
-        int marginY  = Math.max(60, h / 10);
-        int cx = w - marginX - diameter / 2;
-        int cy = marginY + diameter / 2;
+    private static void drawCountdown(Graphics2D g, int w, int h, QuizSlide quiz,
+                                      int remainingSec, boolean red,
+                                      double progress) {
+        Color accent = red ? new Color(235, 70, 70) : new Color(80, 200, 255);
+        Color bg     = new Color(15, 18, 25, 220);
+        Color textCol = red ? new Color(255, 235, 235) : Color.WHITE;
+        String style = quiz.timerStyle != null ? quiz.timerStyle : "Number Circle";
 
-        // Outer ring (subtle drop shadow).
+        switch (style) {
+            case "Progress Bar H":
+                drawProgressBar(g, w, h, quiz, remainingSec, accent, bg, textCol, red, progress, true);
+                break;
+            case "Progress Bar V":
+                drawProgressBar(g, w, h, quiz, remainingSec, accent, bg, textCol, red, progress, false);
+                break;
+            case "Ring Arc":
+                drawRingArc(g, w, h, quiz, remainingSec, accent, bg, textCol, red, progress);
+                break;
+            case "Numeric Only":
+                drawNumericOnly(g, w, h, quiz, remainingSec, textCol, red);
+                break;
+            case "Number Circle":
+            default:
+                drawNumberCircle(g, w, h, quiz, remainingSec, accent, bg, textCol, red);
+                break;
+        }
+    }
+
+    /** Filled disc with a ring border and the digit centered. */
+    private static void drawNumberCircle(Graphics2D g, int w, int h, QuizSlide quiz,
+                                         int remainingSec, Color accent, Color bg,
+                                         Color textCol, boolean red) {
+        int diameter = Math.max(40, (int) (h * quiz.timerSizePct / 100.0));
+        int cx = (int) (w * quiz.timerXPct / 100.0);
+        int cy = (int) (h * quiz.timerYPct / 100.0);
+
         Composite oldC = g.getComposite();
         g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));
         g.setColor(Color.BLACK);
         g.fillOval(cx - diameter / 2 + 4, cy - diameter / 2 + 4, diameter, diameter);
         g.setComposite(oldC);
 
-        // Background disc.
-        g.setColor(new Color(15, 18, 25, 220));
+        g.setColor(bg);
         g.fillOval(cx - diameter / 2, cy - diameter / 2, diameter, diameter);
 
-        // Ring color.
-        Color ringColor = red ? new Color(235, 70, 70) : new Color(80, 200, 255);
-        g.setColor(ringColor);
+        g.setColor(accent);
         g.setStroke(new BasicStroke(Math.max(3, diameter / 18f)));
         g.drawOval(cx - diameter / 2 + 2, cy - diameter / 2 + 2, diameter - 4, diameter - 4);
 
-        // Number.
+        drawDigit(g, cx, cy, diameter, remainingSec, textCol, red);
+    }
+
+    /** Disc with a sweeping arc that depletes as the timer ticks down. */
+    private static void drawRingArc(Graphics2D g, int w, int h, QuizSlide quiz,
+                                    int remainingSec, Color accent, Color bg,
+                                    Color textCol, boolean red, double progress) {
+        int diameter = Math.max(40, (int) (h * quiz.timerSizePct / 100.0));
+        int cx = (int) (w * quiz.timerXPct / 100.0);
+        int cy = (int) (h * quiz.timerYPct / 100.0);
+
+        g.setColor(bg);
+        g.fillOval(cx - diameter / 2, cy - diameter / 2, diameter, diameter);
+
+        // Faint full circle behind the arc (track).
+        Stroke s0 = g.getStroke();
+        float ringWidth = Math.max(4, diameter / 12f);
+        g.setStroke(new BasicStroke(ringWidth, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.setColor(new Color(255, 255, 255, 40));
+        int r = diameter - (int) ringWidth;
+        g.drawOval(cx - r / 2, cy - r / 2, r, r);
+
+        // Active arc — starts at 12 o'clock, sweeps clockwise, depletes as time runs out.
+        g.setColor(accent);
+        int sweep = (int) Math.round((1.0 - progress) * 360.0);
+        g.draw(new Arc2D.Double(cx - r / 2.0, cy - r / 2.0, r, r,
+                90, -sweep, Arc2D.OPEN));
+        g.setStroke(s0);
+
+        drawDigit(g, cx, cy, diameter, remainingSec, textCol, red);
+    }
+
+    /** Just the number (no shape). */
+    private static void drawNumericOnly(Graphics2D g, int w, int h, QuizSlide quiz,
+                                        int remainingSec, Color textCol, boolean red) {
+        int fontPx = Math.max(28, (int) (h * quiz.timerSizePct / 100.0));
+        int cx = (int) (w * quiz.timerXPct / 100.0);
+        int cy = (int) (h * quiz.timerYPct / 100.0);
+
+        Font font = new Font("Segoe UI", Font.BOLD, fontPx);
+        g.setFont(font);
+        FontMetrics fm = g.getFontMetrics();
         String txt = remainingSec <= 0 ? "0" : String.valueOf(remainingSec);
-        Font font = new Font("Segoe UI", Font.BOLD, (int) (diameter * 0.55));
+        int tw = fm.stringWidth(txt);
+        int tx = cx - tw / 2;
+        int ty = cy + fm.getAscent() / 2 - fm.getDescent() / 2;
+
+        if (red) {
+            Composite oc = g.getComposite();
+            g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.55f));
+            g.setColor(new Color(255, 60, 60));
+            for (int rad = 8; rad > 0; rad -= 2) {
+                g.drawString(txt, tx + rad, ty);
+                g.drawString(txt, tx - rad, ty);
+                g.drawString(txt, tx, ty + rad);
+                g.drawString(txt, tx, ty - rad);
+            }
+            g.setComposite(oc);
+        }
+        g.setColor(textCol);
+        g.drawString(txt, tx, ty);
+    }
+
+    /** Horizontal or vertical depleting progress bar with the digit centered on it. */
+    private static void drawProgressBar(Graphics2D g, int w, int h, QuizSlide quiz,
+                                        int remainingSec, Color accent, Color bg,
+                                        Color textCol, boolean red, double progress,
+                                        boolean horizontal) {
+        int x = (int) (w * quiz.timerXPct / 100.0);
+        int y = (int) (h * quiz.timerYPct / 100.0);
+        int thickness = Math.max(14, (int) (h * quiz.timerSizePct / 100.0));
+        int length;
+        if (horizontal) {
+            length = Math.max(50, (int) (w * quiz.timerWidthPct / 100.0));
+        } else {
+            length = Math.max(50, (int) (h * quiz.timerWidthPct / 100.0));
+        }
+
+        int barW = horizontal ? length : thickness;
+        int barH = horizontal ? thickness : length;
+        int arc  = thickness;
+
+        // Track background.
+        g.setColor(bg);
+        g.fillRoundRect(x, y, barW, barH, arc, arc);
+
+        // Filled portion (depleting).
+        int filled;
+        if (horizontal) {
+            filled = (int) (barW * (1.0 - progress));
+            g.setColor(accent);
+            g.fillRoundRect(x, y, Math.max(0, filled), barH, arc, arc);
+        } else {
+            filled = (int) (barH * (1.0 - progress));
+            g.setColor(accent);
+            g.fillRoundRect(x, y + (barH - filled), barW, Math.max(0, filled), arc, arc);
+        }
+
+        // Border.
+        g.setColor(new Color(255, 255, 255, 80));
+        g.setStroke(new BasicStroke(2f));
+        g.drawRoundRect(x, y, barW, barH, arc, arc);
+
+        // Digit centered on the bar.
+        int cx = x + barW / 2;
+        int cy = y + barH / 2;
+        int digitSize = (int) (Math.min(barW, barH) * 0.7);
+        drawDigit(g, cx, cy, digitSize, remainingSec, textCol, red);
+    }
+
+    private static void drawDigit(Graphics2D g, int cx, int cy, int sizeRef,
+                                  int remainingSec, Color textCol, boolean red) {
+        String txt = remainingSec <= 0 ? "0" : String.valueOf(remainingSec);
+        Font font = new Font("Segoe UI", Font.BOLD, Math.max(12, (int) (sizeRef * 0.55)));
         g.setFont(font);
         FontMetrics fm = g.getFontMetrics();
         int tw = fm.stringWidth(txt);
         int tx = cx - tw / 2;
         int ty = cy + fm.getAscent() / 2 - fm.getDescent() / 2;
-
-        // Glow behind digit when red.
         if (red) {
             Composite oc = g.getComposite();
             g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.55f));
             g.setColor(new Color(255, 60, 60));
-            for (int r = 8; r > 0; r -= 2) {
+            for (int r = 6; r > 0; r -= 2) {
                 g.drawString(txt, tx + r, ty);
                 g.drawString(txt, tx - r, ty);
                 g.drawString(txt, tx, ty + r);
@@ -180,8 +333,7 @@ public class QuizSlide {
             }
             g.setComposite(oc);
         }
-
-        g.setColor(red ? new Color(255, 235, 235) : Color.WHITE);
+        g.setColor(textCol);
         g.drawString(txt, tx, ty);
     }
 
