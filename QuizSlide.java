@@ -133,10 +133,13 @@ public class QuizSlide {
     private static void drawCountdown(Graphics2D g, int w, int h,
                                       int remainingSec, boolean red) {
         // Top-right circle with the number inside.
-        int diameter = Math.max(80, h / 9);
-        int margin   = Math.max(20, h / 40);
-        int cx = w - margin - diameter / 2;
-        int cy = margin + diameter / 2;
+        // Margins kept generous on the top so the timer sits clearly inside
+        // the safe area (the previous tight top margin made it look "high above").
+        int diameter = Math.max(110, h / 7);
+        int marginX  = Math.max(36, h / 22);
+        int marginY  = Math.max(60, h / 10);
+        int cx = w - marginX - diameter / 2;
+        int cy = marginY + diameter / 2;
 
         // Outer ring (subtle drop shadow).
         Composite oldC = g.getComposite();
@@ -190,25 +193,26 @@ public class QuizSlide {
         if (idx < 0 || idx >= slideTexts.size()) return;
 
         Object std = slideTexts.get(idx);
-        // Reflectively pull out the four fields we need from SlideTextData
-        // so this file is independent of GifSlideShowApp's inner class.
+        // Reflectively pull out the fields we need from SlideTextData so this
+        // file stays decoupled from GifSlideShowApp's inner class. The fields
+        // are package-private so we MUST use getDeclaredField + setAccessible
+        // (getField only finds public fields, which silently returned no
+        // highlight in the first cut).
         try {
-            java.lang.reflect.Field fX        = std.getClass().getField("x");
-            java.lang.reflect.Field fY        = std.getClass().getField("y");
-            java.lang.reflect.Field fSize     = std.getClass().getField("fontSize");
-            java.lang.reflect.Field fText     = std.getClass().getField("text");
-            int xPct = fX.getInt(std);
-            int yPct = fY.getInt(std);
-            int fSizePct = fSize.getInt(std);
-            String text = (String) fText.get(std);
-            if (text == null || text.isEmpty()) return;
+            int xPct     = readIntField(std, "x");
+            int yPct     = readIntField(std, "y");
+            int fSizeRef = readIntField(std, "fontSize");
+            String text  = (String) readField(std, "text");
+            if (text == null || text.isEmpty()) text = "Option " + optionIdx1Based;
 
-            // Convert the slide-text coordinates (which are percentages of
-            // frame dimensions in this app) into pixel coordinates and a
-            // rough bounding box.
+            // The slide-text coordinates are percentages of frame dimensions.
+            // Text is centered around (x%, y%) in this app's renderer.
             int px = (int) (w * xPct / 100.0);
             int py = (int) (h * yPct / 100.0);
-            int fontPx = Math.max(14, (int) (h * fSizePct / 100.0));
+            // fontSize in this app is in 1920p reference pixels and gets
+            // scaled by max(targetW,targetH)/1920 at draw time (see renderFrame).
+            float scale = Math.max(w, h) / 1920.0f;
+            int fontPx = Math.max(18, (int) (fSizeRef * scale));
 
             // Estimate text width (no measurement context for the actual font;
             // generous estimate: avg glyph width ~= 0.55 * font size).
@@ -262,9 +266,23 @@ public class QuizSlide {
                 g.drawLine(qx + badge / 6, qy + badge / 5,
                         qx + badge / 2, qy - badge / 4);
             }
-        } catch (Exception ignored) {
-            // Reflection mismatch — fail silently rather than break the export.
+        } catch (Exception ex) {
+            // Reflection mismatch — fail visibly to stderr but don't break the export.
+            System.err.println("[QuizSlide] reveal-overlay reflection failed: "
+                    + ex);
         }
+    }
+
+    private static int readIntField(Object o, String name) throws Exception {
+        java.lang.reflect.Field f = o.getClass().getDeclaredField(name);
+        f.setAccessible(true);
+        return f.getInt(o);
+    }
+
+    private static Object readField(Object o, String name) throws Exception {
+        java.lang.reflect.Field f = o.getClass().getDeclaredField(name);
+        f.setAccessible(true);
+        return f.get(o);
     }
 
     // ============================================================

@@ -6686,6 +6686,9 @@ public class GifSlideShowApp extends JFrame {
                                 }
                             }
                             if (hasAnim) { anyAnimatedFx = true; break; }
+                            // Quiz slides need per-frame rendering for the countdown timer
+                            // and reveal flash, so push them into the ANIMATED PATH.
+                            if (isQuizSlide(s)) { anyAnimatedFx = true; break; }
                         }
 
                         if (!anyAnimatedFx) {
