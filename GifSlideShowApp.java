@@ -1834,12 +1834,14 @@ public class GifSlideShowApp extends JFrame {
         int choice = JOptionPane.showOptionDialog(this,
                 "Import quiz settings: each row = one slide.\n"
               + "Header row REQUIRED. Optional column names (case-insensitive):\n"
+              + "  TEXT1, TEXT2, … TEXTn  -> slide-text items (Text 1, Text 2, …)\n"
+              + "  HL                      -> highlight text (applied to slide and all texts)\n"
               + "  QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD,\n"
               + "  QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO,\n"
               + "  QUIZ_TIMER_STYLE, QUIZ_TIMER_X, QUIZ_TIMER_Y,\n"
               + "  QUIZ_TIMER_SIZE, QUIZ_TIMER_WIDTH, QUIZ_TIMER_COLOR,\n"
               + "  QUIZ_TIMER_LABEL, QUIZ_TIMER_START_MODE.\n"
-              + "Empty cell = leave that setting unchanged.\n"
+              + "Empty cell = leave that value unchanged.\n"
               + "Visual / style fields are taken from the FIRST data row and\n"
               + "applied to all slides.\n"
               + "Tip: For Unicode/IPA, save Excel as \"CSV UTF-8\".\n"
@@ -1940,17 +1942,27 @@ public class GifSlideShowApp extends JFrame {
 
         List<String> headerFields = parseCsvLine(trimmed.get(0));
         Map<String, Integer> col = new HashMap<>();
+        // textColByIndex: 1-based TEXTn -> CSV column index
+        Map<Integer, Integer> textColByIndex = new TreeMap<>();
+        int hlColIndex = -1;
         for (int i = 0; i < headerFields.size(); i++) {
             String h = headerFields.get(i).trim().toUpperCase(Locale.ROOT);
             // Accept both "QUIZ_X" and "QUIZ.X" header conventions.
             if (h.startsWith("QUIZ.")) h = "QUIZ_" + h.substring(5);
-            if (h.startsWith("QUIZ_")) col.put(h, i);
+            if (h.startsWith("QUIZ_")) {
+                col.put(h, i);
+            } else if (h.equals("HL")) {
+                hlColIndex = i;
+            } else if (h.matches("TEXT\\d+")) {
+                int n = Integer.parseInt(h.substring(4));
+                if (n >= 1) textColByIndex.put(n, i);
+            }
         }
-        if (col.isEmpty()) {
+        if (col.isEmpty() && textColByIndex.isEmpty() && hlColIndex < 0) {
             JOptionPane.showMessageDialog(this,
-                    "No QUIZ_* columns found in header row.\n"
-                  + "Header names must start with QUIZ_ "
-                  + "(e.g., QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS).",
+                    "No recognised columns in header row.\n"
+                  + "Use TEXT1..TEXTn for slide texts, HL for highlight text,\n"
+                  + "or QUIZ_* for quiz settings (e.g., QUIZ_ENABLED, QUIZ_CORRECT).",
                     "Quiz Import", JOptionPane.WARNING_MESSAGE);
             return;
         }
@@ -1976,6 +1988,24 @@ public class GifSlideShowApp extends JFrame {
             }
             SlideRow slide = targetSlides.get(slideIdx);
             QuizSlide q = slide.getQuiz();
+
+            // Apply TEXT1..TEXTn columns -> slide text items (1-based -> 0-based).
+            for (Map.Entry<Integer, Integer> e : textColByIndex.entrySet()) {
+                int colIdx = e.getValue();
+                if (colIdx < fields.size()) {
+                    String cellText = fields.get(colIdx);
+                    if (!cellText.isEmpty()) {
+                        slide.setSlideTextAt(e.getKey() - 1, cellText);
+                    }
+                }
+            }
+
+            // Apply HL column -> slide-level + per-slide-text highlight.
+            if (hlColIndex >= 0 && hlColIndex < fields.size()) {
+                String hlText = fields.get(hlColIndex).trim();
+                slide.setHighlightText(hlText);
+                slide.setSlideTextHighlightText(hlText);
+            }
 
             String s;
             s = quizCellAt(fields, col.get("QUIZ_ENABLED"));
