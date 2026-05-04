@@ -141,6 +141,10 @@ public class GifSlideShowApp extends JFrame {
         dictImportBtn.setToolTipText("Import CSV/TSV: each row=slide, each column=slide text (A→Text1, B→Text2...)");
         dictImportBtn.addActionListener(e -> dictionaryImport());
 
+        JButton quizImportBtn = createStyledButton("Quiz Import", new Color(180, 120, 200));
+        quizImportBtn.setToolTipText("Import CSV/TSV of quiz settings: each row = one slide. Headers: QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD, QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO, QUIZ_TIMER_STYLE/X/Y/SIZE/WIDTH/COLOR/LABEL/START_MODE.");
+        quizImportBtn.addActionListener(e -> quizImport());
+
         JButton titleGridBtn = createStyledButton("Title Grid", new Color(60, 160, 200));
         titleGridBtn.addActionListener(e -> addTitleGridSlide());
 
@@ -175,6 +179,7 @@ public class GifSlideShowApp extends JFrame {
         topRow.add(bulkBtn);
         topRow.add(bulkTextBtn);
         topRow.add(dictImportBtn);
+        topRow.add(quizImportBtn);
         topRow.add(titleGridBtn);
         topRow.add(gifBtn);
         topRow.add(mp4Btn);
@@ -1811,6 +1816,453 @@ public class GifSlideShowApp extends JFrame {
         }
         JOptionPane.showMessageDialog(this, importMsg, "Dictionary Import",
                 missingAudioFiles.isEmpty() ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+    }
+
+    // ==================== Quiz Import ====================
+
+    /**
+     * Bulk-load quiz settings from a CSV/TSV file or pasted text. Mirrors the
+     * Dict Import UX (file picker or paste, UTF-8/UTF-16/Windows-1252,
+     * row N → slide N, title-grid slides skipped). Required: a header row
+     * naming the QUIZ_* columns. Empty cells leave the existing value alone.
+     * Shared visual / timer-style fields are read from the first data row
+     * and broadcast to every non-title-grid slide (mirroring how presets
+     * apply visual settings at line 591).
+     */
+    private void quizImport() {
+        String[] options = {"From File (CSV/TSV)", "From Clipboard / Paste"};
+        int choice = JOptionPane.showOptionDialog(this,
+                "Import quiz settings: each row = one slide.\n"
+              + "Header row REQUIRED. Optional column names (case-insensitive):\n"
+              + "  QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD,\n"
+              + "  QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO,\n"
+              + "  QUIZ_TIMER_STYLE, QUIZ_TIMER_X, QUIZ_TIMER_Y,\n"
+              + "  QUIZ_TIMER_SIZE, QUIZ_TIMER_WIDTH, QUIZ_TIMER_COLOR,\n"
+              + "  QUIZ_TIMER_LABEL, QUIZ_TIMER_START_MODE.\n"
+              + "Empty cell = leave that setting unchanged.\n"
+              + "Visual / style fields are taken from the FIRST data row and\n"
+              + "applied to all slides.\n"
+              + "Tip: For Unicode/IPA, save Excel as \"CSV UTF-8\".\n"
+              + "(Title grid slides are skipped.)",
+                "Quiz Import", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
+                null, options, options[0]);
+
+        if (choice < 0) return;
+
+        List<String> rawLines = null;
+        File importSourceDir = null;
+
+        if (choice == 0) {
+            JFileChooser fc = new JFileChooser();
+            fc.setFileFilter(new FileNameExtensionFilter(
+                    "CSV / TSV files (*.csv, *.tsv, *.txt)", "csv", "tsv", "txt"));
+            if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
+            importSourceDir = fc.getSelectedFile().getParentFile();
+
+            try {
+                byte[] fileBytes = Files.readAllBytes(fc.getSelectedFile().toPath());
+                int offset = 0;
+                if (fileBytes.length >= 3 && (fileBytes[0] & 0xFF) == 0xEF
+                        && (fileBytes[1] & 0xFF) == 0xBB && (fileBytes[2] & 0xFF) == 0xBF) {
+                    offset = 3;
+                } else if (fileBytes.length >= 2 && (fileBytes[0] & 0xFF) == 0xFF
+                        && (fileBytes[1] & 0xFF) == 0xFE) {
+                    String content = new String(fileBytes,
+                            java.nio.charset.Charset.forName("UTF-16LE"));
+                    if (content.length() > 0 && content.charAt(0) == '\uFEFF') {
+                        content = content.substring(1);
+                    }
+                    rawLines = splitCsvRows(content);
+                    offset = -1;
+                } else if (fileBytes.length >= 2 && (fileBytes[0] & 0xFF) == 0xFE
+                        && (fileBytes[1] & 0xFF) == 0xFF) {
+                    String content = new String(fileBytes,
+                            java.nio.charset.Charset.forName("UTF-16BE"));
+                    if (content.length() > 0 && content.charAt(0) == '\uFEFF') {
+                        content = content.substring(1);
+                    }
+                    rawLines = splitCsvRows(content);
+                    offset = -1;
+                }
+                if (offset >= 0) {
+                    String content = new String(fileBytes, offset,
+                            fileBytes.length - offset, StandardCharsets.UTF_8);
+                    if (content.contains("\uFFFD")) {
+                        content = new String(fileBytes, offset, fileBytes.length - offset,
+                                java.nio.charset.Charset.forName("windows-1252"));
+                    }
+                    rawLines = splitCsvRows(content);
+                }
+            } catch (IOException ex) {
+                try {
+                    rawLines = Files.readAllLines(fc.getSelectedFile().toPath());
+                } catch (IOException ex2) {
+                    JOptionPane.showMessageDialog(this,
+                            "Failed to read file:\n" + ex2.getMessage(),
+                            "Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+            }
+        } else {
+            JTextArea pasteArea = new JTextArea(12, 50);
+            pasteArea.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+            pasteArea.setLineWrap(false);
+            JScrollPane sp = new JScrollPane(pasteArea);
+            sp.setPreferredSize(new Dimension(600, 300));
+
+            int result = JOptionPane.showConfirmDialog(this, sp,
+                    "Paste CSV/TSV quiz settings (header row required):",
+                    JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+            if (result != JOptionPane.OK_OPTION) return;
+
+            String text = pasteArea.getText();
+            if (text.trim().isEmpty()) {
+                JOptionPane.showMessageDialog(this, "No data entered.",
+                        "Empty", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            rawLines = splitCsvRows(text);
+        }
+
+        // Trim trailing blank rows
+        ArrayList<String> trimmed = new ArrayList<>(rawLines);
+        while (!trimmed.isEmpty() && trimmed.get(trimmed.size() - 1).trim().isEmpty()) {
+            trimmed.remove(trimmed.size() - 1);
+        }
+
+        if (trimmed.size() < 2) {
+            JOptionPane.showMessageDialog(this,
+                    "Need a header row plus at least one data row.\n"
+                  + "First row must contain QUIZ_* column headers.",
+                    "Quiz Import", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        List<String> headerFields = parseCsvLine(trimmed.get(0));
+        Map<String, Integer> col = new HashMap<>();
+        for (int i = 0; i < headerFields.size(); i++) {
+            String h = headerFields.get(i).trim().toUpperCase(Locale.ROOT);
+            // Accept both "QUIZ_X" and "QUIZ.X" header conventions.
+            if (h.startsWith("QUIZ.")) h = "QUIZ_" + h.substring(5);
+            if (h.startsWith("QUIZ_")) col.put(h, i);
+        }
+        if (col.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "No QUIZ_* columns found in header row.\n"
+                  + "Header names must start with QUIZ_ "
+                  + "(e.g., QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS).",
+                    "Quiz Import", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        List<SlideRow> targetSlides = new ArrayList<>();
+        for (SlideRow row : slideRows) {
+            if (!row.isTitleGridSlide) targetSlides.add(row);
+        }
+
+        int updated = 0;
+        int audioBuilt = 0;
+        List<String> warnings = new ArrayList<>();
+        boolean visualsApplied = false;
+
+        for (int r = 1; r < trimmed.size(); r++) {
+            if (trimmed.get(r).trim().isEmpty()) continue;
+            List<String> fields = parseCsvLine(trimmed.get(r));
+            int slideIdx = r - 1;
+            if (slideIdx >= targetSlides.size()) {
+                warnings.add("Row " + (r + 1) + ": no matching slide (only "
+                        + targetSlides.size() + " non-title-grid slides). Skipped.");
+                continue;
+            }
+            SlideRow slide = targetSlides.get(slideIdx);
+            QuizSlide q = slide.getQuiz();
+
+            String s;
+            s = quizCellAt(fields, col.get("QUIZ_ENABLED"));
+            if (s != null && !s.trim().isEmpty()) q.enabled = parseQuizBool(s, q.enabled);
+
+            s = quizCellAt(fields, col.get("QUIZ_CORRECT"));
+            if (s != null && !s.trim().isEmpty()) {
+                try {
+                    int v = Integer.parseInt(s.trim());
+                    if (v >= 1) q.correctOptionIndex = v;
+                    else warnings.add("Row " + (r + 1) + ": QUIZ_CORRECT must be ≥ 1 (got '"
+                            + s + "'). Ignored.");
+                } catch (NumberFormatException nfe) {
+                    warnings.add("Row " + (r + 1) + ": QUIZ_CORRECT not a number ('"
+                            + s + "'). Ignored.");
+                }
+            }
+
+            s = quizCellAt(fields, col.get("QUIZ_SECONDS"));
+            if (s != null && !s.trim().isEmpty()) {
+                try {
+                    int v = Integer.parseInt(s.trim());
+                    if (v >= 1) q.timerSeconds = v;
+                    else warnings.add("Row " + (r + 1) + ": QUIZ_SECONDS must be ≥ 1 (got '"
+                            + s + "'). Ignored.");
+                } catch (NumberFormatException nfe) {
+                    warnings.add("Row " + (r + 1) + ": QUIZ_SECONDS not a number ('"
+                            + s + "'). Ignored.");
+                }
+            }
+
+            s = quizCellAt(fields, col.get("QUIZ_RED_THRESHOLD"));
+            if (s != null && !s.trim().isEmpty()) {
+                try {
+                    int v = Integer.parseInt(s.trim());
+                    if (v >= 0) q.redThresholdSeconds = v;
+                    else warnings.add("Row " + (r + 1)
+                            + ": QUIZ_RED_THRESHOLD must be ≥ 0. Ignored.");
+                } catch (NumberFormatException nfe) {
+                    warnings.add("Row " + (r + 1)
+                            + ": QUIZ_RED_THRESHOLD not a number. Ignored.");
+                }
+            }
+
+            s = quizCellAt(fields, col.get("QUIZ_TICK"));
+            if (s != null && !s.trim().isEmpty()) {
+                applyQuizTickOrDing(s.trim(), importSourceDir, q, true, r + 1, warnings);
+            }
+
+            s = quizCellAt(fields, col.get("QUIZ_DING"));
+            if (s != null && !s.trim().isEmpty()) {
+                applyQuizTickOrDing(s.trim(), importSourceDir, q, false, r + 1, warnings);
+            }
+
+            s = quizCellAt(fields, col.get("QUIZ_QUESTION_AUDIO"));
+            if (s != null && !s.trim().isEmpty()) {
+                File af = resolveQuizPath(s.trim(), importSourceDir);
+                if (af.exists()) {
+                    q.questionAudioFile = af;
+                    int dur = probeAudioDurationMs(af);
+                    if (dur > 0) q.questionAudioDurationMs = dur;
+                    else warnings.add("Row " + (r + 1)
+                            + ": could not probe duration of '" + af.getName() + "'.");
+                } else {
+                    warnings.add("Row " + (r + 1)
+                            + ": question audio not found: '" + s + "'.");
+                }
+            }
+
+            // Shared visual fields read from FIRST data row only, then
+            // broadcast to every slide further down.
+            if (!visualsApplied) {
+                applyQuizVisualFields(q, fields, col, r + 1, warnings);
+                visualsApplied = true;
+            }
+
+            // If quiz is enabled and we have a question audio, build the
+            // combined audio (question + tick × N + ding) and attach it as
+            // the slide's audio — same path the Quiz dialog Save uses.
+            if (q.enabled && q.questionAudioFile != null && q.questionAudioFile.exists()
+                    && q.questionAudioDurationMs > 0) {
+                try {
+                    File built = QuizSlide.generateCombinedAudio(q);
+                    int dur = probeAudioDurationMs(built);
+                    q.generatedAudioFile = built;
+                    q.generatedAudioDurationMs = dur;
+                    q.questionEndMs = q.questionAudioDurationMs;
+                    slide.setSlideAudio(0, built, dur);
+                    audioBuilt++;
+                } catch (Exception ex) {
+                    warnings.add("Row " + (r + 1)
+                            + ": failed to build quiz audio: " + ex.getMessage());
+                }
+            }
+
+            slide.refreshQuizToolbarFromState();
+            slide.schedulePreview();
+            updated++;
+        }
+
+        // Broadcast first-row visuals to all non-title-grid slides (matches
+        // preset behavior — see copyVisualSettingsFrom usage at line 591).
+        if (visualsApplied && !targetSlides.isEmpty()) {
+            QuizSlide srcQ = targetSlides.get(0).getQuiz();
+            for (int i = 1; i < targetSlides.size(); i++) {
+                targetSlides.get(i).getQuiz().copyVisualSettingsFrom(srcQ);
+                targetSlides.get(i).refreshQuizToolbarFromState();
+                targetSlides.get(i).schedulePreview();
+            }
+        }
+
+        revalidate();
+        repaint();
+
+        StringBuilder msg = new StringBuilder();
+        msg.append("Quiz Import complete.\n")
+           .append("Slides updated: ").append(updated).append("\n")
+           .append("Combined audio built: ").append(audioBuilt);
+        if (!warnings.isEmpty()) {
+            msg.append("\n\nWarnings (").append(warnings.size()).append("):");
+            int show = Math.min(warnings.size(), 30);
+            for (int i = 0; i < show; i++) {
+                msg.append("\n  • ").append(warnings.get(i));
+            }
+            if (warnings.size() > show) {
+                msg.append("\n  …and ").append(warnings.size() - show).append(" more.");
+            }
+        }
+        JOptionPane.showMessageDialog(this, msg.toString(), "Quiz Import",
+                warnings.isEmpty() ? JOptionPane.INFORMATION_MESSAGE
+                                   : JOptionPane.WARNING_MESSAGE);
+    }
+
+    private static String quizCellAt(List<String> fields, Integer idx) {
+        if (idx == null) return null;
+        if (idx < 0 || idx >= fields.size()) return "";
+        return fields.get(idx);
+    }
+
+    private static boolean parseQuizBool(String s, boolean def) {
+        if (s == null) return def;
+        String v = s.trim().toLowerCase(Locale.ROOT);
+        if (v.isEmpty()) return def;
+        if (v.equals("true") || v.equals("1") || v.equals("yes")
+                || v.equals("y") || v.equals("on")) return true;
+        if (v.equals("false") || v.equals("0") || v.equals("no")
+                || v.equals("n") || v.equals("off")) return false;
+        return def;
+    }
+
+    private static File resolveQuizPath(String s, File base) {
+        File f = new File(s);
+        if (f.isAbsolute()) return f;
+        if (base != null) return new File(base, s);
+        return f;
+    }
+
+    private static void applyQuizTickOrDing(String cell, File base, QuizSlide q,
+                                            boolean tick, int rowNum,
+                                            List<String> warnings) {
+        String[] valid = tick
+                ? new String[] { "Stock: Classic Clock", "Stock: Game Show",
+                                 "Stock: Soft Tap" }
+                : new String[] { "Stock: Bell", "Stock: Chime", "Stock: Buzzer" };
+        for (String name : valid) {
+            if (name.equalsIgnoreCase(cell)) {
+                if (tick) { q.tickPreset = name; q.customTickFile = null; }
+                else      { q.dingPreset = name; q.customDingFile = null; }
+                return;
+            }
+        }
+        if (cell.equalsIgnoreCase("Custom")) {
+            if (tick) q.tickPreset = "Custom";
+            else      q.dingPreset = "Custom";
+            return;
+        }
+        File f = resolveQuizPath(cell, base);
+        if (f.exists()) {
+            if (tick) { q.tickPreset = "Custom"; q.customTickFile = f; }
+            else      { q.dingPreset = "Custom"; q.customDingFile = f; }
+        } else {
+            warnings.add("Row " + rowNum + ": "
+                    + (tick ? "QUIZ_TICK" : "QUIZ_DING")
+                    + " value '" + cell
+                    + "' is not a known stock preset and not an existing file. Ignored.");
+        }
+    }
+
+    private static void applyQuizVisualFields(QuizSlide q, List<String> fields,
+                                              Map<String, Integer> col, int rowNum,
+                                              List<String> warnings) {
+        String s;
+        s = quizCellAt(fields, col.get("QUIZ_TIMER_STYLE"));
+        if (s != null && !s.trim().isEmpty()) q.timerStyle = s.trim();
+
+        s = quizCellAt(fields, col.get("QUIZ_TIMER_X"));
+        if (s != null && !s.trim().isEmpty())
+            q.timerXPct = parseQuizPct(s, q.timerXPct, "QUIZ_TIMER_X", rowNum, warnings);
+
+        s = quizCellAt(fields, col.get("QUIZ_TIMER_Y"));
+        if (s != null && !s.trim().isEmpty())
+            q.timerYPct = parseQuizPct(s, q.timerYPct, "QUIZ_TIMER_Y", rowNum, warnings);
+
+        s = quizCellAt(fields, col.get("QUIZ_TIMER_SIZE"));
+        if (s != null && !s.trim().isEmpty())
+            q.timerSizePct = parseQuizPct(s, q.timerSizePct, "QUIZ_TIMER_SIZE", rowNum, warnings);
+
+        s = quizCellAt(fields, col.get("QUIZ_TIMER_WIDTH"));
+        if (s != null && !s.trim().isEmpty())
+            q.timerWidthPct = parseQuizPct(s, q.timerWidthPct, "QUIZ_TIMER_WIDTH", rowNum, warnings);
+
+        s = quizCellAt(fields, col.get("QUIZ_TIMER_COLOR"));
+        if (s != null && !s.trim().isEmpty()) {
+            Color c = parseQuizColor(s.trim());
+            if (c != null) q.timerColor = c;
+            else warnings.add("Row " + rowNum + ": QUIZ_TIMER_COLOR '"
+                    + s + "' not recognised. Ignored.");
+        }
+
+        s = quizCellAt(fields, col.get("QUIZ_TIMER_LABEL"));
+        if (s != null) q.timerLabel = s;
+
+        s = quizCellAt(fields, col.get("QUIZ_TIMER_START_MODE"));
+        if (s != null && !s.trim().isEmpty()) {
+            String v = s.trim();
+            if (v.equalsIgnoreCase("AtSlideStart")
+                    || v.equalsIgnoreCase("at_slide_start")
+                    || v.equalsIgnoreCase("start")) {
+                q.timerStartMode = "AtSlideStart";
+            } else if (v.equalsIgnoreCase("AfterQuestion")
+                    || v.equalsIgnoreCase("after_question")
+                    || v.equalsIgnoreCase("after")) {
+                q.timerStartMode = "AfterQuestion";
+            } else {
+                warnings.add("Row " + rowNum + ": QUIZ_TIMER_START_MODE '"
+                        + s + "' must be AtSlideStart or AfterQuestion. Ignored.");
+            }
+        }
+    }
+
+    private static int parseQuizPct(String s, int def, String field, int rowNum,
+                                    List<String> warnings) {
+        try {
+            int v = Integer.parseInt(s.trim());
+            if (v < 0 || v > 100) {
+                warnings.add("Row " + rowNum + ": " + field + "=" + v
+                        + " out of 0..100. Ignored.");
+                return def;
+            }
+            return v;
+        } catch (NumberFormatException nfe) {
+            warnings.add("Row " + rowNum + ": " + field + " not a number ('"
+                    + s + "'). Ignored.");
+            return def;
+        }
+    }
+
+    private static Color parseQuizColor(String s) {
+        if (s == null) return null;
+        String v = s.trim();
+        if (v.isEmpty()) return null;
+        String hex = v.startsWith("#") ? v.substring(1) : v;
+        if (hex.matches("[0-9A-Fa-f]{6}") || hex.matches("[0-9A-Fa-f]{8}")) {
+            try {
+                if (hex.length() == 6) return new Color(Integer.parseInt(hex, 16));
+                int r = Integer.parseInt(hex.substring(0, 2), 16);
+                int g = Integer.parseInt(hex.substring(2, 4), 16);
+                int b = Integer.parseInt(hex.substring(4, 6), 16);
+                int a = Integer.parseInt(hex.substring(6, 8), 16);
+                return new Color(r, g, b, a);
+            } catch (NumberFormatException ignored) {}
+        }
+        switch (v.toLowerCase(Locale.ROOT)) {
+            case "white":   return Color.WHITE;
+            case "black":   return Color.BLACK;
+            case "red":     return Color.RED;
+            case "green":   return Color.GREEN;
+            case "blue":    return Color.BLUE;
+            case "cyan":    return Color.CYAN;
+            case "magenta": return Color.MAGENTA;
+            case "yellow":  return Color.YELLOW;
+            case "orange":  return Color.ORANGE;
+            case "pink":    return Color.PINK;
+            case "gray":
+            case "grey":    return Color.GRAY;
+            default:        return null;
+        }
     }
 
     // ==================== Format Sync ====================
