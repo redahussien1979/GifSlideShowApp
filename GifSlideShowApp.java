@@ -708,7 +708,7 @@ public class GifSlideShowApp extends JFrame {
         BufferedImage bgImage = null;
         int bgChoice = JOptionPane.showConfirmDialog(this,
                 "Would you like to add a background image?\n" +
-                "The selected display mode effect (Blur-Fit, Fill Crop, etc.)\nwill be applied to it behind the grid.",
+                        "The selected display mode effect (Blur-Fit, Fill Crop, etc.)\nwill be applied to it behind the grid.",
                 "Background Image", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
         if (bgChoice == JOptionPane.YES_OPTION) {
             JFileChooser fc = new JFileChooser();
@@ -1451,11 +1451,11 @@ public class GifSlideShowApp extends JFrame {
         String[] options = {"From File (CSV/TSV)", "From Clipboard / Paste"};
         int choice = JOptionPane.showOptionDialog(this,
                 "Import dictionary: each row = one slide, each column = one slide text.\n"
-                + "Column A → Text 1, Column B → Text 2, Column C → Text 3, etc.\n"
-                + "Supports CSV (comma) and TSV (tab) delimited files.\n"
-                + "Tip: For Unicode/IPA characters, save from Excel as \"CSV UTF-8\" format.\n"
-                + "Optional columns: X-AXIS, Y-AXIS, TEXT-SIZE (comma-separated per text item).\n"
-                + "(Title grid slides are skipped)",
+                        + "Column A → Text 1, Column B → Text 2, Column C → Text 3, etc.\n"
+                        + "Supports CSV (comma) and TSV (tab) delimited files.\n"
+                        + "Tip: For Unicode/IPA characters, save from Excel as \"CSV UTF-8\" format.\n"
+                        + "Optional columns: X-AXIS, Y-AXIS, TEXT-SIZE (comma-separated per text item).\n"
+                        + "(Title grid slides are skipped)",
                 "Dictionary Import", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
                 null, options, options[0]);
 
@@ -1833,19 +1833,19 @@ public class GifSlideShowApp extends JFrame {
         String[] options = {"From File (CSV/TSV)", "From Clipboard / Paste"};
         int choice = JOptionPane.showOptionDialog(this,
                 "Import quiz settings: each row = one slide.\n"
-              + "Header row REQUIRED. Optional column names (case-insensitive):\n"
-              + "  TEXT1, TEXT2, … TEXTn  -> slide-text items (Text 1, Text 2, …)\n"
-              + "  HL                      -> highlight text (applied to slide and all texts)\n"
-              + "  QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD,\n"
-              + "  QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO,\n"
-              + "  QUIZ_TIMER_STYLE, QUIZ_TIMER_X, QUIZ_TIMER_Y,\n"
-              + "  QUIZ_TIMER_SIZE, QUIZ_TIMER_WIDTH, QUIZ_TIMER_COLOR,\n"
-              + "  QUIZ_TIMER_LABEL, QUIZ_TIMER_START_MODE.\n"
-              + "Empty cell = leave that value unchanged.\n"
-              + "Visual / style fields are taken from the FIRST data row and\n"
-              + "applied to all slides.\n"
-              + "Tip: For Unicode/IPA, save Excel as \"CSV UTF-8\".\n"
-              + "(Title grid slides are skipped.)",
+                        + "Header row REQUIRED. Optional column names (case-insensitive):\n"
+                        + "  TEXT1, TEXT2, … TEXTn  -> slide-text items (Text 1, Text 2, …)\n"
+                        + "  HL                      -> highlight text (applied to slide and all texts)\n"
+                        + "  QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD,\n"
+                        + "  QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO,\n"
+                        + "  QUIZ_TIMER_STYLE, QUIZ_TIMER_X, QUIZ_TIMER_Y,\n"
+                        + "  QUIZ_TIMER_SIZE, QUIZ_TIMER_WIDTH, QUIZ_TIMER_COLOR,\n"
+                        + "  QUIZ_TIMER_LABEL, QUIZ_TIMER_START_MODE.\n"
+                        + "Empty cell = leave that value unchanged.\n"
+                        + "Visual / style fields are taken from the FIRST data row and\n"
+                        + "applied to all slides.\n"
+                        + "Tip: For Unicode/IPA, save Excel as \"CSV UTF-8\".\n"
+                        + "(Title grid slides are skipped.)",
                 "Quiz Import", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
                 null, options, options[0]);
 
@@ -1935,7 +1935,7 @@ public class GifSlideShowApp extends JFrame {
         if (trimmed.size() < 2) {
             JOptionPane.showMessageDialog(this,
                     "Need a header row plus at least one data row.\n"
-                  + "First row must contain QUIZ_* column headers.",
+                            + "First row must contain QUIZ_* column headers.",
                     "Quiz Import", JOptionPane.WARNING_MESSAGE);
             return;
         }
@@ -1961,8 +1961,8 @@ public class GifSlideShowApp extends JFrame {
         if (col.isEmpty() && textColByIndex.isEmpty() && hlColIndex < 0) {
             JOptionPane.showMessageDialog(this,
                     "No recognised columns in header row.\n"
-                  + "Use TEXT1..TEXTn for slide texts, HL for highlight text,\n"
-                  + "or QUIZ_* for quiz settings (e.g., QUIZ_ENABLED, QUIZ_CORRECT).",
+                            + "Use TEXT1..TEXTn for slide texts, HL for highlight text,\n"
+                            + "or QUIZ_* for quiz settings (e.g., QUIZ_ENABLED, QUIZ_CORRECT).",
                     "Quiz Import", JOptionPane.WARNING_MESSAGE);
             return;
         }
@@ -2122,8 +2122,8 @@ public class GifSlideShowApp extends JFrame {
 
         StringBuilder msg = new StringBuilder();
         msg.append("Quiz Import complete.\n")
-           .append("Slides updated: ").append(updated).append("\n")
-           .append("Combined audio built: ").append(audioBuilt);
+                .append("Slides updated: ").append(updated).append("\n")
+                .append("Combined audio built: ").append(audioBuilt);
         if (!warnings.isEmpty()) {
             msg.append("\n\nWarnings (").append(warnings.size()).append("):");
             int show = Math.min(warnings.size(), 30);
@@ -2136,7 +2136,7 @@ public class GifSlideShowApp extends JFrame {
         }
         JOptionPane.showMessageDialog(this, msg.toString(), "Quiz Import",
                 warnings.isEmpty() ? JOptionPane.INFORMATION_MESSAGE
-                                   : JOptionPane.WARNING_MESSAGE);
+                        : JOptionPane.WARNING_MESSAGE);
     }
 
     private static String quizCellAt(List<String> fields, Integer idx) {
@@ -2168,7 +2168,7 @@ public class GifSlideShowApp extends JFrame {
                                             List<String> warnings) {
         String[] valid = tick
                 ? new String[] { "Stock: Classic Clock", "Stock: Game Show",
-                                 "Stock: Soft Tap" }
+                "Stock: Soft Tap" }
                 : new String[] { "Stock: Bell", "Stock: Chime", "Stock: Buzzer" };
         for (String name : valid) {
             if (name.equalsIgnoreCase(cell)) {
@@ -2780,370 +2780,370 @@ public class GifSlideShowApp extends JFrame {
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
         g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_SPEED);
 
-      if (!transparentBase) {
-        g.setColor(new Color(21, 32, 43));
-        g.fillRect(0, 0, targetW, targetH);
+        if (!transparentBase) {
+            g.setColor(new Color(21, 32, 43));
+            g.fillRect(0, 0, targetW, targetH);
 
-        if (displayMode == null) displayMode = "Blur-Fit";
+            if (displayMode == null) displayMode = "Blur-Fit";
 
-        // Apply round corners to source image BEFORE display mode rendering
-        if (fxRoundCorners && fxCornerRadius > 0) {
-            int iw = image.getWidth(), ih = image.getHeight();
-            float rcScale = Math.max(iw, ih) / 1920.0f;
-            int radius = Math.max(2, (int)(fxCornerRadius * Math.max(rcScale, 0.5f)));
-            BufferedImage srcRounded = new BufferedImage(iw, ih, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D rg = srcRounded.createGraphics();
-            rg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            rg.setClip(new RoundRectangle2D.Double(0, 0, iw, ih, radius * 2, radius * 2));
-            rg.drawImage(image, 0, 0, null);
-            rg.dispose();
-            image = srcRounded;
-        }
-
-        // ========== IMAGE SHAPE MODE (floating shaped image on blurred background) ==========
-        if (overlayEnabled && overlaySize > 0) {
-            // Draw background
-            if ("Color".equals(overlayBgMode) && overlayBgColor != null) {
-                g.setColor(overlayBgColor);
-                g.fillRect(0, 0, targetW, targetH);
-            } else {
-                double coverScale = Math.max((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
-                int bgW = (int) (image.getWidth() * coverScale);
-                int bgH = (int) (image.getHeight() * coverScale);
-                BufferedImage bgScaled = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
-                Graphics2D bgG = bgScaled.createGraphics();
-                bgG.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-                bgG.drawImage(image, (targetW - bgW) / 2, (targetH - bgH) / 2, bgW, bgH, null);
-                bgG.dispose();
-                BufferedImage blurred = applyStackBlur(bgScaled, 60);
-                Graphics2D blurG = blurred.createGraphics();
-                blurG.setColor(new Color(0, 0, 0, 100));
-                blurG.fillRect(0, 0, targetW, targetH);
-                blurG.dispose();
-                g.drawImage(blurred, 0, 0, null);
+            // Apply round corners to source image BEFORE display mode rendering
+            if (fxRoundCorners && fxCornerRadius > 0) {
+                int iw = image.getWidth(), ih = image.getHeight();
+                float rcScale = Math.max(iw, ih) / 1920.0f;
+                int radius = Math.max(2, (int)(fxCornerRadius * Math.max(rcScale, 0.5f)));
+                BufferedImage srcRounded = new BufferedImage(iw, ih, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D rg = srcRounded.createGraphics();
+                rg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                rg.setClip(new RoundRectangle2D.Double(0, 0, iw, ih, radius * 2, radius * 2));
+                rg.drawImage(image, 0, 0, null);
+                rg.dispose();
+                image = srcRounded;
             }
 
-            // Calculate shaped image size and position
-            int maxDim = Math.max(targetW, targetH);
-            int ovSize = (int) (maxDim * overlaySize / 100.0);
-            double imgW = image.getWidth();
-            double imgH = image.getHeight();
-            double ovScale = Math.min(ovSize / imgW, ovSize / imgH);
-            int drawW = Math.max(1, (int) (imgW * ovScale));
-            int drawH = Math.max(1, (int) (imgH * ovScale));
-            int centerX = (int) (overlayX / 100.0 * targetW);
-            int centerY = (int) (overlayY / 100.0 * targetH);
-            int drawX = centerX - drawW / 2;
-            int drawY = centerY - drawH / 2;
-
-            if ("Circular".equals(overlayShape)) {
-                int diameter = Math.min(drawW, drawH);
-                BufferedImage circleImg = new BufferedImage(diameter, diameter, BufferedImage.TYPE_INT_ARGB);
-                Graphics2D cg = circleImg.createGraphics();
-                cg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                cg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-                cg.setClip(new java.awt.geom.Ellipse2D.Double(0, 0, diameter, diameter));
-                // Center-crop the image into the circle
-                double cropScale = Math.max((double) diameter / imgW, (double) diameter / imgH);
-                int cw = (int) (imgW * cropScale);
-                int ch = (int) (imgH * cropScale);
-                cg.drawImage(image, (diameter - cw) / 2, (diameter - ch) / 2, cw, ch, null);
-                cg.dispose();
-                // Draw with subtle shadow
-                Graphics2D sg = (Graphics2D) g.create();
-                sg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                sg.setColor(new Color(0, 0, 0, 80));
-                sg.fillOval(centerX - diameter / 2 + 4, centerY - diameter / 2 + 4, diameter, diameter);
-                sg.dispose();
-                g.drawImage(circleImg, centerX - diameter / 2, centerY - diameter / 2, null);
-            } else {
-                // Rectangular with slight rounded corners and shadow
-                int cornerR = Math.max(4, drawW / 30);
-                BufferedImage rectImg = new BufferedImage(drawW, drawH, BufferedImage.TYPE_INT_ARGB);
-                Graphics2D rg2 = rectImg.createGraphics();
-                rg2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                rg2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-                rg2.setClip(new RoundRectangle2D.Double(0, 0, drawW, drawH, cornerR * 2, cornerR * 2));
-                rg2.drawImage(image, 0, 0, drawW, drawH, null);
-                rg2.dispose();
-                // Draw with subtle shadow
-                Graphics2D sg = (Graphics2D) g.create();
-                sg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                sg.setColor(new Color(0, 0, 0, 80));
-                sg.fillRoundRect(drawX + 4, drawY + 4, drawW, drawH, cornerR * 2, cornerR * 2);
-                sg.dispose();
-                g.drawImage(rectImg, drawX, drawY, null);
-            }
-        } else
-
-        switch (displayMode) {
-            case "Direct": {
-                g.drawImage(image, 0, 0, targetW, targetH, null);
-                break;
-            }
-            case "Fill (Crop)": {
-                double sc = Math.max((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
-                int dw = (int) (image.getWidth() * sc);
-                int dh = (int) (image.getHeight() * sc);
-                g.drawImage(image, (targetW - dw) / 2, (targetH - dh) / 2, dw, dh, null);
-                break;
-            }
-            case "Fit (Bars)": {
-                double sc = Math.min((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
-                int dw = (int) (image.getWidth() * sc);
-                int dh = (int) (image.getHeight() * sc);
-                g.drawImage(image, (targetW - dw) / 2, (targetH - dh) / 2, dw, dh, null);
-                break;
-            }
-            case "Original Size": {
-                int ox = (targetW - image.getWidth()) / 2;
-                int oy = (targetH - image.getHeight()) / 2;
-                g.drawImage(image, ox, oy, null);
-                break;
-            }
-            case "Stretch": {
-                g.drawImage(image, 0, 0, targetW, targetH, null);
-                break;
-            }
-            case "Top-Fit": {
-                double sc = Math.min((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
-                int dw = (int) (image.getWidth() * sc);
-                int dh = (int) (image.getHeight() * sc);
-                g.drawImage(image, (targetW - dw) / 2, 0, dw, dh, null);
-                break;
-            }
-            case "Bottom-Fit": {
-                double sc = Math.min((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
-                int dw = (int) (image.getWidth() * sc);
-                int dh = (int) (image.getHeight() * sc);
-                g.drawImage(image, (targetW - dw) / 2, targetH - dh, dw, dh, null);
-                break;
-            }
-            case "Left-Fit": {
-                double sc = Math.min((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
-                int dw = (int) (image.getWidth() * sc);
-                int dh = (int) (image.getHeight() * sc);
-                g.drawImage(image, 0, (targetH - dh) / 2, dw, dh, null);
-                break;
-            }
-            case "Right-Fit": {
-                double sc = Math.min((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
-                int dw = (int) (image.getWidth() * sc);
-                int dh = (int) (image.getHeight() * sc);
-                g.drawImage(image, targetW - dw, (targetH - dh) / 2, dw, dh, null);
-                break;
-            }
-            default: { // "Blur-Fit"
-                double coverScale = Math.max((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
-                int bgW = (int) (image.getWidth() * coverScale);
-                int bgH = (int) (image.getHeight() * coverScale);
-                BufferedImage bgScaled = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
-                Graphics2D bgG = bgScaled.createGraphics();
-                bgG.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-                bgG.drawImage(image, (targetW - bgW) / 2, (targetH - bgH) / 2, bgW, bgH, null);
-                bgG.dispose();
-                BufferedImage blurred = applyStackBlur(bgScaled, 60);
-                Graphics2D blurG = blurred.createGraphics();
-                blurG.setColor(new Color(0, 0, 0, 100));
-                blurG.fillRect(0, 0, targetW, targetH);
-                blurG.dispose();
-                g.drawImage(blurred, 0, 0, null);
-
-                double fitScale = Math.min((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
-                int dw = (int) (image.getWidth() * fitScale);
-                int dh = (int) (image.getHeight() * fitScale);
-                g.drawImage(image, (targetW - dw) / 2, (targetH - dh) / 2, dw, dh, null);
-                break;
-            }
-        }
-
-        // ========== APPLY IMAGE EFFECTS (intensity 0=off, 1-100) ==========
-        if (fxSepia > 0) {
-            double strength = fxSepia / 100.0;
-            int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
-            for (int i = 0; i < px.length; i++) {
-                int r = (px[i] >> 16) & 0xFF;
-                int gr = (px[i] >> 8) & 0xFF;
-                int b = px[i] & 0xFF;
-                int sr = Math.min(255, (int)(0.393 * r + 0.769 * gr + 0.189 * b));
-                int sg2 = Math.min(255, (int)(0.349 * r + 0.686 * gr + 0.168 * b));
-                int sb = Math.min(255, (int)(0.272 * r + 0.534 * gr + 0.131 * b));
-                int tr = (int)(r + (sr - r) * strength);
-                int tg = (int)(gr + (sg2 - gr) * strength);
-                int tb = (int)(b + (sb - b) * strength);
-                px[i] = (0xFF << 24) | (tr << 16) | (tg << 8) | tb;
-            }
-            frame.setRGB(0, 0, targetW, targetH, px, 0, targetW);
-        }
-
-        if (fxWaterRipple > 0) {
-            double strength = fxWaterRipple / 50.0;
-            int[] src = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
-            int[] dst = new int[src.length];
-            double amplitude = targetH * 0.006 * strength;
-            double frequency = 2.0 * Math.PI / (targetH * 0.12);
-            double phase = animFrameIndex * 0.15;
-            for (int y = 0; y < targetH; y++) {
-                int xOff = (int)(amplitude * Math.sin(frequency * y + phase));
-                for (int x = 0; x < targetW; x++) {
-                    int sx = Math.max(0, Math.min(targetW - 1, x + xOff));
-                    dst[y * targetW + x] = src[y * targetW + sx];
+            // ========== IMAGE SHAPE MODE (floating shaped image on blurred background) ==========
+            if (overlayEnabled && overlaySize > 0) {
+                // Draw background
+                if ("Color".equals(overlayBgMode) && overlayBgColor != null) {
+                    g.setColor(overlayBgColor);
+                    g.fillRect(0, 0, targetW, targetH);
+                } else {
+                    double coverScale = Math.max((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
+                    int bgW = (int) (image.getWidth() * coverScale);
+                    int bgH = (int) (image.getHeight() * coverScale);
+                    BufferedImage bgScaled = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
+                    Graphics2D bgG = bgScaled.createGraphics();
+                    bgG.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                    bgG.drawImage(image, (targetW - bgW) / 2, (targetH - bgH) / 2, bgW, bgH, null);
+                    bgG.dispose();
+                    BufferedImage blurred = applyStackBlur(bgScaled, 60);
+                    Graphics2D blurG = blurred.createGraphics();
+                    blurG.setColor(new Color(0, 0, 0, 100));
+                    blurG.fillRect(0, 0, targetW, targetH);
+                    blurG.dispose();
+                    g.drawImage(blurred, 0, 0, null);
                 }
-            }
-            frame.setRGB(0, 0, targetW, targetH, dst, 0, targetW);
-        }
 
-        if (fxGlitch > 0) {
-            double strength = fxGlitch / 50.0;
-            int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
-            Random glitchRng = new Random(137L + animFrameIndex * 31L);
-            int numBands = (int)((4 + glitchRng.nextInt(6)) * strength);
-            int maxShift = Math.max(1, (int)(targetW / 10 * strength));
-            for (int band = 0; band < numBands; band++) {
-                int bandY = glitchRng.nextInt(targetH);
-                int bandH = (int)((2 + glitchRng.nextInt(Math.max(1, targetH / 40))) * strength);
-                int shift = glitchRng.nextInt(Math.max(1, maxShift)) - maxShift / 2;
-                for (int y = bandY; y < Math.min(targetH, bandY + bandH); y++) {
-                    int[] row = new int[targetW];
-                    for (int x = 0; x < targetW; x++) {
-                        row[x] = px[y * targetW + ((x + shift + targetW) % targetW)];
+                // Calculate shaped image size and position
+                int maxDim = Math.max(targetW, targetH);
+                int ovSize = (int) (maxDim * overlaySize / 100.0);
+                double imgW = image.getWidth();
+                double imgH = image.getHeight();
+                double ovScale = Math.min(ovSize / imgW, ovSize / imgH);
+                int drawW = Math.max(1, (int) (imgW * ovScale));
+                int drawH = Math.max(1, (int) (imgH * ovScale));
+                int centerX = (int) (overlayX / 100.0 * targetW);
+                int centerY = (int) (overlayY / 100.0 * targetH);
+                int drawX = centerX - drawW / 2;
+                int drawY = centerY - drawH / 2;
+
+                if ("Circular".equals(overlayShape)) {
+                    int diameter = Math.min(drawW, drawH);
+                    BufferedImage circleImg = new BufferedImage(diameter, diameter, BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D cg = circleImg.createGraphics();
+                    cg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    cg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                    cg.setClip(new java.awt.geom.Ellipse2D.Double(0, 0, diameter, diameter));
+                    // Center-crop the image into the circle
+                    double cropScale = Math.max((double) diameter / imgW, (double) diameter / imgH);
+                    int cw = (int) (imgW * cropScale);
+                    int ch = (int) (imgH * cropScale);
+                    cg.drawImage(image, (diameter - cw) / 2, (diameter - ch) / 2, cw, ch, null);
+                    cg.dispose();
+                    // Draw with subtle shadow
+                    Graphics2D sg = (Graphics2D) g.create();
+                    sg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    sg.setColor(new Color(0, 0, 0, 80));
+                    sg.fillOval(centerX - diameter / 2 + 4, centerY - diameter / 2 + 4, diameter, diameter);
+                    sg.dispose();
+                    g.drawImage(circleImg, centerX - diameter / 2, centerY - diameter / 2, null);
+                } else {
+                    // Rectangular with slight rounded corners and shadow
+                    int cornerR = Math.max(4, drawW / 30);
+                    BufferedImage rectImg = new BufferedImage(drawW, drawH, BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D rg2 = rectImg.createGraphics();
+                    rg2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    rg2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                    rg2.setClip(new RoundRectangle2D.Double(0, 0, drawW, drawH, cornerR * 2, cornerR * 2));
+                    rg2.drawImage(image, 0, 0, drawW, drawH, null);
+                    rg2.dispose();
+                    // Draw with subtle shadow
+                    Graphics2D sg = (Graphics2D) g.create();
+                    sg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    sg.setColor(new Color(0, 0, 0, 80));
+                    sg.fillRoundRect(drawX + 4, drawY + 4, drawW, drawH, cornerR * 2, cornerR * 2);
+                    sg.dispose();
+                    g.drawImage(rectImg, drawX, drawY, null);
+                }
+            } else
+
+                switch (displayMode) {
+                    case "Direct": {
+                        g.drawImage(image, 0, 0, targetW, targetH, null);
+                        break;
                     }
-                    System.arraycopy(row, 0, px, y * targetW, targetW);
+                    case "Fill (Crop)": {
+                        double sc = Math.max((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
+                        int dw = (int) (image.getWidth() * sc);
+                        int dh = (int) (image.getHeight() * sc);
+                        g.drawImage(image, (targetW - dw) / 2, (targetH - dh) / 2, dw, dh, null);
+                        break;
+                    }
+                    case "Fit (Bars)": {
+                        double sc = Math.min((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
+                        int dw = (int) (image.getWidth() * sc);
+                        int dh = (int) (image.getHeight() * sc);
+                        g.drawImage(image, (targetW - dw) / 2, (targetH - dh) / 2, dw, dh, null);
+                        break;
+                    }
+                    case "Original Size": {
+                        int ox = (targetW - image.getWidth()) / 2;
+                        int oy = (targetH - image.getHeight()) / 2;
+                        g.drawImage(image, ox, oy, null);
+                        break;
+                    }
+                    case "Stretch": {
+                        g.drawImage(image, 0, 0, targetW, targetH, null);
+                        break;
+                    }
+                    case "Top-Fit": {
+                        double sc = Math.min((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
+                        int dw = (int) (image.getWidth() * sc);
+                        int dh = (int) (image.getHeight() * sc);
+                        g.drawImage(image, (targetW - dw) / 2, 0, dw, dh, null);
+                        break;
+                    }
+                    case "Bottom-Fit": {
+                        double sc = Math.min((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
+                        int dw = (int) (image.getWidth() * sc);
+                        int dh = (int) (image.getHeight() * sc);
+                        g.drawImage(image, (targetW - dw) / 2, targetH - dh, dw, dh, null);
+                        break;
+                    }
+                    case "Left-Fit": {
+                        double sc = Math.min((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
+                        int dw = (int) (image.getWidth() * sc);
+                        int dh = (int) (image.getHeight() * sc);
+                        g.drawImage(image, 0, (targetH - dh) / 2, dw, dh, null);
+                        break;
+                    }
+                    case "Right-Fit": {
+                        double sc = Math.min((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
+                        int dw = (int) (image.getWidth() * sc);
+                        int dh = (int) (image.getHeight() * sc);
+                        g.drawImage(image, targetW - dw, (targetH - dh) / 2, dw, dh, null);
+                        break;
+                    }
+                    default: { // "Blur-Fit"
+                        double coverScale = Math.max((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
+                        int bgW = (int) (image.getWidth() * coverScale);
+                        int bgH = (int) (image.getHeight() * coverScale);
+                        BufferedImage bgScaled = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
+                        Graphics2D bgG = bgScaled.createGraphics();
+                        bgG.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                        bgG.drawImage(image, (targetW - bgW) / 2, (targetH - bgH) / 2, bgW, bgH, null);
+                        bgG.dispose();
+                        BufferedImage blurred = applyStackBlur(bgScaled, 60);
+                        Graphics2D blurG = blurred.createGraphics();
+                        blurG.setColor(new Color(0, 0, 0, 100));
+                        blurG.fillRect(0, 0, targetW, targetH);
+                        blurG.dispose();
+                        g.drawImage(blurred, 0, 0, null);
+
+                        double fitScale = Math.min((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
+                        int dw = (int) (image.getWidth() * fitScale);
+                        int dh = (int) (image.getHeight() * fitScale);
+                        g.drawImage(image, (targetW - dw) / 2, (targetH - dh) / 2, dw, dh, null);
+                        break;
+                    }
                 }
-            }
-            int rShift = Math.max(1, (int)(targetW / 80 * strength));
-            int channelPhase = (animFrameIndex % 3);
-            int[] result = new int[px.length];
-            for (int y = 0; y < targetH; y++) {
-                for (int x = 0; x < targetW; x++) {
-                    int idx = y * targetW + x;
-                    int rOff = channelPhase == 0 ? rShift : (channelPhase == 1 ? -rShift : rShift / 2);
-                    int bOff = channelPhase == 0 ? -rShift : (channelPhase == 1 ? rShift : -rShift / 2);
-                    int rIdx = y * targetW + Math.min(targetW - 1, Math.max(0, x + rOff));
-                    int bIdx = y * targetW + Math.min(targetW - 1, Math.max(0, x + bOff));
-                    int rv = (px[rIdx] >> 16) & 0xFF;
-                    int gv = (px[idx] >> 8) & 0xFF;
-                    int bv = px[bIdx] & 0xFF;
-                    result[idx] = (0xFF << 24) | (rv << 16) | (gv << 8) | bv;
+
+            // ========== APPLY IMAGE EFFECTS (intensity 0=off, 1-100) ==========
+            if (fxSepia > 0) {
+                double strength = fxSepia / 100.0;
+                int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+                for (int i = 0; i < px.length; i++) {
+                    int r = (px[i] >> 16) & 0xFF;
+                    int gr = (px[i] >> 8) & 0xFF;
+                    int b = px[i] & 0xFF;
+                    int sr = Math.min(255, (int)(0.393 * r + 0.769 * gr + 0.189 * b));
+                    int sg2 = Math.min(255, (int)(0.349 * r + 0.686 * gr + 0.168 * b));
+                    int sb = Math.min(255, (int)(0.272 * r + 0.534 * gr + 0.131 * b));
+                    int tr = (int)(r + (sr - r) * strength);
+                    int tg = (int)(gr + (sg2 - gr) * strength);
+                    int tb = (int)(b + (sb - b) * strength);
+                    px[i] = (0xFF << 24) | (tr << 16) | (tg << 8) | tb;
                 }
+                frame.setRGB(0, 0, targetW, targetH, px, 0, targetW);
             }
-            frame.setRGB(0, 0, targetW, targetH, result, 0, targetW);
-        }
 
-        if (fxGrain > 0) {
-            applyGrain(frame, fxGrain, animFrameIndex);
-        }
-
-        if (fxShake > 0) {
-            double strength = fxShake / 50.0;
-            BufferedImage shaken = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
-            Graphics2D sg = shaken.createGraphics();
-            sg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-            sg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            sg.setColor(new Color(21, 32, 43));
-            sg.fillRect(0, 0, targetW, targetH);
-            double shakeAngle = Math.toRadians(1.8 * strength * Math.sin(animFrameIndex * 0.7));
-            double shakeOffX = targetW * 0.01 * strength * Math.sin(animFrameIndex * 1.1);
-            double shakeOffY = targetH * 0.008 * strength * Math.cos(animFrameIndex * 0.9);
-            AffineTransform at = new AffineTransform();
-            at.translate(targetW / 2.0, targetH / 2.0);
-            at.rotate(shakeAngle);
-            at.translate(shakeOffX, shakeOffY);
-            at.translate(-targetW / 2.0, -targetH / 2.0);
-            sg.drawImage(frame, at, null);
-            sg.dispose();
-            Graphics2D fg = frame.createGraphics();
-            fg.drawImage(shaken, 0, 0, null);
-            fg.dispose();
-        }
-
-        // CRT Scanlines — smooth sine-wave darkening like real CRT phosphor rows
-        if (fxScanline > 0) {
-            double strength = fxScanline / 100.0;
-            int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
-            // Line period scales: 2px at max intensity, 6px at min
-            double period = 6.0 - 4.0 * strength;
-            // How dark the dark lines get: 0.15 (very dark) at max, 0.6 (subtle) at min
-            double minBright = 0.6 - 0.45 * strength;
-            double freq = 2.0 * Math.PI / period;
-            for (int y = 0; y < targetH; y++) {
-                // Sine gives smooth brightness oscillation between minBright and 1.0
-                double brightness = minBright + (1.0 - minBright) * (0.5 + 0.5 * Math.sin(freq * y));
-                int rowOff = y * targetW;
-                for (int x = 0; x < targetW; x++) {
-                    int idx = rowOff + x;
-                    int r = (int)(((px[idx] >> 16) & 0xFF) * brightness);
-                    int gv = (int)(((px[idx] >> 8) & 0xFF) * brightness);
-                    int b = (int)((px[idx] & 0xFF) * brightness);
-                    px[idx] = (0xFF << 24) | (r << 16) | (gv << 8) | b;
+            if (fxWaterRipple > 0) {
+                double strength = fxWaterRipple / 50.0;
+                int[] src = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+                int[] dst = new int[src.length];
+                double amplitude = targetH * 0.006 * strength;
+                double frequency = 2.0 * Math.PI / (targetH * 0.12);
+                double phase = animFrameIndex * 0.15;
+                for (int y = 0; y < targetH; y++) {
+                    int xOff = (int)(amplitude * Math.sin(frequency * y + phase));
+                    for (int x = 0; x < targetW; x++) {
+                        int sx = Math.max(0, Math.min(targetW - 1, x + xOff));
+                        dst[y * targetW + x] = src[y * targetW + sx];
+                    }
                 }
+                frame.setRGB(0, 0, targetW, targetH, dst, 0, targetW);
             }
-            frame.setRGB(0, 0, targetW, targetH, px, 0, targetW);
-        }
 
-        // Raised — 3D emboss/bevel effect using directional lighting on edges
-        if (fxRaised > 0) {
-            double strength = fxRaised / 100.0;
-            int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
-            int[] result = new int[px.length];
-
-            // Light direction: top-left (angle ~135 degrees)
-            // We compare each pixel with its neighbors to detect surface slope,
-            // then brighten slopes facing the light and darken slopes facing away.
-            double bevelAmount = 80 + 175 * strength; // how strong the 3D effect is
-
-            for (int y = 0; y < targetH; y++) {
-                for (int x = 0; x < targetW; x++) {
-                    int idx = y * targetW + x;
-                    int c = px[idx];
-                    int cr = (c >> 16) & 0xFF;
-                    int cg = (c >> 8) & 0xFF;
-                    int cb = c & 0xFF;
-
-                    // Get luminance of neighbors for edge/slope detection
-                    int lumC = (cr * 299 + cg * 587 + cb * 114) / 1000;
-
-                    // Top-left neighbor (light side)
-                    int tlIdx = (y > 0 && x > 0) ? (y - 1) * targetW + (x - 1) : idx;
-                    int tl = px[tlIdx];
-                    int lumTL = (((tl >> 16) & 0xFF) * 299 + ((tl >> 8) & 0xFF) * 587 + (tl & 0xFF) * 114) / 1000;
-
-                    // Bottom-right neighbor (shadow side)
-                    int brIdx = (y < targetH - 1 && x < targetW - 1) ? (y + 1) * targetW + (x + 1) : idx;
-                    int br = px[brIdx];
-                    int lumBR = (((br >> 16) & 0xFF) * 299 + ((br >> 8) & 0xFF) * 587 + (br & 0xFF) * 114) / 1000;
-
-                    // Slope: positive = facing light (highlight), negative = facing away (shadow)
-                    double slope = (lumTL - lumBR) / 255.0;
-                    int adjustment = (int)(slope * bevelAmount);
-
-                    int nr = Math.max(0, Math.min(255, cr + adjustment));
-                    int ng = Math.max(0, Math.min(255, cg + adjustment));
-                    int nb = Math.max(0, Math.min(255, cb + adjustment));
-                    result[idx] = (0xFF << 24) | (nr << 16) | (ng << 8) | nb;
+            if (fxGlitch > 0) {
+                double strength = fxGlitch / 50.0;
+                int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+                Random glitchRng = new Random(137L + animFrameIndex * 31L);
+                int numBands = (int)((4 + glitchRng.nextInt(6)) * strength);
+                int maxShift = Math.max(1, (int)(targetW / 10 * strength));
+                for (int band = 0; band < numBands; band++) {
+                    int bandY = glitchRng.nextInt(targetH);
+                    int bandH = (int)((2 + glitchRng.nextInt(Math.max(1, targetH / 40))) * strength);
+                    int shift = glitchRng.nextInt(Math.max(1, maxShift)) - maxShift / 2;
+                    for (int y = bandY; y < Math.min(targetH, bandY + bandH); y++) {
+                        int[] row = new int[targetW];
+                        for (int x = 0; x < targetW; x++) {
+                            row[x] = px[y * targetW + ((x + shift + targetW) % targetW)];
+                        }
+                        System.arraycopy(row, 0, px, y * targetW, targetW);
+                    }
                 }
+                int rShift = Math.max(1, (int)(targetW / 80 * strength));
+                int channelPhase = (animFrameIndex % 3);
+                int[] result = new int[px.length];
+                for (int y = 0; y < targetH; y++) {
+                    for (int x = 0; x < targetW; x++) {
+                        int idx = y * targetW + x;
+                        int rOff = channelPhase == 0 ? rShift : (channelPhase == 1 ? -rShift : rShift / 2);
+                        int bOff = channelPhase == 0 ? -rShift : (channelPhase == 1 ? rShift : -rShift / 2);
+                        int rIdx = y * targetW + Math.min(targetW - 1, Math.max(0, x + rOff));
+                        int bIdx = y * targetW + Math.min(targetW - 1, Math.max(0, x + bOff));
+                        int rv = (px[rIdx] >> 16) & 0xFF;
+                        int gv = (px[idx] >> 8) & 0xFF;
+                        int bv = px[bIdx] & 0xFF;
+                        result[idx] = (0xFF << 24) | (rv << 16) | (gv << 8) | bv;
+                    }
+                }
+                frame.setRGB(0, 0, targetW, targetH, result, 0, targetW);
             }
-            frame.setRGB(0, 0, targetW, targetH, result, 0, targetW);
-        }
 
-        if (fxVignette > 0) {
-            double strength = fxVignette / 50.0;
-            int midAlpha = Math.min(255, (int)(100 * strength));
-            int edgeAlpha = Math.min(255, (int)(200 * strength));
-            Graphics2D vg = (Graphics2D) g.create();
-            float cx = targetW / 2.0f, cy = targetH / 2.0f;
-            float vRadius = (float) Math.sqrt(cx * cx + cy * cy);
-            RadialGradientPaint vPaint = new RadialGradientPaint(
-                cx, cy, vRadius,
-                new float[]{0.0f, 0.45f, 0.85f, 1.0f},
-                new Color[]{new Color(0,0,0,0), new Color(0,0,0,0),
-                            new Color(0,0,0,midAlpha), new Color(0,0,0,edgeAlpha)}
-            );
-            vg.setPaint(vPaint);
-            vg.fillRect(0, 0, targetW, targetH);
-            vg.dispose();
-        }
-      } // end if (!transparentBase) — base image, image-shape, displayMode, FX
+            if (fxGrain > 0) {
+                applyGrain(frame, fxGrain, animFrameIndex);
+            }
+
+            if (fxShake > 0) {
+                double strength = fxShake / 50.0;
+                BufferedImage shaken = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
+                Graphics2D sg = shaken.createGraphics();
+                sg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                sg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                sg.setColor(new Color(21, 32, 43));
+                sg.fillRect(0, 0, targetW, targetH);
+                double shakeAngle = Math.toRadians(1.8 * strength * Math.sin(animFrameIndex * 0.7));
+                double shakeOffX = targetW * 0.01 * strength * Math.sin(animFrameIndex * 1.1);
+                double shakeOffY = targetH * 0.008 * strength * Math.cos(animFrameIndex * 0.9);
+                AffineTransform at = new AffineTransform();
+                at.translate(targetW / 2.0, targetH / 2.0);
+                at.rotate(shakeAngle);
+                at.translate(shakeOffX, shakeOffY);
+                at.translate(-targetW / 2.0, -targetH / 2.0);
+                sg.drawImage(frame, at, null);
+                sg.dispose();
+                Graphics2D fg = frame.createGraphics();
+                fg.drawImage(shaken, 0, 0, null);
+                fg.dispose();
+            }
+
+            // CRT Scanlines — smooth sine-wave darkening like real CRT phosphor rows
+            if (fxScanline > 0) {
+                double strength = fxScanline / 100.0;
+                int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+                // Line period scales: 2px at max intensity, 6px at min
+                double period = 6.0 - 4.0 * strength;
+                // How dark the dark lines get: 0.15 (very dark) at max, 0.6 (subtle) at min
+                double minBright = 0.6 - 0.45 * strength;
+                double freq = 2.0 * Math.PI / period;
+                for (int y = 0; y < targetH; y++) {
+                    // Sine gives smooth brightness oscillation between minBright and 1.0
+                    double brightness = minBright + (1.0 - minBright) * (0.5 + 0.5 * Math.sin(freq * y));
+                    int rowOff = y * targetW;
+                    for (int x = 0; x < targetW; x++) {
+                        int idx = rowOff + x;
+                        int r = (int)(((px[idx] >> 16) & 0xFF) * brightness);
+                        int gv = (int)(((px[idx] >> 8) & 0xFF) * brightness);
+                        int b = (int)((px[idx] & 0xFF) * brightness);
+                        px[idx] = (0xFF << 24) | (r << 16) | (gv << 8) | b;
+                    }
+                }
+                frame.setRGB(0, 0, targetW, targetH, px, 0, targetW);
+            }
+
+            // Raised — 3D emboss/bevel effect using directional lighting on edges
+            if (fxRaised > 0) {
+                double strength = fxRaised / 100.0;
+                int[] px = frame.getRGB(0, 0, targetW, targetH, null, 0, targetW);
+                int[] result = new int[px.length];
+
+                // Light direction: top-left (angle ~135 degrees)
+                // We compare each pixel with its neighbors to detect surface slope,
+                // then brighten slopes facing the light and darken slopes facing away.
+                double bevelAmount = 80 + 175 * strength; // how strong the 3D effect is
+
+                for (int y = 0; y < targetH; y++) {
+                    for (int x = 0; x < targetW; x++) {
+                        int idx = y * targetW + x;
+                        int c = px[idx];
+                        int cr = (c >> 16) & 0xFF;
+                        int cg = (c >> 8) & 0xFF;
+                        int cb = c & 0xFF;
+
+                        // Get luminance of neighbors for edge/slope detection
+                        int lumC = (cr * 299 + cg * 587 + cb * 114) / 1000;
+
+                        // Top-left neighbor (light side)
+                        int tlIdx = (y > 0 && x > 0) ? (y - 1) * targetW + (x - 1) : idx;
+                        int tl = px[tlIdx];
+                        int lumTL = (((tl >> 16) & 0xFF) * 299 + ((tl >> 8) & 0xFF) * 587 + (tl & 0xFF) * 114) / 1000;
+
+                        // Bottom-right neighbor (shadow side)
+                        int brIdx = (y < targetH - 1 && x < targetW - 1) ? (y + 1) * targetW + (x + 1) : idx;
+                        int br = px[brIdx];
+                        int lumBR = (((br >> 16) & 0xFF) * 299 + ((br >> 8) & 0xFF) * 587 + (br & 0xFF) * 114) / 1000;
+
+                        // Slope: positive = facing light (highlight), negative = facing away (shadow)
+                        double slope = (lumTL - lumBR) / 255.0;
+                        int adjustment = (int)(slope * bevelAmount);
+
+                        int nr = Math.max(0, Math.min(255, cr + adjustment));
+                        int ng = Math.max(0, Math.min(255, cg + adjustment));
+                        int nb = Math.max(0, Math.min(255, cb + adjustment));
+                        result[idx] = (0xFF << 24) | (nr << 16) | (ng << 8) | nb;
+                    }
+                }
+                frame.setRGB(0, 0, targetW, targetH, result, 0, targetW);
+            }
+
+            if (fxVignette > 0) {
+                double strength = fxVignette / 50.0;
+                int midAlpha = Math.min(255, (int)(100 * strength));
+                int edgeAlpha = Math.min(255, (int)(200 * strength));
+                Graphics2D vg = (Graphics2D) g.create();
+                float cx = targetW / 2.0f, cy = targetH / 2.0f;
+                float vRadius = (float) Math.sqrt(cx * cx + cy * cy);
+                RadialGradientPaint vPaint = new RadialGradientPaint(
+                        cx, cy, vRadius,
+                        new float[]{0.0f, 0.45f, 0.85f, 1.0f},
+                        new Color[]{new Color(0,0,0,0), new Color(0,0,0,0),
+                                new Color(0,0,0,midAlpha), new Color(0,0,0,edgeAlpha)}
+                );
+                vg.setPaint(vPaint);
+                vg.fillRect(0, 0, targetW, targetH);
+                vg.dispose();
+            }
+        } // end if (!transparentBase) — base image, image-shape, displayMode, FX
 
 
         // ========== SLIDE NUMBER OVERLAY ==========
@@ -3646,378 +3646,199 @@ public class GifSlideShowApp extends JFrame {
                                     hlX = lineX + stFm.stringWidth(before);
                                     hlW = stFm.stringWidth(match);
                                 }
-                            Color hlC = st.highlightColor != null ? st.highlightColor : new Color(255, 100, 150, 180);
-                            Graphics2D gHL = (Graphics2D) g.create();
-                            gHL.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                                Color hlC = st.highlightColor != null ? st.highlightColor : new Color(255, 100, 150, 180);
+                                Graphics2D gHL = (Graphics2D) g.create();
+                                gHL.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-                            int fullH = stFm.getHeight() + hlPadY * 2;
-                            int hlRectH = Math.max(2, fullH - heightShrink);
-                            int hlRectX = hlX - hlPadX;
-                            // Center the reduced-height rect vertically on the text
-                            int hlRectY = lineY - stFm.getAscent() - hlPadY + (fullH - hlRectH) / 2;
-                            int hlRectW = Math.max(1, hlW + hlPadX * 2);
-                            int arc = (int) (4 * stScaleFactor);
-                            String rawHlStyle = st.highlightStyle != null ? st.highlightStyle : "Regular";
-                            // Support "Glow:<size>" to carry a glow spread multiplier.
-                            int glowSizeParam = 7;
-                            String hlStyle = rawHlStyle;
-                            int colonIdx = rawHlStyle.indexOf(':');
-                            if (colonIdx > 0) {
-                                hlStyle = rawHlStyle.substring(0, colonIdx);
-                                try {
-                                    glowSizeParam = Integer.parseInt(rawHlStyle.substring(colonIdx + 1));
-                                } catch (NumberFormatException ignored) {}
-                            }
+                                int fullH = stFm.getHeight() + hlPadY * 2;
+                                int hlRectH = Math.max(2, fullH - heightShrink);
+                                int hlRectX = hlX - hlPadX;
+                                // Center the reduced-height rect vertically on the text
+                                int hlRectY = lineY - stFm.getAscent() - hlPadY + (fullH - hlRectH) / 2;
+                                int hlRectW = Math.max(1, hlW + hlPadX * 2);
+                                int arc = (int) (4 * stScaleFactor);
+                                String rawHlStyle = st.highlightStyle != null ? st.highlightStyle : "Regular";
+                                // Support "Glow:<size>" to carry a glow spread multiplier.
+                                int glowSizeParam = 7;
+                                String hlStyle = rawHlStyle;
+                                int colonIdx = rawHlStyle.indexOf(':');
+                                if (colonIdx > 0) {
+                                    hlStyle = rawHlStyle.substring(0, colonIdx);
+                                    try {
+                                        glowSizeParam = Integer.parseInt(rawHlStyle.substring(colonIdx + 1));
+                                    } catch (NumberFormatException ignored) {}
+                                }
 
-                            switch (hlStyle) {
-                                case "Brush": {
-                                    int absPad = Math.max(0, hlPadX);
-                                    int bh = hlRectH;
-                                    int by = hlRectY;
-                                    int bx = hlRectX - absPad;
-                                    int bw = hlRectW + absPad * 2;
-                                    long seed = (long) hlIdx * 31 + li * 997;
-                                    Random brushRng = new Random(seed);
-                                    int bands = Math.max(2, 3 + (int) (bh / (6 * stScaleFactor)));
-                                    float bandH = bh / (float) bands;
-                                    for (int bi = 0; bi < bands; bi++) {
-                                        float yOff = by + bi * bandH;
-                                        int edgeVar = Math.max(1, (int) (bw * 0.08));
-                                        int x1 = bx + brushRng.nextInt(edgeVar) - edgeVar / 2;
-                                        int x2 = bx + bw + brushRng.nextInt(edgeVar) - edgeVar / 2;
-                                        int yVar = Math.max(1, (int) (bandH * 0.3));
-                                        float y1 = yOff + brushRng.nextInt(yVar);
-                                        int thisAlpha = Math.min(255, Math.max(0, hlC.getAlpha() + brushRng.nextInt(40) - 20));
-                                        gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), thisAlpha));
-                                        int cpx = (x1 + x2) / 2 + brushRng.nextInt(Math.max(1, edgeVar * 2)) - edgeVar;
-                                        float cpy = y1 + bandH / 2 + brushRng.nextInt(yVar + 1) - yVar / 2;
-                                        float strokeW = bandH * (0.7f + brushRng.nextFloat() * 0.6f);
-                                        gHL.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                                        java.awt.geom.QuadCurve2D curve = new java.awt.geom.QuadCurve2D.Float(
-                                                x1, y1 + bandH / 2, cpx, cpy, x2, y1 + bandH / 2);
-                                        gHL.draw(curve);
-                                    }
-                                    int splatters = 4 + brushRng.nextInt(6);
-                                    for (int si = 0; si < splatters; si++) {
-                                        float sx, sy;
-                                        if (brushRng.nextBoolean()) {
-                                            sx = brushRng.nextBoolean() ? bx - brushRng.nextInt((int)(6 * stScaleFactor) + 1)
-                                                    : bx + bw + brushRng.nextInt((int)(6 * stScaleFactor) + 1);
-                                            sy = by + brushRng.nextInt(Math.max(1, bh));
-                                        } else {
-                                            sx = bx + brushRng.nextInt(Math.max(1, bw));
-                                            sy = brushRng.nextBoolean() ? by - brushRng.nextInt((int)(3 * stScaleFactor) + 1)
-                                                    : by + bh + brushRng.nextInt((int)(3 * stScaleFactor) + 1);
+                                switch (hlStyle) {
+                                    case "Brush": {
+                                        int absPad = Math.max(0, hlPadX);
+                                        int bh = hlRectH;
+                                        int by = hlRectY;
+                                        int bx = hlRectX - absPad;
+                                        int bw = hlRectW + absPad * 2;
+                                        long seed = (long) hlIdx * 31 + li * 997;
+                                        Random brushRng = new Random(seed);
+                                        int bands = Math.max(2, 3 + (int) (bh / (6 * stScaleFactor)));
+                                        float bandH = bh / (float) bands;
+                                        for (int bi = 0; bi < bands; bi++) {
+                                            float yOff = by + bi * bandH;
+                                            int edgeVar = Math.max(1, (int) (bw * 0.08));
+                                            int x1 = bx + brushRng.nextInt(edgeVar) - edgeVar / 2;
+                                            int x2 = bx + bw + brushRng.nextInt(edgeVar) - edgeVar / 2;
+                                            int yVar = Math.max(1, (int) (bandH * 0.3));
+                                            float y1 = yOff + brushRng.nextInt(yVar);
+                                            int thisAlpha = Math.min(255, Math.max(0, hlC.getAlpha() + brushRng.nextInt(40) - 20));
+                                            gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), thisAlpha));
+                                            int cpx = (x1 + x2) / 2 + brushRng.nextInt(Math.max(1, edgeVar * 2)) - edgeVar;
+                                            float cpy = y1 + bandH / 2 + brushRng.nextInt(yVar + 1) - yVar / 2;
+                                            float strokeW = bandH * (0.7f + brushRng.nextFloat() * 0.6f);
+                                            gHL.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                            java.awt.geom.QuadCurve2D curve = new java.awt.geom.QuadCurve2D.Float(
+                                                    x1, y1 + bandH / 2, cpx, cpy, x2, y1 + bandH / 2);
+                                            gHL.draw(curve);
                                         }
-                                        float dotR = 1 + brushRng.nextFloat() * 3 * stScaleFactor;
-                                        int dotAlpha = Math.min(255, (int) (hlC.getAlpha() * (0.3 + brushRng.nextFloat() * 0.5)));
-                                        gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), dotAlpha));
-                                        gHL.fill(new java.awt.geom.Ellipse2D.Float(sx - dotR, sy - dotR, dotR * 2, dotR * 2));
-                                    }
-                                    break;
-                                }
-                                case "Brush2": {
-                                    // Smooth, single-pass dry brush — fewer, wider strokes with
-                                    // feathered edges and slight wobble for a calligraphy feel
-                                    int bh = hlRectH;
-                                    int by = hlRectY;
-                                    int bx = hlRectX;
-                                    int bw = hlRectW;
-                                    long seed = (long) hlIdx * 53 + li * 1301;
-                                    Random b2Rng = new Random(seed);
-
-                                    // 2-3 wide sweeping strokes that cover the whole area
-                                    int strokes = 2 + (bh > (int)(20 * stScaleFactor) ? 1 : 0);
-                                    float strokeH = bh / (float) strokes;
-                                    for (int si = 0; si < strokes; si++) {
-                                        float cy = by + si * strokeH + strokeH / 2;
-                                        // Thick calligraphic stroke
-                                        float sw = strokeH * (0.85f + b2Rng.nextFloat() * 0.3f);
-                                        gHL.setStroke(new BasicStroke(sw, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                                        int thisAlpha = Math.min(255, Math.max(0, hlC.getAlpha() - 20 + b2Rng.nextInt(40)));
-                                        gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), thisAlpha));
-
-                                        // Slight wobble via cubic curve
-                                        float wobble = strokeH * 0.15f;
-                                        float x1 = bx - (int)(2 * stScaleFactor);
-                                        float x2 = bx + bw + (int)(2 * stScaleFactor);
-                                        float cp1x = bx + bw * 0.3f + b2Rng.nextFloat() * bw * 0.1f;
-                                        float cp1y = cy + (b2Rng.nextFloat() - 0.5f) * wobble * 2;
-                                        float cp2x = bx + bw * 0.7f - b2Rng.nextFloat() * bw * 0.1f;
-                                        float cp2y = cy + (b2Rng.nextFloat() - 0.5f) * wobble * 2;
-                                        java.awt.geom.CubicCurve2D curve = new java.awt.geom.CubicCurve2D.Float(
-                                                x1, cy, cp1x, cp1y, cp2x, cp2y, x2, cy);
-                                        gHL.draw(curve);
-                                    }
-
-                                    // Feathered edge: a thin semi-transparent stroke at top and bottom
-                                    int featherAlpha = Math.min(255, hlC.getAlpha() / 3);
-                                    gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), featherAlpha));
-                                    float featherStroke = Math.max(1, 2 * stScaleFactor);
-                                    gHL.setStroke(new BasicStroke(featherStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                                    float featherWobble = 2 * stScaleFactor;
-                                    // Top feather
-                                    float fcp1 = bx + bw * 0.25f;
-                                    float fcp2 = bx + bw * 0.75f;
-                                    gHL.draw(new java.awt.geom.CubicCurve2D.Float(
-                                            bx, by, fcp1, by - featherWobble * (0.5f + b2Rng.nextFloat()),
-                                            fcp2, by + featherWobble * (0.5f + b2Rng.nextFloat()),
-                                            bx + bw, by));
-                                    // Bottom feather
-                                    gHL.draw(new java.awt.geom.CubicCurve2D.Float(
-                                            bx, by + bh, fcp1, by + bh + featherWobble * (0.5f + b2Rng.nextFloat()),
-                                            fcp2, by + bh - featherWobble * (0.5f + b2Rng.nextFloat()),
-                                            bx + bw, by + bh));
-                                    break;
-                                }
-                                case "Pill": {
-                                    gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()));
-                                    int pillArc = hlRectH;
-                                    gHL.fillRoundRect(hlRectX, hlRectY, hlRectW, hlRectH, pillArc, pillArc);
-                                    break;
-                                }
-                                case "Gradient": {
-                                    java.awt.GradientPaint gp = new java.awt.GradientPaint(
-                                            hlRectX, hlRectY, new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()),
-                                            hlRectX + hlRectW, hlRectY, new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), 0));
-                                    gHL.setPaint(gp);
-                                    gHL.fillRoundRect(hlRectX, hlRectY, hlRectW, hlRectH, arc, arc);
-                                    break;
-                                }
-                                case "Glow": {
-                                    // glowSizeParam: 1..20 controls spread (default 7)
-                                    double sizeMul = Math.max(0.2, glowSizeParam / 7.0);
-                                    int glowLayers = Math.max(3, (int) Math.round(7 * sizeMul));
-                                    double layerStep = 4.0 * stScaleFactor * sizeMul;
-                                    for (int gl = glowLayers; gl >= 0; gl--) {
-                                        int expand = (int) Math.round(gl * layerStep);
-                                        int alpha;
-                                        if (gl == 0) {
-                                            alpha = Math.min(255, hlC.getAlpha() + 30);
-                                        } else {
-                                            // Stronger outer glow with smoother falloff
-                                            double t = (double) gl / glowLayers;
-                                            alpha = Math.max(8, (int)(hlC.getAlpha() * 0.6 * (1.0 - t * t)));
+                                        int splatters = 4 + brushRng.nextInt(6);
+                                        for (int si = 0; si < splatters; si++) {
+                                            float sx, sy;
+                                            if (brushRng.nextBoolean()) {
+                                                sx = brushRng.nextBoolean() ? bx - brushRng.nextInt((int)(6 * stScaleFactor) + 1)
+                                                        : bx + bw + brushRng.nextInt((int)(6 * stScaleFactor) + 1);
+                                                sy = by + brushRng.nextInt(Math.max(1, bh));
+                                            } else {
+                                                sx = bx + brushRng.nextInt(Math.max(1, bw));
+                                                sy = brushRng.nextBoolean() ? by - brushRng.nextInt((int)(3 * stScaleFactor) + 1)
+                                                        : by + bh + brushRng.nextInt((int)(3 * stScaleFactor) + 1);
+                                            }
+                                            float dotR = 1 + brushRng.nextFloat() * 3 * stScaleFactor;
+                                            int dotAlpha = Math.min(255, (int) (hlC.getAlpha() * (0.3 + brushRng.nextFloat() * 0.5)));
+                                            gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), dotAlpha));
+                                            gHL.fill(new java.awt.geom.Ellipse2D.Float(sx - dotR, sy - dotR, dotR * 2, dotR * 2));
                                         }
-                                        gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), alpha));
-                                        gHL.fillRoundRect(hlRectX - expand, hlRectY - expand,
-                                                hlRectW + expand * 2, hlRectH + expand * 2,
-                                                arc + expand, arc + expand);
+                                        break;
                                     }
-                                    break;
-                                }
-                                case "Box": {
-                                    float strokeW = Math.max(1, 2 * stScaleFactor);
-                                    gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()));
-                                    gHL.setStroke(new BasicStroke(strokeW));
-                                    gHL.drawRoundRect(hlRectX, hlRectY, hlRectW, hlRectH, arc, arc);
-                                    gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), Math.min(255, hlC.getAlpha() / 4)));
-                                    gHL.fillRoundRect(hlRectX, hlRectY, hlRectW, hlRectH, arc, arc);
-                                    break;
-                                }
-                                case "Circle": {
-                                    // Hand-drawn circle: tight ellipse hugging the word, drawn
-                                    // as a single confident marker stroke with smoothed low-
-                                    // frequency wobble, slight tilt, and overshoot at the end.
-                                    long circleSeed = ((long) hlIdx * 131071L) ^ ((long) li * 524287L) ^ hlTerm.hashCode();
-                                    Random cRng = new Random(circleSeed);
+                                    case "Brush2": {
+                                        // Smooth, single-pass dry brush — fewer, wider strokes with
+                                        // feathered edges and slight wobble for a calligraphy feel
+                                        int bh = hlRectH;
+                                        int by = hlRectY;
+                                        int bx = hlRectX;
+                                        int bw = hlRectW;
+                                        long seed = (long) hlIdx * 53 + li * 1301;
+                                        Random b2Rng = new Random(seed);
 
-                                    double cx = hlRectX + hlRectW / 2.0;
-                                    double cy = hlRectY + hlRectH / 2.0;
-                                    // Tight: just a few pixels of breathing room beyond the rect.
-                                    double padX = Math.max(3.0, 5.0 * stScaleFactor);
-                                    double padY = Math.max(2.0, 3.5 * stScaleFactor);
-                                    double baseRx = hlRectW / 2.0 + padX;
-                                    double baseRy = hlRectH / 2.0 + padY;
-                                    double tilt = Math.toRadians(-4.0 + cRng.nextDouble() * 3.0);
-                                    double cosT = Math.cos(tilt), sinT = Math.sin(tilt);
+                                        // 2-3 wide sweeping strokes that cover the whole area
+                                        int strokes = 2 + (bh > (int)(20 * stScaleFactor) ? 1 : 0);
+                                        float strokeH = bh / (float) strokes;
+                                        for (int si = 0; si < strokes; si++) {
+                                            float cy = by + si * strokeH + strokeH / 2;
+                                            // Thick calligraphic stroke
+                                            float sw = strokeH * (0.85f + b2Rng.nextFloat() * 0.3f);
+                                            gHL.setStroke(new BasicStroke(sw, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                            int thisAlpha = Math.min(255, Math.max(0, hlC.getAlpha() - 20 + b2Rng.nextInt(40)));
+                                            gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), thisAlpha));
 
-                                    int noiseN = 14;
-                                    double[] noise = new double[noiseN];
-                                    for (int i = 0; i < noiseN; i++) noise[i] = (cRng.nextDouble() - 0.5) * 2.0;
+                                            // Slight wobble via cubic curve
+                                            float wobble = strokeH * 0.15f;
+                                            float x1 = bx - (int)(2 * stScaleFactor);
+                                            float x2 = bx + bw + (int)(2 * stScaleFactor);
+                                            float cp1x = bx + bw * 0.3f + b2Rng.nextFloat() * bw * 0.1f;
+                                            float cp1y = cy + (b2Rng.nextFloat() - 0.5f) * wobble * 2;
+                                            float cp2x = bx + bw * 0.7f - b2Rng.nextFloat() * bw * 0.1f;
+                                            float cp2y = cy + (b2Rng.nextFloat() - 0.5f) * wobble * 2;
+                                            java.awt.geom.CubicCurve2D curve = new java.awt.geom.CubicCurve2D.Float(
+                                                    x1, cy, cp1x, cp1y, cp2x, cp2y, x2, cy);
+                                            gHL.draw(curve);
+                                        }
 
-                                    int steps = 140;
-                                    double thetaStart = -Math.PI / 2.0 + Math.toRadians(-8 - cRng.nextInt(10));
-                                    double thetaEnd = -Math.PI / 2.0 + 2 * Math.PI + Math.toRadians(22 + cRng.nextInt(16));
-
-                                    java.awt.geom.Path2D.Double path = new java.awt.geom.Path2D.Double();
-                                    for (int i = 0; i <= steps; i++) {
-                                        double u = i / (double) steps;
-                                        double theta = thetaStart + (thetaEnd - thetaStart) * u;
-                                        double npos = u * (noiseN - 1);
-                                        int ni = (int) Math.floor(npos);
-                                        double nf = npos - ni;
-                                        double a = noise[Math.min(noiseN - 1, ni)];
-                                        double b = noise[Math.min(noiseN - 1, ni + 1)];
-                                        double smooth = a + (b - a) * (1 - Math.cos(nf * Math.PI)) / 2.0;
-                                        double jitter = 1.0 + smooth * 0.045;
-                                        double ex = Math.cos(theta) * baseRx * jitter;
-                                        double ey = Math.sin(theta) * baseRy * jitter;
-                                        double pxp = cx + ex * cosT - ey * sinT;
-                                        double pyp = cy + ex * sinT + ey * cosT;
-                                        if (i == 0) path.moveTo(pxp, pyp);
-                                        else path.lineTo(pxp, pyp);
+                                        // Feathered edge: a thin semi-transparent stroke at top and bottom
+                                        int featherAlpha = Math.min(255, hlC.getAlpha() / 3);
+                                        gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), featherAlpha));
+                                        float featherStroke = Math.max(1, 2 * stScaleFactor);
+                                        gHL.setStroke(new BasicStroke(featherStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                        float featherWobble = 2 * stScaleFactor;
+                                        // Top feather
+                                        float fcp1 = bx + bw * 0.25f;
+                                        float fcp2 = bx + bw * 0.75f;
+                                        gHL.draw(new java.awt.geom.CubicCurve2D.Float(
+                                                bx, by, fcp1, by - featherWobble * (0.5f + b2Rng.nextFloat()),
+                                                fcp2, by + featherWobble * (0.5f + b2Rng.nextFloat()),
+                                                bx + bw, by));
+                                        // Bottom feather
+                                        gHL.draw(new java.awt.geom.CubicCurve2D.Float(
+                                                bx, by + bh, fcp1, by + bh + featherWobble * (0.5f + b2Rng.nextFloat()),
+                                                fcp2, by + bh - featherWobble * (0.5f + b2Rng.nextFloat()),
+                                                bx + bw, by + bh));
+                                        break;
                                     }
+                                    case "Pill": {
+                                        gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()));
+                                        int pillArc = hlRectH;
+                                        gHL.fillRoundRect(hlRectX, hlRectY, hlRectW, hlRectH, pillArc, pillArc);
+                                        break;
+                                    }
+                                    case "Gradient": {
+                                        java.awt.GradientPaint gp = new java.awt.GradientPaint(
+                                                hlRectX, hlRectY, new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()),
+                                                hlRectX + hlRectW, hlRectY, new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), 0));
+                                        gHL.setPaint(gp);
+                                        gHL.fillRoundRect(hlRectX, hlRectY, hlRectW, hlRectH, arc, arc);
+                                        break;
+                                    }
+                                    case "Glow": {
+                                        // glowSizeParam: 1..20 controls spread (default 7)
+                                        double sizeMul = Math.max(0.2, glowSizeParam / 7.0);
+                                        int glowLayers = Math.max(3, (int) Math.round(7 * sizeMul));
+                                        double layerStep = 4.0 * stScaleFactor * sizeMul;
+                                        for (int gl = glowLayers; gl >= 0; gl--) {
+                                            int expand = (int) Math.round(gl * layerStep);
+                                            int alpha;
+                                            if (gl == 0) {
+                                                alpha = Math.min(255, hlC.getAlpha() + 30);
+                                            } else {
+                                                // Stronger outer glow with smoother falloff
+                                                double t = (double) gl / glowLayers;
+                                                alpha = Math.max(8, (int)(hlC.getAlpha() * 0.6 * (1.0 - t * t)));
+                                            }
+                                            gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), alpha));
+                                            gHL.fillRoundRect(hlRectX - expand, hlRectY - expand,
+                                                    hlRectW + expand * 2, hlRectH + expand * 2,
+                                                    arc + expand, arc + expand);
+                                        }
+                                        break;
+                                    }
+                                    case "Box": {
+                                        float strokeW = Math.max(1, 2 * stScaleFactor);
+                                        gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()));
+                                        gHL.setStroke(new BasicStroke(strokeW));
+                                        gHL.drawRoundRect(hlRectX, hlRectY, hlRectW, hlRectH, arc, arc);
+                                        gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), Math.min(255, hlC.getAlpha() / 4)));
+                                        gHL.fillRoundRect(hlRectX, hlRectY, hlRectW, hlRectH, arc, arc);
+                                        break;
+                                    }
+                                    case "Circle": {
+                                        // Hand-drawn circle: tight ellipse hugging the word, drawn
+                                        // as a single confident marker stroke with smoothed low-
+                                        // frequency wobble, slight tilt, and overshoot at the end.
+                                        long circleSeed = ((long) hlIdx * 131071L) ^ ((long) li * 524287L) ^ hlTerm.hashCode();
+                                        Random cRng = new Random(circleSeed);
 
-                                    float strokeW = Math.max(2.2f, 2.8f * stScaleFactor);
-                                    gHL.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                                    gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()));
-                                    gHL.draw(path);
-                                    break;
-                                }
-                                case "Scribble": {
-                                    // Energetic multi-pass scribble: 2-3 overlapping loops,
-                                    // each with its own tilt, overshoot, and center offset so
-                                    // the strokes stack and wobble differently.
-                                    long sSeed = ((long) hlIdx * 131071L) ^ ((long) li * 524287L) ^ hlTerm.hashCode();
-                                    Random sRng = new Random(sSeed);
-
-                                    double cx = hlRectX + hlRectW / 2.0;
-                                    double cy = hlRectY + hlRectH / 2.0;
-                                    double padX = Math.max(3.0, 5.0 * stScaleFactor);
-                                    double padY = Math.max(2.0, 3.5 * stScaleFactor);
-                                    double baseRx = hlRectW / 2.0 + padX;
-                                    double baseRy = hlRectH / 2.0 + padY;
-
-                                    int passes = 2 + sRng.nextInt(2);
-                                    float strokeW = Math.max(1.8f, 2.4f * stScaleFactor);
-                                    int baseAlpha = Math.max(80, hlC.getAlpha() * 3 / 4);
-                                    gHL.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-
-                                    for (int p = 0; p < passes; p++) {
-                                        double tilt = Math.toRadians(-6.0 + sRng.nextDouble() * 10.0);
+                                        double cx = hlRectX + hlRectW / 2.0;
+                                        double cy = hlRectY + hlRectH / 2.0;
+                                        // Tight: just a few pixels of breathing room beyond the rect.
+                                        double padX = Math.max(3.0, 5.0 * stScaleFactor);
+                                        double padY = Math.max(2.0, 3.5 * stScaleFactor);
+                                        double baseRx = hlRectW / 2.0 + padX;
+                                        double baseRy = hlRectH / 2.0 + padY;
+                                        double tilt = Math.toRadians(-4.0 + cRng.nextDouble() * 3.0);
                                         double cosT = Math.cos(tilt), sinT = Math.sin(tilt);
-                                        double ocx = cx + (sRng.nextDouble() - 0.5) * padX * 0.7;
-                                        double ocy = cy + (sRng.nextDouble() - 0.5) * padY * 0.7;
 
-                                        int noiseN = 12;
+                                        int noiseN = 14;
                                         double[] noise = new double[noiseN];
-                                        for (int i = 0; i < noiseN; i++) noise[i] = (sRng.nextDouble() - 0.5) * 2.0;
+                                        for (int i = 0; i < noiseN; i++) noise[i] = (cRng.nextDouble() - 0.5) * 2.0;
 
-                                        int steps = 110;
-                                        double thetaStart = -Math.PI / 2.0 + Math.toRadians(-12 - sRng.nextInt(20));
-                                        double thetaEnd = -Math.PI / 2.0 + 2 * Math.PI + Math.toRadians(20 + sRng.nextInt(30));
-
-                                        java.awt.geom.Path2D.Double path = new java.awt.geom.Path2D.Double();
-                                        for (int i = 0; i <= steps; i++) {
-                                            double u = i / (double) steps;
-                                            double theta = thetaStart + (thetaEnd - thetaStart) * u;
-                                            double npos = u * (noiseN - 1);
-                                            int ni = (int) Math.floor(npos);
-                                            double nf = npos - ni;
-                                            double a = noise[Math.min(noiseN - 1, ni)];
-                                            double b = noise[Math.min(noiseN - 1, ni + 1)];
-                                            double smooth = a + (b - a) * (1 - Math.cos(nf * Math.PI)) / 2.0;
-                                            double jitter = 1.0 + smooth * 0.06;
-                                            double ex = Math.cos(theta) * baseRx * jitter;
-                                            double ey = Math.sin(theta) * baseRy * jitter;
-                                            double pxp = ocx + ex * cosT - ey * sinT;
-                                            double pyp = ocy + ex * sinT + ey * cosT;
-                                            if (i == 0) path.moveTo(pxp, pyp);
-                                            else path.lineTo(pxp, pyp);
-                                        }
-
-                                        int passAlpha = Math.max(50, baseAlpha - p * 20);
-                                        gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), passAlpha));
-                                        gHL.draw(path);
-                                    }
-                                    break;
-                                }
-                                case "Sketch": {
-                                    // Pencil-on-paper: 3-4 thin, light passes with per-pass
-                                    // radius variance so the loops diverge, giving a drafty,
-                                    // exploratory feel.
-                                    long skSeed = ((long) hlIdx * 131071L) ^ ((long) li * 524287L) ^ hlTerm.hashCode();
-                                    Random sRng = new Random(skSeed);
-
-                                    double cx = hlRectX + hlRectW / 2.0;
-                                    double cy = hlRectY + hlRectH / 2.0;
-                                    double padX = Math.max(3.0, 5.0 * stScaleFactor);
-                                    double padY = Math.max(2.0, 3.5 * stScaleFactor);
-                                    double baseRx = hlRectW / 2.0 + padX;
-                                    double baseRy = hlRectH / 2.0 + padY;
-
-                                    int passes = 3 + sRng.nextInt(2);
-                                    float strokeW = Math.max(1f, 1.4f * stScaleFactor);
-                                    int baseAlpha = Math.max(40, hlC.getAlpha() / 2);
-                                    gHL.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-
-                                    for (int p = 0; p < passes; p++) {
-                                        double tilt = Math.toRadians(-8.0 + sRng.nextDouble() * 16.0);
-                                        double cosT = Math.cos(tilt), sinT = Math.sin(tilt);
-                                        double ocx = cx + (sRng.nextDouble() - 0.5) * padX * 1.2;
-                                        double ocy = cy + (sRng.nextDouble() - 0.5) * padY * 1.2;
-                                        double rxMul = 0.94 + sRng.nextDouble() * 0.14;
-                                        double ryMul = 0.94 + sRng.nextDouble() * 0.14;
-
-                                        int noiseN = 10;
-                                        double[] noise = new double[noiseN];
-                                        for (int i = 0; i < noiseN; i++) noise[i] = (sRng.nextDouble() - 0.5) * 2.0;
-
-                                        int steps = 100;
-                                        double thetaStart = -Math.PI / 2.0 + Math.toRadians(-25 - sRng.nextInt(30));
-                                        double thetaEnd = -Math.PI / 2.0 + 2 * Math.PI + Math.toRadians(25 + sRng.nextInt(35));
-
-                                        java.awt.geom.Path2D.Double path = new java.awt.geom.Path2D.Double();
-                                        for (int i = 0; i <= steps; i++) {
-                                            double u = i / (double) steps;
-                                            double theta = thetaStart + (thetaEnd - thetaStart) * u;
-                                            double npos = u * (noiseN - 1);
-                                            int ni = (int) Math.floor(npos);
-                                            double nf = npos - ni;
-                                            double a = noise[Math.min(noiseN - 1, ni)];
-                                            double b = noise[Math.min(noiseN - 1, ni + 1)];
-                                            double smooth = a + (b - a) * (1 - Math.cos(nf * Math.PI)) / 2.0;
-                                            double jitter = 1.0 + smooth * 0.04;
-                                            double ex = Math.cos(theta) * baseRx * rxMul * jitter;
-                                            double ey = Math.sin(theta) * baseRy * ryMul * jitter;
-                                            double pxp = ocx + ex * cosT - ey * sinT;
-                                            double pyp = ocy + ex * sinT + ey * cosT;
-                                            if (i == 0) path.moveTo(pxp, pyp);
-                                            else path.lineTo(pxp, pyp);
-                                        }
-
-                                        int passAlpha = Math.max(30, baseAlpha - p * 10);
-                                        gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), passAlpha));
-                                        gHL.draw(path);
-                                    }
-                                    break;
-                                }
-                                case "Sketch Bold": {
-                                    // Bold sibling of Sketch: same multi-pass architecture but
-                                    // thicker strokes and higher per-pass opacity so the overlaps
-                                    // build into a dense, confident loop. Tighter radius/center
-                                    // jitter keeps the passes stacked rather than smeared.
-                                    long sbSeed = ((long) hlIdx * 131071L) ^ ((long) li * 524287L) ^ hlTerm.hashCode();
-                                    Random sRng = new Random(sbSeed);
-
-                                    double cx = hlRectX + hlRectW / 2.0;
-                                    double cy = hlRectY + hlRectH / 2.0;
-                                    double padX = Math.max(3.0, 5.0 * stScaleFactor);
-                                    double padY = Math.max(2.0, 3.5 * stScaleFactor);
-                                    double baseRx = hlRectW / 2.0 + padX;
-                                    double baseRy = hlRectH / 2.0 + padY;
-
-                                    int passes = 3;
-                                    float strokeW = Math.max(3f, 3.5f * stScaleFactor);
-                                    int baseAlpha = Math.min(180, (int) (hlC.getAlpha() * 0.7));
-                                    gHL.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-
-                                    for (int p = 0; p < passes; p++) {
-                                        double tilt = Math.toRadians(-5.0 + sRng.nextDouble() * 10.0);
-                                        double cosT = Math.cos(tilt), sinT = Math.sin(tilt);
-                                        double ocx = cx + (sRng.nextDouble() - 0.5) * padX * 0.5;
-                                        double ocy = cy + (sRng.nextDouble() - 0.5) * padY * 0.5;
-                                        double rxMul = 0.97 + sRng.nextDouble() * 0.06;
-                                        double ryMul = 0.97 + sRng.nextDouble() * 0.06;
-
-                                        int noiseN = 10;
-                                        double[] noise = new double[noiseN];
-                                        for (int i = 0; i < noiseN; i++) noise[i] = (sRng.nextDouble() - 0.5) * 2.0;
-
-                                        int steps = 120;
-                                        double thetaStart = -Math.PI / 2.0 + Math.toRadians(-15 - sRng.nextInt(20));
-                                        double thetaEnd = -Math.PI / 2.0 + 2 * Math.PI + Math.toRadians(20 + sRng.nextInt(25));
+                                        int steps = 140;
+                                        double thetaStart = -Math.PI / 2.0 + Math.toRadians(-8 - cRng.nextInt(10));
+                                        double thetaEnd = -Math.PI / 2.0 + 2 * Math.PI + Math.toRadians(22 + cRng.nextInt(16));
 
                                         java.awt.geom.Path2D.Double path = new java.awt.geom.Path2D.Double();
                                         for (int i = 0; i <= steps; i++) {
@@ -4030,269 +3851,448 @@ public class GifSlideShowApp extends JFrame {
                                             double b = noise[Math.min(noiseN - 1, ni + 1)];
                                             double smooth = a + (b - a) * (1 - Math.cos(nf * Math.PI)) / 2.0;
                                             double jitter = 1.0 + smooth * 0.045;
-                                            double ex = Math.cos(theta) * baseRx * rxMul * jitter;
-                                            double ey = Math.sin(theta) * baseRy * ryMul * jitter;
-                                            double pxp = ocx + ex * cosT - ey * sinT;
-                                            double pyp = ocy + ex * sinT + ey * cosT;
+                                            double ex = Math.cos(theta) * baseRx * jitter;
+                                            double ey = Math.sin(theta) * baseRy * jitter;
+                                            double pxp = cx + ex * cosT - ey * sinT;
+                                            double pyp = cy + ex * sinT + ey * cosT;
                                             if (i == 0) path.moveTo(pxp, pyp);
                                             else path.lineTo(pxp, pyp);
                                         }
 
-                                        int passAlpha = Math.max(90, baseAlpha - p * 15);
-                                        gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), passAlpha));
+                                        float strokeW = Math.max(2.2f, 2.8f * stScaleFactor);
+                                        gHL.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                        gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()));
                                         gHL.draw(path);
+                                        break;
                                     }
-                                    break;
-                                }
-                                case "Ink": {
-                                    // Calligraphy loop: single confident stroke with variable
-                                    // width — thick on the sides (downstroke), thin on top and
-                                    // bottom (horizontal), mimicking a broad-nib pen held at a
-                                    // fixed angle.
-                                    long inkSeed = ((long) hlIdx * 131071L) ^ ((long) li * 524287L) ^ hlTerm.hashCode();
-                                    Random iRng = new Random(inkSeed);
+                                    case "Scribble": {
+                                        // Energetic multi-pass scribble: 2-3 overlapping loops,
+                                        // each with its own tilt, overshoot, and center offset so
+                                        // the strokes stack and wobble differently.
+                                        long sSeed = ((long) hlIdx * 131071L) ^ ((long) li * 524287L) ^ hlTerm.hashCode();
+                                        Random sRng = new Random(sSeed);
 
-                                    double cx = hlRectX + hlRectW / 2.0;
-                                    double cy = hlRectY + hlRectH / 2.0;
-                                    double padX = Math.max(4.0, 6.0 * stScaleFactor);
-                                    double padY = Math.max(3.0, 4.5 * stScaleFactor);
-                                    double baseRx = hlRectW / 2.0 + padX;
-                                    double baseRy = hlRectH / 2.0 + padY;
-                                    double tilt = Math.toRadians(-3.0 + iRng.nextDouble() * 3.0);
-                                    double cosT = Math.cos(tilt), sinT = Math.sin(tilt);
+                                        double cx = hlRectX + hlRectW / 2.0;
+                                        double cy = hlRectY + hlRectH / 2.0;
+                                        double padX = Math.max(3.0, 5.0 * stScaleFactor);
+                                        double padY = Math.max(2.0, 3.5 * stScaleFactor);
+                                        double baseRx = hlRectW / 2.0 + padX;
+                                        double baseRy = hlRectH / 2.0 + padY;
 
-                                    int noiseN = 12;
-                                    double[] noise = new double[noiseN];
-                                    for (int i = 0; i < noiseN; i++) noise[i] = (iRng.nextDouble() - 0.5) * 2.0;
+                                        int passes = 2 + sRng.nextInt(2);
+                                        float strokeW = Math.max(1.8f, 2.4f * stScaleFactor);
+                                        int baseAlpha = Math.max(80, hlC.getAlpha() * 3 / 4);
+                                        gHL.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
 
-                                    int steps = 160;
-                                    double thetaStart = -Math.PI / 2.0 + Math.toRadians(-8 - iRng.nextInt(8));
-                                    double thetaEnd = -Math.PI / 2.0 + 2 * Math.PI + Math.toRadians(18 + iRng.nextInt(12));
+                                        for (int p = 0; p < passes; p++) {
+                                            double tilt = Math.toRadians(-6.0 + sRng.nextDouble() * 10.0);
+                                            double cosT = Math.cos(tilt), sinT = Math.sin(tilt);
+                                            double ocx = cx + (sRng.nextDouble() - 0.5) * padX * 0.7;
+                                            double ocy = cy + (sRng.nextDouble() - 0.5) * padY * 0.7;
 
-                                    double maxHalfW = Math.max(2.5, 3.5 * stScaleFactor);
-                                    double minHalfW = Math.max(0.4, 0.6 * stScaleFactor);
+                                            int noiseN = 12;
+                                            double[] noise = new double[noiseN];
+                                            for (int i = 0; i < noiseN; i++) noise[i] = (sRng.nextDouble() - 0.5) * 2.0;
 
-                                    double[] px = new double[steps + 1];
-                                    double[] py = new double[steps + 1];
-                                    double[] halfW = new double[steps + 1];
-                                    for (int i = 0; i <= steps; i++) {
-                                        double u = i / (double) steps;
-                                        double theta = thetaStart + (thetaEnd - thetaStart) * u;
-                                        double npos = u * (noiseN - 1);
-                                        int ni = (int) Math.floor(npos);
-                                        double nf = npos - ni;
-                                        double a = noise[Math.min(noiseN - 1, ni)];
-                                        double b = noise[Math.min(noiseN - 1, ni + 1)];
-                                        double smooth = a + (b - a) * (1 - Math.cos(nf * Math.PI)) / 2.0;
-                                        double jitter = 1.0 + smooth * 0.035;
-                                        double ex = Math.cos(theta) * baseRx * jitter;
-                                        double ey = Math.sin(theta) * baseRy * jitter;
-                                        px[i] = cx + ex * cosT - ey * sinT;
-                                        py[i] = cy + ex * sinT + ey * cosT;
-                                        // Width varies with theta: thick at sides, thin at top/bottom.
-                                        double widthFactor = Math.abs(Math.cos(theta));
-                                        halfW[i] = minHalfW + (maxHalfW - minHalfW) * widthFactor;
+                                            int steps = 110;
+                                            double thetaStart = -Math.PI / 2.0 + Math.toRadians(-12 - sRng.nextInt(20));
+                                            double thetaEnd = -Math.PI / 2.0 + 2 * Math.PI + Math.toRadians(20 + sRng.nextInt(30));
+
+                                            java.awt.geom.Path2D.Double path = new java.awt.geom.Path2D.Double();
+                                            for (int i = 0; i <= steps; i++) {
+                                                double u = i / (double) steps;
+                                                double theta = thetaStart + (thetaEnd - thetaStart) * u;
+                                                double npos = u * (noiseN - 1);
+                                                int ni = (int) Math.floor(npos);
+                                                double nf = npos - ni;
+                                                double a = noise[Math.min(noiseN - 1, ni)];
+                                                double b = noise[Math.min(noiseN - 1, ni + 1)];
+                                                double smooth = a + (b - a) * (1 - Math.cos(nf * Math.PI)) / 2.0;
+                                                double jitter = 1.0 + smooth * 0.06;
+                                                double ex = Math.cos(theta) * baseRx * jitter;
+                                                double ey = Math.sin(theta) * baseRy * jitter;
+                                                double pxp = ocx + ex * cosT - ey * sinT;
+                                                double pyp = ocy + ex * sinT + ey * cosT;
+                                                if (i == 0) path.moveTo(pxp, pyp);
+                                                else path.lineTo(pxp, pyp);
+                                            }
+
+                                            int passAlpha = Math.max(50, baseAlpha - p * 20);
+                                            gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), passAlpha));
+                                            gHL.draw(path);
+                                        }
+                                        break;
                                     }
+                                    case "Sketch": {
+                                        // Pencil-on-paper: 3-4 thin, light passes with per-pass
+                                        // radius variance so the loops diverge, giving a drafty,
+                                        // exploratory feel.
+                                        long skSeed = ((long) hlIdx * 131071L) ^ ((long) li * 524287L) ^ hlTerm.hashCode();
+                                        Random sRng = new Random(skSeed);
 
-                                    double[] topX = new double[steps + 1];
-                                    double[] topY = new double[steps + 1];
-                                    double[] botX = new double[steps + 1];
-                                    double[] botY = new double[steps + 1];
-                                    for (int i = 0; i <= steps; i++) {
-                                        double tx, ty;
-                                        if (i == 0) { tx = px[1] - px[0]; ty = py[1] - py[0]; }
-                                        else if (i == steps) { tx = px[steps] - px[steps - 1]; ty = py[steps] - py[steps - 1]; }
-                                        else { tx = px[i + 1] - px[i - 1]; ty = py[i + 1] - py[i - 1]; }
-                                        double tlen = Math.sqrt(tx * tx + ty * ty);
-                                        if (tlen < 1e-6) tlen = 1;
-                                        double nxn = -ty / tlen;
-                                        double nyn = tx / tlen;
-                                        topX[i] = px[i] + nxn * halfW[i];
-                                        topY[i] = py[i] + nyn * halfW[i];
-                                        botX[i] = px[i] - nxn * halfW[i];
-                                        botY[i] = py[i] - nyn * halfW[i];
+                                        double cx = hlRectX + hlRectW / 2.0;
+                                        double cy = hlRectY + hlRectH / 2.0;
+                                        double padX = Math.max(3.0, 5.0 * stScaleFactor);
+                                        double padY = Math.max(2.0, 3.5 * stScaleFactor);
+                                        double baseRx = hlRectW / 2.0 + padX;
+                                        double baseRy = hlRectH / 2.0 + padY;
+
+                                        int passes = 3 + sRng.nextInt(2);
+                                        float strokeW = Math.max(1f, 1.4f * stScaleFactor);
+                                        int baseAlpha = Math.max(40, hlC.getAlpha() / 2);
+                                        gHL.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+
+                                        for (int p = 0; p < passes; p++) {
+                                            double tilt = Math.toRadians(-8.0 + sRng.nextDouble() * 16.0);
+                                            double cosT = Math.cos(tilt), sinT = Math.sin(tilt);
+                                            double ocx = cx + (sRng.nextDouble() - 0.5) * padX * 1.2;
+                                            double ocy = cy + (sRng.nextDouble() - 0.5) * padY * 1.2;
+                                            double rxMul = 0.94 + sRng.nextDouble() * 0.14;
+                                            double ryMul = 0.94 + sRng.nextDouble() * 0.14;
+
+                                            int noiseN = 10;
+                                            double[] noise = new double[noiseN];
+                                            for (int i = 0; i < noiseN; i++) noise[i] = (sRng.nextDouble() - 0.5) * 2.0;
+
+                                            int steps = 100;
+                                            double thetaStart = -Math.PI / 2.0 + Math.toRadians(-25 - sRng.nextInt(30));
+                                            double thetaEnd = -Math.PI / 2.0 + 2 * Math.PI + Math.toRadians(25 + sRng.nextInt(35));
+
+                                            java.awt.geom.Path2D.Double path = new java.awt.geom.Path2D.Double();
+                                            for (int i = 0; i <= steps; i++) {
+                                                double u = i / (double) steps;
+                                                double theta = thetaStart + (thetaEnd - thetaStart) * u;
+                                                double npos = u * (noiseN - 1);
+                                                int ni = (int) Math.floor(npos);
+                                                double nf = npos - ni;
+                                                double a = noise[Math.min(noiseN - 1, ni)];
+                                                double b = noise[Math.min(noiseN - 1, ni + 1)];
+                                                double smooth = a + (b - a) * (1 - Math.cos(nf * Math.PI)) / 2.0;
+                                                double jitter = 1.0 + smooth * 0.04;
+                                                double ex = Math.cos(theta) * baseRx * rxMul * jitter;
+                                                double ey = Math.sin(theta) * baseRy * ryMul * jitter;
+                                                double pxp = ocx + ex * cosT - ey * sinT;
+                                                double pyp = ocy + ex * sinT + ey * cosT;
+                                                if (i == 0) path.moveTo(pxp, pyp);
+                                                else path.lineTo(pxp, pyp);
+                                            }
+
+                                            int passAlpha = Math.max(30, baseAlpha - p * 10);
+                                            gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), passAlpha));
+                                            gHL.draw(path);
+                                        }
+                                        break;
                                     }
+                                    case "Sketch Bold": {
+                                        // Bold sibling of Sketch: same multi-pass architecture but
+                                        // thicker strokes and higher per-pass opacity so the overlaps
+                                        // build into a dense, confident loop. Tighter radius/center
+                                        // jitter keeps the passes stacked rather than smeared.
+                                        long sbSeed = ((long) hlIdx * 131071L) ^ ((long) li * 524287L) ^ hlTerm.hashCode();
+                                        Random sRng = new Random(sbSeed);
 
-                                    java.awt.geom.Path2D.Double ribbon = new java.awt.geom.Path2D.Double();
-                                    ribbon.moveTo(topX[0], topY[0]);
-                                    for (int i = 1; i <= steps; i++) ribbon.lineTo(topX[i], topY[i]);
-                                    for (int i = steps; i >= 0; i--) ribbon.lineTo(botX[i], botY[i]);
-                                    ribbon.closePath();
+                                        double cx = hlRectX + hlRectW / 2.0;
+                                        double cy = hlRectY + hlRectH / 2.0;
+                                        double padX = Math.max(3.0, 5.0 * stScaleFactor);
+                                        double padY = Math.max(2.0, 3.5 * stScaleFactor);
+                                        double baseRx = hlRectW / 2.0 + padX;
+                                        double baseRy = hlRectH / 2.0 + padY;
 
-                                    gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()));
-                                    gHL.fill(ribbon);
-                                    break;
+                                        int passes = 3;
+                                        float strokeW = Math.max(3f, 3.5f * stScaleFactor);
+                                        int baseAlpha = Math.min(180, (int) (hlC.getAlpha() * 0.7));
+                                        gHL.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+
+                                        for (int p = 0; p < passes; p++) {
+                                            double tilt = Math.toRadians(-5.0 + sRng.nextDouble() * 10.0);
+                                            double cosT = Math.cos(tilt), sinT = Math.sin(tilt);
+                                            double ocx = cx + (sRng.nextDouble() - 0.5) * padX * 0.5;
+                                            double ocy = cy + (sRng.nextDouble() - 0.5) * padY * 0.5;
+                                            double rxMul = 0.97 + sRng.nextDouble() * 0.06;
+                                            double ryMul = 0.97 + sRng.nextDouble() * 0.06;
+
+                                            int noiseN = 10;
+                                            double[] noise = new double[noiseN];
+                                            for (int i = 0; i < noiseN; i++) noise[i] = (sRng.nextDouble() - 0.5) * 2.0;
+
+                                            int steps = 120;
+                                            double thetaStart = -Math.PI / 2.0 + Math.toRadians(-15 - sRng.nextInt(20));
+                                            double thetaEnd = -Math.PI / 2.0 + 2 * Math.PI + Math.toRadians(20 + sRng.nextInt(25));
+
+                                            java.awt.geom.Path2D.Double path = new java.awt.geom.Path2D.Double();
+                                            for (int i = 0; i <= steps; i++) {
+                                                double u = i / (double) steps;
+                                                double theta = thetaStart + (thetaEnd - thetaStart) * u;
+                                                double npos = u * (noiseN - 1);
+                                                int ni = (int) Math.floor(npos);
+                                                double nf = npos - ni;
+                                                double a = noise[Math.min(noiseN - 1, ni)];
+                                                double b = noise[Math.min(noiseN - 1, ni + 1)];
+                                                double smooth = a + (b - a) * (1 - Math.cos(nf * Math.PI)) / 2.0;
+                                                double jitter = 1.0 + smooth * 0.045;
+                                                double ex = Math.cos(theta) * baseRx * rxMul * jitter;
+                                                double ey = Math.sin(theta) * baseRy * ryMul * jitter;
+                                                double pxp = ocx + ex * cosT - ey * sinT;
+                                                double pyp = ocy + ex * sinT + ey * cosT;
+                                                if (i == 0) path.moveTo(pxp, pyp);
+                                                else path.lineTo(pxp, pyp);
+                                            }
+
+                                            int passAlpha = Math.max(90, baseAlpha - p * 15);
+                                            gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), passAlpha));
+                                            gHL.draw(path);
+                                        }
+                                        break;
+                                    }
+                                    case "Ink": {
+                                        // Calligraphy loop: single confident stroke with variable
+                                        // width — thick on the sides (downstroke), thin on top and
+                                        // bottom (horizontal), mimicking a broad-nib pen held at a
+                                        // fixed angle.
+                                        long inkSeed = ((long) hlIdx * 131071L) ^ ((long) li * 524287L) ^ hlTerm.hashCode();
+                                        Random iRng = new Random(inkSeed);
+
+                                        double cx = hlRectX + hlRectW / 2.0;
+                                        double cy = hlRectY + hlRectH / 2.0;
+                                        double padX = Math.max(4.0, 6.0 * stScaleFactor);
+                                        double padY = Math.max(3.0, 4.5 * stScaleFactor);
+                                        double baseRx = hlRectW / 2.0 + padX;
+                                        double baseRy = hlRectH / 2.0 + padY;
+                                        double tilt = Math.toRadians(-3.0 + iRng.nextDouble() * 3.0);
+                                        double cosT = Math.cos(tilt), sinT = Math.sin(tilt);
+
+                                        int noiseN = 12;
+                                        double[] noise = new double[noiseN];
+                                        for (int i = 0; i < noiseN; i++) noise[i] = (iRng.nextDouble() - 0.5) * 2.0;
+
+                                        int steps = 160;
+                                        double thetaStart = -Math.PI / 2.0 + Math.toRadians(-8 - iRng.nextInt(8));
+                                        double thetaEnd = -Math.PI / 2.0 + 2 * Math.PI + Math.toRadians(18 + iRng.nextInt(12));
+
+                                        double maxHalfW = Math.max(2.5, 3.5 * stScaleFactor);
+                                        double minHalfW = Math.max(0.4, 0.6 * stScaleFactor);
+
+                                        double[] px = new double[steps + 1];
+                                        double[] py = new double[steps + 1];
+                                        double[] halfW = new double[steps + 1];
+                                        for (int i = 0; i <= steps; i++) {
+                                            double u = i / (double) steps;
+                                            double theta = thetaStart + (thetaEnd - thetaStart) * u;
+                                            double npos = u * (noiseN - 1);
+                                            int ni = (int) Math.floor(npos);
+                                            double nf = npos - ni;
+                                            double a = noise[Math.min(noiseN - 1, ni)];
+                                            double b = noise[Math.min(noiseN - 1, ni + 1)];
+                                            double smooth = a + (b - a) * (1 - Math.cos(nf * Math.PI)) / 2.0;
+                                            double jitter = 1.0 + smooth * 0.035;
+                                            double ex = Math.cos(theta) * baseRx * jitter;
+                                            double ey = Math.sin(theta) * baseRy * jitter;
+                                            px[i] = cx + ex * cosT - ey * sinT;
+                                            py[i] = cy + ex * sinT + ey * cosT;
+                                            // Width varies with theta: thick at sides, thin at top/bottom.
+                                            double widthFactor = Math.abs(Math.cos(theta));
+                                            halfW[i] = minHalfW + (maxHalfW - minHalfW) * widthFactor;
+                                        }
+
+                                        double[] topX = new double[steps + 1];
+                                        double[] topY = new double[steps + 1];
+                                        double[] botX = new double[steps + 1];
+                                        double[] botY = new double[steps + 1];
+                                        for (int i = 0; i <= steps; i++) {
+                                            double tx, ty;
+                                            if (i == 0) { tx = px[1] - px[0]; ty = py[1] - py[0]; }
+                                            else if (i == steps) { tx = px[steps] - px[steps - 1]; ty = py[steps] - py[steps - 1]; }
+                                            else { tx = px[i + 1] - px[i - 1]; ty = py[i + 1] - py[i - 1]; }
+                                            double tlen = Math.sqrt(tx * tx + ty * ty);
+                                            if (tlen < 1e-6) tlen = 1;
+                                            double nxn = -ty / tlen;
+                                            double nyn = tx / tlen;
+                                            topX[i] = px[i] + nxn * halfW[i];
+                                            topY[i] = py[i] + nyn * halfW[i];
+                                            botX[i] = px[i] - nxn * halfW[i];
+                                            botY[i] = py[i] - nyn * halfW[i];
+                                        }
+
+                                        java.awt.geom.Path2D.Double ribbon = new java.awt.geom.Path2D.Double();
+                                        ribbon.moveTo(topX[0], topY[0]);
+                                        for (int i = 1; i <= steps; i++) ribbon.lineTo(topX[i], topY[i]);
+                                        for (int i = steps; i >= 0; i--) ribbon.lineTo(botX[i], botY[i]);
+                                        ribbon.closePath();
+
+                                        gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()));
+                                        gHL.fill(ribbon);
+                                        break;
+                                    }
+                                    case "Strikethrough": {
+                                        // Rendered in the post-text foreground overlay pass so
+                                        // the strike appears on top of the text, not behind it.
+                                        break;
+                                    }
+                                    case "Tag": {
+                                        // Price-tag shape: triangular point on the left with a grommet
+                                        // hole, rounded corners on the right, soft drop shadow.
+                                        float notch = Math.max(hlRectH * 0.55f, 10 * stScaleFactor);
+                                        float tagArc = Math.min(hlRectH * 0.35f, 12 * stScaleFactor);
+                                        float tipX = hlRectX - notch;
+                                        float midY = hlRectY + hlRectH / 2f;
+                                        float rectLeft = hlRectX;
+                                        float rectRight = hlRectX + hlRectW;
+                                        float rectTop = hlRectY;
+                                        float rectBot = hlRectY + hlRectH;
+
+                                        java.awt.geom.Path2D.Double tag = new java.awt.geom.Path2D.Double();
+                                        tag.moveTo(tipX, midY);
+                                        tag.lineTo(rectLeft, rectTop);
+                                        tag.lineTo(rectRight - tagArc, rectTop);
+                                        tag.quadTo(rectRight, rectTop, rectRight, rectTop + tagArc);
+                                        tag.lineTo(rectRight, rectBot - tagArc);
+                                        tag.quadTo(rectRight, rectBot, rectRight - tagArc, rectBot);
+                                        tag.lineTo(rectLeft, rectBot);
+                                        tag.closePath();
+
+                                        // Drop shadow
+                                        gHL.setColor(new Color(0, 0, 0, Math.min(80, hlC.getAlpha() / 3)));
+                                        java.awt.geom.AffineTransform shadowTx = java.awt.geom.AffineTransform.getTranslateInstance(2 * stScaleFactor, 3 * stScaleFactor);
+                                        gHL.fill(shadowTx.createTransformedShape(tag));
+
+                                        // Main fill
+                                        gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()));
+                                        gHL.fill(tag);
+
+                                        // Subtle darker outline for definition
+                                        int outR = Math.max(0, hlC.getRed() - 40);
+                                        int outG = Math.max(0, hlC.getGreen() - 40);
+                                        int outB = Math.max(0, hlC.getBlue() - 40);
+                                        gHL.setColor(new Color(outR, outG, outB, Math.min(200, hlC.getAlpha())));
+                                        gHL.setStroke(new BasicStroke(Math.max(1f, 1.2f * stScaleFactor)));
+                                        gHL.draw(tag);
+
+                                        // Grommet hole near the tip
+                                        float holeR = Math.max(2f, notch * 0.14f);
+                                        float holeX = rectLeft - notch * 0.4f;
+                                        float holeY = midY;
+                                        // Dark hole
+                                        gHL.setColor(new Color(0, 0, 0, Math.min(200, hlC.getAlpha())));
+                                        gHL.fill(new java.awt.geom.Ellipse2D.Float(holeX - holeR, holeY - holeR, holeR * 2, holeR * 2));
+                                        // Tiny highlight on the hole to suggest a ring
+                                        float innerR = holeR * 0.55f;
+                                        gHL.setColor(new Color(255, 255, 255, Math.min(140, hlC.getAlpha() / 2)));
+                                        gHL.fill(new java.awt.geom.Ellipse2D.Float(holeX - innerR, holeY - innerR - holeR * 0.15f, innerR * 2, innerR * 2));
+                                        break;
+                                    }
+                                    case "Speech Bubble": {
+                                        // Rounded rect with a triangular tail at bottom-left,
+                                        // drop shadow and gentle top highlight.
+                                        float bArc = Math.min(hlRectH * 0.45f, 18 * stScaleFactor);
+                                        float tailW = Math.max(8f, hlRectH * 0.35f);
+                                        float tailH = Math.max(10f, hlRectH * 0.5f);
+                                        float tailBaseX = hlRectX + hlRectW * 0.22f;
+                                        float rectLeft = hlRectX;
+                                        float rectRight = hlRectX + hlRectW;
+                                        float rectTop = hlRectY;
+                                        float rectBot = hlRectY + hlRectH;
+
+                                        java.awt.geom.Path2D.Double bubble = new java.awt.geom.Path2D.Double();
+                                        bubble.moveTo(rectLeft + bArc, rectTop);
+                                        bubble.lineTo(rectRight - bArc, rectTop);
+                                        bubble.quadTo(rectRight, rectTop, rectRight, rectTop + bArc);
+                                        bubble.lineTo(rectRight, rectBot - bArc);
+                                        bubble.quadTo(rectRight, rectBot, rectRight - bArc, rectBot);
+                                        bubble.lineTo(tailBaseX + tailW, rectBot);
+                                        bubble.lineTo(tailBaseX + tailW * 0.15f, rectBot + tailH);
+                                        bubble.lineTo(tailBaseX, rectBot);
+                                        bubble.lineTo(rectLeft + bArc, rectBot);
+                                        bubble.quadTo(rectLeft, rectBot, rectLeft, rectBot - bArc);
+                                        bubble.lineTo(rectLeft, rectTop + bArc);
+                                        bubble.quadTo(rectLeft, rectTop, rectLeft + bArc, rectTop);
+                                        bubble.closePath();
+
+                                        // Drop shadow
+                                        gHL.setColor(new Color(0, 0, 0, Math.min(70, hlC.getAlpha() / 3)));
+                                        java.awt.geom.AffineTransform bShadowTx = java.awt.geom.AffineTransform.getTranslateInstance(2 * stScaleFactor, 3 * stScaleFactor);
+                                        gHL.fill(bShadowTx.createTransformedShape(bubble));
+
+                                        // Main fill
+                                        gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()));
+                                        gHL.fill(bubble);
+
+                                        // Soft top highlight for a rounded, finished look
+                                        Paint savedPaint = gHL.getPaint();
+                                        java.awt.geom.Area bubbleArea = new java.awt.geom.Area(bubble);
+                                        java.awt.Shape clipBefore = gHL.getClip();
+                                        gHL.clip(bubbleArea);
+                                        GradientPaint shine = new GradientPaint(
+                                                rectLeft, rectTop,
+                                                new Color(255, 255, 255, Math.min(70, hlC.getAlpha() / 3)),
+                                                rectLeft, rectTop + hlRectH * 0.55f,
+                                                new Color(255, 255, 255, 0));
+                                        gHL.setPaint(shine);
+                                        gHL.fillRect((int) rectLeft, (int) rectTop, hlRectW, (int)(hlRectH * 0.6f));
+                                        gHL.setClip(clipBefore);
+                                        gHL.setPaint(savedPaint);
+
+                                        // Thin darker outline for crisp edges
+                                        int outR = Math.max(0, hlC.getRed() - 35);
+                                        int outG = Math.max(0, hlC.getGreen() - 35);
+                                        int outB = Math.max(0, hlC.getBlue() - 35);
+                                        gHL.setColor(new Color(outR, outG, outB, Math.min(180, hlC.getAlpha())));
+                                        gHL.setStroke(new BasicStroke(Math.max(1f, 1.1f * stScaleFactor)));
+                                        gHL.draw(bubble);
+                                        break;
+                                    }
+                                    case "Marker": {
+                                        // Clean translucent highlighter band: horizontal fade at
+                                        // both ends for a "pen-lift" feel, small lean, and a subtle
+                                        // wet-edge at the top. No per-occurrence random noise so
+                                        // it reads as a deliberate annotation.
+                                        int mx = hlRectX - (int)(3 * stScaleFactor);
+                                        int my = hlRectY + (int)(hlRectH * 0.08f);
+                                        int mw = Math.max(4, hlRectW + (int)(6 * stScaleFactor));
+                                        int mh = Math.max(2, (int)(hlRectH * 0.86f));
+                                        int mArc = Math.max(1, (int)(3 * stScaleFactor));
+
+                                        int baseAlpha = Math.min(hlC.getAlpha(), 150);
+                                        int rC = hlC.getRed();
+                                        int gC = hlC.getGreen();
+                                        int bC = hlC.getBlue();
+
+                                        java.awt.geom.AffineTransform savedMTx = gHL.getTransform();
+                                        gHL.rotate(Math.toRadians(-0.8), mx + mw / 2.0, my + mh / 2.0);
+
+                                        java.awt.Shape clipBefore = gHL.getClip();
+                                        gHL.clip(new java.awt.geom.RoundRectangle2D.Float(mx, my, mw, mh, mArc, mArc));
+
+                                        // Horizontal fade at both ends via 4-stop gradient so the
+                                        // band looks swept, not stamped.
+                                        float fadeFrac = Math.min(0.14f, (20f * stScaleFactor) / mw);
+                                        float[] fractions = { 0f, fadeFrac, 1f - fadeFrac, 1f };
+                                        Color transparent = new Color(rC, gC, bC, 0);
+                                        Color full = new Color(rC, gC, bC, baseAlpha);
+                                        Color[] colors = { transparent, full, full, transparent };
+                                        java.awt.LinearGradientPaint lgp = new java.awt.LinearGradientPaint(
+                                                mx, my, mx + mw, my, fractions, colors);
+                                        gHL.setPaint(lgp);
+                                        gHL.fillRect(mx, my, mw, mh);
+
+                                        // Wet-edge: slightly darker band at the top of the stroke.
+                                        Color wetTop = new Color(rC, gC, bC, Math.min(255, baseAlpha + 35));
+                                        Color wetBot = new Color(rC, gC, bC, 0);
+                                        GradientPaint wetGrad = new GradientPaint(
+                                                mx, my, wetTop,
+                                                mx, my + mh * 0.35f, wetBot);
+                                        gHL.setPaint(wetGrad);
+                                        gHL.fillRect(mx, my, mw, (int)(mh * 0.35f));
+
+                                        gHL.setClip(clipBefore);
+                                        gHL.setTransform(savedMTx);
+                                        break;
+                                    }
+                                    default: { // "Regular"
+                                        gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()));
+                                        gHL.fillRoundRect(hlRectX, hlRectY, hlRectW, hlRectH, arc, arc);
+                                        break;
+                                    }
                                 }
-                                case "Strikethrough": {
-                                    // Rendered in the post-text foreground overlay pass so
-                                    // the strike appears on top of the text, not behind it.
-                                    break;
-                                }
-                                case "Tag": {
-                                    // Price-tag shape: triangular point on the left with a grommet
-                                    // hole, rounded corners on the right, soft drop shadow.
-                                    float notch = Math.max(hlRectH * 0.55f, 10 * stScaleFactor);
-                                    float tagArc = Math.min(hlRectH * 0.35f, 12 * stScaleFactor);
-                                    float tipX = hlRectX - notch;
-                                    float midY = hlRectY + hlRectH / 2f;
-                                    float rectLeft = hlRectX;
-                                    float rectRight = hlRectX + hlRectW;
-                                    float rectTop = hlRectY;
-                                    float rectBot = hlRectY + hlRectH;
-
-                                    java.awt.geom.Path2D.Double tag = new java.awt.geom.Path2D.Double();
-                                    tag.moveTo(tipX, midY);
-                                    tag.lineTo(rectLeft, rectTop);
-                                    tag.lineTo(rectRight - tagArc, rectTop);
-                                    tag.quadTo(rectRight, rectTop, rectRight, rectTop + tagArc);
-                                    tag.lineTo(rectRight, rectBot - tagArc);
-                                    tag.quadTo(rectRight, rectBot, rectRight - tagArc, rectBot);
-                                    tag.lineTo(rectLeft, rectBot);
-                                    tag.closePath();
-
-                                    // Drop shadow
-                                    gHL.setColor(new Color(0, 0, 0, Math.min(80, hlC.getAlpha() / 3)));
-                                    java.awt.geom.AffineTransform shadowTx = java.awt.geom.AffineTransform.getTranslateInstance(2 * stScaleFactor, 3 * stScaleFactor);
-                                    gHL.fill(shadowTx.createTransformedShape(tag));
-
-                                    // Main fill
-                                    gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()));
-                                    gHL.fill(tag);
-
-                                    // Subtle darker outline for definition
-                                    int outR = Math.max(0, hlC.getRed() - 40);
-                                    int outG = Math.max(0, hlC.getGreen() - 40);
-                                    int outB = Math.max(0, hlC.getBlue() - 40);
-                                    gHL.setColor(new Color(outR, outG, outB, Math.min(200, hlC.getAlpha())));
-                                    gHL.setStroke(new BasicStroke(Math.max(1f, 1.2f * stScaleFactor)));
-                                    gHL.draw(tag);
-
-                                    // Grommet hole near the tip
-                                    float holeR = Math.max(2f, notch * 0.14f);
-                                    float holeX = rectLeft - notch * 0.4f;
-                                    float holeY = midY;
-                                    // Dark hole
-                                    gHL.setColor(new Color(0, 0, 0, Math.min(200, hlC.getAlpha())));
-                                    gHL.fill(new java.awt.geom.Ellipse2D.Float(holeX - holeR, holeY - holeR, holeR * 2, holeR * 2));
-                                    // Tiny highlight on the hole to suggest a ring
-                                    float innerR = holeR * 0.55f;
-                                    gHL.setColor(new Color(255, 255, 255, Math.min(140, hlC.getAlpha() / 2)));
-                                    gHL.fill(new java.awt.geom.Ellipse2D.Float(holeX - innerR, holeY - innerR - holeR * 0.15f, innerR * 2, innerR * 2));
-                                    break;
-                                }
-                                case "Speech Bubble": {
-                                    // Rounded rect with a triangular tail at bottom-left,
-                                    // drop shadow and gentle top highlight.
-                                    float bArc = Math.min(hlRectH * 0.45f, 18 * stScaleFactor);
-                                    float tailW = Math.max(8f, hlRectH * 0.35f);
-                                    float tailH = Math.max(10f, hlRectH * 0.5f);
-                                    float tailBaseX = hlRectX + hlRectW * 0.22f;
-                                    float rectLeft = hlRectX;
-                                    float rectRight = hlRectX + hlRectW;
-                                    float rectTop = hlRectY;
-                                    float rectBot = hlRectY + hlRectH;
-
-                                    java.awt.geom.Path2D.Double bubble = new java.awt.geom.Path2D.Double();
-                                    bubble.moveTo(rectLeft + bArc, rectTop);
-                                    bubble.lineTo(rectRight - bArc, rectTop);
-                                    bubble.quadTo(rectRight, rectTop, rectRight, rectTop + bArc);
-                                    bubble.lineTo(rectRight, rectBot - bArc);
-                                    bubble.quadTo(rectRight, rectBot, rectRight - bArc, rectBot);
-                                    bubble.lineTo(tailBaseX + tailW, rectBot);
-                                    bubble.lineTo(tailBaseX + tailW * 0.15f, rectBot + tailH);
-                                    bubble.lineTo(tailBaseX, rectBot);
-                                    bubble.lineTo(rectLeft + bArc, rectBot);
-                                    bubble.quadTo(rectLeft, rectBot, rectLeft, rectBot - bArc);
-                                    bubble.lineTo(rectLeft, rectTop + bArc);
-                                    bubble.quadTo(rectLeft, rectTop, rectLeft + bArc, rectTop);
-                                    bubble.closePath();
-
-                                    // Drop shadow
-                                    gHL.setColor(new Color(0, 0, 0, Math.min(70, hlC.getAlpha() / 3)));
-                                    java.awt.geom.AffineTransform bShadowTx = java.awt.geom.AffineTransform.getTranslateInstance(2 * stScaleFactor, 3 * stScaleFactor);
-                                    gHL.fill(bShadowTx.createTransformedShape(bubble));
-
-                                    // Main fill
-                                    gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()));
-                                    gHL.fill(bubble);
-
-                                    // Soft top highlight for a rounded, finished look
-                                    Paint savedPaint = gHL.getPaint();
-                                    java.awt.geom.Area bubbleArea = new java.awt.geom.Area(bubble);
-                                    java.awt.Shape clipBefore = gHL.getClip();
-                                    gHL.clip(bubbleArea);
-                                    GradientPaint shine = new GradientPaint(
-                                            rectLeft, rectTop,
-                                            new Color(255, 255, 255, Math.min(70, hlC.getAlpha() / 3)),
-                                            rectLeft, rectTop + hlRectH * 0.55f,
-                                            new Color(255, 255, 255, 0));
-                                    gHL.setPaint(shine);
-                                    gHL.fillRect((int) rectLeft, (int) rectTop, hlRectW, (int)(hlRectH * 0.6f));
-                                    gHL.setClip(clipBefore);
-                                    gHL.setPaint(savedPaint);
-
-                                    // Thin darker outline for crisp edges
-                                    int outR = Math.max(0, hlC.getRed() - 35);
-                                    int outG = Math.max(0, hlC.getGreen() - 35);
-                                    int outB = Math.max(0, hlC.getBlue() - 35);
-                                    gHL.setColor(new Color(outR, outG, outB, Math.min(180, hlC.getAlpha())));
-                                    gHL.setStroke(new BasicStroke(Math.max(1f, 1.1f * stScaleFactor)));
-                                    gHL.draw(bubble);
-                                    break;
-                                }
-                                case "Marker": {
-                                    // Clean translucent highlighter band: horizontal fade at
-                                    // both ends for a "pen-lift" feel, small lean, and a subtle
-                                    // wet-edge at the top. No per-occurrence random noise so
-                                    // it reads as a deliberate annotation.
-                                    int mx = hlRectX - (int)(3 * stScaleFactor);
-                                    int my = hlRectY + (int)(hlRectH * 0.08f);
-                                    int mw = Math.max(4, hlRectW + (int)(6 * stScaleFactor));
-                                    int mh = Math.max(2, (int)(hlRectH * 0.86f));
-                                    int mArc = Math.max(1, (int)(3 * stScaleFactor));
-
-                                    int baseAlpha = Math.min(hlC.getAlpha(), 150);
-                                    int rC = hlC.getRed();
-                                    int gC = hlC.getGreen();
-                                    int bC = hlC.getBlue();
-
-                                    java.awt.geom.AffineTransform savedMTx = gHL.getTransform();
-                                    gHL.rotate(Math.toRadians(-0.8), mx + mw / 2.0, my + mh / 2.0);
-
-                                    java.awt.Shape clipBefore = gHL.getClip();
-                                    gHL.clip(new java.awt.geom.RoundRectangle2D.Float(mx, my, mw, mh, mArc, mArc));
-
-                                    // Horizontal fade at both ends via 4-stop gradient so the
-                                    // band looks swept, not stamped.
-                                    float fadeFrac = Math.min(0.14f, (20f * stScaleFactor) / mw);
-                                    float[] fractions = { 0f, fadeFrac, 1f - fadeFrac, 1f };
-                                    Color transparent = new Color(rC, gC, bC, 0);
-                                    Color full = new Color(rC, gC, bC, baseAlpha);
-                                    Color[] colors = { transparent, full, full, transparent };
-                                    java.awt.LinearGradientPaint lgp = new java.awt.LinearGradientPaint(
-                                            mx, my, mx + mw, my, fractions, colors);
-                                    gHL.setPaint(lgp);
-                                    gHL.fillRect(mx, my, mw, mh);
-
-                                    // Wet-edge: slightly darker band at the top of the stroke.
-                                    Color wetTop = new Color(rC, gC, bC, Math.min(255, baseAlpha + 35));
-                                    Color wetBot = new Color(rC, gC, bC, 0);
-                                    GradientPaint wetGrad = new GradientPaint(
-                                            mx, my, wetTop,
-                                            mx, my + mh * 0.35f, wetBot);
-                                    gHL.setPaint(wetGrad);
-                                    gHL.fillRect(mx, my, mw, (int)(mh * 0.35f));
-
-                                    gHL.setClip(clipBefore);
-                                    gHL.setTransform(savedMTx);
-                                    break;
-                                }
-                                default: { // "Regular"
-                                    gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()));
-                                    gHL.fillRoundRect(hlRectX, hlRectY, hlRectW, hlRectH, arc, arc);
-                                    break;
-                                }
-                            }
                                 gHL.dispose();
                                 searchFrom = hlIdx + hlTerm.length();
                             }
@@ -4330,79 +4330,79 @@ public class GifSlideShowApp extends JFrame {
                                         ulMatchX = lineX + stFm.stringWidth(ulBefore);
                                         ulMatchW = stFm.stringWidth(ulMatch);
                                     }
-                                Graphics2D gUL = (Graphics2D) g.create();
-                                gUL.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                                int ulY = lineY + stFm.getDescent() + (int) (1 * stScaleFactor);
-                                int ulX1 = ulMatchX;
-                                int ulX2 = ulMatchX + ulMatchW;
-                                float baseStroke = Math.max(1, 2 * stScaleFactor);
-                                gUL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), Math.min(255, hlC.getAlpha() + 40)));
+                                    Graphics2D gUL = (Graphics2D) g.create();
+                                    gUL.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                                    int ulY = lineY + stFm.getDescent() + (int) (1 * stScaleFactor);
+                                    int ulX1 = ulMatchX;
+                                    int ulX2 = ulMatchX + ulMatchW;
+                                    float baseStroke = Math.max(1, 2 * stScaleFactor);
+                                    gUL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), Math.min(255, hlC.getAlpha() + 40)));
 
-                                switch (ulStyle) {
-                                    case "Straight": {
-                                        gUL.setStroke(new BasicStroke(baseStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                                        gUL.drawLine(ulX1, ulY, ulX2, ulY);
-                                        break;
-                                    }
-                                    case "Wavy": {
-                                        gUL.setStroke(new BasicStroke(baseStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                                        java.awt.geom.GeneralPath wavePath = new java.awt.geom.GeneralPath();
-                                        float waveAmp = 3 * stScaleFactor;
-                                        float waveLen = 8 * stScaleFactor;
-                                        wavePath.moveTo(ulX1, ulY);
-                                        for (float wx = ulX1; wx < ulX2; wx += waveLen) {
-                                            float endX = Math.min(wx + waveLen, ulX2);
-                                            float midX = (wx + endX) / 2;
-                                            float dir = ((int) ((wx - ulX1) / waveLen) % 2 == 0) ? -waveAmp : waveAmp;
-                                            wavePath.quadTo(midX, ulY + dir, endX, ulY);
+                                    switch (ulStyle) {
+                                        case "Straight": {
+                                            gUL.setStroke(new BasicStroke(baseStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                            gUL.drawLine(ulX1, ulY, ulX2, ulY);
+                                            break;
                                         }
-                                        gUL.draw(wavePath);
-                                        break;
-                                    }
-                                    case "Double": {
-                                        float gap = 3 * stScaleFactor;
-                                        gUL.setStroke(new BasicStroke(baseStroke * 0.7f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                                        gUL.drawLine(ulX1, ulY, ulX2, ulY);
-                                        gUL.drawLine(ulX1, (int) (ulY + gap), ulX2, (int) (ulY + gap));
-                                        break;
-                                    }
-                                    case "Dotted": {
-                                        float dotSize = 2 * stScaleFactor;
-                                        float dotGap = 4 * stScaleFactor;
-                                        gUL.setStroke(new BasicStroke(baseStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
-                                                10.0f, new float[]{dotSize, dotGap}, 0.0f));
-                                        gUL.drawLine(ulX1, ulY, ulX2, ulY);
-                                        break;
-                                    }
-                                    case "Dashed": {
-                                        float dashLen = 8 * stScaleFactor;
-                                        float dashGap = 4 * stScaleFactor;
-                                        gUL.setStroke(new BasicStroke(baseStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
-                                                10.0f, new float[]{dashLen, dashGap}, 0.0f));
-                                        gUL.drawLine(ulX1, ulY, ulX2, ulY);
-                                        break;
-                                    }
-                                    case "Thick": {
-                                        gUL.setStroke(new BasicStroke(baseStroke * 3, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                                        gUL.drawLine(ulX1, ulY, ulX2, ulY);
-                                        break;
-                                    }
-                                    case "Zigzag": {
-                                        gUL.setStroke(new BasicStroke(baseStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                                        java.awt.geom.GeneralPath zigPath = new java.awt.geom.GeneralPath();
-                                        float zigAmp = 3 * stScaleFactor;
-                                        float zigLen = 6 * stScaleFactor;
-                                        zigPath.moveTo(ulX1, ulY);
-                                        boolean up = true;
-                                        for (float zx = ulX1; zx < ulX2; zx += zigLen) {
-                                            float endX = Math.min(zx + zigLen, ulX2);
-                                            zigPath.lineTo(endX, ulY + (up ? -zigAmp : zigAmp));
-                                            up = !up;
+                                        case "Wavy": {
+                                            gUL.setStroke(new BasicStroke(baseStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                            java.awt.geom.GeneralPath wavePath = new java.awt.geom.GeneralPath();
+                                            float waveAmp = 3 * stScaleFactor;
+                                            float waveLen = 8 * stScaleFactor;
+                                            wavePath.moveTo(ulX1, ulY);
+                                            for (float wx = ulX1; wx < ulX2; wx += waveLen) {
+                                                float endX = Math.min(wx + waveLen, ulX2);
+                                                float midX = (wx + endX) / 2;
+                                                float dir = ((int) ((wx - ulX1) / waveLen) % 2 == 0) ? -waveAmp : waveAmp;
+                                                wavePath.quadTo(midX, ulY + dir, endX, ulY);
+                                            }
+                                            gUL.draw(wavePath);
+                                            break;
                                         }
-                                        gUL.draw(zigPath);
-                                        break;
+                                        case "Double": {
+                                            float gap = 3 * stScaleFactor;
+                                            gUL.setStroke(new BasicStroke(baseStroke * 0.7f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                            gUL.drawLine(ulX1, ulY, ulX2, ulY);
+                                            gUL.drawLine(ulX1, (int) (ulY + gap), ulX2, (int) (ulY + gap));
+                                            break;
+                                        }
+                                        case "Dotted": {
+                                            float dotSize = 2 * stScaleFactor;
+                                            float dotGap = 4 * stScaleFactor;
+                                            gUL.setStroke(new BasicStroke(baseStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
+                                                    10.0f, new float[]{dotSize, dotGap}, 0.0f));
+                                            gUL.drawLine(ulX1, ulY, ulX2, ulY);
+                                            break;
+                                        }
+                                        case "Dashed": {
+                                            float dashLen = 8 * stScaleFactor;
+                                            float dashGap = 4 * stScaleFactor;
+                                            gUL.setStroke(new BasicStroke(baseStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
+                                                    10.0f, new float[]{dashLen, dashGap}, 0.0f));
+                                            gUL.drawLine(ulX1, ulY, ulX2, ulY);
+                                            break;
+                                        }
+                                        case "Thick": {
+                                            gUL.setStroke(new BasicStroke(baseStroke * 3, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                            gUL.drawLine(ulX1, ulY, ulX2, ulY);
+                                            break;
+                                        }
+                                        case "Zigzag": {
+                                            gUL.setStroke(new BasicStroke(baseStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                            java.awt.geom.GeneralPath zigPath = new java.awt.geom.GeneralPath();
+                                            float zigAmp = 3 * stScaleFactor;
+                                            float zigLen = 6 * stScaleFactor;
+                                            zigPath.moveTo(ulX1, ulY);
+                                            boolean up = true;
+                                            for (float zx = ulX1; zx < ulX2; zx += zigLen) {
+                                                float endX = Math.min(zx + zigLen, ulX2);
+                                                zigPath.lineTo(endX, ulY + (up ? -zigAmp : zigAmp));
+                                                up = !up;
+                                            }
+                                            gUL.draw(zigPath);
+                                            break;
+                                        }
                                     }
-                                }
                                     gUL.dispose();
                                     ulSearchFrom = ulIdx + ulTerm.length();
                                 }
@@ -4477,8 +4477,8 @@ public class GifSlideShowApp extends JFrame {
                                     savedPixels = frame.getRGB(sx, sy, sw, sh, null, 0, sw);
                                 }
                                 overrideRegions.add(new Object[]{
-                                    ovIdx, termLower.length(), ovX, ovW, flags[0], flags[1], flags[2],
-                                    savedPixels, sx, sy, sw, sh
+                                        ovIdx, termLower.length(), ovX, ovW, flags[0], flags[1], flags[2],
+                                        savedPixels, sx, sy, sw, sh
                                 });
                                 ovSearchFrom = ovIdx + termLower.length();
                             }
@@ -4739,12 +4739,12 @@ public class GifSlideShowApp extends JFrame {
                         case "Fire": {
                             int layers = 4 + (int) (5 * intensity);
                             Color[] fireColors = {
-                                new Color(180, 30, 0, (int) (50 * intensity)),    // deep red
-                                new Color(220, 60, 0, (int) (70 * intensity)),    // red-orange
-                                new Color(255, 120, 0, (int) (90 * intensity)),   // orange
-                                new Color(255, 180, 30, (int) (110 * intensity)), // gold
-                                new Color(255, 220, 80, (int) (130 * intensity)), // yellow
-                                new Color(255, 245, 160, (int) (150 * intensity)) // bright yellow
+                                    new Color(180, 30, 0, (int) (50 * intensity)),    // deep red
+                                    new Color(220, 60, 0, (int) (70 * intensity)),    // red-orange
+                                    new Color(255, 120, 0, (int) (90 * intensity)),   // orange
+                                    new Color(255, 180, 30, (int) (110 * intensity)), // gold
+                                    new Color(255, 220, 80, (int) (130 * intensity)), // yellow
+                                    new Color(255, 245, 160, (int) (150 * intensity)) // bright yellow
                             };
                             for (int fl = layers; fl >= 1; fl--) {
                                 float rise = fl * scaledStSize * 0.04f * (float) intensity;
@@ -4780,11 +4780,11 @@ public class GifSlideShowApp extends JFrame {
                         case "Ice": {
                             int layers = 4 + (int) (4 * intensity);
                             Color[] iceColors = {
-                                new Color(100, 160, 255),   // deep ice blue
-                                new Color(130, 190, 255),   // medium blue
-                                new Color(170, 210, 255),   // light blue
-                                new Color(200, 230, 255),   // pale blue
-                                new Color(230, 245, 255)    // near white frost
+                                    new Color(100, 160, 255),   // deep ice blue
+                                    new Color(130, 190, 255),   // medium blue
+                                    new Color(170, 210, 255),   // light blue
+                                    new Color(200, 230, 255),   // pale blue
+                                    new Color(230, 245, 255)    // near white frost
                             };
                             for (int il = layers; il >= 1; il--) {
                                 float spread = il * scaledStSize * 0.04f * (float) intensity;
@@ -5110,7 +5110,7 @@ public class GifSlideShowApp extends JFrame {
                             java.util.function.BiConsumer<Integer, String> drawGold = (xPos, word) -> {
                                 Shape shape = useShaped
                                         ? new java.awt.font.TextLayout(word, fxFont, frc)
-                                                .getOutline(AffineTransform.getTranslateInstance(xPos, fxLineY))
+                                        .getOutline(AffineTransform.getTranslateInstance(xPos, fxLineY))
                                         : fxFont.createGlyphVector(frc, word).getOutline(xPos, fxLineY);
                                 Rectangle b = shape.getBounds();
                                 if (b.width <= 0 || b.height <= 0) return;
@@ -5157,7 +5157,7 @@ public class GifSlideShowApp extends JFrame {
                             java.util.function.BiConsumer<Integer, String> drawChrome = (xPos, word) -> {
                                 Shape shape = useShaped
                                         ? new java.awt.font.TextLayout(word, fxFont, frc)
-                                                .getOutline(AffineTransform.getTranslateInstance(xPos, fxLineY))
+                                        .getOutline(AffineTransform.getTranslateInstance(xPos, fxLineY))
                                         : fxFont.createGlyphVector(frc, word).getOutline(xPos, fxLineY);
                                 Rectangle b = shape.getBounds();
                                 if (b.width <= 0 || b.height <= 0) return;
@@ -5373,7 +5373,7 @@ public class GifSlideShowApp extends JFrame {
                             java.util.function.BiConsumer<Integer, String> drawSpot = (xPos, word) -> {
                                 Shape shape = useShaped
                                         ? new java.awt.font.TextLayout(word, fxFont, frc)
-                                                .getOutline(AffineTransform.getTranslateInstance(xPos, fxLineY))
+                                        .getOutline(AffineTransform.getTranslateInstance(xPos, fxLineY))
                                         : fxFont.createGlyphVector(frc, word).getOutline(xPos, fxLineY);
                                 g2.fill(shape);
                             };
@@ -5398,7 +5398,7 @@ public class GifSlideShowApp extends JFrame {
                             java.util.function.BiConsumer<Integer, String> drawSticker = (xPos, word) -> {
                                 Shape shape = useShaped
                                         ? new java.awt.font.TextLayout(word, fxFont, frc)
-                                                .getOutline(AffineTransform.getTranslateInstance(xPos, fxLineY))
+                                        .getOutline(AffineTransform.getTranslateInstance(xPos, fxLineY))
                                         : fxFont.createGlyphVector(frc, word).getOutline(xPos, fxLineY);
                                 // Drop shadow of the dilated outline
                                 Graphics2D sg = (Graphics2D) g2.create();
@@ -5444,7 +5444,7 @@ public class GifSlideShowApp extends JFrame {
                             java.util.function.BiConsumer<Integer, String> drawInnerGlow = (xPos, word) -> {
                                 Shape shape = useShaped
                                         ? new java.awt.font.TextLayout(word, fxFont, frc)
-                                                .getOutline(AffineTransform.getTranslateInstance(xPos, fxLineY))
+                                        .getOutline(AffineTransform.getTranslateInstance(xPos, fxLineY))
                                         : fxFont.createGlyphVector(frc, word).getOutline(xPos, fxLineY);
                                 // Base fill
                                 int br = (int) (stColor.getRed() * 0.5);
@@ -6075,7 +6075,7 @@ public class GifSlideShowApp extends JFrame {
     }
 
     private static void drawJustified(Graphics2D g, String[] words, int startX, int y,
-                                       double extraSpace, FontMetrics fm) {
+                                      double extraSpace, FontMetrics fm) {
         double dx = startX;
         for (String w : words) {
             g.drawString(w, (int) dx, y);
@@ -6245,7 +6245,7 @@ public class GifSlideShowApp extends JFrame {
                     s.fxScanline, s.fxRaised,
                     s.overlayEnabled,
                     s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                    s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
+                    s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
             frames.add(frame);
             int pct = (int) ((i + 1.0) / slides.size() * maxPct);
             SwingUtilities.invokeLater(() -> progressBar.setValue(pct));
@@ -6281,9 +6281,9 @@ public class GifSlideShowApp extends JFrame {
         String[] options = { SCROLL_NONE, SCROLL_LEFT, SCROLL_RIGHT, SCROLL_UP, SCROLL_DOWN };
         int choice = JOptionPane.showOptionDialog(this,
                 "Choose slide scroll direction:\n"
-                + "• None: Static slides (no scrolling)\n"
-                + "• Left/Right: Slides scroll horizontally\n"
-                + "• Up/Down: Slides scroll vertically",
+                        + "• None: Static slides (no scrolling)\n"
+                        + "• Left/Right: Slides scroll horizontally\n"
+                        + "• Up/Down: Slides scroll vertically",
                 "Slide Scroll", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
                 null, options, options[0]);
         if (choice < 0) return null;
@@ -6295,15 +6295,15 @@ public class GifSlideShowApp extends JFrame {
         // Direction-aware effects listed first when a scroll direction is chosen
         String[] options = scrolling
                 ? new String[]{
-                        FX_SCROLL_DIM, FX_SCROLL_ONLY, FX_SCROLL_CROSSFADE,
-                        FX_WHIP_PAN, FX_WIPE,
-                        FX_CROSSFADE_ONLY, FX_DIM_FADE, FX_FLASH_FADE,
-                        FX_IRIS, FX_ZOOM_IN,
-                        FX_LIGHT_LEAK, FX_FILM_BURN, FX_GLITCH_CUT}
+                FX_SCROLL_DIM, FX_SCROLL_ONLY, FX_SCROLL_CROSSFADE,
+                FX_WHIP_PAN, FX_WIPE,
+                FX_CROSSFADE_ONLY, FX_DIM_FADE, FX_FLASH_FADE,
+                FX_IRIS, FX_ZOOM_IN,
+                FX_LIGHT_LEAK, FX_FILM_BURN, FX_GLITCH_CUT}
                 : new String[]{
-                        FX_CROSSFADE_ONLY, FX_DIM_FADE, FX_FLASH_FADE,
-                        FX_IRIS, FX_ZOOM_IN,
-                        FX_LIGHT_LEAK, FX_FILM_BURN, FX_GLITCH_CUT};
+                FX_CROSSFADE_ONLY, FX_DIM_FADE, FX_FLASH_FADE,
+                FX_IRIS, FX_ZOOM_IN,
+                FX_LIGHT_LEAK, FX_FILM_BURN, FX_GLITCH_CUT};
         Object choice = JOptionPane.showInputDialog(this,
                 "Transition effect between slides:",
                 "Transition Effect", JOptionPane.QUESTION_MESSAGE,
@@ -6315,7 +6315,7 @@ public class GifSlideShowApp extends JFrame {
     private int askTransitionMs() {
         String s = JOptionPane.showInputDialog(this,
                 "Transition duration between slides (milliseconds):\n"
-                + "100–3000, default " + DEFAULT_TRANSITION_MS,
+                        + "100–3000, default " + DEFAULT_TRANSITION_MS,
                 String.valueOf(DEFAULT_TRANSITION_MS));
         if (s == null) return -1;
         try {
@@ -6655,15 +6655,15 @@ public class GifSlideShowApp extends JFrame {
                     int[][] resolutions;
                     if (isPortrait()) {
                         resolutions = new int[][] {
-                            {1080, 1920},
-                            {720, 1280},
-                            {480, 854},
+                                {1080, 1920},
+                                {720, 1280},
+                                {480, 854},
                         };
                     } else {
                         resolutions = new int[][] {
-                            {1920, 1080},
-                            {1280, 720},
-                            {854, 480},
+                                {1920, 1080},
+                                {1280, 720},
+                                {854, 480},
                         };
                     }
 
@@ -6987,156 +6987,126 @@ public class GifSlideShowApp extends JFrame {
                 File tempDir = null;
                 StringBuilder finalInfoBuilder = new StringBuilder();
                 try {
-                  for (int __chunkIdx = 0; __chunkIdx < slideChunks.size(); __chunkIdx++) {
-                    final List<SlideData> slides = slideChunks.get(__chunkIdx);
-                    final File finalOut = chunkOutFiles.get(__chunkIdx);
-                    if (slideChunks.size() > 1) {
-                        publish("Encoding video " + (__chunkIdx + 1) + " of " + slideChunks.size()
-                                + " (" + slides.size() + " slides)...");
-                        SwingUtilities.invokeLater(() -> progressBar.setValue(0));
-                    }
-
-                    // Clean up previous chunk's temp dir before reusing the variable.
-                    if (tempDir != null) {
-                        cleanupTempDir(tempDir);
-                        tempDir = null;
-                    }
-
-                    tempDir = new File(System.getProperty("java.io.tmpdir"),
-                            "mp4_frames_" + System.currentTimeMillis() + "_p" + __chunkIdx);
-                    if (!tempDir.mkdirs() && !tempDir.exists()) {
-                        throw new IOException("Failed to create temp directory: " + tempDir);
-                    }
-
-                    int fps = 30;
-
-                    // Per-slide effective duration: each slide's overlay video overrides duration
-                    int effectiveDuration = duration; // base duration for slides without overlay
-                    int defaultFramesPerSlide = Math.max(1, (int) Math.round(effectiveDuration / 1000.0 * fps));
-                    boolean useConcatDemuxer = false;
-                    boolean usePipeEncoding = false;
-                    File concatFile = null;
-
-                    publish("Rendering " + slides.size() + " slides at " + videoW + "×" + videoH + "...");
-
-                    int totalFrames = 0;
-                    for (SlideData s : slides) {
-                        int slideDur = computeSlideDuration(s, duration);
-                        totalFrames += Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
-                    }
-                    int frameIndex = 0;
-
-                    if (scrollEnabled) {
-                        // Pre-render all slides first
-                        publish("Pre-rendering all slides...");
-                        List<BufferedImage> renderedSlides = new ArrayList<>();
-                        for (int i = 0; i < slides.size(); i++) {
-                            SlideData s = slides.get(i);
-                            renderedSlides.add(renderFrame(
-                                    s.image, s.text, s.fontName, s.fontSize,
-                                    s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                    videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
-                                    s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
-                                    s.slideNumberX, s.slideNumberY,
-                                    s.slideNumberSize, s.slideNumberColor,
-                                    s.slideTexts,
-                                    s.fxRoundCorners, s.fxCornerRadius,
-                                    s.fxVignette, s.fxSepia, s.fxGrain,
-                                    s.fxWaterRipple, s.fxGlitch, s.fxShake,
-                                    s.fxScanline, s.fxRaised,
-                                    s.overlayEnabled,
-                                    s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                    s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures));
-                            int pct = (int) ((i + 1.0) / slides.size() * 30);
-                            final int p = pct;
-                            SwingUtilities.invokeLater(() -> progressBar.setValue(p));
-                            publish("Rendered slide " + (i + 1) + "/" + slides.size());
+                    for (int __chunkIdx = 0; __chunkIdx < slideChunks.size(); __chunkIdx++) {
+                        final List<SlideData> slides = slideChunks.get(__chunkIdx);
+                        final File finalOut = chunkOutFiles.get(__chunkIdx);
+                        if (slideChunks.size() > 1) {
+                            publish("Encoding video " + (__chunkIdx + 1) + " of " + slideChunks.size()
+                                    + " (" + slides.size() + " slides)...");
+                            SwingUtilities.invokeLater(() -> progressBar.setValue(0));
                         }
 
-                        // Dwell + transition model: each slide holds static for its effective
-                        // duration, then a short transition moves to the next slide.
-                        int transFrames = Math.max(1, (int) Math.round(finalTransitionMs / 1000.0 * fps));
-                        int[] dwellFrames = new int[slides.size()];
-                        int dwellFramesTotal = 0;
-                        for (int i = 0; i < slides.size(); i++) {
-                            int slideDur = computeSlideDuration(slides.get(i), duration);
-                            dwellFrames[i] = Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
-                            dwellFramesTotal += dwellFrames[i];
+                        // Clean up previous chunk's temp dir before reusing the variable.
+                        if (tempDir != null) {
+                            cleanupTempDir(tempDir);
+                            tempDir = null;
                         }
-                        int totalTransFrames = transFrames * Math.max(0, slides.size() - 1);
-                        totalFrames = dwellFramesTotal + totalTransFrames;
 
-                        publish("Generating frames (" + finalScrollDir + ", "
-                                + finalTransEffect + ", " + finalTransitionMs + "ms)...");
-                        int f = 0;
-                        for (int i = 0; i < slides.size(); i++) {
-                            SlideData s = slides.get(i);
-                            BufferedImage dwellImg = renderedSlides.get(i);
+                        tempDir = new File(System.getProperty("java.io.tmpdir"),
+                                "mp4_frames_" + System.currentTimeMillis() + "_p" + __chunkIdx);
+                        if (!tempDir.mkdirs() && !tempDir.exists()) {
+                            throw new IOException("Failed to create temp directory: " + tempDir);
+                        }
 
-                            // Count valid audio files to decide whether this slide needs
-                            // per-audio-segment highlight FX applied during its dwell.
-                            int validAudioCount = 0;
-                            for (int ai = 0; ai < s.audioFiles.size(); ai++) {
-                                File af = s.audioFiles.get(ai);
-                                int adur = ai < s.audioDurationsMs.size() ? s.audioDurationsMs.get(ai) : 0;
-                                if (af != null && af.exists() && adur > 0) validAudioCount++;
+                        int fps = 30;
+
+                        // Per-slide effective duration: each slide's overlay video overrides duration
+                        int effectiveDuration = duration; // base duration for slides without overlay
+                        int defaultFramesPerSlide = Math.max(1, (int) Math.round(effectiveDuration / 1000.0 * fps));
+                        boolean useConcatDemuxer = false;
+                        boolean usePipeEncoding = false;
+                        File concatFile = null;
+
+                        publish("Rendering " + slides.size() + " slides at " + videoW + "×" + videoH + "...");
+
+                        int totalFrames = 0;
+                        for (SlideData s : slides) {
+                            int slideDur = computeSlideDuration(s, duration);
+                            totalFrames += Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
+                        }
+                        int frameIndex = 0;
+
+                        if (scrollEnabled) {
+                            // Pre-render all slides first
+                            publish("Pre-rendering all slides...");
+                            List<BufferedImage> renderedSlides = new ArrayList<>();
+                            for (int i = 0; i < slides.size(); i++) {
+                                SlideData s = slides.get(i);
+                                renderedSlides.add(renderFrame(
+                                        s.image, s.text, s.fontName, s.fontSize,
+                                        s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                        videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                        s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                        s.slideNumberX, s.slideNumberY,
+                                        s.slideNumberSize, s.slideNumberColor,
+                                        s.slideTexts,
+                                        s.fxRoundCorners, s.fxCornerRadius,
+                                        s.fxVignette, s.fxSepia, s.fxGrain,
+                                        s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                        s.fxScanline, s.fxRaised,
+                                        s.overlayEnabled,
+                                        s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                        s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures));
+                                int pct = (int) ((i + 1.0) / slides.size() * 30);
+                                final int p = pct;
+                                SwingUtilities.invokeLater(() -> progressBar.setValue(p));
+                                publish("Rendered slide " + (i + 1) + "/" + slides.size());
                             }
-                            boolean hasMultiAudio = validAudioCount >= 2;
-                            boolean needsAnimatedFx = (hasMultiAudio && anyAudioHlAnimates(s.audioHlEffects))
-                                    || isQuizSlide(s);
 
-                            if (hasMultiAudio || isQuizSlide(s)) {
-                                // Render dwell frames honoring per-segment audio highlight.
-                                // Pulse/Shake need animation → render every frame.
-                                // Other FX (Glow/Enlarge/Bold/Color/Underline/None) are
-                                // constant within a segment → render once per segment
-                                // and hard-copy for the rest of the segment's frames.
-                                String lastWrittenName = null;
-                                int lastActive = -2;
-                                for (int df = 0; df < dwellFrames[i]; df++) {
-                                    long elapsedMs = (long)(df * 1000.0 / fps);
-                                    int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
-                                    String frameName = String.format("frame_%05d.png", f);
-                                    File frameFile = new File(tempDir, frameName);
+                            // Dwell + transition model: each slide holds static for its effective
+                            // duration, then a short transition moves to the next slide.
+                            int transFrames = Math.max(1, (int) Math.round(finalTransitionMs / 1000.0 * fps));
+                            int[] dwellFrames = new int[slides.size()];
+                            int dwellFramesTotal = 0;
+                            for (int i = 0; i < slides.size(); i++) {
+                                int slideDur = computeSlideDuration(slides.get(i), duration);
+                                dwellFrames[i] = Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
+                                dwellFramesTotal += dwellFrames[i];
+                            }
+                            int totalTransFrames = transFrames * Math.max(0, slides.size() - 1);
+                            totalFrames = dwellFramesTotal + totalTransFrames;
 
-                                    if (needsAnimatedFx) {
-                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(
-                                                s.slideTexts, activeIdx,
-                                                hlColorAt(s.audioHlColor, activeIdx),
-                                                hlEffectsAt(s.audioHlEffects, activeIdx),
-                                                df,
-                                                hlGlowSizeAt(s.audioGlowSize, activeIdx));
-                                        BufferedImage frame = renderFrame(
-                                                s.image, s.text, s.fontName, s.fontSize,
-                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
-                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
-                                                s.slideNumberX, s.slideNumberY,
-                                                s.slideNumberSize, s.slideNumberColor,
-                                                hlTexts,
-                                                s.fxRoundCorners, s.fxCornerRadius,
-                                                s.fxVignette, s.fxSepia, s.fxGrain,
-                                                s.fxWaterRipple, s.fxGlitch, s.fxShake,
-                                                s.fxScanline, s.fxRaised,
-                                                s.overlayEnabled,
-                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, df,
-                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
-                                        paintQuizOverlay(frame, s, elapsedMs);
-                                        ImageIO.write(frame, "png", frameFile);
-                                        lastWrittenName = frameName;
-                                        lastActive = activeIdx;
-                                    } else if (activeIdx != lastActive || lastWrittenName == null) {
-                                        BufferedImage frame;
-                                        if (activeIdx < 0) {
-                                            frame = dwellImg;
-                                        } else {
+                            publish("Generating frames (" + finalScrollDir + ", "
+                                    + finalTransEffect + ", " + finalTransitionMs + "ms)...");
+                            int f = 0;
+                            for (int i = 0; i < slides.size(); i++) {
+                                SlideData s = slides.get(i);
+                                BufferedImage dwellImg = renderedSlides.get(i);
+
+                                // Count valid audio files to decide whether this slide needs
+                                // per-audio-segment highlight FX applied during its dwell.
+                                int validAudioCount = 0;
+                                for (int ai = 0; ai < s.audioFiles.size(); ai++) {
+                                    File af = s.audioFiles.get(ai);
+                                    int adur = ai < s.audioDurationsMs.size() ? s.audioDurationsMs.get(ai) : 0;
+                                    if (af != null && af.exists() && adur > 0) validAudioCount++;
+                                }
+                                boolean hasMultiAudio = validAudioCount >= 2;
+                                boolean needsAnimatedFx = (hasMultiAudio && anyAudioHlAnimates(s.audioHlEffects))
+                                        || isQuizSlide(s);
+
+                                if (hasMultiAudio || isQuizSlide(s)) {
+                                    // Render dwell frames honoring per-segment audio highlight.
+                                    // Pulse/Shake need animation → render every frame.
+                                    // Other FX (Glow/Enlarge/Bold/Color/Underline/None) are
+                                    // constant within a segment → render once per segment
+                                    // and hard-copy for the rest of the segment's frames.
+                                    String lastWrittenName = null;
+                                    int lastActive = -2;
+                                    for (int df = 0; df < dwellFrames[i]; df++) {
+                                        long elapsedMs = (long)(df * 1000.0 / fps);
+                                        int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
+                                        String frameName = String.format("frame_%05d.png", f);
+                                        File frameFile = new File(tempDir, frameName);
+
+                                        if (needsAnimatedFx) {
                                             List<SlideTextData> hlTexts = applyActiveTextHighlight(
                                                     s.slideTexts, activeIdx,
                                                     hlColorAt(s.audioHlColor, activeIdx),
                                                     hlEffectsAt(s.audioHlEffects, activeIdx),
-                                                    -1,
+                                                    df,
                                                     hlGlowSizeAt(s.audioGlowSize, activeIdx));
-                                            frame = renderFrame(
+                                            BufferedImage frame = renderFrame(
                                                     s.image, s.text, s.fontName, s.fontSize,
                                                     s.fontStyle, s.fontColor, s.alignment, s.showPin,
                                                     videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
@@ -7149,403 +7119,216 @@ public class GifSlideShowApp extends JFrame {
                                                     s.fxWaterRipple, s.fxGlitch, s.fxShake,
                                                     s.fxScanline, s.fxRaised,
                                                     s.overlayEnabled,
-                                                    s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                                    s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, df,
                                                     s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
+                                            paintQuizOverlay(frame, s, elapsedMs);
+                                            ImageIO.write(frame, "png", frameFile);
+                                            lastWrittenName = frameName;
+                                            lastActive = activeIdx;
+                                        } else if (activeIdx != lastActive || lastWrittenName == null) {
+                                            BufferedImage frame;
+                                            if (activeIdx < 0) {
+                                                frame = dwellImg;
+                                            } else {
+                                                List<SlideTextData> hlTexts = applyActiveTextHighlight(
+                                                        s.slideTexts, activeIdx,
+                                                        hlColorAt(s.audioHlColor, activeIdx),
+                                                        hlEffectsAt(s.audioHlEffects, activeIdx),
+                                                        -1,
+                                                        hlGlowSizeAt(s.audioGlowSize, activeIdx));
+                                                frame = renderFrame(
+                                                        s.image, s.text, s.fontName, s.fontSize,
+                                                        s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                        videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                        s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                        s.slideNumberX, s.slideNumberY,
+                                                        s.slideNumberSize, s.slideNumberColor,
+                                                        hlTexts,
+                                                        s.fxRoundCorners, s.fxCornerRadius,
+                                                        s.fxVignette, s.fxSepia, s.fxGrain,
+                                                        s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                                        s.fxScanline, s.fxRaised,
+                                                        s.overlayEnabled,
+                                                        s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                                        s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
+                                            }
+                                            paintQuizOverlay(frame, s, elapsedMs);
+                                            ImageIO.write(frame, "png", frameFile);
+                                            lastWrittenName = frameName;
+                                            lastActive = activeIdx;
+                                        } else {
+                                            java.nio.file.Files.copy(
+                                                    new File(tempDir, lastWrittenName).toPath(),
+                                                    frameFile.toPath());
                                         }
-                                        paintQuizOverlay(frame, s, elapsedMs);
-                                        ImageIO.write(frame, "png", frameFile);
-                                        lastWrittenName = frameName;
-                                        lastActive = activeIdx;
-                                    } else {
-                                        java.nio.file.Files.copy(
-                                                new File(tempDir, lastWrittenName).toPath(),
-                                                frameFile.toPath());
+                                        f++;
                                     }
-                                    f++;
-                                }
-                            } else {
-                                // Fast path: no multi-audio highlight needed — write
-                                // once, then hard-copy for identical dwell frames.
-                                java.nio.file.Path firstDwellPath = new File(tempDir,
-                                        String.format("frame_%05d.png", f)).toPath();
-                                ImageIO.write(dwellImg, "png", firstDwellPath.toFile());
-                                f++;
-                                for (int df = 1; df < dwellFrames[i]; df++) {
-                                    java.nio.file.Path target = new File(tempDir,
-                                            String.format("frame_%05d.png", f)).toPath();
-                                    java.nio.file.Files.copy(firstDwellPath, target);
-                                    f++;
-                                }
-                            }
-                            int pctA = 30 + (int) ((f) * 30.0 / totalFrames);
-                            final int pA = pctA;
-                            SwingUtilities.invokeLater(() -> progressBar.setValue(pA));
-                            publish("Slide " + (i + 1) + "/" + slides.size() + " held "
-                                    + dwellFrames[i] + " frames");
-
-                            // Transition to next slide (skip after last)
-                            if (i < slides.size() - 1) {
-                                for (int tf = 0; tf < transFrames; tf++) {
-                                    double t = (tf + 1.0) / (transFrames + 1.0); // (0,1)
-                                    BufferedImage transImg = renderTransitionFrame(
-                                            renderedSlides, i, i + 1, t,
-                                            finalScrollDir, finalTransEffect, videoW, videoH);
-                                    ImageIO.write(transImg, "png",
-                                            new File(tempDir, String.format("frame_%05d.png", f)));
-                                    f++;
-                                }
-                                int pctB = 30 + (int) ((f) * 30.0 / totalFrames);
-                                final int pB = pctB;
-                                SwingUtilities.invokeLater(() -> progressBar.setValue(pB));
-                                publish("Transition " + (i + 1) + "→" + (i + 2) + " ("
-                                        + transFrames + " frames)");
-                            }
-                        }
-                        frameIndex = totalFrames;
-                    } else {
-                        // Check if ANY slide has animated effects (determines encoding strategy)
-                        boolean anyAnimatedFx = false;
-                        for (SlideData s : slides) {
-                            boolean hasAnim = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxRaised > 0;
-                            // Audio-highlight Pulse/Shake also need per-frame rendering.
-                            if (!hasAnim && anyAudioHlAnimates(s.audioHlEffects)) {
-                                hasAnim = true;
-                            }
-                            if (!hasAnim && s.slideTexts != null) {
-                                for (SlideTextData stx : s.slideTexts) {
-                                    if (stx.show && stx.odometer) { hasAnim = true; break; }
-                                    if (stx.show && stx.animEnabled) { hasAnim = true; break; }
-                                    if (stx.show && stx.textEffect != null) {
-                                        String fx = stx.textEffect;
-                                        if (fx.equals("Water Ripple") || fx.equals("Fire") || fx.equals("Ice")
-                                                || fx.equals("Rainbow") || fx.equals("Typewriter")
-                                                || fx.equals("Shake") || fx.equals("Pulse")) {
-                                            hasAnim = true;
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                            if (hasAnim) { anyAnimatedFx = true; break; }
-                            // Quiz slides need per-frame rendering for the countdown timer
-                            // and reveal flash, so push them into the ANIMATED PATH.
-                            if (isQuizSlide(s)) { anyAnimatedFx = true; break; }
-                        }
-
-                        if (!anyAnimatedFx) {
-                            // FAST PATH: No animated effects on any slide.
-                            // Render one PNG per slide (or per audio segment for multi-audio) and use FFmpeg concat demuxer.
-                            useConcatDemuxer = true;
-                            concatFile = new File(tempDir, "concat.txt");
-                            StringBuilder concatContent = new StringBuilder();
-                            String lastConcatPng = null;
-
-                            for (int i = 0; i < slides.size(); i++) {
-                                SlideData s = slides.get(i);
-                                int slideDur = computeSlideDuration(s, duration);
-
-                                // Count valid audio files for this slide
-                                int validAudioCount = 0;
-                                for (int ai = 0; ai < s.audioFiles.size(); ai++) {
-                                    File af = s.audioFiles.get(ai);
-                                    int adur = ai < s.audioDurationsMs.size() ? s.audioDurationsMs.get(ai) : 0;
-                                    if (af != null && af.exists() && adur > 0) validAudioCount++;
-                                }
-
-                                if (validAudioCount >= 2) {
-                                    // MULTI-AUDIO: render one PNG per audio segment with active text highlighted
-                                    int segIdx = 0;
-                                    int audioTimeUsed = 0;
-                                    int audioOrdinal = 0;
-                                    // Pre-render a base (no highlight) frame for gaps
-                                    BufferedImage gapFrame = null;
-                                    if (s.audioGapMs > 0) {
-                                        gapFrame = renderFrame(
-                                                s.image, s.text, s.fontName, s.fontSize,
-                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
-                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
-                                                s.slideNumberX, s.slideNumberY,
-                                                s.slideNumberSize, s.slideNumberColor,
-                                                s.slideTexts,
-                                                s.fxRoundCorners, s.fxCornerRadius,
-                                                s.fxVignette, s.fxSepia, s.fxGrain,
-                                                s.fxWaterRipple, s.fxGlitch, s.fxShake,
-                                                s.fxScanline, s.fxRaised,
-                                                s.overlayEnabled,
-                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
-                                    }
-                                    for (int ai = 0; ai < s.audioFiles.size(); ai++) {
-                                        File af = s.audioFiles.get(ai);
-                                        int adur = ai < s.audioDurationsMs.size() ? s.audioDurationsMs.get(ai) : 0;
-                                        if (af == null || !af.exists() || adur <= 0) continue;
-
-                                        // Insert gap segment between audios
-                                        if (audioOrdinal > 0 && s.audioGapMs > 0 && gapFrame != null) {
-                                            File gapFile = new File(tempDir, String.format("slide_%03d_gap%02d.png", i, segIdx));
-                                            ImageIO.write(gapFrame, "png", gapFile);
-                                            String gapPath = gapFile.getAbsolutePath().replace("'", "'\\''");
-                                            concatContent.append("file '").append(gapPath).append("'\n");
-                                            concatContent.append("duration ").append(String.format("%.3f", s.audioGapMs / 1000.0)).append("\n");
-                                            lastConcatPng = gapPath;
-                                            audioTimeUsed += s.audioGapMs;
-                                            segIdx++;
-                                        }
-
-                                        List<SlideTextData> highlightedTexts = applyActiveTextHighlight(
-                                                s.slideTexts, ai,
-                                                hlColorAt(s.audioHlColor, ai),
-                                                hlEffectsAt(s.audioHlEffects, ai),
-                                                -1,
-                                                hlGlowSizeAt(s.audioGlowSize, ai));
-                                        BufferedImage frame = renderFrame(
-                                                s.image, s.text, s.fontName, s.fontSize,
-                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
-                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
-                                                s.slideNumberX, s.slideNumberY,
-                                                s.slideNumberSize, s.slideNumberColor,
-                                                highlightedTexts,
-                                                s.fxRoundCorners, s.fxCornerRadius,
-                                                s.fxVignette, s.fxSepia, s.fxGrain,
-                                                s.fxWaterRipple, s.fxGlitch, s.fxShake,
-                                                s.fxScanline, s.fxRaised,
-                                                s.overlayEnabled,
-                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
-
-                                        File slideFile = new File(tempDir, String.format("slide_%03d_seg%02d.png", i, segIdx));
-                                        ImageIO.write(frame, "png", slideFile);
-
-                                        double segDurSec = adur / 1000.0;
-                                        String filePath = slideFile.getAbsolutePath().replace("'", "'\\''");
-                                        concatContent.append("file '").append(filePath).append("'\n");
-                                        concatContent.append("duration ").append(String.format("%.3f", segDurSec)).append("\n");
-                                        lastConcatPng = filePath;
-                                        audioTimeUsed += adur;
-                                        audioOrdinal++;
-                                        segIdx++;
-                                    }
-                                    // Render a clean frame (no highlight) for remaining time and final entry
-                                    BufferedImage cleanFrame = renderFrame(
-                                            s.image, s.text, s.fontName, s.fontSize,
-                                            s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                            videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
-                                            s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
-                                            s.slideNumberX, s.slideNumberY,
-                                            s.slideNumberSize, s.slideNumberColor,
-                                            s.slideTexts,
-                                            s.fxRoundCorners, s.fxCornerRadius,
-                                            s.fxVignette, s.fxSepia, s.fxGrain,
-                                            s.fxWaterRipple, s.fxGlitch, s.fxShake,
-                                            s.fxScanline, s.fxRaised,
-                                            s.overlayEnabled,
-                                            s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
-                                    File restFile = new File(tempDir, String.format("slide_%03d_rest.png", i));
-                                    ImageIO.write(cleanFrame, "png", restFile);
-                                    String cleanFilePath = restFile.getAbsolutePath().replace("'", "'\\''");
-                                    if (slideDur > audioTimeUsed) {
-                                        double restSec = (slideDur - audioTimeUsed) / 1000.0;
-                                        concatContent.append("file '").append(cleanFilePath).append("'\n");
-                                        concatContent.append("duration ").append(String.format("%.3f", restSec)).append("\n");
-                                    }
-                                    lastConcatPng = cleanFilePath;
                                 } else {
-                                    // SINGLE/NO AUDIO: original behavior — one PNG per slide
-                                    double slideDurSec = slideDur / 1000.0;
-                                    BufferedImage frame = renderFrame(
-                                            s.image, s.text, s.fontName, s.fontSize,
-                                            s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                            videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
-                                            s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
-                                            s.slideNumberX, s.slideNumberY,
-                                            s.slideNumberSize, s.slideNumberColor,
-                                            s.slideTexts,
-                                            s.fxRoundCorners, s.fxCornerRadius,
-                                            s.fxVignette, s.fxSepia, s.fxGrain,
-                                            s.fxWaterRipple, s.fxGlitch, s.fxShake,
-                                            s.fxScanline, s.fxRaised,
-                                            s.overlayEnabled,
-                                            s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
-
-                                    File slideFile = new File(tempDir, String.format("slide_%03d.png", i));
-                                    ImageIO.write(frame, "png", slideFile);
-
-                                    String filePath = slideFile.getAbsolutePath().replace("'", "'\\''");
-                                    concatContent.append("file '").append(filePath).append("'\n");
-                                    concatContent.append("duration ").append(String.format("%.3f", slideDurSec)).append("\n");
-                                    lastConcatPng = filePath;
+                                    // Fast path: no multi-audio highlight needed — write
+                                    // once, then hard-copy for identical dwell frames.
+                                    java.nio.file.Path firstDwellPath = new File(tempDir,
+                                            String.format("frame_%05d.png", f)).toPath();
+                                    ImageIO.write(dwellImg, "png", firstDwellPath.toFile());
+                                    f++;
+                                    for (int df = 1; df < dwellFrames[i]; df++) {
+                                        java.nio.file.Path target = new File(tempDir,
+                                                String.format("frame_%05d.png", f)).toPath();
+                                        java.nio.file.Files.copy(firstDwellPath, target);
+                                        f++;
+                                    }
                                 }
+                                int pctA = 30 + (int) ((f) * 30.0 / totalFrames);
+                                final int pA = pctA;
+                                SwingUtilities.invokeLater(() -> progressBar.setValue(pA));
+                                publish("Slide " + (i + 1) + "/" + slides.size() + " held "
+                                        + dwellFrames[i] + " frames");
 
-                                int pct = (int) ((i + 1.0) / slides.size() * 60);
-                                final int p = pct;
-                                SwingUtilities.invokeLater(() -> progressBar.setValue(p));
-                                publish("Rendered slide " + (i + 1) + "/" + slides.size());
+                                // Transition to next slide (skip after last)
+                                if (i < slides.size() - 1) {
+                                    for (int tf = 0; tf < transFrames; tf++) {
+                                        double t = (tf + 1.0) / (transFrames + 1.0); // (0,1)
+                                        BufferedImage transImg = renderTransitionFrame(
+                                                renderedSlides, i, i + 1, t,
+                                                finalScrollDir, finalTransEffect, videoW, videoH);
+                                        ImageIO.write(transImg, "png",
+                                                new File(tempDir, String.format("frame_%05d.png", f)));
+                                        f++;
+                                    }
+                                    int pctB = 30 + (int) ((f) * 30.0 / totalFrames);
+                                    final int pB = pctB;
+                                    SwingUtilities.invokeLater(() -> progressBar.setValue(pB));
+                                    publish("Transition " + (i + 1) + "→" + (i + 2) + " ("
+                                            + transFrames + " frames)");
+                                }
                             }
-                            // Concat demuxer requires last file repeated without duration
-                            if (lastConcatPng != null) {
-                                concatContent.append("file '").append(lastConcatPng).append("'\n");
-                            }
-
-                            try (java.io.FileWriter fw = new java.io.FileWriter(concatFile)) {
-                                fw.write(concatContent.toString());
-                            }
+                            frameIndex = totalFrames;
                         } else {
-                            // ANIMATED PATH: At least one slide has animated effects.
-                            // Optimization: render base frame once (without animated fx), then clone + apply effects per frame.
-                            // Also pipe raw pixels to FFmpeg instead of writing PNG files to disk.
-                            usePipeEncoding = true;
-
-                            // Start FFmpeg process that reads raw RGB from stdin
-                            File videoOnly2 = new File(tempDir, "video_only.mp4");
-                            java.util.List<String> pipeCmdList = new java.util.ArrayList<>();
-                            pipeCmdList.add("ffmpeg");
-                            pipeCmdList.add("-y");
-                            pipeCmdList.add("-f");
-                            pipeCmdList.add("rawvideo");
-                            pipeCmdList.add("-pixel_format");
-                            pipeCmdList.add("rgb24");
-                            pipeCmdList.add("-video_size");
-                            pipeCmdList.add(videoW + "x" + videoH);
-                            pipeCmdList.add("-framerate");
-                            pipeCmdList.add(String.valueOf(fps));
-                            pipeCmdList.add("-i");
-                            pipeCmdList.add("-");
-                            pipeCmdList.add("-c:v");
-                            pipeCmdList.add("libx264");
-                            pipeCmdList.add("-preset");
-                            pipeCmdList.add("medium");
-                            pipeCmdList.add("-threads");
-                            pipeCmdList.add("0");
-                            pipeCmdList.add("-crf");
-                            pipeCmdList.add(String.valueOf(crf));
-                            pipeCmdList.add("-pix_fmt");
-                            pipeCmdList.add("yuv420p");
-                            pipeCmdList.add(videoOnly2.getAbsolutePath());
-
-                            ProcessBuilder pipePb = new ProcessBuilder(pipeCmdList);
-                            pipePb.redirectErrorStream(true);
-                            Process pipeProc = pipePb.start();
-                            java.io.OutputStream ffmpegStdin = new java.io.BufferedOutputStream(pipeProc.getOutputStream(), 1024 * 1024);
-
-                            // Read FFmpeg output in background thread
-                            StringBuilder pipeLog = new StringBuilder();
-                            Thread convergenceReader = new Thread(() -> {
-                                try (BufferedReader br = new BufferedReader(new InputStreamReader(pipeProc.getInputStream()))) {
-                                    String line2;
-                                    while ((line2 = br.readLine()) != null) {
-                                        pipeLog.append(line2).append("\n");
-                                    }
-                                } catch (IOException ignored) {}
-                            });
-                            convergenceReader.setDaemon(true);
-                            convergenceReader.start();
-
-                            // Pre-allocate reusable byte buffer for raw RGB pixel data
-                            byte[] rgbBytes = new byte[videoW * videoH * 3];
-
-                            for (int i = 0; i < slides.size(); i++) {
-                                SlideData s = slides.get(i);
-                                int slideDur = computeSlideDuration(s, duration);
-                                int slideFrames = Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
-
-                                // Quiz slide: timer changes per frame and reveal flashes after t=0,
-                                // so render every frame and stamp the quiz overlay on top.
-                                if (isQuizSlide(s)) {
-                                    publish("Rendering slide " + (i + 1) + " (quiz, " + slideFrames + " frames)...");
-                                    for (int d = 0; d < slideFrames; d++) {
-                                        long elapsedMs = (long)(d * 1000.0 / fps);
-                                        BufferedImage frame = renderFrame(
-                                                s.image, s.text, s.fontName, s.fontSize,
-                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
-                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
-                                                s.slideNumberX, s.slideNumberY,
-                                                s.slideNumberSize, s.slideNumberColor,
-                                                s.slideTexts,
-                                                s.fxRoundCorners, s.fxCornerRadius,
-                                                s.fxVignette, s.fxSepia, s.fxGrain,
-                                                s.fxWaterRipple, s.fxGlitch, s.fxShake,
-                                                s.fxScanline, s.fxRaised,
-                                                s.overlayEnabled,
-                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
-                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
-                                        paintQuizOverlay(frame, s, elapsedMs);
-                                        writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
-                                        frameIndex++;
-                                    }
-                                    int pct = (int) ((i + 1.0) / slides.size() * 60);
-                                    SwingUtilities.invokeLater(() -> progressBar.setValue(30 + pct));
-                                    continue;
+                            // Check if ANY slide has animated effects (determines encoding strategy)
+                            boolean anyAnimatedFx = false;
+                            for (SlideData s : slides) {
+                                boolean hasAnim = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxRaised > 0;
+                                // Audio-highlight Pulse/Shake also need per-frame rendering.
+                                if (!hasAnim && anyAudioHlAnimates(s.audioHlEffects)) {
+                                    hasAnim = true;
                                 }
-
-                                boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxRaised > 0;
-                                // Audio-highlight Pulse/Shake animate per-frame too.
-                                boolean hasAudioHlAnim = anyAudioHlAnimates(s.audioHlEffects);
-                                boolean hasAnimatedText = hasAudioHlAnim;
-                                if (!hasAnimatedText && s.slideTexts != null) {
+                                if (!hasAnim && s.slideTexts != null) {
                                     for (SlideTextData stx : s.slideTexts) {
-                                        if (stx.show && stx.odometer) { hasAnimatedText = true; break; }
-                                        if (stx.show && stx.animEnabled) { hasAnimatedText = true; break; }
+                                        if (stx.show && stx.odometer) { hasAnim = true; break; }
+                                        if (stx.show && stx.animEnabled) { hasAnim = true; break; }
                                         if (stx.show && stx.textEffect != null) {
                                             String fx = stx.textEffect;
                                             if (fx.equals("Water Ripple") || fx.equals("Fire") || fx.equals("Ice")
                                                     || fx.equals("Rainbow") || fx.equals("Typewriter")
-                                                || fx.equals("Shake") || fx.equals("Pulse")) {
-                                                hasAnimatedText = true;
+                                                    || fx.equals("Shake") || fx.equals("Pulse")) {
+                                                hasAnim = true;
                                                 break;
                                             }
                                         }
                                     }
                                 }
+                                if (hasAnim) { anyAnimatedFx = true; break; }
+                                // Quiz slides need per-frame rendering for the countdown timer
+                                // and reveal flash, so push them into the ANIMATED PATH.
+                                if (isQuizSlide(s)) { anyAnimatedFx = true; break; }
+                            }
 
-                                // Check for multi-audio (2+ valid audio files)
-                                int vaCount = 0;
-                                for (File af : s.audioFiles) { if (af != null && af.exists()) vaCount++; }
-                                boolean hasMultiAudio = vaCount >= 2;
+                            if (!anyAnimatedFx) {
+                                // FAST PATH: No animated effects on any slide.
+                                // Render one PNG per slide (or per audio segment for multi-audio) and use FFmpeg concat demuxer.
+                                useConcatDemuxer = true;
+                                concatFile = new File(tempDir, "concat.txt");
+                                StringBuilder concatContent = new StringBuilder();
+                                String lastConcatPng = null;
 
-                                if (hasMultiAudio && (hasAnimatedFx || hasAnimatedText)) {
-                                    // Multi-audio with animated effects: per-frame rendering with active text highlight
-                                    publish("Rendering slide " + (i + 1) + " with " + slideFrames + " multi-audio animated frames...");
-                                    for (int d = 0; d < slideFrames; d++) {
-                                        long elapsedMs = (long)(d * 1000.0 / fps);
-                                        int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
-                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(
-                                                s.slideTexts, activeIdx,
-                                                hlColorAt(s.audioHlColor, activeIdx),
-                                                hlEffectsAt(s.audioHlEffects, activeIdx),
-                                                d,
-                                                hlGlowSizeAt(s.audioGlowSize, activeIdx));
-                                        BufferedImage frame = renderFrame(
-                                                s.image, s.text, s.fontName, s.fontSize,
-                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
-                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
-                                                s.slideNumberX, s.slideNumberY,
-                                                s.slideNumberSize, s.slideNumberColor,
-                                                hlTexts,
-                                                s.fxRoundCorners, s.fxCornerRadius,
-                                                s.fxVignette, s.fxSepia, s.fxGrain,
-                                                s.fxWaterRipple, s.fxGlitch, s.fxShake,
-                                                s.fxScanline, s.fxRaised,
-                                                s.overlayEnabled,
-                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
-                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
-                                        writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
-                                        frameIndex++;
+                                for (int i = 0; i < slides.size(); i++) {
+                                    SlideData s = slides.get(i);
+                                    int slideDur = computeSlideDuration(s, duration);
+
+                                    // Count valid audio files for this slide
+                                    int validAudioCount = 0;
+                                    for (int ai = 0; ai < s.audioFiles.size(); ai++) {
+                                        File af = s.audioFiles.get(ai);
+                                        int adur = ai < s.audioDurationsMs.size() ? s.audioDurationsMs.get(ai) : 0;
+                                        if (af != null && af.exists() && adur > 0) validAudioCount++;
                                     }
-                                } else if (hasMultiAudio) {
-                                    // Multi-audio, no animated effects: per-segment cached rendering
-                                    publish("Rendering slide " + (i + 1) + " with " + vaCount + " audio segments...");
-                                    int segFrameStart = 0;
-                                    int animAudioOrd = 0;
-                                    // Pre-render gap frame (no highlight) for gaps between audios
-                                    BufferedImage animGapFrame = null;
-                                    if (s.audioGapMs > 0) {
-                                        animGapFrame = renderFrame(
+
+                                    if (validAudioCount >= 2) {
+                                        // MULTI-AUDIO: render one PNG per audio segment with active text highlighted
+                                        int segIdx = 0;
+                                        int audioTimeUsed = 0;
+                                        int audioOrdinal = 0;
+                                        // Pre-render a base (no highlight) frame for gaps
+                                        BufferedImage gapFrame = null;
+                                        if (s.audioGapMs > 0) {
+                                            gapFrame = renderFrame(
+                                                    s.image, s.text, s.fontName, s.fontSize,
+                                                    s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                    videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                    s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                    s.slideNumberX, s.slideNumberY,
+                                                    s.slideNumberSize, s.slideNumberColor,
+                                                    s.slideTexts,
+                                                    s.fxRoundCorners, s.fxCornerRadius,
+                                                    s.fxVignette, s.fxSepia, s.fxGrain,
+                                                    s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                                    s.fxScanline, s.fxRaised,
+                                                    s.overlayEnabled,
+                                                    s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                                    s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
+                                        }
+                                        for (int ai = 0; ai < s.audioFiles.size(); ai++) {
+                                            File af = s.audioFiles.get(ai);
+                                            int adur = ai < s.audioDurationsMs.size() ? s.audioDurationsMs.get(ai) : 0;
+                                            if (af == null || !af.exists() || adur <= 0) continue;
+
+                                            // Insert gap segment between audios
+                                            if (audioOrdinal > 0 && s.audioGapMs > 0 && gapFrame != null) {
+                                                File gapFile = new File(tempDir, String.format("slide_%03d_gap%02d.png", i, segIdx));
+                                                ImageIO.write(gapFrame, "png", gapFile);
+                                                String gapPath = gapFile.getAbsolutePath().replace("'", "'\\''");
+                                                concatContent.append("file '").append(gapPath).append("'\n");
+                                                concatContent.append("duration ").append(String.format("%.3f", s.audioGapMs / 1000.0)).append("\n");
+                                                lastConcatPng = gapPath;
+                                                audioTimeUsed += s.audioGapMs;
+                                                segIdx++;
+                                            }
+
+                                            List<SlideTextData> highlightedTexts = applyActiveTextHighlight(
+                                                    s.slideTexts, ai,
+                                                    hlColorAt(s.audioHlColor, ai),
+                                                    hlEffectsAt(s.audioHlEffects, ai),
+                                                    -1,
+                                                    hlGlowSizeAt(s.audioGlowSize, ai));
+                                            BufferedImage frame = renderFrame(
+                                                    s.image, s.text, s.fontName, s.fontSize,
+                                                    s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                    videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                    s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                    s.slideNumberX, s.slideNumberY,
+                                                    s.slideNumberSize, s.slideNumberColor,
+                                                    highlightedTexts,
+                                                    s.fxRoundCorners, s.fxCornerRadius,
+                                                    s.fxVignette, s.fxSepia, s.fxGrain,
+                                                    s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                                    s.fxScanline, s.fxRaised,
+                                                    s.overlayEnabled,
+                                                    s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                                    s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
+
+                                            File slideFile = new File(tempDir, String.format("slide_%03d_seg%02d.png", i, segIdx));
+                                            ImageIO.write(frame, "png", slideFile);
+
+                                            double segDurSec = adur / 1000.0;
+                                            String filePath = slideFile.getAbsolutePath().replace("'", "'\\''");
+                                            concatContent.append("file '").append(filePath).append("'\n");
+                                            concatContent.append("duration ").append(String.format("%.3f", segDurSec)).append("\n");
+                                            lastConcatPng = filePath;
+                                            audioTimeUsed += adur;
+                                            audioOrdinal++;
+                                            segIdx++;
+                                        }
+                                        // Render a clean frame (no highlight) for remaining time and final entry
+                                        BufferedImage cleanFrame = renderFrame(
                                                 s.image, s.text, s.fontName, s.fontSize,
                                                 s.fontStyle, s.fontColor, s.alignment, s.showPin,
                                                 videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
@@ -7554,112 +7337,349 @@ public class GifSlideShowApp extends JFrame {
                                                 s.slideNumberSize, s.slideNumberColor,
                                                 s.slideTexts,
                                                 s.fxRoundCorners, s.fxCornerRadius,
-                                                s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
+                                                s.fxVignette, s.fxSepia, s.fxGrain,
+                                                s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                                s.fxScanline, s.fxRaised,
                                                 s.overlayEnabled,
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
                                                 s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
-                                    }
-                                    for (int ai = 0; ai < s.audioFiles.size(); ai++) {
-                                        File af = s.audioFiles.get(ai);
-                                        int adur = ai < s.audioDurationsMs.size() ? s.audioDurationsMs.get(ai) : 0;
-                                        if (af == null || !af.exists() || adur <= 0) continue;
+                                        File restFile = new File(tempDir, String.format("slide_%03d_rest.png", i));
+                                        ImageIO.write(cleanFrame, "png", restFile);
+                                        String cleanFilePath = restFile.getAbsolutePath().replace("'", "'\\''");
+                                        if (slideDur > audioTimeUsed) {
+                                            double restSec = (slideDur - audioTimeUsed) / 1000.0;
+                                            concatContent.append("file '").append(cleanFilePath).append("'\n");
+                                            concatContent.append("duration ").append(String.format("%.3f", restSec)).append("\n");
+                                        }
+                                        lastConcatPng = cleanFilePath;
+                                    } else {
+                                        // SINGLE/NO AUDIO: original behavior — one PNG per slide
+                                        double slideDurSec = slideDur / 1000.0;
+                                        BufferedImage frame = renderFrame(
+                                                s.image, s.text, s.fontName, s.fontSize,
+                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                s.slideNumberX, s.slideNumberY,
+                                                s.slideNumberSize, s.slideNumberColor,
+                                                s.slideTexts,
+                                                s.fxRoundCorners, s.fxCornerRadius,
+                                                s.fxVignette, s.fxSepia, s.fxGrain,
+                                                s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                                s.fxScanline, s.fxRaised,
+                                                s.overlayEnabled,
+                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
 
-                                        // Insert gap frames between audios
-                                        if (animAudioOrd > 0 && s.audioGapMs > 0 && animGapFrame != null) {
-                                            int gapFrameCount = Math.max(1, (int) Math.round(s.audioGapMs / 1000.0 * fps));
-                                            writeRawRGB(animGapFrame, videoW, videoH, rgbBytes, ffmpegStdin);
-                                            for (int gg = 1; gg < gapFrameCount; gg++) {
+                                        File slideFile = new File(tempDir, String.format("slide_%03d.png", i));
+                                        ImageIO.write(frame, "png", slideFile);
+
+                                        String filePath = slideFile.getAbsolutePath().replace("'", "'\\''");
+                                        concatContent.append("file '").append(filePath).append("'\n");
+                                        concatContent.append("duration ").append(String.format("%.3f", slideDurSec)).append("\n");
+                                        lastConcatPng = filePath;
+                                    }
+
+                                    int pct = (int) ((i + 1.0) / slides.size() * 60);
+                                    final int p = pct;
+                                    SwingUtilities.invokeLater(() -> progressBar.setValue(p));
+                                    publish("Rendered slide " + (i + 1) + "/" + slides.size());
+                                }
+                                // Concat demuxer requires last file repeated without duration
+                                if (lastConcatPng != null) {
+                                    concatContent.append("file '").append(lastConcatPng).append("'\n");
+                                }
+
+                                try (java.io.FileWriter fw = new java.io.FileWriter(concatFile)) {
+                                    fw.write(concatContent.toString());
+                                }
+                            } else {
+                                // ANIMATED PATH: At least one slide has animated effects.
+                                // Optimization: render base frame once (without animated fx), then clone + apply effects per frame.
+                                // Also pipe raw pixels to FFmpeg instead of writing PNG files to disk.
+                                usePipeEncoding = true;
+
+                                // Start FFmpeg process that reads raw RGB from stdin
+                                File videoOnly2 = new File(tempDir, "video_only.mp4");
+                                java.util.List<String> pipeCmdList = new java.util.ArrayList<>();
+                                pipeCmdList.add("ffmpeg");
+                                pipeCmdList.add("-y");
+                                pipeCmdList.add("-f");
+                                pipeCmdList.add("rawvideo");
+                                pipeCmdList.add("-pixel_format");
+                                pipeCmdList.add("rgb24");
+                                pipeCmdList.add("-video_size");
+                                pipeCmdList.add(videoW + "x" + videoH);
+                                pipeCmdList.add("-framerate");
+                                pipeCmdList.add(String.valueOf(fps));
+                                pipeCmdList.add("-i");
+                                pipeCmdList.add("-");
+                                pipeCmdList.add("-c:v");
+                                pipeCmdList.add("libx264");
+                                pipeCmdList.add("-preset");
+                                pipeCmdList.add("medium");
+                                pipeCmdList.add("-threads");
+                                pipeCmdList.add("0");
+                                pipeCmdList.add("-crf");
+                                pipeCmdList.add(String.valueOf(crf));
+                                pipeCmdList.add("-pix_fmt");
+                                pipeCmdList.add("yuv420p");
+                                pipeCmdList.add(videoOnly2.getAbsolutePath());
+
+                                ProcessBuilder pipePb = new ProcessBuilder(pipeCmdList);
+                                pipePb.redirectErrorStream(true);
+                                Process pipeProc = pipePb.start();
+                                java.io.OutputStream ffmpegStdin = new java.io.BufferedOutputStream(pipeProc.getOutputStream(), 1024 * 1024);
+
+                                // Read FFmpeg output in background thread
+                                StringBuilder pipeLog = new StringBuilder();
+                                Thread convergenceReader = new Thread(() -> {
+                                    try (BufferedReader br = new BufferedReader(new InputStreamReader(pipeProc.getInputStream()))) {
+                                        String line2;
+                                        while ((line2 = br.readLine()) != null) {
+                                            pipeLog.append(line2).append("\n");
+                                        }
+                                    } catch (IOException ignored) {}
+                                });
+                                convergenceReader.setDaemon(true);
+                                convergenceReader.start();
+
+                                // Pre-allocate reusable byte buffer for raw RGB pixel data
+                                byte[] rgbBytes = new byte[videoW * videoH * 3];
+
+                                for (int i = 0; i < slides.size(); i++) {
+                                    SlideData s = slides.get(i);
+                                    int slideDur = computeSlideDuration(s, duration);
+                                    int slideFrames = Math.max(1, (int) Math.round(slideDur / 1000.0 * fps));
+
+                                    // Quiz slide: timer changes per frame and reveal flashes after t=0,
+                                    // so render every frame and stamp the quiz overlay on top.
+                                    if (isQuizSlide(s)) {
+                                        publish("Rendering slide " + (i + 1) + " (quiz, " + slideFrames + " frames)...");
+                                        for (int d = 0; d < slideFrames; d++) {
+                                            long elapsedMs = (long)(d * 1000.0 / fps);
+                                            BufferedImage frame = renderFrame(
+                                                    s.image, s.text, s.fontName, s.fontSize,
+                                                    s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                    videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                    s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                    s.slideNumberX, s.slideNumberY,
+                                                    s.slideNumberSize, s.slideNumberColor,
+                                                    s.slideTexts,
+                                                    s.fxRoundCorners, s.fxCornerRadius,
+                                                    s.fxVignette, s.fxSepia, s.fxGrain,
+                                                    s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                                    s.fxScanline, s.fxRaised,
+                                                    s.overlayEnabled,
+                                                    s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
+                                                    s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
+                                            paintQuizOverlay(frame, s, elapsedMs);
+                                            writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
+                                            frameIndex++;
+                                        }
+                                        int pct = (int) ((i + 1.0) / slides.size() * 60);
+                                        SwingUtilities.invokeLater(() -> progressBar.setValue(30 + pct));
+                                        continue;
+                                    }
+
+                                    boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxRaised > 0;
+                                    // Audio-highlight Pulse/Shake animate per-frame too.
+                                    boolean hasAudioHlAnim = anyAudioHlAnimates(s.audioHlEffects);
+                                    boolean hasAnimatedText = hasAudioHlAnim;
+                                    if (!hasAnimatedText && s.slideTexts != null) {
+                                        for (SlideTextData stx : s.slideTexts) {
+                                            if (stx.show && stx.odometer) { hasAnimatedText = true; break; }
+                                            if (stx.show && stx.animEnabled) { hasAnimatedText = true; break; }
+                                            if (stx.show && stx.textEffect != null) {
+                                                String fx = stx.textEffect;
+                                                if (fx.equals("Water Ripple") || fx.equals("Fire") || fx.equals("Ice")
+                                                        || fx.equals("Rainbow") || fx.equals("Typewriter")
+                                                        || fx.equals("Shake") || fx.equals("Pulse")) {
+                                                    hasAnimatedText = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Check for multi-audio (2+ valid audio files)
+                                    int vaCount = 0;
+                                    for (File af : s.audioFiles) { if (af != null && af.exists()) vaCount++; }
+                                    boolean hasMultiAudio = vaCount >= 2;
+
+                                    if (hasMultiAudio && (hasAnimatedFx || hasAnimatedText)) {
+                                        // Multi-audio with animated effects: per-frame rendering with active text highlight
+                                        publish("Rendering slide " + (i + 1) + " with " + slideFrames + " multi-audio animated frames...");
+                                        for (int d = 0; d < slideFrames; d++) {
+                                            long elapsedMs = (long)(d * 1000.0 / fps);
+                                            int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
+                                            List<SlideTextData> hlTexts = applyActiveTextHighlight(
+                                                    s.slideTexts, activeIdx,
+                                                    hlColorAt(s.audioHlColor, activeIdx),
+                                                    hlEffectsAt(s.audioHlEffects, activeIdx),
+                                                    d,
+                                                    hlGlowSizeAt(s.audioGlowSize, activeIdx));
+                                            BufferedImage frame = renderFrame(
+                                                    s.image, s.text, s.fontName, s.fontSize,
+                                                    s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                    videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                    s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                    s.slideNumberX, s.slideNumberY,
+                                                    s.slideNumberSize, s.slideNumberColor,
+                                                    hlTexts,
+                                                    s.fxRoundCorners, s.fxCornerRadius,
+                                                    s.fxVignette, s.fxSepia, s.fxGrain,
+                                                    s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                                    s.fxScanline, s.fxRaised,
+                                                    s.overlayEnabled,
+                                                    s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
+                                                    s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
+                                            writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
+                                            frameIndex++;
+                                        }
+                                    } else if (hasMultiAudio) {
+                                        // Multi-audio, no animated effects: per-segment cached rendering
+                                        publish("Rendering slide " + (i + 1) + " with " + vaCount + " audio segments...");
+                                        int segFrameStart = 0;
+                                        int animAudioOrd = 0;
+                                        // Pre-render gap frame (no highlight) for gaps between audios
+                                        BufferedImage animGapFrame = null;
+                                        if (s.audioGapMs > 0) {
+                                            animGapFrame = renderFrame(
+                                                    s.image, s.text, s.fontName, s.fontSize,
+                                                    s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                    videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                    s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                    s.slideNumberX, s.slideNumberY,
+                                                    s.slideNumberSize, s.slideNumberColor,
+                                                    s.slideTexts,
+                                                    s.fxRoundCorners, s.fxCornerRadius,
+                                                    s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
+                                                    s.overlayEnabled,
+                                                    s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                                    s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
+                                        }
+                                        for (int ai = 0; ai < s.audioFiles.size(); ai++) {
+                                            File af = s.audioFiles.get(ai);
+                                            int adur = ai < s.audioDurationsMs.size() ? s.audioDurationsMs.get(ai) : 0;
+                                            if (af == null || !af.exists() || adur <= 0) continue;
+
+                                            // Insert gap frames between audios
+                                            if (animAudioOrd > 0 && s.audioGapMs > 0 && animGapFrame != null) {
+                                                int gapFrameCount = Math.max(1, (int) Math.round(s.audioGapMs / 1000.0 * fps));
+                                                writeRawRGB(animGapFrame, videoW, videoH, rgbBytes, ffmpegStdin);
+                                                for (int gg = 1; gg < gapFrameCount; gg++) {
+                                                    ffmpegStdin.write(rgbBytes);
+                                                    frameIndex++;
+                                                }
+                                                frameIndex++;
+                                                segFrameStart += gapFrameCount;
+                                            }
+
+                                            int segFrameCount = Math.max(1, (int) Math.round(adur / 1000.0 * fps));
+                                            List<SlideTextData> hlTexts = applyActiveTextHighlight(
+                                                    s.slideTexts, ai,
+                                                    hlColorAt(s.audioHlColor, ai),
+                                                    hlEffectsAt(s.audioHlEffects, ai),
+                                                    -1,
+                                                    hlGlowSizeAt(s.audioGlowSize, ai));
+                                            BufferedImage segFrame = renderFrame(
+                                                    s.image, s.text, s.fontName, s.fontSize,
+                                                    s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                    videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                    s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                    s.slideNumberX, s.slideNumberY,
+                                                    s.slideNumberSize, s.slideNumberColor,
+                                                    hlTexts,
+                                                    s.fxRoundCorners, s.fxCornerRadius,
+                                                    s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
+                                                    s.overlayEnabled,
+                                                    s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                                    s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
+                                            writeRawRGB(segFrame, videoW, videoH, rgbBytes, ffmpegStdin);
+                                            for (int dd = 1; dd < segFrameCount; dd++) {
                                                 ffmpegStdin.write(rgbBytes);
                                                 frameIndex++;
                                             }
                                             frameIndex++;
-                                            segFrameStart += gapFrameCount;
+                                            segFrameStart += segFrameCount;
+                                            animAudioOrd++;
                                         }
-
-                                        int segFrameCount = Math.max(1, (int) Math.round(adur / 1000.0 * fps));
-                                        List<SlideTextData> hlTexts = applyActiveTextHighlight(
-                                                s.slideTexts, ai,
-                                                hlColorAt(s.audioHlColor, ai),
-                                                hlEffectsAt(s.audioHlEffects, ai),
-                                                -1,
-                                                hlGlowSizeAt(s.audioGlowSize, ai));
-                                        BufferedImage segFrame = renderFrame(
+                                        int remainingFrames = Math.max(1, slideFrames - segFrameStart);
+                                        // Render clean frame (no highlight) for remaining time after last audio
+                                        BufferedImage restFrame = renderFrame(
                                                 s.image, s.text, s.fontName, s.fontSize,
                                                 s.fontStyle, s.fontColor, s.alignment, s.showPin,
                                                 videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
                                                 s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                                 s.slideNumberX, s.slideNumberY,
                                                 s.slideNumberSize, s.slideNumberColor,
-                                                hlTexts,
+                                                s.slideTexts,
                                                 s.fxRoundCorners, s.fxCornerRadius,
                                                 s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
                                                 s.overlayEnabled,
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
                                                 s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
-                                        writeRawRGB(segFrame, videoW, videoH, rgbBytes, ffmpegStdin);
-                                        for (int dd = 1; dd < segFrameCount; dd++) {
+                                        writeRawRGB(restFrame, videoW, videoH, rgbBytes, ffmpegStdin);
+                                        for (int dd = 1; dd < remainingFrames; dd++) {
                                             ffmpegStdin.write(rgbBytes);
                                             frameIndex++;
                                         }
                                         frameIndex++;
-                                        segFrameStart += segFrameCount;
-                                        animAudioOrd++;
-                                    }
-                                    int remainingFrames = Math.max(1, slideFrames - segFrameStart);
-                                    // Render clean frame (no highlight) for remaining time after last audio
-                                    BufferedImage restFrame = renderFrame(
-                                            s.image, s.text, s.fontName, s.fontSize,
-                                            s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                            videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
-                                            s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
-                                            s.slideNumberX, s.slideNumberY,
-                                            s.slideNumberSize, s.slideNumberColor,
-                                            s.slideTexts,
-                                            s.fxRoundCorners, s.fxCornerRadius,
-                                            s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
-                                            s.overlayEnabled,
-                                            s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
-                                    writeRawRGB(restFrame, videoW, videoH, rgbBytes, ffmpegStdin);
-                                    for (int dd = 1; dd < remainingFrames; dd++) {
-                                        ffmpegStdin.write(rgbBytes);
-                                        frameIndex++;
-                                    }
-                                    frameIndex++;
-                                } else if (hasAnimatedFx && !hasAnimatedText) {
-                                    // Render base frame ONCE without animated effects, then clone + apply effects
-                                    publish("Rendering slide " + (i + 1) + " base + " + slideFrames + " effect frames...");
-                                    BufferedImage baseFrame = renderFrame(
-                                            s.image, s.text, s.fontName, s.fontSize,
-                                            s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                            videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
-                                            s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
-                                            s.slideNumberX, s.slideNumberY,
-                                            s.slideNumberSize, s.slideNumberColor,
-                                            s.slideTexts,
-                                            s.fxRoundCorners, s.fxCornerRadius,
-                                            s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,  // zero out animated fx
-                                            s.overlayEnabled,
-                                            s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
-                                    // Cache base pixel data for fast cloning
-                                    int[] basePixels = baseFrame.getRGB(0, 0, videoW, videoH, null, 0, videoW);
+                                    } else if (hasAnimatedFx && !hasAnimatedText) {
+                                        // Render base frame ONCE without animated effects, then clone + apply effects
+                                        publish("Rendering slide " + (i + 1) + " base + " + slideFrames + " effect frames...");
+                                        BufferedImage baseFrame = renderFrame(
+                                                s.image, s.text, s.fontName, s.fontSize,
+                                                s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                s.slideNumberX, s.slideNumberY,
+                                                s.slideNumberSize, s.slideNumberColor,
+                                                s.slideTexts,
+                                                s.fxRoundCorners, s.fxCornerRadius,
+                                                s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,  // zero out animated fx
+                                                s.overlayEnabled,
+                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
+                                                s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
+                                        // Cache base pixel data for fast cloning
+                                        int[] basePixels = baseFrame.getRGB(0, 0, videoW, videoH, null, 0, videoW);
 
-                                    for (int d = 0; d < slideFrames; d++) {
-                                        // Clone base pixels into frame
-                                        BufferedImage animFrame = new BufferedImage(videoW, videoH, BufferedImage.TYPE_INT_RGB);
-                                        animFrame.setRGB(0, 0, videoW, videoH, basePixels, 0, videoW);
-                                        // Apply only animated effects
-                                        applyAnimatedEffects(animFrame, videoW, videoH,
-                                                s.fxWaterRipple, s.fxGlitch, s.fxGrain, s.fxShake, s.fxScanline, s.fxRaised, d);
-                                        // Write raw RGB to FFmpeg stdin
-                                        writeRawRGB(animFrame, videoW, videoH, rgbBytes, ffmpegStdin);
-                                        frameIndex++;
-                                    }
-                                } else if (hasAnimatedFx || hasAnimatedText) {
-                                    // Has animated text effects — must render full frame each time
-                                    publish("Rendering slide " + (i + 1) + " with " + slideFrames + " animated frames...");
-                                    for (int d = 0; d < slideFrames; d++) {
+                                        for (int d = 0; d < slideFrames; d++) {
+                                            // Clone base pixels into frame
+                                            BufferedImage animFrame = new BufferedImage(videoW, videoH, BufferedImage.TYPE_INT_RGB);
+                                            animFrame.setRGB(0, 0, videoW, videoH, basePixels, 0, videoW);
+                                            // Apply only animated effects
+                                            applyAnimatedEffects(animFrame, videoW, videoH,
+                                                    s.fxWaterRipple, s.fxGlitch, s.fxGrain, s.fxShake, s.fxScanline, s.fxRaised, d);
+                                            // Write raw RGB to FFmpeg stdin
+                                            writeRawRGB(animFrame, videoW, videoH, rgbBytes, ffmpegStdin);
+                                            frameIndex++;
+                                        }
+                                    } else if (hasAnimatedFx || hasAnimatedText) {
+                                        // Has animated text effects — must render full frame each time
+                                        publish("Rendering slide " + (i + 1) + " with " + slideFrames + " animated frames...");
+                                        for (int d = 0; d < slideFrames; d++) {
+                                            BufferedImage frame = renderFrame(
+                                                    s.image, s.text, s.fontName, s.fontSize,
+                                                    s.fontStyle, s.fontColor, s.alignment, s.showPin,
+                                                    videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
+                                                    s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
+                                                    s.slideNumberX, s.slideNumberY,
+                                                    s.slideNumberSize, s.slideNumberColor,
+                                                    s.slideTexts,
+                                                    s.fxRoundCorners, s.fxCornerRadius,
+                                                    s.fxVignette, s.fxSepia, s.fxGrain,
+                                                    s.fxWaterRipple, s.fxGlitch, s.fxShake,
+                                                    s.fxScanline, s.fxRaised,
+                                                    s.overlayEnabled,
+                                                    s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
+                                                    s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
+                                            writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
+                                            frameIndex++;
+                                        }
+                                    } else {
+                                        // Static slide — render once, write same pixels for all frames
                                         BufferedImage frame = renderFrame(
                                                 s.image, s.text, s.fontName, s.fontSize,
                                                 s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -7669,781 +7689,761 @@ public class GifSlideShowApp extends JFrame {
                                                 s.slideNumberSize, s.slideNumberColor,
                                                 s.slideTexts,
                                                 s.fxRoundCorners, s.fxCornerRadius,
-                                                s.fxVignette, s.fxSepia, s.fxGrain,
-                                                s.fxWaterRipple, s.fxGlitch, s.fxShake,
-                                                s.fxScanline, s.fxRaised,
+                                                s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
                                                 s.overlayEnabled,
-                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
+                                                s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
                                                 s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
                                         writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
+                                        for (int d = 1; d < slideFrames; d++) {
+                                            ffmpegStdin.write(rgbBytes);  // same bytes, no re-render
+                                            frameIndex++;
+                                        }
                                         frameIndex++;
                                     }
-                                } else {
-                                    // Static slide — render once, write same pixels for all frames
-                                    BufferedImage frame = renderFrame(
-                                            s.image, s.text, s.fontName, s.fontSize,
-                                            s.fontStyle, s.fontColor, s.alignment, s.showPin,
-                                            videoW, videoH, s.displayMode, s.subtitleY, s.subtitleBgOpacity,
-                                            s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
-                                            s.slideNumberX, s.slideNumberY,
-                                            s.slideNumberSize, s.slideNumberColor,
-                                            s.slideTexts,
-                                            s.fxRoundCorners, s.fxCornerRadius,
-                                            s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
-                                            s.overlayEnabled,
-                                            s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, 0,
-                                            s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
-                                    writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
-                                    for (int d = 1; d < slideFrames; d++) {
-                                        ffmpegStdin.write(rgbBytes);  // same bytes, no re-render
-                                        frameIndex++;
-                                    }
-                                    frameIndex++;
+
+                                    int pct = (int) ((i + 1.0) / slides.size() * 60);
+                                    final int p = pct;
+                                    SwingUtilities.invokeLater(() -> progressBar.setValue(p));
+                                    publish("Rendered slide " + (i + 1) + "/" + slides.size());
                                 }
 
-                                int pct = (int) ((i + 1.0) / slides.size() * 60);
-                                final int p = pct;
-                                SwingUtilities.invokeLater(() -> progressBar.setValue(p));
-                                publish("Rendered slide " + (i + 1) + "/" + slides.size());
+                                // Close stdin and wait for FFmpeg to finish
+                                ffmpegStdin.close();
+                                int pipeExit = pipeProc.waitFor();
+                                convergenceReader.join(5000);
+                                if (pipeExit != 0) {
+                                    String lastLines = pipeLog.toString();
+                                    if (lastLines.length() > 1500) {
+                                        lastLines = lastLines.substring(lastLines.length() - 1500);
+                                    }
+                                    throw new IOException(
+                                            "ffmpeg video encoding failed (exit " + pipeExit + ").\n" +
+                                                    "FFmpeg output:\n" + lastLines);
+                                }
+                            }
+                        }
+
+                        // Step 1: Create video-only MP4
+                        File videoOnly;
+                        if (usePipeEncoding) {
+                            // Pipe encoding already created the video file
+                            videoOnly = new File(tempDir, "video_only.mp4");
+                            publish("Video encoding completed via pipe.");
+                            SwingUtilities.invokeLater(() -> progressBar.setValue(80));
+                        } else {
+                            publish("Encoding MP4 at " + videoW + "×" + videoH + " (CRF " + crf + ")...");
+                            SwingUtilities.invokeLater(() -> progressBar.setValue(65));
+
+                            videoOnly = new File(tempDir, "video_only.mp4");
+                            java.util.List<String> videoCmd = new java.util.ArrayList<>();
+                            videoCmd.add("ffmpeg");
+                            videoCmd.add("-y");
+                            if (useConcatDemuxer) {
+                                // Fast path: use concat demuxer (1 PNG per slide instead of thousands of frames)
+                                videoCmd.add("-f");
+                                videoCmd.add("concat");
+                                videoCmd.add("-safe");
+                                videoCmd.add("0");
+                                videoCmd.add("-i");
+                                videoCmd.add(concatFile.getAbsolutePath());
+                            } else {
+                                // Frame sequence input
+                                videoCmd.add("-framerate");
+                                videoCmd.add(String.valueOf(fps));
+                                videoCmd.add("-i");
+                                videoCmd.add(new File(tempDir, "frame_%05d.png").getAbsolutePath());
+                            }
+                            if (useConcatDemuxer) {
+                                // Set output framerate for concat demuxer input
+                                videoCmd.add("-r");
+                                videoCmd.add(String.valueOf(fps));
+                            }
+                            videoCmd.add("-c:v");
+                            videoCmd.add("libx264");
+                            videoCmd.add("-preset");
+                            videoCmd.add("medium");
+                            videoCmd.add("-threads");
+                            videoCmd.add("0");
+                            videoCmd.add("-crf");
+                            videoCmd.add(String.valueOf(crf));
+                            videoCmd.add("-pix_fmt");
+                            videoCmd.add("yuv420p");
+                            videoCmd.add("-movflags");
+                            videoCmd.add("+faststart");
+                            videoCmd.add(videoOnly.getAbsolutePath());
+
+                            publish("Encoding video...");
+                            ProcessBuilder pb = new ProcessBuilder(videoCmd);
+                            pb.redirectErrorStream(true);
+                            Process proc = pb.start();
+
+                            StringBuilder ffmpegLog = new StringBuilder();
+                            try (BufferedReader br = new BufferedReader(
+                                    new InputStreamReader(proc.getInputStream()))) {
+                                String line;
+                                while ((line = br.readLine()) != null) {
+                                    ffmpegLog.append(line).append("\n");
+                                    if (line.contains("frame=")) {
+                                        publish("Encoding: " + line.trim());
+                                    }
+                                }
                             }
 
-                            // Close stdin and wait for FFmpeg to finish
-                            ffmpegStdin.close();
-                            int pipeExit = pipeProc.waitFor();
-                            convergenceReader.join(5000);
-                            if (pipeExit != 0) {
-                                String lastLines = pipeLog.toString();
+                            int exit = proc.waitFor();
+                            if (exit != 0) {
+                                String lastLines = ffmpegLog.toString();
                                 if (lastLines.length() > 1500) {
                                     lastLines = lastLines.substring(lastLines.length() - 1500);
                                 }
                                 throw new IOException(
-                                        "ffmpeg video encoding failed (exit " + pipeExit + ").\n" +
+                                        "ffmpeg video encoding failed (exit " + exit + ").\n" +
+                                                "Ensure ffmpeg is installed with H.264 (libx264) support.\n" +
+                                                "Download: https://ffmpeg.org/download.html\n\n" +
                                                 "FFmpeg output:\n" + lastLines);
                             }
+
+                            SwingUtilities.invokeLater(() -> progressBar.setValue(80));
                         }
-                    }
 
-                    // Step 1: Create video-only MP4
-                    File videoOnly;
-                    if (usePipeEncoding) {
-                        // Pipe encoding already created the video file
-                        videoOnly = new File(tempDir, "video_only.mp4");
-                        publish("Video encoding completed via pipe.");
-                        SwingUtilities.invokeLater(() -> progressBar.setValue(80));
-                    } else {
-                        publish("Encoding MP4 at " + videoW + "×" + videoH + " (CRF " + crf + ")...");
-                        SwingUtilities.invokeLater(() -> progressBar.setValue(65));
-
-                        videoOnly = new File(tempDir, "video_only.mp4");
-                        java.util.List<String> videoCmd = new java.util.ArrayList<>();
-                        videoCmd.add("ffmpeg");
-                        videoCmd.add("-y");
-                        if (useConcatDemuxer) {
-                            // Fast path: use concat demuxer (1 PNG per slide instead of thousands of frames)
-                            videoCmd.add("-f");
-                            videoCmd.add("concat");
-                            videoCmd.add("-safe");
-                            videoCmd.add("0");
-                            videoCmd.add("-i");
-                            videoCmd.add(concatFile.getAbsolutePath());
-                        } else {
-                            // Frame sequence input
-                            videoCmd.add("-framerate");
-                            videoCmd.add(String.valueOf(fps));
-                            videoCmd.add("-i");
-                            videoCmd.add(new File(tempDir, "frame_%05d.png").getAbsolutePath());
-                        }
-                        if (useConcatDemuxer) {
-                            // Set output framerate for concat demuxer input
-                            videoCmd.add("-r");
-                            videoCmd.add(String.valueOf(fps));
-                        }
-                        videoCmd.add("-c:v");
-                        videoCmd.add("libx264");
-                        videoCmd.add("-preset");
-                        videoCmd.add("medium");
-                        videoCmd.add("-threads");
-                        videoCmd.add("0");
-                        videoCmd.add("-crf");
-                        videoCmd.add(String.valueOf(crf));
-                        videoCmd.add("-pix_fmt");
-                        videoCmd.add("yuv420p");
-                        videoCmd.add("-movflags");
-                        videoCmd.add("+faststart");
-                        videoCmd.add(videoOnly.getAbsolutePath());
-
-                        publish("Encoding video...");
-                        ProcessBuilder pb = new ProcessBuilder(videoCmd);
-                        pb.redirectErrorStream(true);
-                        Process proc = pb.start();
-
-                        StringBuilder ffmpegLog = new StringBuilder();
-                        try (BufferedReader br = new BufferedReader(
-                                new InputStreamReader(proc.getInputStream()))) {
-                            String line;
-                            while ((line = br.readLine()) != null) {
-                                ffmpegLog.append(line).append("\n");
-                                if (line.contains("frame=")) {
-                                    publish("Encoding: " + line.trim());
+                        // Step 2: Merge individual slide audio files into one track (if any)
+                        File mergedSlideAudio = null;
+                        boolean hasSlideAudio = false;
+                        for (SlideData s : slides) {
+                            for (File af : s.audioFiles) {
+                                if (af != null && af.exists()) {
+                                    hasSlideAudio = true;
+                                    break;
                                 }
                             }
+                            if (hasSlideAudio) break;
                         }
 
-                        int exit = proc.waitFor();
-                        if (exit != 0) {
-                            String lastLines = ffmpegLog.toString();
-                            if (lastLines.length() > 1500) {
-                                lastLines = lastLines.substring(lastLines.length() - 1500);
+                        if (hasSlideAudio) {
+                            publish("Merging slide audio tracks...");
+                            mergedSlideAudio = new File(tempDir, "merged_slide_audio.m4a");
+
+                            // Build ffmpeg filter_complex: delay each audio to its correct offset, then amix
+                            java.util.List<String> mergeCmd = new java.util.ArrayList<>();
+                            mergeCmd.add("ffmpeg");
+                            mergeCmd.add("-y");
+
+                            // Calculate each audio's start time and add inputs
+                            int inputIdx = 0;
+                            java.util.List<Integer> audioInputIndices = new java.util.ArrayList<>();
+                            java.util.List<Long> audioDelays = new java.util.ArrayList<>();
+                            long slideOffsetMs = 0;
+
+                            for (int si = 0; si < slides.size(); si++) {
+                                SlideData s = slides.get(si);
+                                int slideDur = computeSlideDuration(s, duration);
+                                // Each audio within the slide plays sequentially
+                                long intraSlideOffset = 0;
+                                int mergeAudioOrd = 0;
+                                for (int ai = 0; ai < s.audioFiles.size(); ai++) {
+                                    File af = s.audioFiles.get(ai);
+                                    int adur = ai < s.audioDurationsMs.size() ? s.audioDurationsMs.get(ai) : 0;
+                                    if (af != null && af.exists() && adur > 0) {
+                                        // Add gap before this audio (except the first)
+                                        if (mergeAudioOrd > 0 && s.audioGapMs > 0) {
+                                            intraSlideOffset += s.audioGapMs;
+                                        }
+                                        mergeCmd.add("-i");
+                                        mergeCmd.add(af.getAbsolutePath());
+                                        audioInputIndices.add(inputIdx);
+                                        audioDelays.add(slideOffsetMs + intraSlideOffset);
+                                        inputIdx++;
+                                        intraSlideOffset += adur;
+                                        mergeAudioOrd++;
+                                    }
+                                }
+                                slideOffsetMs += slideDur;
+                                // When scroll transitions are enabled, the video timeline has a silent
+                                // gap between slides. Shift subsequent slides' audio to match.
+                                if (scrollEnabled && si < slides.size() - 1) {
+                                    slideOffsetMs += finalTransitionMs;
+                                }
                             }
-                            throw new IOException(
-                                    "ffmpeg video encoding failed (exit " + exit + ").\n" +
-                                            "Ensure ffmpeg is installed with H.264 (libx264) support.\n" +
-                                            "Download: https://ffmpeg.org/download.html\n\n" +
-                                            "FFmpeg output:\n" + lastLines);
+
+                            // Build filter_complex string
+                            StringBuilder filterComplex = new StringBuilder();
+                            for (int ai = 0; ai < audioInputIndices.size(); ai++) {
+                                int idx = audioInputIndices.get(ai);
+                                long delayMs = audioDelays.get(ai);
+                                filterComplex.append("[").append(idx).append(":a]adelay=")
+                                        .append(delayMs).append("|").append(delayMs)
+                                        .append("[a").append(ai).append("];");
+                            }
+                            // amix all delayed streams
+                            for (int ai = 0; ai < audioInputIndices.size(); ai++) {
+                                filterComplex.append("[a").append(ai).append("]");
+                            }
+                            filterComplex.append("amix=inputs=").append(audioInputIndices.size())
+                                    .append(":duration=longest:dropout_transition=0:normalize=0[aout]");
+
+                            mergeCmd.add("-filter_complex");
+                            mergeCmd.add(filterComplex.toString());
+                            mergeCmd.add("-map");
+                            mergeCmd.add("[aout]");
+                            mergeCmd.add("-c:a");
+                            mergeCmd.add("aac");
+                            mergeCmd.add("-b:a");
+                            mergeCmd.add("192k");
+                            mergeCmd.add(mergedSlideAudio.getAbsolutePath());
+
+                            ProcessBuilder mergePb = new ProcessBuilder(mergeCmd);
+                            mergePb.redirectErrorStream(true);
+                            Process mergeProc = mergePb.start();
+
+                            StringBuilder mergeLog = new StringBuilder();
+                            try (BufferedReader br = new BufferedReader(
+                                    new InputStreamReader(mergeProc.getInputStream()))) {
+                                String line;
+                                while ((line = br.readLine()) != null) {
+                                    mergeLog.append(line).append("\n");
+                                }
+                            }
+
+                            int mergeExit = mergeProc.waitFor();
+                            if (mergeExit != 0) {
+                                String lastLines = mergeLog.toString();
+                                if (lastLines.length() > 1500) {
+                                    lastLines = lastLines.substring(lastLines.length() - 1500);
+                                }
+                                publish("Warning: slide audio merge failed, continuing without slide audio.");
+                                System.err.println("Slide audio merge failed (exit " + mergeExit + "):\n" + lastLines);
+                                mergedSlideAudio = null;
+                            }
                         }
 
-                        SwingUtilities.invokeLater(() -> progressBar.setValue(80));
-                    }
+                        // Determine the effective audio file to mux into the video
+                        // Priority: if both slide audio and global audio exist, mix them together
+                        File effectiveAudioFile = null;
+                        File mixedAudioFile = null;
 
-                    // Step 2: Merge individual slide audio files into one track (if any)
-                    File mergedSlideAudio = null;
-                    boolean hasSlideAudio = false;
-                    for (SlideData s : slides) {
-                        for (File af : s.audioFiles) {
-                            if (af != null && af.exists()) {
-                                hasSlideAudio = true;
+                        if (mergedSlideAudio != null && mergedSlideAudio.exists()
+                                && finalAudioFile != null && finalAudioFile.exists()) {
+                            // Mix slide audio and global audio together
+                            publish("Mixing slide audio with global audio...");
+                            mixedAudioFile = new File(tempDir, "mixed_audio.m4a");
+                            java.util.List<String> mixCmd = new java.util.ArrayList<>();
+                            mixCmd.add("ffmpeg");
+                            mixCmd.add("-y");
+                            mixCmd.add("-i");
+                            mixCmd.add(mergedSlideAudio.getAbsolutePath());
+                            mixCmd.add("-i");
+                            mixCmd.add(finalAudioFile.getAbsolutePath());
+                            mixCmd.add("-filter_complex");
+                            mixCmd.add("[0:a][1:a]amix=inputs=2:duration=longest:dropout_transition=0[aout]");
+                            mixCmd.add("-map");
+                            mixCmd.add("[aout]");
+                            mixCmd.add("-c:a");
+                            mixCmd.add("aac");
+                            mixCmd.add("-b:a");
+                            mixCmd.add("192k");
+                            mixCmd.add(mixedAudioFile.getAbsolutePath());
+
+                            ProcessBuilder mixPb = new ProcessBuilder(mixCmd);
+                            mixPb.redirectErrorStream(true);
+                            Process mixProc = mixPb.start();
+                            StringBuilder mixLog = new StringBuilder();
+                            try (BufferedReader br = new BufferedReader(
+                                    new InputStreamReader(mixProc.getInputStream()))) {
+                                String line;
+                                while ((line = br.readLine()) != null) {
+                                    mixLog.append(line).append("\n");
+                                }
+                            }
+                            int mixExit = mixProc.waitFor();
+                            if (mixExit == 0) {
+                                effectiveAudioFile = mixedAudioFile;
+                            } else {
+                                publish("Warning: audio mixing failed, using slide audio only.");
+                                effectiveAudioFile = mergedSlideAudio;
+                            }
+                        } else if (mergedSlideAudio != null && mergedSlideAudio.exists()) {
+                            effectiveAudioFile = mergedSlideAudio;
+                        } else if (finalAudioFile != null && finalAudioFile.exists()) {
+                            effectiveAudioFile = finalAudioFile;
+                        }
+
+                        // Step 3: Mux audio into the video (separate pass)
+                        if (effectiveAudioFile != null && effectiveAudioFile.exists()) {
+                            publish("Adding audio to video...");
+                            java.util.List<String> muxCmd = new java.util.ArrayList<>();
+                            muxCmd.add("ffmpeg");
+                            muxCmd.add("-y");
+                            muxCmd.add("-i");
+                            muxCmd.add(videoOnly.getAbsolutePath());
+                            muxCmd.add("-i");
+                            muxCmd.add(effectiveAudioFile.getAbsolutePath());
+                            muxCmd.add("-c:v");
+                            muxCmd.add("copy");
+                            muxCmd.add("-c:a");
+                            muxCmd.add("aac");
+                            muxCmd.add("-b:a");
+                            muxCmd.add("192k");
+                            muxCmd.add("-movflags");
+                            muxCmd.add("+faststart");
+                            muxCmd.add(finalOut.getAbsolutePath());
+
+                            ProcessBuilder muxPb = new ProcessBuilder(muxCmd);
+                            muxPb.redirectErrorStream(true);
+                            Process muxProc = muxPb.start();
+
+                            StringBuilder muxLog = new StringBuilder();
+                            try (BufferedReader br = new BufferedReader(
+                                    new InputStreamReader(muxProc.getInputStream()))) {
+                                String line;
+                                while ((line = br.readLine()) != null) {
+                                    muxLog.append(line).append("\n");
+                                }
+                            }
+
+                            int muxExit = muxProc.waitFor();
+                            if (muxExit != 0) {
+                                String lastLines = muxLog.toString();
+                                if (lastLines.length() > 1500) {
+                                    lastLines = lastLines.substring(lastLines.length() - 1500);
+                                }
+                                throw new IOException(
+                                        "ffmpeg audio muxing failed (exit " + muxExit + ").\n" +
+                                                "FFmpeg output:\n" + lastLines);
+                            }
+                            videoOnly.delete();
+                        } else {
+                            // No audio — just rename video-only file to final output
+                            if (!videoOnly.renameTo(finalOut)) {
+                                // renameTo can fail across filesystems, fall back to copy
+                                java.nio.file.Files.copy(videoOnly.toPath(), finalOut.toPath(),
+                                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                                videoOnly.delete();
+                            }
+                        }
+
+                        // Step 4: Apply per-slide video overlays AND source videos (uploaded-as-slide)
+                        boolean anyVideoOverlay = false;
+                        for (SlideData s : slides) {
+                            if ((s.videoOverlayFile != null && s.videoOverlayFile.exists())
+                                    || (s.sourceVideoFile != null && s.sourceVideoFile.exists())) {
+                                anyVideoOverlay = true;
                                 break;
                             }
                         }
-                        if (hasSlideAudio) break;
-                    }
 
-                    if (hasSlideAudio) {
-                        publish("Merging slide audio tracks...");
-                        mergedSlideAudio = new File(tempDir, "merged_slide_audio.m4a");
+                        if (anyVideoOverlay) {
+                            publish("Applying per-slide videos...");
 
-                        // Build ffmpeg filter_complex: delay each audio to its correct offset, then amix
-                        java.util.List<String> mergeCmd = new java.util.ArrayList<>();
-                        mergeCmd.add("ffmpeg");
-                        mergeCmd.add("-y");
-
-                        // Calculate each audio's start time and add inputs
-                        int inputIdx = 0;
-                        java.util.List<Integer> audioInputIndices = new java.util.ArrayList<>();
-                        java.util.List<Long> audioDelays = new java.util.ArrayList<>();
-                        long slideOffsetMs = 0;
-
-                        for (int si = 0; si < slides.size(); si++) {
-                            SlideData s = slides.get(si);
-                            int slideDur = computeSlideDuration(s, duration);
-                            // Each audio within the slide plays sequentially
-                            long intraSlideOffset = 0;
-                            int mergeAudioOrd = 0;
-                            for (int ai = 0; ai < s.audioFiles.size(); ai++) {
-                                File af = s.audioFiles.get(ai);
-                                int adur = ai < s.audioDurationsMs.size() ? s.audioDurationsMs.get(ai) : 0;
-                                if (af != null && af.exists() && adur > 0) {
-                                    // Add gap before this audio (except the first)
-                                    if (mergeAudioOrd > 0 && s.audioGapMs > 0) {
-                                        intraSlideOffset += s.audioGapMs;
-                                    }
-                                    mergeCmd.add("-i");
-                                    mergeCmd.add(af.getAbsolutePath());
-                                    audioInputIndices.add(inputIdx);
-                                    audioDelays.add(slideOffsetMs + intraSlideOffset);
-                                    inputIdx++;
-                                    intraSlideOffset += adur;
-                                    mergeAudioOrd++;
+                            // Compute each slide's start time and duration in seconds
+                            double[] slideStartSec = new double[slides.size()];
+                            double[] slideDurSec = new double[slides.size()];
+                            double timeOffset = 0;
+                            double transSec = finalTransitionMs / 1000.0;
+                            for (int i = 0; i < slides.size(); i++) {
+                                slideStartSec[i] = timeOffset;
+                                slideDurSec[i] = computeSlideDuration(slides.get(i), duration) / 1000.0;
+                                timeOffset += slideDurSec[i];
+                                if (scrollEnabled && i < slides.size() - 1) {
+                                    timeOffset += transSec;
                                 }
                             }
-                            slideOffsetMs += slideDur;
-                            // When scroll transitions are enabled, the video timeline has a silent
-                            // gap between slides. Shift subsequent slides' audio to match.
-                            if (scrollEnabled && si < slides.size() - 1) {
-                                slideOffsetMs += finalTransitionMs;
+
+                            // Build FFmpeg command with all overlay inputs and time-gated filters
+                            java.util.List<String> ovCmd = new java.util.ArrayList<>();
+                            ovCmd.add("ffmpeg"); ovCmd.add("-y");
+                            ovCmd.add("-i"); ovCmd.add(finalOut.getAbsolutePath());
+
+                            // Track each overlay task: per-entry slide index, input index, file,
+                            // fill flag, behind flag, size%, x%, y%, and whether it's a static PNG
+                            // (decoration layer) vs a regular video input.
+                            java.util.List<Integer> ovSlideIdx = new java.util.ArrayList<>();
+                            java.util.List<Integer> ovInputIdx = new java.util.ArrayList<>();
+                            java.util.List<File> ovTaskFiles = new java.util.ArrayList<>();
+                            java.util.List<Boolean> ovTaskFill = new java.util.ArrayList<>();
+                            java.util.List<Boolean> ovTaskBehind = new java.util.ArrayList<>();
+                            java.util.List<Integer> ovTaskSize = new java.util.ArrayList<>();
+                            java.util.List<Integer> ovTaskX = new java.util.ArrayList<>();
+                            java.util.List<Integer> ovTaskY = new java.util.ArrayList<>();
+                            java.util.List<Boolean> ovTaskIsPng = new java.util.ArrayList<>();
+                            // ovTaskIsPngSeq: true if the input is a rendered PNG sequence for an
+                            // animated decoration layer. Sequences need tpad-based time alignment
+                            // (like a video) but have no audio stream.
+                            java.util.List<Boolean> ovTaskIsPngSeq = new java.util.ArrayList<>();
+                            // ovTaskIsSourceVideo: true if the input is an uploaded source
+                            // video (video-as-slide), false for Video Overlay toolbar videos and
+                            // PNG decoration layers. Used to attenuate the source video's audio
+                            // so the base slideshow audio stays dominant.
+                            java.util.List<Boolean> ovTaskIsSourceVideo = new java.util.ArrayList<>();
+                            int ovInIdx = 1;
+
+                            // Source videos first (underneath decorations + explicit overlay), fill mode, on top of base frame
+                            for (int i = 0; i < slides.size(); i++) {
+                                SlideData s = slides.get(i);
+                                if (s.sourceVideoFile != null && s.sourceVideoFile.exists()) {
+                                    // Loop the input infinitely so a short uploaded clip fills
+                                    // the audio-anchored slide duration. The existing
+                                    // enable=between(tStart,tEnd) window and the audio atrim
+                                    // cut the loop cleanly at the slide's end.
+                                    ovCmd.add("-stream_loop"); ovCmd.add("-1");
+                                    ovCmd.add("-i"); ovCmd.add(s.sourceVideoFile.getAbsolutePath());
+                                    ovSlideIdx.add(i);
+                                    ovInputIdx.add(ovInIdx);
+                                    ovTaskFiles.add(s.sourceVideoFile);
+                                    ovTaskFill.add(Boolean.TRUE);
+                                    ovTaskBehind.add(Boolean.FALSE);
+                                    ovTaskSize.add(100);
+                                    ovTaskX.add(50);
+                                    ovTaskY.add(50);
+                                    ovTaskIsPng.add(Boolean.FALSE);
+                                    ovTaskIsPngSeq.add(Boolean.FALSE);
+                                    ovTaskIsSourceVideo.add(Boolean.TRUE);
+                                    ovInIdx++;
+                                }
                             }
-                        }
-
-                        // Build filter_complex string
-                        StringBuilder filterComplex = new StringBuilder();
-                        for (int ai = 0; ai < audioInputIndices.size(); ai++) {
-                            int idx = audioInputIndices.get(ai);
-                            long delayMs = audioDelays.get(ai);
-                            filterComplex.append("[").append(idx).append(":a]adelay=")
-                                    .append(delayMs).append("|").append(delayMs)
-                                    .append("[a").append(ai).append("];");
-                        }
-                        // amix all delayed streams
-                        for (int ai = 0; ai < audioInputIndices.size(); ai++) {
-                            filterComplex.append("[a").append(ai).append("]");
-                        }
-                        filterComplex.append("amix=inputs=").append(audioInputIndices.size())
-                                .append(":duration=longest:dropout_transition=0:normalize=0[aout]");
-
-                        mergeCmd.add("-filter_complex");
-                        mergeCmd.add(filterComplex.toString());
-                        mergeCmd.add("-map");
-                        mergeCmd.add("[aout]");
-                        mergeCmd.add("-c:a");
-                        mergeCmd.add("aac");
-                        mergeCmd.add("-b:a");
-                        mergeCmd.add("192k");
-                        mergeCmd.add(mergedSlideAudio.getAbsolutePath());
-
-                        ProcessBuilder mergePb = new ProcessBuilder(mergeCmd);
-                        mergePb.redirectErrorStream(true);
-                        Process mergeProc = mergePb.start();
-
-                        StringBuilder mergeLog = new StringBuilder();
-                        try (BufferedReader br = new BufferedReader(
-                                new InputStreamReader(mergeProc.getInputStream()))) {
-                            String line;
-                            while ((line = br.readLine()) != null) {
-                                mergeLog.append(line).append("\n");
+                            // Decoration layers for each source-video slide: a transparent PNG
+                            // (or animated PNG sequence) that renders only the slide's text /
+                            // slide number / slide texts / slide pictures on top of the playing
+                            // video. Without this, those decorations are baked into the static
+                            // first-frame base and get hidden entirely while the source video
+                            // plays. If the slide has animated decorations (Fly-In, typewriter,
+                            // odometer, etc.), a PNG sequence is emitted so the animation plays
+                            // in sync with the video.
+                            for (int i = 0; i < slides.size(); i++) {
+                                SlideData s = slides.get(i);
+                                if (s.sourceVideoFile != null && s.sourceVideoFile.exists()) {
+                                    try {
+                                        int slideFrames = Math.max(1, (int) Math.round(slideDurSec[i] * fps));
+                                        File decoDir = new File(tempDir, String.format("deco_%03d", i));
+                                        boolean[] isSeqOut = new boolean[1];
+                                        File decoOut = renderDecorationLayerToDisk(
+                                                s, videoW, videoH, fps, slideFrames, decoDir, isSeqOut);
+                                        if (isSeqOut[0]) {
+                                            ovCmd.add("-framerate"); ovCmd.add(String.valueOf(fps));
+                                            ovCmd.add("-i");
+                                            ovCmd.add(new File(decoOut, "%05d.png").getAbsolutePath());
+                                            ovSlideIdx.add(i);
+                                            ovInputIdx.add(ovInIdx);
+                                            ovTaskFiles.add(decoOut);
+                                            ovTaskFill.add(Boolean.TRUE);
+                                            ovTaskBehind.add(Boolean.FALSE);
+                                            ovTaskSize.add(100);
+                                            ovTaskX.add(50);
+                                            ovTaskY.add(50);
+                                            ovTaskIsPng.add(Boolean.FALSE);
+                                            ovTaskIsPngSeq.add(Boolean.TRUE);
+                                            ovTaskIsSourceVideo.add(Boolean.FALSE);
+                                            ovInIdx++;
+                                        } else {
+                                            ovCmd.add("-loop"); ovCmd.add("1");
+                                            ovCmd.add("-i"); ovCmd.add(decoOut.getAbsolutePath());
+                                            ovSlideIdx.add(i);
+                                            ovInputIdx.add(ovInIdx);
+                                            ovTaskFiles.add(decoOut);
+                                            ovTaskFill.add(Boolean.TRUE);
+                                            ovTaskBehind.add(Boolean.FALSE);
+                                            ovTaskSize.add(100);
+                                            ovTaskX.add(50);
+                                            ovTaskY.add(50);
+                                            ovTaskIsPng.add(Boolean.TRUE);
+                                            ovTaskIsPngSeq.add(Boolean.FALSE);
+                                            ovTaskIsSourceVideo.add(Boolean.FALSE);
+                                            ovInIdx++;
+                                        }
+                                    } catch (IOException ioe) {
+                                        publish("Failed to write decoration layer for slide " + (i + 1) + ": " + ioe.getMessage());
+                                    }
+                                }
                             }
-                        }
-
-                        int mergeExit = mergeProc.waitFor();
-                        if (mergeExit != 0) {
-                            String lastLines = mergeLog.toString();
-                            if (lastLines.length() > 1500) {
-                                lastLines = lastLines.substring(lastLines.length() - 1500);
+                            // Then user-specified video overlays (render above source video + decorations if all exist)
+                            for (int i = 0; i < slides.size(); i++) {
+                                SlideData s = slides.get(i);
+                                if (s.videoOverlayFile != null && s.videoOverlayFile.exists()) {
+                                    ovCmd.add("-i"); ovCmd.add(s.videoOverlayFile.getAbsolutePath());
+                                    ovSlideIdx.add(i);
+                                    ovInputIdx.add(ovInIdx);
+                                    ovTaskFiles.add(s.videoOverlayFile);
+                                    ovTaskFill.add(s.videoOverlayFill);
+                                    ovTaskBehind.add(s.videoOverlayBehind);
+                                    ovTaskSize.add(s.videoOverlaySize);
+                                    ovTaskX.add(s.videoOverlayX);
+                                    ovTaskY.add(s.videoOverlayY);
+                                    ovTaskIsPng.add(Boolean.FALSE);
+                                    ovTaskIsPngSeq.add(Boolean.FALSE);
+                                    ovTaskIsSourceVideo.add(Boolean.FALSE);
+                                    ovInIdx++;
+                                }
                             }
-                            publish("Warning: slide audio merge failed, continuing without slide audio.");
-                            System.err.println("Slide audio merge failed (exit " + mergeExit + "):\n" + lastLines);
-                            mergedSlideAudio = null;
-                        }
-                    }
 
-                    // Determine the effective audio file to mux into the video
-                    // Priority: if both slide audio and global audio exist, mix them together
-                    File effectiveAudioFile = null;
-                    File mixedAudioFile = null;
+                            // Build video filter chain: scale + time-gated overlay for each
+                            StringBuilder vFilter = new StringBuilder();
+                            String currentVid = "[0:v]";
+                            for (int j = 0; j < ovSlideIdx.size(); j++) {
+                                int si = ovSlideIdx.get(j);
+                                int ii = ovInputIdx.get(j);
+                                boolean fill = ovTaskFill.get(j);
+                                boolean behind = ovTaskBehind.get(j);
+                                int sz = ovTaskSize.get(j);
+                                int px = ovTaskX.get(j);
+                                int py = ovTaskY.get(j);
+                                boolean isPng = ovTaskIsPng.get(j);
+                                boolean isPngSeq = ovTaskIsPngSeq.get(j);
 
-                    if (mergedSlideAudio != null && mergedSlideAudio.exists()
-                            && finalAudioFile != null && finalAudioFile.exists()) {
-                        // Mix slide audio and global audio together
-                        publish("Mixing slide audio with global audio...");
-                        mixedAudioFile = new File(tempDir, "mixed_audio.m4a");
-                        java.util.List<String> mixCmd = new java.util.ArrayList<>();
-                        mixCmd.add("ffmpeg");
-                        mixCmd.add("-y");
-                        mixCmd.add("-i");
-                        mixCmd.add(mergedSlideAudio.getAbsolutePath());
-                        mixCmd.add("-i");
-                        mixCmd.add(finalAudioFile.getAbsolutePath());
-                        mixCmd.add("-filter_complex");
-                        mixCmd.add("[0:a][1:a]amix=inputs=2:duration=longest:dropout_transition=0[aout]");
-                        mixCmd.add("-map");
-                        mixCmd.add("[aout]");
-                        mixCmd.add("-c:a");
-                        mixCmd.add("aac");
-                        mixCmd.add("-b:a");
-                        mixCmd.add("192k");
-                        mixCmd.add(mixedAudioFile.getAbsolutePath());
+                                double tStart = slideStartSec[si];
+                                double tEnd = tStart + slideDurSec[si];
+                                String scaledLbl = "[ov" + j + "]";
+                                String outLbl = (j == ovSlideIdx.size() - 1) ? "[outv]" : "[tmp" + j + "]";
+                                String enableExpr = ":enable='between(t,"
+                                        + String.format(java.util.Locale.US, "%.3f", tStart) + ","
+                                        + String.format(java.util.Locale.US, "%.3f", tEnd) + ")'";
 
-                        ProcessBuilder mixPb = new ProcessBuilder(mixCmd);
-                        mixPb.redirectErrorStream(true);
-                        Process mixProc = mixPb.start();
-                        StringBuilder mixLog = new StringBuilder();
-                        try (BufferedReader br = new BufferedReader(
-                                new InputStreamReader(mixProc.getInputStream()))) {
-                            String line;
-                            while ((line = br.readLine()) != null) {
-                                mixLog.append(line).append("\n");
-                            }
-                        }
-                        int mixExit = mixProc.waitFor();
-                        if (mixExit == 0) {
-                            effectiveAudioFile = mixedAudioFile;
-                        } else {
-                            publish("Warning: audio mixing failed, using slide audio only.");
-                            effectiveAudioFile = mergedSlideAudio;
-                        }
-                    } else if (mergedSlideAudio != null && mergedSlideAudio.exists()) {
-                        effectiveAudioFile = mergedSlideAudio;
-                    } else if (finalAudioFile != null && finalAudioFile.exists()) {
-                        effectiveAudioFile = finalAudioFile;
-                    }
+                                // For video inputs and animated PNG sequences: prepend `tpad`
+                                // padding frames so the input's content frames land at output
+                                // time `tStart` in sync with the main video. Setpts alone was
+                                // leaving the overlay with no second-input frames during
+                                // [0, tStart], which can stall the filter. Static PNG inputs
+                                // are looped (-loop 1), every output time has a frame available,
+                                // so no padding is needed — enable window alone gates it.
+                                // PNG sequences use color=black@0 so the transparent pad frames
+                                // don't dim the base layer.
+                                String ptsShift;
+                                if (isPng) {
+                                    ptsShift = "";
+                                } else if (isPngSeq && tStart > 0) {
+                                    ptsShift = String.format(java.util.Locale.US,
+                                            "tpad=start_duration=%.3f:start_mode=add:color=black@0,setpts=PTS-STARTPTS,",
+                                            tStart);
+                                } else if (isPngSeq) {
+                                    ptsShift = "setpts=PTS-STARTPTS,";
+                                } else if (tStart > 0) {
+                                    ptsShift = String.format(java.util.Locale.US,
+                                            "tpad=start_duration=%.3f:start_mode=add:color=black,setpts=PTS-STARTPTS,",
+                                            tStart);
+                                } else {
+                                    ptsShift = "setpts=PTS-STARTPTS,";
+                                }
 
-                    // Step 3: Mux audio into the video (separate pass)
-                    if (effectiveAudioFile != null && effectiveAudioFile.exists()) {
-                        publish("Adding audio to video...");
-                        java.util.List<String> muxCmd = new java.util.ArrayList<>();
-                        muxCmd.add("ffmpeg");
-                        muxCmd.add("-y");
-                        muxCmd.add("-i");
-                        muxCmd.add(videoOnly.getAbsolutePath());
-                        muxCmd.add("-i");
-                        muxCmd.add(effectiveAudioFile.getAbsolutePath());
-                        muxCmd.add("-c:v");
-                        muxCmd.add("copy");
-                        muxCmd.add("-c:a");
-                        muxCmd.add("aac");
-                        muxCmd.add("-b:a");
-                        muxCmd.add("192k");
-                        muxCmd.add("-movflags");
-                        muxCmd.add("+faststart");
-                        muxCmd.add(finalOut.getAbsolutePath());
-
-                        ProcessBuilder muxPb = new ProcessBuilder(muxCmd);
-                        muxPb.redirectErrorStream(true);
-                        Process muxProc = muxPb.start();
-
-                        StringBuilder muxLog = new StringBuilder();
-                        try (BufferedReader br = new BufferedReader(
-                                new InputStreamReader(muxProc.getInputStream()))) {
-                            String line;
-                            while ((line = br.readLine()) != null) {
-                                muxLog.append(line).append("\n");
-                            }
-                        }
-
-                        int muxExit = muxProc.waitFor();
-                        if (muxExit != 0) {
-                            String lastLines = muxLog.toString();
-                            if (lastLines.length() > 1500) {
-                                lastLines = lastLines.substring(lastLines.length() - 1500);
-                            }
-                            throw new IOException(
-                                    "ffmpeg audio muxing failed (exit " + muxExit + ").\n" +
-                                            "FFmpeg output:\n" + lastLines);
-                        }
-                        videoOnly.delete();
-                    } else {
-                        // No audio — just rename video-only file to final output
-                        if (!videoOnly.renameTo(finalOut)) {
-                            // renameTo can fail across filesystems, fall back to copy
-                            java.nio.file.Files.copy(videoOnly.toPath(), finalOut.toPath(),
-                                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                            videoOnly.delete();
-                        }
-                    }
-
-                    // Step 4: Apply per-slide video overlays AND source videos (uploaded-as-slide)
-                    boolean anyVideoOverlay = false;
-                    for (SlideData s : slides) {
-                        if ((s.videoOverlayFile != null && s.videoOverlayFile.exists())
-                                || (s.sourceVideoFile != null && s.sourceVideoFile.exists())) {
-                            anyVideoOverlay = true;
-                            break;
-                        }
-                    }
-
-                    if (anyVideoOverlay) {
-                        publish("Applying per-slide videos...");
-
-                        // Compute each slide's start time and duration in seconds
-                        double[] slideStartSec = new double[slides.size()];
-                        double[] slideDurSec = new double[slides.size()];
-                        double timeOffset = 0;
-                        double transSec = finalTransitionMs / 1000.0;
-                        for (int i = 0; i < slides.size(); i++) {
-                            slideStartSec[i] = timeOffset;
-                            slideDurSec[i] = computeSlideDuration(slides.get(i), duration) / 1000.0;
-                            timeOffset += slideDurSec[i];
-                            if (scrollEnabled && i < slides.size() - 1) {
-                                timeOffset += transSec;
-                            }
-                        }
-
-                        // Build FFmpeg command with all overlay inputs and time-gated filters
-                        java.util.List<String> ovCmd = new java.util.ArrayList<>();
-                        ovCmd.add("ffmpeg"); ovCmd.add("-y");
-                        ovCmd.add("-i"); ovCmd.add(finalOut.getAbsolutePath());
-
-                        // Track each overlay task: per-entry slide index, input index, file,
-                        // fill flag, behind flag, size%, x%, y%, and whether it's a static PNG
-                        // (decoration layer) vs a regular video input.
-                        java.util.List<Integer> ovSlideIdx = new java.util.ArrayList<>();
-                        java.util.List<Integer> ovInputIdx = new java.util.ArrayList<>();
-                        java.util.List<File> ovTaskFiles = new java.util.ArrayList<>();
-                        java.util.List<Boolean> ovTaskFill = new java.util.ArrayList<>();
-                        java.util.List<Boolean> ovTaskBehind = new java.util.ArrayList<>();
-                        java.util.List<Integer> ovTaskSize = new java.util.ArrayList<>();
-                        java.util.List<Integer> ovTaskX = new java.util.ArrayList<>();
-                        java.util.List<Integer> ovTaskY = new java.util.ArrayList<>();
-                        java.util.List<Boolean> ovTaskIsPng = new java.util.ArrayList<>();
-                        // ovTaskIsPngSeq: true if the input is a rendered PNG sequence for an
-                        // animated decoration layer. Sequences need tpad-based time alignment
-                        // (like a video) but have no audio stream.
-                        java.util.List<Boolean> ovTaskIsPngSeq = new java.util.ArrayList<>();
-                        // ovTaskIsSourceVideo: true if the input is an uploaded source
-                        // video (video-as-slide), false for Video Overlay toolbar videos and
-                        // PNG decoration layers. Used to attenuate the source video's audio
-                        // so the base slideshow audio stays dominant.
-                        java.util.List<Boolean> ovTaskIsSourceVideo = new java.util.ArrayList<>();
-                        int ovInIdx = 1;
-
-                        // Source videos first (underneath decorations + explicit overlay), fill mode, on top of base frame
-                        for (int i = 0; i < slides.size(); i++) {
-                            SlideData s = slides.get(i);
-                            if (s.sourceVideoFile != null && s.sourceVideoFile.exists()) {
-                                // Loop the input infinitely so a short uploaded clip fills
-                                // the audio-anchored slide duration. The existing
-                                // enable=between(tStart,tEnd) window and the audio atrim
-                                // cut the loop cleanly at the slide's end.
-                                ovCmd.add("-stream_loop"); ovCmd.add("-1");
-                                ovCmd.add("-i"); ovCmd.add(s.sourceVideoFile.getAbsolutePath());
-                                ovSlideIdx.add(i);
-                                ovInputIdx.add(ovInIdx);
-                                ovTaskFiles.add(s.sourceVideoFile);
-                                ovTaskFill.add(Boolean.TRUE);
-                                ovTaskBehind.add(Boolean.FALSE);
-                                ovTaskSize.add(100);
-                                ovTaskX.add(50);
-                                ovTaskY.add(50);
-                                ovTaskIsPng.add(Boolean.FALSE);
-                                ovTaskIsPngSeq.add(Boolean.FALSE);
-                                ovTaskIsSourceVideo.add(Boolean.TRUE);
-                                ovInIdx++;
-                            }
-                        }
-                        // Decoration layers for each source-video slide: a transparent PNG
-                        // (or animated PNG sequence) that renders only the slide's text /
-                        // slide number / slide texts / slide pictures on top of the playing
-                        // video. Without this, those decorations are baked into the static
-                        // first-frame base and get hidden entirely while the source video
-                        // plays. If the slide has animated decorations (Fly-In, typewriter,
-                        // odometer, etc.), a PNG sequence is emitted so the animation plays
-                        // in sync with the video.
-                        for (int i = 0; i < slides.size(); i++) {
-                            SlideData s = slides.get(i);
-                            if (s.sourceVideoFile != null && s.sourceVideoFile.exists()) {
-                                try {
-                                    int slideFrames = Math.max(1, (int) Math.round(slideDurSec[i] * fps));
-                                    File decoDir = new File(tempDir, String.format("deco_%03d", i));
-                                    boolean[] isSeqOut = new boolean[1];
-                                    File decoOut = renderDecorationLayerToDisk(
-                                            s, videoW, videoH, fps, slideFrames, decoDir, isSeqOut);
-                                    if (isSeqOut[0]) {
-                                        ovCmd.add("-framerate"); ovCmd.add(String.valueOf(fps));
-                                        ovCmd.add("-i");
-                                        ovCmd.add(new File(decoOut, "%05d.png").getAbsolutePath());
-                                        ovSlideIdx.add(i);
-                                        ovInputIdx.add(ovInIdx);
-                                        ovTaskFiles.add(decoOut);
-                                        ovTaskFill.add(Boolean.TRUE);
-                                        ovTaskBehind.add(Boolean.FALSE);
-                                        ovTaskSize.add(100);
-                                        ovTaskX.add(50);
-                                        ovTaskY.add(50);
-                                        ovTaskIsPng.add(Boolean.FALSE);
-                                        ovTaskIsPngSeq.add(Boolean.TRUE);
-                                        ovTaskIsSourceVideo.add(Boolean.FALSE);
-                                        ovInIdx++;
+                                if (fill) {
+                                    int fillW = videoW; if (fillW % 2 != 0) fillW++;
+                                    int fillH = videoH; if (fillH % 2 != 0) fillH++;
+                                    vFilter.append("[").append(ii).append(":v]").append(ptsShift).append("scale=").append(fillW).append(":").append(fillH)
+                                            .append(":force_original_aspect_ratio=increase,crop=").append(fillW).append(":").append(fillH).append(scaledLbl).append(";");
+                                    if (behind) {
+                                        vFilter.append(scaledLbl).append(currentVid).append("overlay=0:0")
+                                                .append(enableExpr).append(":eof_action=pass").append(outLbl).append(";");
                                     } else {
-                                        ovCmd.add("-loop"); ovCmd.add("1");
-                                        ovCmd.add("-i"); ovCmd.add(decoOut.getAbsolutePath());
-                                        ovSlideIdx.add(i);
-                                        ovInputIdx.add(ovInIdx);
-                                        ovTaskFiles.add(decoOut);
-                                        ovTaskFill.add(Boolean.TRUE);
-                                        ovTaskBehind.add(Boolean.FALSE);
-                                        ovTaskSize.add(100);
-                                        ovTaskX.add(50);
-                                        ovTaskY.add(50);
-                                        ovTaskIsPng.add(Boolean.TRUE);
-                                        ovTaskIsPngSeq.add(Boolean.FALSE);
-                                        ovTaskIsSourceVideo.add(Boolean.FALSE);
-                                        ovInIdx++;
+                                        vFilter.append(currentVid).append(scaledLbl).append("overlay=0:0")
+                                                .append(enableExpr).append(":eof_action=pass").append(outLbl).append(";");
                                     }
-                                } catch (IOException ioe) {
-                                    publish("Failed to write decoration layer for slide " + (i + 1) + ": " + ioe.getMessage());
-                                }
-                            }
-                        }
-                        // Then user-specified video overlays (render above source video + decorations if all exist)
-                        for (int i = 0; i < slides.size(); i++) {
-                            SlideData s = slides.get(i);
-                            if (s.videoOverlayFile != null && s.videoOverlayFile.exists()) {
-                                ovCmd.add("-i"); ovCmd.add(s.videoOverlayFile.getAbsolutePath());
-                                ovSlideIdx.add(i);
-                                ovInputIdx.add(ovInIdx);
-                                ovTaskFiles.add(s.videoOverlayFile);
-                                ovTaskFill.add(s.videoOverlayFill);
-                                ovTaskBehind.add(s.videoOverlayBehind);
-                                ovTaskSize.add(s.videoOverlaySize);
-                                ovTaskX.add(s.videoOverlayX);
-                                ovTaskY.add(s.videoOverlayY);
-                                ovTaskIsPng.add(Boolean.FALSE);
-                                ovTaskIsPngSeq.add(Boolean.FALSE);
-                                ovTaskIsSourceVideo.add(Boolean.FALSE);
-                                ovInIdx++;
-                            }
-                        }
-
-                        // Build video filter chain: scale + time-gated overlay for each
-                        StringBuilder vFilter = new StringBuilder();
-                        String currentVid = "[0:v]";
-                        for (int j = 0; j < ovSlideIdx.size(); j++) {
-                            int si = ovSlideIdx.get(j);
-                            int ii = ovInputIdx.get(j);
-                            boolean fill = ovTaskFill.get(j);
-                            boolean behind = ovTaskBehind.get(j);
-                            int sz = ovTaskSize.get(j);
-                            int px = ovTaskX.get(j);
-                            int py = ovTaskY.get(j);
-                            boolean isPng = ovTaskIsPng.get(j);
-                            boolean isPngSeq = ovTaskIsPngSeq.get(j);
-
-                            double tStart = slideStartSec[si];
-                            double tEnd = tStart + slideDurSec[si];
-                            String scaledLbl = "[ov" + j + "]";
-                            String outLbl = (j == ovSlideIdx.size() - 1) ? "[outv]" : "[tmp" + j + "]";
-                            String enableExpr = ":enable='between(t,"
-                                    + String.format(java.util.Locale.US, "%.3f", tStart) + ","
-                                    + String.format(java.util.Locale.US, "%.3f", tEnd) + ")'";
-
-                            // For video inputs and animated PNG sequences: prepend `tpad`
-                            // padding frames so the input's content frames land at output
-                            // time `tStart` in sync with the main video. Setpts alone was
-                            // leaving the overlay with no second-input frames during
-                            // [0, tStart], which can stall the filter. Static PNG inputs
-                            // are looped (-loop 1), every output time has a frame available,
-                            // so no padding is needed — enable window alone gates it.
-                            // PNG sequences use color=black@0 so the transparent pad frames
-                            // don't dim the base layer.
-                            String ptsShift;
-                            if (isPng) {
-                                ptsShift = "";
-                            } else if (isPngSeq && tStart > 0) {
-                                ptsShift = String.format(java.util.Locale.US,
-                                        "tpad=start_duration=%.3f:start_mode=add:color=black@0,setpts=PTS-STARTPTS,",
-                                        tStart);
-                            } else if (isPngSeq) {
-                                ptsShift = "setpts=PTS-STARTPTS,";
-                            } else if (tStart > 0) {
-                                ptsShift = String.format(java.util.Locale.US,
-                                        "tpad=start_duration=%.3f:start_mode=add:color=black,setpts=PTS-STARTPTS,",
-                                        tStart);
-                            } else {
-                                ptsShift = "setpts=PTS-STARTPTS,";
-                            }
-
-                            if (fill) {
-                                int fillW = videoW; if (fillW % 2 != 0) fillW++;
-                                int fillH = videoH; if (fillH % 2 != 0) fillH++;
-                                vFilter.append("[").append(ii).append(":v]").append(ptsShift).append("scale=").append(fillW).append(":").append(fillH)
-                                        .append(":force_original_aspect_ratio=increase,crop=").append(fillW).append(":").append(fillH).append(scaledLbl).append(";");
-                                if (behind) {
-                                    vFilter.append(scaledLbl).append(currentVid).append("overlay=0:0")
-                                            .append(enableExpr).append(":eof_action=pass").append(outLbl).append(";");
                                 } else {
-                                    vFilter.append(currentVid).append(scaledLbl).append("overlay=0:0")
-                                            .append(enableExpr).append(":eof_action=pass").append(outLbl).append(";");
-                                }
-                            } else {
-                                int ovW = (int)(videoW * sz / 100.0);
-                                if (ovW % 2 != 0) ovW++;
-                                int ovPxX = (int)(videoW * px / 100.0) - ovW / 2;
-                                int ovPxY = (int)(videoH * py / 100.0);
+                                    int ovW = (int)(videoW * sz / 100.0);
+                                    if (ovW % 2 != 0) ovW++;
+                                    int ovPxX = (int)(videoW * px / 100.0) - ovW / 2;
+                                    int ovPxY = (int)(videoH * py / 100.0);
 
-                                vFilter.append("[").append(ii).append(":v]").append(ptsShift).append("scale=").append(ovW).append(":-2").append(scaledLbl).append(";");
-                                if (behind) {
-                                    vFilter.append(scaledLbl).append("pad=").append(videoW).append(":").append(videoH).append(":").append(Math.max(0, ovPxX)).append(":").append(ovPxY)
-                                            .append(":color=black@0[ovpad").append(j).append("];");
-                                    vFilter.append("[ovpad").append(j).append("]").append(currentVid).append("overlay=0:0")
-                                            .append(enableExpr).append(":eof_action=pass").append(outLbl).append(";");
-                                } else {
-                                    vFilter.append(currentVid).append(scaledLbl).append("overlay=").append(ovPxX).append(":").append(ovPxY)
-                                            .append(enableExpr).append(":eof_action=pass").append(outLbl).append(";");
+                                    vFilter.append("[").append(ii).append(":v]").append(ptsShift).append("scale=").append(ovW).append(":-2").append(scaledLbl).append(";");
+                                    if (behind) {
+                                        vFilter.append(scaledLbl).append("pad=").append(videoW).append(":").append(videoH).append(":").append(Math.max(0, ovPxX)).append(":").append(ovPxY)
+                                                .append(":color=black@0[ovpad").append(j).append("];");
+                                        vFilter.append("[ovpad").append(j).append("]").append(currentVid).append("overlay=0:0")
+                                                .append(enableExpr).append(":eof_action=pass").append(outLbl).append(";");
+                                    } else {
+                                        vFilter.append(currentVid).append(scaledLbl).append("overlay=").append(ovPxX).append(":").append(ovPxY)
+                                                .append(enableExpr).append(":eof_action=pass").append(outLbl).append(";");
+                                    }
+                                }
+                                currentVid = outLbl;
+                            }
+                            // Remove trailing semicolon
+                            if (vFilter.length() > 0 && vFilter.charAt(vFilter.length() - 1) == ';') {
+                                vFilter.setLength(vFilter.length() - 1);
+                            }
+
+                            // Check which overlay inputs have audio
+                            java.util.List<Integer> ovAudioInputIdx = new java.util.ArrayList<>();
+                            java.util.List<Double> ovAudioDelay = new java.util.ArrayList<>();
+                            // Track which audio inputs are from uploaded source videos so we can
+                            // attenuate them (base slideshow audio should dominate).
+                            java.util.List<Boolean> ovAudioIsSourceVideo = new java.util.ArrayList<>();
+                            for (int j = 0; j < ovSlideIdx.size(); j++) {
+                                int si = ovSlideIdx.get(j);
+                                int ii = ovInputIdx.get(j);
+                                File f = ovTaskFiles.get(j);
+                                // PNG decoration layers (static or animated sequence) have no audio — skip
+                                if (ovTaskIsPng.get(j) || ovTaskIsPngSeq.get(j)) continue;
+                                // Probe if overlay video has audio
+                                if (probeHasAudio(f)) {
+                                    ovAudioInputIdx.add(ii);
+                                    ovAudioDelay.add(slideStartSec[si] * 1000.0);
+                                    ovAudioIsSourceVideo.add(ovTaskIsSourceVideo.get(j));
                                 }
                             }
-                            currentVid = outLbl;
-                        }
-                        // Remove trailing semicolon
-                        if (vFilter.length() > 0 && vFilter.charAt(vFilter.length() - 1) == ';') {
-                            vFilter.setLength(vFilter.length() - 1);
-                        }
 
-                        // Check which overlay inputs have audio
-                        java.util.List<Integer> ovAudioInputIdx = new java.util.ArrayList<>();
-                        java.util.List<Double> ovAudioDelay = new java.util.ArrayList<>();
-                        // Track which audio inputs are from uploaded source videos so we can
-                        // attenuate them (base slideshow audio should dominate).
-                        java.util.List<Boolean> ovAudioIsSourceVideo = new java.util.ArrayList<>();
-                        for (int j = 0; j < ovSlideIdx.size(); j++) {
-                            int si = ovSlideIdx.get(j);
-                            int ii = ovInputIdx.get(j);
-                            File f = ovTaskFiles.get(j);
-                            // PNG decoration layers (static or animated sequence) have no audio — skip
-                            if (ovTaskIsPng.get(j) || ovTaskIsPngSeq.get(j)) continue;
-                            // Probe if overlay video has audio
-                            if (probeHasAudio(f)) {
-                                ovAudioInputIdx.add(ii);
-                                ovAudioDelay.add(slideStartSec[si] * 1000.0);
-                                ovAudioIsSourceVideo.add(ovTaskIsSourceVideo.get(j));
-                            }
-                        }
+                            // Attenuation applied to uploaded-source-video audio so that the
+                            // base slideshow audio stays clearly dominant in the mix. Video
+                            // Overlay toolbar audio is not attenuated.
+                            final String sourceVideoVolume = "0.25";
 
-                        // Attenuation applied to uploaded-source-video audio so that the
-                        // base slideshow audio stays clearly dominant in the mix. Video
-                        // Overlay toolbar audio is not attenuated.
-                        final String sourceVideoVolume = "0.25";
-
-                        // Build audio filter: mix base audio with overlay audio
-                        boolean baseHasAudio = probeHasAudio(finalOut);
-                        String audioMap = null;
-                        if (baseHasAudio && !ovAudioInputIdx.isEmpty()) {
-                            StringBuilder aFilter = new StringBuilder();
-                            for (int j = 0; j < ovAudioInputIdx.size(); j++) {
-                                int ii = ovAudioInputIdx.get(j);
-                                long delayMs = Math.round(ovAudioDelay.get(j));
-                                String volPrefix = ovAudioIsSourceVideo.get(j)
-                                        ? ("volume=" + sourceVideoVolume + ",") : "";
-                                // Source-video audio: trim to the slide's duration so it
-                                // can't leak into the next slide when the uploaded video
-                                // is longer than the slide's audio anchor.
-                                String trim = "";
-                                if (ovAudioIsSourceVideo.get(j)) {
-                                    int si = ovSlideIdx.get(j);
-                                    trim = String.format(java.util.Locale.US,
-                                            "atrim=duration=%.3f,asetpts=PTS-STARTPTS,",
-                                            slideDurSec[si]);
+                            // Build audio filter: mix base audio with overlay audio
+                            boolean baseHasAudio = probeHasAudio(finalOut);
+                            String audioMap = null;
+                            if (baseHasAudio && !ovAudioInputIdx.isEmpty()) {
+                                StringBuilder aFilter = new StringBuilder();
+                                for (int j = 0; j < ovAudioInputIdx.size(); j++) {
+                                    int ii = ovAudioInputIdx.get(j);
+                                    long delayMs = Math.round(ovAudioDelay.get(j));
+                                    String volPrefix = ovAudioIsSourceVideo.get(j)
+                                            ? ("volume=" + sourceVideoVolume + ",") : "";
+                                    // Source-video audio: trim to the slide's duration so it
+                                    // can't leak into the next slide when the uploaded video
+                                    // is longer than the slide's audio anchor.
+                                    String trim = "";
+                                    if (ovAudioIsSourceVideo.get(j)) {
+                                        int si = ovSlideIdx.get(j);
+                                        trim = String.format(java.util.Locale.US,
+                                                "atrim=duration=%.3f,asetpts=PTS-STARTPTS,",
+                                                slideDurSec[si]);
+                                    }
+                                    aFilter.append("[").append(ii).append(":a]").append(volPrefix).append(trim)
+                                            .append("adelay=").append(delayMs).append("|").append(delayMs)
+                                            .append("[oa").append(j).append("];");
                                 }
-                                aFilter.append("[").append(ii).append(":a]").append(volPrefix).append(trim)
-                                        .append("adelay=").append(delayMs).append("|").append(delayMs)
-                                        .append("[oa").append(j).append("];");
-                            }
-                            aFilter.append("[0:a]");
-                            for (int j = 0; j < ovAudioInputIdx.size(); j++) {
-                                aFilter.append("[oa").append(j).append("]");
-                            }
-                            aFilter.append("amix=inputs=").append(1 + ovAudioInputIdx.size())
-                                    .append(":duration=first:dropout_transition=0[outa]");
-                            vFilter.append(";").append(aFilter);
-                            audioMap = "[outa]";
-                        } else if (!baseHasAudio && !ovAudioInputIdx.isEmpty()) {
-                            StringBuilder aFilter = new StringBuilder();
-                            for (int j = 0; j < ovAudioInputIdx.size(); j++) {
-                                int ii = ovAudioInputIdx.get(j);
-                                long delayMs = Math.round(ovAudioDelay.get(j));
-                                String volPrefix = ovAudioIsSourceVideo.get(j)
-                                        ? ("volume=" + sourceVideoVolume + ",") : "";
-                                String trim = "";
-                                if (ovAudioIsSourceVideo.get(j)) {
-                                    int si = ovSlideIdx.get(j);
-                                    trim = String.format(java.util.Locale.US,
-                                            "atrim=duration=%.3f,asetpts=PTS-STARTPTS,",
-                                            slideDurSec[si]);
-                                }
-                                aFilter.append("[").append(ii).append(":a]").append(volPrefix).append(trim)
-                                        .append("adelay=").append(delayMs).append("|").append(delayMs)
-                                        .append("[oa").append(j).append("];");
-                            }
-                            if (ovAudioInputIdx.size() > 1) {
+                                aFilter.append("[0:a]");
                                 for (int j = 0; j < ovAudioInputIdx.size(); j++) {
                                     aFilter.append("[oa").append(j).append("]");
                                 }
-                                aFilter.append("amix=inputs=").append(ovAudioInputIdx.size())
-                                        .append(":duration=longest:dropout_transition=0[outa]");
+                                aFilter.append("amix=inputs=").append(1 + ovAudioInputIdx.size())
+                                        .append(":duration=first:dropout_transition=0[outa]");
+                                vFilter.append(";").append(aFilter);
                                 audioMap = "[outa]";
-                            } else {
-                                audioMap = "[oa0]";
+                            } else if (!baseHasAudio && !ovAudioInputIdx.isEmpty()) {
+                                StringBuilder aFilter = new StringBuilder();
+                                for (int j = 0; j < ovAudioInputIdx.size(); j++) {
+                                    int ii = ovAudioInputIdx.get(j);
+                                    long delayMs = Math.round(ovAudioDelay.get(j));
+                                    String volPrefix = ovAudioIsSourceVideo.get(j)
+                                            ? ("volume=" + sourceVideoVolume + ",") : "";
+                                    String trim = "";
+                                    if (ovAudioIsSourceVideo.get(j)) {
+                                        int si = ovSlideIdx.get(j);
+                                        trim = String.format(java.util.Locale.US,
+                                                "atrim=duration=%.3f,asetpts=PTS-STARTPTS,",
+                                                slideDurSec[si]);
+                                    }
+                                    aFilter.append("[").append(ii).append(":a]").append(volPrefix).append(trim)
+                                            .append("adelay=").append(delayMs).append("|").append(delayMs)
+                                            .append("[oa").append(j).append("];");
+                                }
+                                if (ovAudioInputIdx.size() > 1) {
+                                    for (int j = 0; j < ovAudioInputIdx.size(); j++) {
+                                        aFilter.append("[oa").append(j).append("]");
+                                    }
+                                    aFilter.append("amix=inputs=").append(ovAudioInputIdx.size())
+                                            .append(":duration=longest:dropout_transition=0[outa]");
+                                    audioMap = "[outa]";
+                                } else {
+                                    audioMap = "[oa0]";
+                                }
+                                vFilter.append(";").append(aFilter);
+                            } else if (baseHasAudio) {
+                                audioMap = "0:a";
                             }
-                            vFilter.append(";").append(aFilter);
-                        } else if (baseHasAudio) {
-                            audioMap = "0:a";
-                        }
 
-                        ovCmd.add("-filter_complex"); ovCmd.add(vFilter.toString());
-                        ovCmd.add("-map"); ovCmd.add("[outv]");
-                        if (audioMap != null) {
-                            ovCmd.add("-map"); ovCmd.add(audioMap);
-                        }
-                        ovCmd.add("-c:v"); ovCmd.add("libx264");
-                        ovCmd.add("-preset"); ovCmd.add("fast");
-                        ovCmd.add("-crf"); ovCmd.add(String.valueOf(crf));
-                        ovCmd.add("-pix_fmt"); ovCmd.add("yuv420p");
-                        if (audioMap != null) {
-                            ovCmd.add("-c:a"); ovCmd.add("aac");
-                            ovCmd.add("-b:a"); ovCmd.add("192k");
-                        }
-                        ovCmd.add("-movflags"); ovCmd.add("+faststart");
+                            ovCmd.add("-filter_complex"); ovCmd.add(vFilter.toString());
+                            ovCmd.add("-map"); ovCmd.add("[outv]");
+                            if (audioMap != null) {
+                                ovCmd.add("-map"); ovCmd.add(audioMap);
+                            }
+                            ovCmd.add("-c:v"); ovCmd.add("libx264");
+                            ovCmd.add("-preset"); ovCmd.add("fast");
+                            ovCmd.add("-crf"); ovCmd.add(String.valueOf(crf));
+                            ovCmd.add("-pix_fmt"); ovCmd.add("yuv420p");
+                            if (audioMap != null) {
+                                ovCmd.add("-c:a"); ovCmd.add("aac");
+                                ovCmd.add("-b:a"); ovCmd.add("192k");
+                            }
+                            ovCmd.add("-movflags"); ovCmd.add("+faststart");
 
-                        File overlaidOut = new File(tempDir, "overlaid_final.mp4");
-                        ovCmd.add(overlaidOut.getAbsolutePath());
+                            File overlaidOut = new File(tempDir, "overlaid_final.mp4");
+                            ovCmd.add(overlaidOut.getAbsolutePath());
 
-                        publish("Encoding video with overlays...");
-                        System.err.println("[GifSlideShowApp] Overlay FFmpeg command:");
-                        for (String arg : ovCmd) {
-                            System.err.println("  " + arg);
-                        }
-                        runFfmpeg(ovCmd);
+                            publish("Encoding video with overlays...");
+                            System.err.println("[GifSlideShowApp] Overlay FFmpeg command:");
+                            for (String arg : ovCmd) {
+                                System.err.println("  " + arg);
+                            }
+                            runFfmpeg(ovCmd);
 
-                        if (overlaidOut.exists() && overlaidOut.length() > 0) {
-                            finalOut.delete();
-                            if (!overlaidOut.renameTo(finalOut)) {
-                                java.nio.file.Files.copy(overlaidOut.toPath(), finalOut.toPath(),
-                                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                                overlaidOut.delete();
+                            if (overlaidOut.exists() && overlaidOut.length() > 0) {
+                                finalOut.delete();
+                                if (!overlaidOut.renameTo(finalOut)) {
+                                    java.nio.file.Files.copy(overlaidOut.toPath(), finalOut.toPath(),
+                                            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                                    overlaidOut.delete();
+                                }
                             }
                         }
-                    }
 
-                    SwingUtilities.invokeLater(() -> progressBar.setValue(90));
+                        SwingUtilities.invokeLater(() -> progressBar.setValue(90));
 
-                    SwingUtilities.invokeLater(() -> progressBar.setValue(100));
+                        SwingUtilities.invokeLater(() -> progressBar.setValue(100));
 
-                    long fileSize = finalOut.length();
-                    double sizeMB = fileSize / (1024.0 * 1024.0);
-                    double totalDurationSec = 0;
-                    for (SlideData s : slides) {
-                        totalDurationSec += (computeSlideDuration(s, duration)) / 1000.0;
-                    }
-                    if (scrollEnabled && slides.size() > 1) {
-                        totalDurationSec += (slides.size() - 1) * (finalTransitionMs / 1000.0);
-                    }
-
-                    int slideAudioCount = 0;
-                    for (SlideData s : slides) {
-                        for (File af : s.audioFiles) {
-                            if (af != null && af.exists()) slideAudioCount++;
+                        long fileSize = finalOut.length();
+                        double sizeMB = fileSize / (1024.0 * 1024.0);
+                        double totalDurationSec = 0;
+                        for (SlideData s : slides) {
+                            totalDurationSec += (computeSlideDuration(s, duration)) / 1000.0;
                         }
-                    }
-                    String audioInfo;
-                    if (slideAudioCount > 0 && finalAudioFile != null) {
-                        audioInfo = "Audio: " + slideAudioCount + " slide audio(s) + " + finalAudioFile.getName() + " (AAC 192k)\n";
-                    } else if (slideAudioCount > 0) {
-                        audioInfo = "Audio: " + slideAudioCount + " slide audio(s) (AAC 192k)\n";
-                    } else if (finalAudioFile != null) {
-                        audioInfo = "Audio: " + finalAudioFile.getName() + " (AAC 192k)\n";
-                    } else {
-                        audioInfo = "Audio: None\n";
-                    }
+                        if (scrollEnabled && slides.size() > 1) {
+                            totalDurationSec += (slides.size() - 1) * (finalTransitionMs / 1000.0);
+                        }
 
-                    String scrollInfo = scrollEnabled
-                            ? "Transition: " + finalScrollDir + " · " + finalTransEffect
-                                    + " · " + finalTransitionMs + "ms\n"
-                            : "";
+                        int slideAudioCount = 0;
+                        for (SlideData s : slides) {
+                            for (File af : s.audioFiles) {
+                                if (af != null && af.exists()) slideAudioCount++;
+                            }
+                        }
+                        String audioInfo;
+                        if (slideAudioCount > 0 && finalAudioFile != null) {
+                            audioInfo = "Audio: " + slideAudioCount + " slide audio(s) + " + finalAudioFile.getName() + " (AAC 192k)\n";
+                        } else if (slideAudioCount > 0) {
+                            audioInfo = "Audio: " + slideAudioCount + " slide audio(s) (AAC 192k)\n";
+                        } else if (finalAudioFile != null) {
+                            audioInfo = "Audio: " + finalAudioFile.getName() + " (AAC 192k)\n";
+                        } else {
+                            audioInfo = "Audio: None\n";
+                        }
 
-                    int voCount = 0;
-                    for (SlideData s : slides) {
-                        if (s.videoOverlayFile != null && s.videoOverlayFile.exists()) voCount++;
-                    }
-                    String videoOverlayInfo = (voCount > 0)
-                            ? "Video Overlays: " + voCount + " slide(s)\n"
-                            : "";
+                        String scrollInfo = scrollEnabled
+                                ? "Transition: " + finalScrollDir + " · " + finalTransEffect
+                                + " · " + finalTransitionMs + "ms\n"
+                                : "";
 
-                    String perChunkHeader = (slideChunks.size() > 1)
-                            ? String.format("— Video %d of %d —%n", __chunkIdx + 1, slideChunks.size())
-                            : "";
-                    finalInfoBuilder.append(String.format(
-                            "%s✅ MP4 Video created successfully!\n\n" +
-                                    "Resolution: %d×%d (%s)\n" +
-                                    "Quality: CRF %d\n" +
-                                    "Size: %.2f MB\n" +
-                                    "Slides: %d (%d frames at %d fps)\n" +
-                                    "Duration: %.1f seconds\n" +
-                                    "%s%s%s\n" +
-                                    "File: %s\n\n",
-                            perChunkHeader,
-                            videoW, videoH, orientLabel, crf, sizeMB, slides.size(),
-                            totalFrames, fps, totalDurationSec,
-                            scrollInfo, videoOverlayInfo, audioInfo, finalOut.getAbsolutePath()));
-                  } // end chunk loop
-                  finalInfo = finalInfoBuilder.toString() + "Upload to Twitter/X for fullscreen playback!";
+                        int voCount = 0;
+                        for (SlideData s : slides) {
+                            if (s.videoOverlayFile != null && s.videoOverlayFile.exists()) voCount++;
+                        }
+                        String videoOverlayInfo = (voCount > 0)
+                                ? "Video Overlays: " + voCount + " slide(s)\n"
+                                : "";
+
+                        String perChunkHeader = (slideChunks.size() > 1)
+                                ? String.format("— Video %d of %d —%n", __chunkIdx + 1, slideChunks.size())
+                                : "";
+                        finalInfoBuilder.append(String.format(
+                                "%s✅ MP4 Video created successfully!\n\n" +
+                                        "Resolution: %d×%d (%s)\n" +
+                                        "Quality: CRF %d\n" +
+                                        "Size: %.2f MB\n" +
+                                        "Slides: %d (%d frames at %d fps)\n" +
+                                        "Duration: %.1f seconds\n" +
+                                        "%s%s%s\n" +
+                                        "File: %s\n\n",
+                                perChunkHeader,
+                                videoW, videoH, orientLabel, crf, sizeMB, slides.size(),
+                                totalFrames, fps, totalDurationSec,
+                                scrollInfo, videoOverlayInfo, audioInfo, finalOut.getAbsolutePath()));
+                    } // end chunk loop
+                    finalInfo = finalInfoBuilder.toString() + "Upload to Twitter/X for fullscreen playback!";
 
                 } catch (Exception ex) {
                     errorMsg = ex.getMessage();
@@ -10094,11 +10094,11 @@ public class GifSlideShowApp extends JFrame {
     // ==================== SlideTextData ====================
 
     static final String[] TEXT_EFFECTS = {
-        "None", "Shadow", "Glow", "Neon", "Outline", "Emboss",
-        "Water Ripple", "Fire", "Ice", "Rainbow", "Typewriter", "Stone Engraving",
-        "Shake", "Pulse",
-        "Chalk", "Distressed", "Gold Foil", "Chrome", "Marble", "Watercolor",
-        "Glitch", "Long Shadow", "Spotlight", "Sticker", "Inner Glow"
+            "None", "Shadow", "Glow", "Neon", "Outline", "Emboss",
+            "Water Ripple", "Fire", "Ice", "Rainbow", "Typewriter", "Stone Engraving",
+            "Shake", "Pulse",
+            "Chalk", "Distressed", "Gold Foil", "Chrome", "Marble", "Watercolor",
+            "Glitch", "Long Shadow", "Spotlight", "Sticker", "Inner Glow"
     };
 
     static final String[] HIGHLIGHT_STYLES = { "Regular", "Brush", "Brush2", "Pill", "Gradient", "Glow", "Box", "Circle", "Scribble", "Sketch", "Sketch Bold", "Ink", "Strikethrough", "Tag", "Speech Bubble", "Marker" };
@@ -10140,8 +10140,8 @@ public class GifSlideShowApp extends JFrame {
         // ---- Entry animation (text flies in from some location to its final x/y) ----
         final boolean animEnabled;
         final String animPath;     // "From Left", "From Right", "From Top", "From Bottom",
-                                   // "Random Edge", "Random Location", "Circular CW",
-                                   // "Circular CCW", "Spiral In"
+        // "Random Edge", "Random Location", "Circular CW",
+        // "Circular CCW", "Spiral In"
         final int animDurationMs;  // how long the fly-in takes (e.g. 1500 = 1.5 sec)
         final int animStartMs;     // delay before animation starts (e.g. 2000 = start at second 2)
         final String animEasing;   // "Ease Out", "Ease In Out", "Linear", "Bounce", "Overshoot"
@@ -11277,14 +11277,14 @@ public class GifSlideShowApp extends JFrame {
             toolbar4a.add(slideTextBoldBtn);
             toolbar4a.add(slideTextItalicBtn);
             toolbar4a.add(slideTextColorBtn);
-            toolbar4a.add(styledLabel("Tilt:"));
-            toolbar4a.add(slideTextTiltSpinner);
-            toolbar4a.add(styledLabel("Spacing:"));
-            toolbar4a.add(slideTextLetterSpacingSpinner);
-            toolbar4a.add(styledLabel("Lines:"));
-            toolbar4a.add(slideTextLineSpacingSpinner);
-            toolbar4a.add(styledLabel("Opacity:"));
-            toolbar4a.add(slideTextOpacitySpinner);
+            toolbar4b.add(styledLabel("Tilt:"));
+            toolbar4b.add(slideTextTiltSpinner);
+            toolbar4b.add(styledLabel("Spacing:"));
+            toolbar4b.add(slideTextLetterSpacingSpinner);
+            toolbar4b.add(styledLabel("Lines:"));
+            toolbar4b.add(slideTextLineSpacingSpinner);
+            toolbar4b.add(styledLabel("Opacity:"));
+            toolbar4b.add(slideTextOpacitySpinner);
 
             slideTextXSpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
             slideTextXSpinner.setPreferredSize(new Dimension(50, 28));
@@ -11930,11 +11930,11 @@ public class GifSlideShowApp extends JFrame {
             toolbar5a.add(fxSepiaSpinner);
 
             // Row 5b: Grain + Ripple
-            toolbar5b.add(styledLabel("      "));
-            toolbar5b.add(fxGrainCheck);
-            toolbar5b.add(fxGrainSpinner);
-            toolbar5b.add(fxWaterRippleCheck);
-            toolbar5b.add(fxWaterRippleSpinner);
+            toolbar5a.add(styledLabel("      "));
+            toolbar5a.add(fxGrainCheck);
+            toolbar5a.add(fxGrainSpinner);
+            toolbar5a.add(fxWaterRippleCheck);
+            toolbar5a.add(fxWaterRippleSpinner);
 
             // Row 5c: Glitch + Shake
             toolbar5c.add(styledLabel("      "));
@@ -11947,10 +11947,10 @@ public class GifSlideShowApp extends JFrame {
 
             // Row 5d: Raised
             JPanel toolbar5d = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
-            toolbar5d.setBackground(new Color(110, 55, 60));
-            toolbar5d.add(styledLabel("      "));
-            toolbar5d.add(fxRaisedCheck);
-            toolbar5d.add(fxRaisedSpinner);
+            toolbar5c.setBackground(new Color(110, 55, 60));
+            toolbar5c.add(styledLabel("      "));
+            toolbar5c.add(fxRaisedCheck);
+            toolbar5c.add(fxRaisedSpinner);
 
             // ===== Toolbar Row 6: Image Shape (2 rows) =====
             JPanel toolbar6a = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
@@ -12020,20 +12020,20 @@ public class GifSlideShowApp extends JFrame {
             toolbar6a.add(overlayBgColorBtn);
 
             // Row 6b: Position + Size
-            toolbar6b.add(styledLabel("      "));
-            toolbar6b.add(styledLabel("X%:"));
-            toolbar6b.add(overlayXSpinner);
-            toolbar6b.add(styledLabel("Y%:"));
-            toolbar6b.add(overlayYSpinner);
-            toolbar6b.add(styledLabel("Size%:"));
-            toolbar6b.add(overlaySizeSpinner);
+            toolbar6a.add(styledLabel("      "));
+            toolbar6a.add(styledLabel("X%:"));
+            toolbar6a.add(overlayXSpinner);
+            toolbar6a.add(styledLabel("Y%:"));
+            toolbar6a.add(overlayYSpinner);
+            toolbar6a.add(styledLabel("Size%:"));
+            toolbar6a.add(overlaySizeSpinner);
 
             // ===== Toolbar Row 7: Slide Audio =====
             JPanel toolbar7 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
             toolbar7.setBackground(new Color(28, 38, 56));
             toolbar7.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(55, 75, 110)),
-                BorderFactory.createEmptyBorder(2, 4, 2, 4)));
+                    BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(55, 75, 110)),
+                    BorderFactory.createEmptyBorder(2, 4, 2, 4)));
 
             audioLabel = styledLabel("\uD83C\uDFB5 Audio (Text 1):");
             audioLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
@@ -12046,8 +12046,8 @@ public class GifSlideShowApp extends JFrame {
             audioBtn.setBackground(new Color(45, 100, 170));
             audioBtn.setForeground(Color.WHITE);
             audioBtn.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(70, 130, 200), 1),
-                BorderFactory.createEmptyBorder(2, 8, 2, 8)));
+                    BorderFactory.createLineBorder(new Color(70, 130, 200), 1),
+                    BorderFactory.createEmptyBorder(2, 8, 2, 8)));
             audioBtn.setToolTipText("Attach audio to this slide (duration overrides global slide duration)");
             audioBtn.addActionListener(e -> browseSlideAudio());
             audioBtn.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
@@ -12386,8 +12386,8 @@ public class GifSlideShowApp extends JFrame {
             JPanel toolbar8 = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 3));
             toolbar8.setBackground(new Color(42, 32, 22));
             toolbar8.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(90, 70, 45)),
-                BorderFactory.createEmptyBorder(2, 4, 2, 4)));
+                    BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(90, 70, 45)),
+                    BorderFactory.createEmptyBorder(2, 4, 2, 4)));
 
             JLabel voLabel8 = styledLabel("\uD83C\uDFA5 Video Overlay:");
             voLabel8.setFont(new Font("Segoe UI", Font.BOLD, 12));
@@ -12400,8 +12400,8 @@ public class GifSlideShowApp extends JFrame {
             videoOverlayBtn.setBackground(new Color(130, 90, 35));
             videoOverlayBtn.setForeground(new Color(255, 240, 210));
             videoOverlayBtn.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(170, 120, 50), 1),
-                BorderFactory.createEmptyBorder(2, 8, 2, 8)));
+                    BorderFactory.createLineBorder(new Color(170, 120, 50), 1),
+                    BorderFactory.createEmptyBorder(2, 8, 2, 8)));
             videoOverlayBtn.setToolTipText("Upload a video to overlay on this slide (plays fully, overrides slide duration)");
             videoOverlayBtn.addActionListener(e -> browseSlideVideoOverlay());
             videoOverlayBtn.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
