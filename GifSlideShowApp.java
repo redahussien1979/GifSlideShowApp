@@ -9665,6 +9665,14 @@ public class GifSlideShowApp extends JFrame {
             applyWaterWaves(frame, targetW, targetH, fxOther, animFrameIndex);
             return;
         }
+        if ("Water Waves 2".equals(fxOtherKind)) {
+            applyWaterWaves2(frame, targetW, targetH, fxOther, animFrameIndex);
+            return;
+        }
+        if ("Heat Haze".equals(fxOtherKind)) {
+            applyHeatHaze(frame, targetW, targetH, fxOther, animFrameIndex);
+            return;
+        }
 
         Graphics2D g = frame.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -9683,6 +9691,10 @@ public class GifSlideShowApp extends JFrame {
             case "Bokeh":           drawBokeh(g, targetW, targetH, density, scale, animFrameIndex); break;
             case "Water Droplets":  drawWaterDroplets(g, frame, targetW, targetH, density, scale, animFrameIndex); break;
             case "Sparkle":         drawSparkle(g, targetW, targetH, density, scale, animFrameIndex); break;
+            case "Fireflies":       drawFireflies(g, targetW, targetH, density, scale, animFrameIndex); break;
+            case "Bubbles":         drawBubbles(g, targetW, targetH, density, scale, animFrameIndex); break;
+            case "Light Leaks":     drawLightLeaks(g, targetW, targetH, density, scale, animFrameIndex); break;
+            case "Lens Flare":      drawLensFlare(g, targetW, targetH, density, scale, animFrameIndex); break;
         }
         g.dispose();
     }
@@ -10087,6 +10099,319 @@ public class GifSlideShowApp extends JFrame {
         }
 
         frame.setRGB(0, 0, W, H, dst, 0, W);
+    }
+
+    /**
+     * Realistic propagating ocean waves. Three superimposed wave trains
+     * traveling in slightly different directions, with sharper crests and
+     * gentler troughs (Gerstner-style wave shape). Crests are visibly
+     * advancing across the frame as t increases.
+     */
+    private static void applyWaterWaves2(BufferedImage frame, int W, int H, int fxOther, int t) {
+        double strength = fxOther / 100.0;
+        int[] src = frame.getRGB(0, 0, W, H, null, 0, W);
+        int[] dst = new int[src.length];
+
+        // Three wave trains: long swell, medium chop, small ripples.
+        double amp1 = 4.0 + 10.0 * strength;
+        double amp2 = 2.0 + 5.5 * strength;
+        double amp3 = 1.0 + 2.5 * strength;
+        double waveLen1 = Math.max(180, W * 0.45);
+        double waveLen2 = Math.max(90,  W * 0.22);
+        double waveLen3 = Math.max(40,  W * 0.10);
+        // Phase speed (px/frame): each wave's crests travel at speedN.
+        double speed1 = waveLen1 / 110.0;
+        double speed2 = waveLen2 / 80.0;
+        double speed3 = waveLen3 / 50.0;
+        double k1 = 2.0 * Math.PI / waveLen1;
+        double k2 = 2.0 * Math.PI / waveLen2;
+        double k3 = 2.0 * Math.PI / waveLen3;
+        // Direction unit vectors (waves traveling left-to-right with slight angle variation).
+        double d1x =  1.00, d1y =  0.00;
+        double d2x =  0.93, d2y = -0.36;
+        double d3x =  0.86, d3y =  0.51;
+
+        for (int y = 0; y < H; y++) {
+            int rowOff = y * W;
+            for (int x = 0; x < W; x++) {
+                double p1 = k1 * (x * d1x + y * d1y) - speed1 * t * k1;
+                double p2 = k2 * (x * d2x + y * d2y) - speed2 * t * k2;
+                double p3 = k3 * (x * d3x + y * d3y) - speed3 * t * k3;
+
+                double s1 = Math.sin(p1);
+                double s2 = Math.sin(p2);
+                double s3 = Math.sin(p3);
+                // Crest sharpening: bias positive lobes upward (peakier crests, broader troughs)
+                double sk1 = s1 + 0.35 * s1 * Math.abs(s1);
+                double sk2 = s2 + 0.25 * s2 * Math.abs(s2);
+
+                // Gerstner-like orbital motion: pixels are pulled both vertically
+                // (sin of phase) and horizontally (cos of phase, along the wave
+                // direction). This makes water particles trace circles, the
+                // hallmark of real ocean waves.
+                double yOff = amp1 * sk1 + amp2 * sk2 + amp3 * s3;
+                double c1 = Math.cos(p1), c2 = Math.cos(p2), c3 = Math.cos(p3);
+                double xOff = amp1 * 0.65 * c1 * d1x
+                            + amp2 * 0.65 * c2 * d2x
+                            + amp3 * 0.55 * c3 * d3x;
+                yOff +=       amp1 * 0.20 * c1 * d1y
+                            + amp2 * 0.30 * c2 * d2y
+                            + amp3 * 0.25 * c3 * d3y;
+
+                int sx = x + (int) xOff;
+                int sy = y + (int) yOff;
+                if (sx < 0) sx = 0; else if (sx > W - 1) sx = W - 1;
+                if (sy < 0) sy = 0; else if (sy > H - 1) sy = H - 1;
+                dst[rowOff + x] = src[sy * W + sx];
+            }
+        }
+        frame.setRGB(0, 0, W, H, dst, 0, W);
+    }
+
+    /**
+     * Heat haze: rising hot air shimmer concentrated near the bottom of the
+     * frame. Vertical wave displacement with amplitude tapering to zero in
+     * the upper third.
+     */
+    private static void applyHeatHaze(BufferedImage frame, int W, int H, int fxOther, int t) {
+        double strength = fxOther / 100.0;
+        int[] src = frame.getRGB(0, 0, W, H, null, 0, W);
+        int[] dst = new int[src.length];
+
+        double amp = 1.5 + 5.5 * strength;
+        double waveLenY = Math.max(20, H * 0.05);
+        double waveLenX = Math.max(35, W * 0.07);
+        double kY = 2.0 * Math.PI / waveLenY;
+        double kX = 2.0 * Math.PI / waveLenX;
+        double phase = t * 0.45;
+
+        for (int y = 0; y < H; y++) {
+            // Strength tapers from 0 at upper third to full at bottom
+            double tFrac = y / (double) H;
+            double envelope;
+            if (tFrac < 0.30) envelope = 0;
+            else envelope = (tFrac - 0.30) / 0.70;
+            envelope = envelope * envelope;
+            int rowOff = y * W;
+            for (int x = 0; x < W; x++) {
+                double xOff = envelope * amp * Math.sin(kY * y + kX * x * 0.4 + phase);
+                double yOff = envelope * amp * 0.35 * Math.cos(kX * x + phase * 1.3);
+                int sx = x + (int) xOff;
+                int sy = y + (int) yOff;
+                if (sx < 0) sx = 0; else if (sx > W - 1) sx = W - 1;
+                if (sy < 0) sy = 0; else if (sy > H - 1) sy = H - 1;
+                dst[rowOff + x] = src[sy * W + sx];
+            }
+        }
+        frame.setRGB(0, 0, W, H, dst, 0, W);
+    }
+
+    private static void drawFireflies(Graphics2D g, int W, int H, double density, double s, int t) {
+        int N = (int) (60 * density);
+        int life = 240;
+        for (int i = 0; i < N; i++) {
+            double size = (3.0 + prand(i, 1) * 5.0) * s;
+            double bx = prand(i, 2) * W;
+            double by = prand(i, 3) * H;
+            int phase = (int) (prand(i, 4) * life);
+            int frameInLife = ((t + phase) % life + life) % life;
+            double lifeT = frameInLife / (double) life;
+            // Soft pulse + slow blink: brightness oscillates 0..1
+            double brightness = 0.5 + 0.5 * Math.sin(lifeT * Math.PI * 2.0 + i * 0.7);
+            // Drift slowly along a unique direction
+            double driftSpeed = (0.10 + prand(i, 5) * 0.20) * s;
+            double driftAngle = prand(i, 6) * Math.PI * 2.0;
+            double driftX = Math.cos(driftAngle) * driftSpeed * t;
+            double driftY = (Math.sin(driftAngle) - 0.4) * driftSpeed * t; // slight upward bias
+            double x = ((bx + driftX) % (W + 80) + (W + 80)) % (W + 80) - 40;
+            double y = ((by + driftY) % (H + 80) + (H + 80)) % (H + 80) - 40;
+            int alpha = (int) (brightness * 230);
+            if (alpha < 8) continue;
+
+            // Glow halo (radial gradient)
+            float fr = (float) (size * 4.0);
+            if (fr < 1.5f) continue;
+            RadialGradientPaint rgp = new RadialGradientPaint(
+                    (float) x, (float) y, fr,
+                    new float[]{0f, 0.4f, 1f},
+                    new Color[]{
+                            new Color(220, 255, 140, (int) (alpha * 0.55)),
+                            new Color(190, 230, 110, (int) (alpha * 0.18)),
+                            new Color(170, 220, 100, 0)
+                    });
+            g.setPaint(rgp);
+            g.fill(new java.awt.geom.Ellipse2D.Double(x - fr, y - fr, fr * 2, fr * 2));
+            // Bright core
+            g.setColor(new Color(255, 255, 200, alpha));
+            g.fillOval((int) (x - size / 2), (int) (y - size / 2), (int) size, (int) size);
+        }
+    }
+
+    private static void drawBubbles(Graphics2D g, int W, int H, double density, double s, int t) {
+        int N = (int) (90 * density);
+        double cycle = H + 120 * s;
+        for (int i = 0; i < N; i++) {
+            double speed = (1.2 + prand(i, 1) * 2.0) * s;
+            double size = (6.0 + prand(i, 2) * 22.0) * s;
+            double baseX = prand(i, 3) * (W + 80 * s) - 40 * s;
+            double swayA = (4.0 + prand(i, 4) * 12.0) * s;
+            double swayF = 0.04 + prand(i, 5) * 0.06;
+            double phase = prand(i, 6) * cycle;
+            // Rising: subtract from cycle so they go from bottom up
+            double y = (cycle - ((phase + t * speed) % cycle)) - 60 * s;
+            double x = baseX + swayA * Math.sin(t * swayF + i * 0.6);
+            int alpha = 110 + (int) (prand(i, 7) * 80);
+            // Translucent body (very faint blue tint)
+            g.setColor(new Color(190, 220, 240, Math.min(180, alpha) / 3));
+            g.fillOval((int) (x - size / 2), (int) (y - size / 2), (int) size, (int) size);
+            // Rim outline
+            Stroke os = g.getStroke();
+            g.setStroke(new BasicStroke((float) Math.max(1.0, size * 0.06)));
+            g.setColor(new Color(220, 240, 255, Math.min(220, alpha)));
+            g.drawOval((int) (x - size / 2), (int) (y - size / 2), (int) size, (int) size);
+            g.setStroke(os);
+            // Specular highlight
+            double hx = x - size * 0.22;
+            double hy = y - size * 0.28;
+            double hs = size * 0.30;
+            g.setColor(new Color(255, 255, 255, Math.min(230, alpha + 30)));
+            g.fillOval((int) (hx - hs / 2), (int) (hy - hs / 2), (int) hs, (int) hs * 1 / 2);
+        }
+    }
+
+    private static final Color[] LEAK_COLORS = {
+            new Color(255, 130, 60),    // warm orange
+            new Color(255, 80, 110),    // pink
+            new Color(255, 200, 80),    // gold
+            new Color(120, 80, 200),    // purple
+            new Color(70, 180, 255)     // teal-blue
+    };
+
+    private static void drawLightLeaks(Graphics2D g, int W, int H, double density, double s, int t) {
+        // 1-2 large diagonal colored gradient streaks sliding across the frame.
+        // Density controls intensity (alpha) and how many streaks layer.
+        int streaks = 1 + (int) Math.round(density * 1.5);
+        for (int i = 0; i < streaks; i++) {
+            double cycleFrames = 240 + i * 60;
+            double cyclePhase = ((t + i * 80) % cycleFrames) / cycleFrames;
+            double angle = (prand(i, 1) - 0.5) * Math.PI * 0.5 + Math.PI * 0.25; // ~45° ±
+            // Travel from off-screen one corner to the other
+            double diag = Math.sqrt(W * W + H * H);
+            double progress = cyclePhase * 1.4 - 0.2;
+            double cx = W / 2.0 + (progress - 0.5) * diag * Math.cos(angle);
+            double cy = H / 2.0 + (progress - 0.5) * diag * Math.sin(angle);
+            Color col = LEAK_COLORS[(int) (prand(i, 2) * LEAK_COLORS.length) % LEAK_COLORS.length];
+            // Streak width and length (large, soft)
+            float bandW = (float) (Math.min(W, H) * (0.45 + prand(i, 3) * 0.35));
+            // Soft envelope at start/end of cycle (fade in/out)
+            double envelope;
+            if (cyclePhase < 0.15) envelope = cyclePhase / 0.15;
+            else if (cyclePhase > 0.85) envelope = (1.0 - cyclePhase) / 0.15;
+            else envelope = 1.0;
+            envelope = Math.max(0, Math.min(1, envelope));
+            int peakAlpha = (int) (density * 160 * envelope);
+            if (peakAlpha < 6) continue;
+
+            // Perpendicular gradient: bright at line center, transparent at sides
+            double nx = Math.sin(angle);
+            double ny = -Math.cos(angle);
+            float gx1 = (float) (cx - nx * bandW);
+            float gy1 = (float) (cy - ny * bandW);
+            float gx2 = (float) (cx + nx * bandW);
+            float gy2 = (float) (cy + ny * bandW);
+            LinearGradientPaint lgp = new LinearGradientPaint(
+                    gx1, gy1, gx2, gy2,
+                    new float[]{0f, 0.5f, 1f},
+                    new Color[]{
+                            new Color(col.getRed(), col.getGreen(), col.getBlue(), 0),
+                            new Color(col.getRed(), col.getGreen(), col.getBlue(), peakAlpha),
+                            new Color(col.getRed(), col.getGreen(), col.getBlue(), 0)
+                    });
+            Composite oc = g.getComposite();
+            g.setComposite(AlphaComposite.SrcOver.derive(0.85f));
+            g.setPaint(lgp);
+            g.fillRect(0, 0, W, H);
+            g.setComposite(oc);
+        }
+    }
+
+    private static void drawLensFlare(Graphics2D g, int W, int H, double density, double s, int t) {
+        // Anamorphic horizontal flare across a bright sun-spot, plus chromatic
+        // ghost orbs trailing toward the opposite corner. Sun-spot drifts
+        // slowly in a small arc to avoid feeling static.
+        double driftX = Math.cos(t * 0.012) * W * 0.12;
+        double driftY = Math.sin(t * 0.009) * H * 0.10;
+        double sunX = W * 0.78 + driftX;
+        double sunY = H * 0.22 + driftY;
+        double centerX = W / 2.0;
+        double centerY = H / 2.0;
+
+        // Anamorphic horizontal streak through the sun-spot
+        double streakLen = W * (0.7 + density * 0.3);
+        double streakH   = Math.max(2, H * 0.012 * (1 + density));
+        Composite oc = g.getComposite();
+        // Draw streak via linear gradient, additive feel via SrcOver
+        LinearGradientPaint streakPaint = new LinearGradientPaint(
+                (float) (sunX - streakLen / 2), (float) sunY,
+                (float) (sunX + streakLen / 2), (float) sunY,
+                new float[]{0f, 0.5f, 1f},
+                new Color[]{
+                        new Color(120, 180, 255, 0),
+                        new Color(180, 220, 255, (int) (density * 200)),
+                        new Color(120, 180, 255, 0)
+                });
+        g.setPaint(streakPaint);
+        g.fill(new java.awt.geom.Ellipse2D.Double(
+                sunX - streakLen / 2, sunY - streakH / 2,
+                streakLen, streakH));
+
+        // Sun glow (large radial gradient)
+        float coreR = (float) (Math.min(W, H) * (0.10 + density * 0.10));
+        if (coreR > 2) {
+            RadialGradientPaint sun = new RadialGradientPaint(
+                    (float) sunX, (float) sunY, coreR,
+                    new float[]{0f, 0.35f, 1f},
+                    new Color[]{
+                            new Color(255, 245, 220, (int) (density * 230)),
+                            new Color(255, 210, 150, (int) (density * 100)),
+                            new Color(255, 200, 130, 0)
+                    });
+            g.setPaint(sun);
+            g.fill(new java.awt.geom.Ellipse2D.Double(sunX - coreR, sunY - coreR, coreR * 2, coreR * 2));
+        }
+
+        // Ghost orbs: 5 polygonal/circular ghosts along the line from sun to opposite corner
+        double oppX = 2 * centerX - sunX;
+        double oppY = 2 * centerY - sunY;
+        int ghosts = 6;
+        Color[] ghostColors = {
+                new Color(255, 200, 180),
+                new Color(180, 220, 255),
+                new Color(220, 200, 255),
+                new Color(255, 240, 200),
+                new Color(200, 255, 230),
+                new Color(255, 180, 200)
+        };
+        for (int i = 0; i < ghosts; i++) {
+            double frac = (i + 1) / (double) (ghosts + 1);
+            double gx = sunX + (oppX - sunX) * (frac * 1.4 - 0.2);
+            double gy = sunY + (oppY - sunY) * (frac * 1.4 - 0.2);
+            float gr = (float) (Math.min(W, H) * (0.025 + 0.04 * Math.abs(0.5 - frac)));
+            int gAlpha = (int) (density * (110 - i * 12));
+            if (gAlpha < 6 || gr < 1) continue;
+            Color gc = ghostColors[i % ghostColors.length];
+            RadialGradientPaint ghp = new RadialGradientPaint(
+                    (float) gx, (float) gy, gr,
+                    new float[]{0f, 0.6f, 1f},
+                    new Color[]{
+                            new Color(gc.getRed(), gc.getGreen(), gc.getBlue(), gAlpha),
+                            new Color(gc.getRed(), gc.getGreen(), gc.getBlue(), gAlpha / 3),
+                            new Color(gc.getRed(), gc.getGreen(), gc.getBlue(), 0)
+                    });
+            g.setPaint(ghp);
+            g.fill(new java.awt.geom.Ellipse2D.Double(gx - gr, gy - gr, gr * 2, gr * 2));
+        }
+        g.setComposite(oc);
     }
 
     /**
@@ -12409,7 +12734,8 @@ public class GifSlideShowApp extends JFrame {
 
             fxOtherCombo = new JComboBox<>(new String[]{
                     "None", "Snow", "Rain", "Falling Leaves", "Cherry Blossom",
-                    "Confetti", "Bokeh", "Water Droplets", "Water Waves", "Sparkle"});
+                    "Confetti", "Bokeh", "Water Droplets", "Water Waves", "Water Waves 2",
+                    "Sparkle", "Fireflies", "Bubbles", "Light Leaks", "Lens Flare", "Heat Haze"});
             fxOtherCombo.setPreferredSize(new Dimension(120, 24));
             fxOtherCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             fxOtherCombo.setToolTipText("Additional ambient overlay effect");
