@@ -9681,7 +9681,7 @@ public class GifSlideShowApp extends JFrame {
             case "Cherry Blossom":  drawCherryBlossom(g, targetW, targetH, density, scale, animFrameIndex); break;
             case "Confetti":        drawConfetti(g, targetW, targetH, density, scale, animFrameIndex); break;
             case "Bokeh":           drawBokeh(g, targetW, targetH, density, scale, animFrameIndex); break;
-            case "Water Droplets":  drawWaterDroplets(g, targetW, targetH, density, scale, animFrameIndex); break;
+            case "Water Droplets":  drawWaterDroplets(g, frame, targetW, targetH, density, scale, animFrameIndex); break;
             case "Sparkle":         drawSparkle(g, targetW, targetH, density, scale, animFrameIndex); break;
         }
         g.dispose();
@@ -9867,48 +9867,143 @@ public class GifSlideShowApp extends JFrame {
         g.setComposite(origComp);
     }
 
-    private static void drawWaterDroplets(Graphics2D g, int W, int H, double density, double s, int t) {
-        int N = (int) (90 * density);
-        // Lifecycle in frames: each droplet has phase and lifespan
-        int life = 180;
+    private static void drawWaterDroplets(Graphics2D g, BufferedImage frame, int W, int H,
+                                          double density, double s, int t) {
+        int N = (int) (80 * density);
+        int life = 200;
+        // Snapshot underlying pixels once so droplets refract the scene as it
+        // exists before any droplet is drawn. Avoids droplets refracting other
+        // droplets when they overlap.
+        int[] src = frame.getRGB(0, 0, W, H, null, 0, W);
+
         for (int i = 0; i < N; i++) {
-            double size = (4.0 + prand(i, 1) * 12.0) * s;
-            double x = prand(i, 2) * W;
-            double y = prand(i, 3) * H;
+            double size = (10.0 + prand(i, 1) * 22.0) * s;
+            double bx = prand(i, 2) * W;
+            double by = prand(i, 3) * H;
             int phase = (int) (prand(i, 4) * life);
             int frameInLife = ((t + phase) % life + life) % life;
             double lifeT = frameInLife / (double) life;
-            // Alpha curve: fade in 0-0.2, hold 0.2-0.7, fade out 0.7-1.0
             double alpha;
-            if (lifeT < 0.2) alpha = lifeT / 0.2;
-            else if (lifeT < 0.7) alpha = 1.0;
-            else alpha = 1.0 - (lifeT - 0.7) / 0.3;
-            alpha = Math.max(0, Math.min(1, alpha)) * 0.55;
+            if (lifeT < 0.12) alpha = lifeT / 0.12;
+            else if (lifeT < 0.78) alpha = 1.0;
+            else alpha = 1.0 - (lifeT - 0.78) / 0.22;
+            alpha = Math.max(0, Math.min(1, alpha));
+            if (alpha <= 0.02) continue;
 
-            // ~12% become runners — travel down quickly leaving a faint trail
-            boolean runner = prand(i, 5) < 0.12;
+            boolean runner = prand(i, 5) < 0.10;
             double dy = 0;
             if (runner) {
-                double runT = lifeT;
-                dy = runT * runT * H * 0.6;
-                // Trail
-                g.setColor(new Color(220, 235, 255, (int) (alpha * 80)));
-                for (int k = 1; k < 6; k++) {
-                    double trailY = y + dy - k * size * 0.7;
-                    if (trailY < 0) break;
-                    g.fillOval((int) (x - size * 0.35), (int) (trailY - size * 0.35),
-                            (int) (size * 0.7), (int) (size * 0.7));
+                dy = lifeT * lifeT * H * 0.55;
+            }
+            double cx = bx;
+            double cy = by + dy;
+            double r = size / 2.0;
+
+            if (runner) {
+                // Faint vertical trail of small fading droplets above the runner
+                int trails = 6;
+                for (int k = trails; k >= 1; k--) {
+                    double tY = cy - k * size * 0.55;
+                    if (tY < by - r) break;
+                    double tR = r * (1.0 - k * 0.10);
+                    if (tR < 1.5) continue;
+                    renderRefractiveDroplet(g, src, W, H, cx, tY, tR, alpha * (1.0 - k * 0.13));
                 }
             }
-            double dropY = y + dy;
-            // Main droplet body
-            g.setColor(new Color(220, 235, 255, (int) (alpha * 200)));
-            g.fillOval((int) (x - size / 2), (int) (dropY - size / 2), (int) size, (int) size);
-            // Highlight spot upper-left
-            g.setColor(new Color(255, 255, 255, (int) (alpha * 230)));
-            g.fillOval((int) (x - size * 0.2), (int) (dropY - size * 0.25),
-                    (int) (size * 0.25), (int) (size * 0.2));
+            renderRefractiveDroplet(g, src, W, H, cx, cy, r, alpha);
         }
+    }
+
+    /**
+     * Composites a single water droplet onto g by sampling underlying frame
+     * pixels through a lens-like refraction (radial magnification), adding
+     * a bright specular highlight at the upper-left, a subtle dark Fresnel
+     * rim, and a soft edge alpha falloff.
+     */
+    private static void renderRefractiveDroplet(Graphics2D g, int[] src, int W, int H,
+                                                double cx, double cy, double r, double alpha) {
+        if (alpha <= 0 || r < 1.5) return;
+        int ir = (int) Math.ceil(r) + 1;
+        int xMin = Math.max(0, (int) (cx - ir));
+        int xMax = Math.min(W - 1, (int) (cx + ir));
+        int yMin = Math.max(0, (int) (cy - ir));
+        int yMax = Math.min(H - 1, (int) (cy + ir));
+        if (xMin > xMax || yMin > yMax) return;
+
+        int dropW = xMax - xMin + 1;
+        int dropH = yMax - yMin + 1;
+        int[] dst = new int[dropW * dropH];
+
+        // Highlight position in normalized droplet space (-1..1)
+        double hlNX = -0.45, hlNY = -0.45;
+
+        for (int yy = 0; yy < dropH; yy++) {
+            int py = yMin + yy;
+            double dyC = py - cy;
+            for (int xx = 0; xx < dropW; xx++) {
+                int px = xMin + xx;
+                double dxC = px - cx;
+                double dist2 = dxC * dxC + dyC * dyC;
+                if (dist2 > r * r) continue;
+                double dist = Math.sqrt(dist2);
+                double nd = dist / r; // 0 center .. 1 edge
+
+                // Refraction: pull samples inward toward droplet center.
+                // Strongest pull near rim (edges bend light most), gentle at center.
+                double bend = 1.0 - 0.55 * Math.pow(nd, 1.6);
+                double sxD = cx + dxC * bend;
+                double syD = cy + dyC * bend;
+                int sx = (int) sxD;
+                int sy = (int) syD;
+                if (sx < 0) sx = 0; else if (sx > W - 1) sx = W - 1;
+                if (sy < 0) sy = 0; else if (sy > H - 1) sy = H - 1;
+                int sp = src[sy * W + sx];
+                int rC = (sp >> 16) & 0xFF;
+                int gC = (sp >> 8) & 0xFF;
+                int bC = sp & 0xFF;
+
+                // Faint cool tint (water absorbs warm colors slightly)
+                rC = Math.min(255, rC - 4);
+                gC = Math.min(255, gC + 4);
+                bC = Math.min(255, bC + 12);
+
+                // Fresnel-ish rim darkening
+                double rim = Math.pow(nd, 5);
+                rC = (int) (rC * (1.0 - rim * 0.45));
+                gC = (int) (gC * (1.0 - rim * 0.45));
+                bC = (int) (bC * (1.0 - rim * 0.40));
+
+                // Specular highlight: tight bright spot upper-left, plus
+                // a smaller secondary glint below it for wet/glossy feel.
+                double nxRel = dxC / r;
+                double nyRel = dyC / r;
+                double hldx = nxRel - hlNX;
+                double hldy = nyRel - hlNY;
+                double hl = Math.max(0, 1.0 - Math.sqrt(hldx * hldx + hldy * hldy) * 4.5);
+                hl = hl * hl * hl;
+                double hldx2 = nxRel - 0.30;
+                double hldy2 = nyRel - 0.05;
+                double hl2 = Math.max(0, 1.0 - Math.sqrt(hldx2 * hldx2 + hldy2 * hldy2) * 9.0);
+                hl2 = hl2 * hl2 * 0.6;
+                int boost = (int) ((hl + hl2) * 230);
+                rC = Math.min(255, rC + boost);
+                gC = Math.min(255, gC + boost);
+                bC = Math.min(255, bC + boost);
+
+                // Soft edge alpha (last 8% of radius)
+                double ea = 1.0;
+                if (nd > 0.92) ea = (1.0 - nd) / 0.08;
+                if (ea < 0) ea = 0;
+                int aCh = (int) (255 * alpha * ea);
+                if (aCh <= 0) continue;
+                if (rC < 0) rC = 0; if (gC < 0) gC = 0; if (bC < 0) bC = 0;
+                dst[yy * dropW + xx] = (aCh << 24) | (rC << 16) | (gC << 8) | bC;
+            }
+        }
+
+        BufferedImage drop = new BufferedImage(dropW, dropH, BufferedImage.TYPE_INT_ARGB);
+        drop.setRGB(0, 0, dropW, dropH, dst, 0, dropW);
+        g.drawImage(drop, xMin, yMin, null);
     }
 
     private static void drawSparkle(Graphics2D g, int W, int H, double density, double s, int t) {
@@ -9957,55 +10052,37 @@ public class GifSlideShowApp extends JFrame {
 
     private static void applyWaterWaves(BufferedImage frame, int W, int H, int fxOther, int t) {
         double strength = fxOther / 100.0;
-        // Bottom 35-50% of frame is the "water surface"
-        double surfaceFrac = 0.35 + 0.15 * strength;
-        int surfaceY = (int) (H * (1.0 - surfaceFrac));
-        int waveH = H - surfaceY;
-        if (waveH < 4) return;
-
         int[] src = frame.getRGB(0, 0, W, H, null, 0, W);
-        int[] dst = src.clone();
+        int[] dst = new int[src.length];
 
-        double amp = 1.5 + 6.0 * strength;          // px displacement amplitude
-        double waveLen = Math.max(40, H * 0.18);    // wavelength of horizontal ripple
-        double freqX = 2.0 * Math.PI / waveLen;
-        double phase = t * 0.18;
+        // Crystal-clear ripple distortion across the ENTIRE image, like
+        // looking through a still pool of water. Two interfering sine waves
+        // at different angles produce a believable rippled refraction
+        // pattern without any tint, banding, or darkening.
+        double amp = 1.5 + 6.5 * strength;
+        double waveLen1 = Math.max(60.0, H * 0.22);
+        double waveLen2 = Math.max(80.0, H * 0.31);
+        double f1 = 2.0 * Math.PI / waveLen1;
+        double f2 = 2.0 * Math.PI / waveLen2;
+        double phase1 = t * 0.14;
+        double phase2 = t * 0.10;
 
-        for (int y = surfaceY; y < H; y++) {
-            // Depth-modulated amplitude: subtle near horizon, stronger near foot
-            double depth = (y - surfaceY) / (double) waveH;
-            double yAmp = amp * (0.3 + depth * 0.9);
-            double yPhase = phase + depth * 1.2;
+        for (int y = 0; y < H; y++) {
+            double rowSinA = Math.sin(f1 * y + phase1);
+            double rowCosB = Math.cos(f2 * y * 0.7 + phase2 * 1.1);
+            int rowOff = y * W;
             for (int x = 0; x < W; x++) {
-                int xOff = (int) (yAmp * Math.sin(freqX * x + yPhase));
-                int sx = Math.max(0, Math.min(W - 1, x + xOff));
-                // Vertical inversion for reflection-like feel near top of water band
-                int sy = y;
-                if (depth < 0.18) {
-                    // Soft reflection blend in topmost band
-                    int mirrorY = surfaceY - (int) ((0.18 - depth) / 0.18 * 6 * strength);
-                    if (mirrorY >= 0 && mirrorY < surfaceY) sy = mirrorY;
-                }
-                dst[y * W + x] = src[sy * W + sx];
-            }
-        }
-
-        // Add faint horizontal highlight bands to suggest crests
-        int bands = 3 + (int) (strength * 4);
-        for (int b = 0; b < bands; b++) {
-            double bandPhase = phase * 0.6 + b * 0.7;
-            int by = surfaceY + (int) ((Math.sin(bandPhase) * 0.5 + 0.5) * (waveH - 4)) + 2;
-            if (by <= surfaceY || by >= H - 1) continue;
-            int alpha = 18 + (int) (strength * 28);
-            for (int x = 0; x < W; x++) {
-                int xOff = (int) (amp * 0.6 * Math.sin(freqX * x + bandPhase * 1.3));
-                int yy = Math.max(surfaceY, Math.min(H - 1, by + xOff / 4));
-                int idx = yy * W + x;
-                int c = dst[idx];
-                int r = Math.min(255, ((c >> 16) & 0xFF) + alpha);
-                int gv = Math.min(255, ((c >> 8) & 0xFF) + alpha);
-                int bv = Math.min(255, (c & 0xFF) + alpha);
-                dst[idx] = (0xFF << 24) | (r << 16) | (gv << 8) | bv;
+                // Horizontal displacement from primary wave + secondary cross-wave
+                double xOff = amp * rowSinA
+                            + amp * 0.45 * Math.sin(f2 * x * 1.3 + phase2);
+                // Vertical displacement from a perpendicular wave for true 2-D ripples
+                double yOff = amp * 0.55 * Math.cos(f1 * x + phase1 * 1.2)
+                            + amp * 0.30 * rowCosB;
+                int sx = x + (int) xOff;
+                int sy = y + (int) yOff;
+                if (sx < 0) sx = 0; else if (sx > W - 1) sx = W - 1;
+                if (sy < 0) sy = 0; else if (sy > H - 1) sy = H - 1;
+                dst[rowOff + x] = src[sy * W + sx];
             }
         }
 
