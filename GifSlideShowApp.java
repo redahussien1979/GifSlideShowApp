@@ -5638,6 +5638,54 @@ public class GifSlideShowApp extends JFrame {
                     lineY += stLineHeight;
                 }
 
+                // ===== Audio-highlight Light overlays =====
+                // Post-text, glyph-shape-clipped overlays that look like the letters
+                // themselves are illuminated. Skipped for empty text or when no light
+                // effect is selected. Runs after all lines have been drawn so the
+                // text shape acts as the clip mask.
+                if (st.audioOtherLightEffects != null && !st.audioOtherLightEffects.isEmpty()
+                        && !stWrappedLines.isEmpty() && stMaxLineWidth > 0 && totalTextHeight > 0) {
+                    java.awt.geom.Path2D textShape = new java.awt.geom.Path2D.Float();
+                    int lyAcc = stCenterY - totalTextHeight / 2 + stAscent;
+                    java.awt.font.FontRenderContext frc = ((Graphics2D) g).getFontRenderContext();
+                    for (int liA = 0; liA < stWrappedLines.size(); liA++) {
+                        String lineA = stWrappedLines.get(liA);
+                        if (!lineA.isEmpty()) {
+                            int lwA = stFm.stringWidth(lineA);
+                            int lxA;
+                            if (st.alignment == SwingConstants.LEFT) {
+                                lxA = stAlignLeft;
+                            } else if (st.alignment == SwingConstants.RIGHT) {
+                                lxA = stAlignLeft + stAlignWidth - lwA;
+                            } else {
+                                lxA = stCenterX - lwA / 2;
+                            }
+                            java.awt.font.TextLayout tlA = new java.awt.font.TextLayout(lineA, stFont, frc);
+                            java.awt.geom.AffineTransform txA =
+                                    java.awt.geom.AffineTransform.getTranslateInstance(lxA, lyAcc);
+                            textShape.append(tlA.getOutline(txA), false);
+                        }
+                        lyAcc += stLineHeight;
+                    }
+
+                    int lboxX = stBlockLeft;
+                    int lboxY = stCenterY - totalTextHeight / 2;
+                    int lboxW = stMaxLineWidth;
+                    int lboxH = totalTextHeight;
+                    Color lightHl = st.highlightColor != null
+                            ? st.highlightColor : new Color(255, 220, 120, 220);
+
+                    Graphics2D gLight = (Graphics2D) g.create();
+                    gLight.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    gLight.clip(textShape);
+                    for (String name : st.audioOtherLightEffects.split(",")) {
+                        paintAudioLightOverlay(gLight, name.trim(),
+                                lboxX, lboxY, lboxW, lboxH,
+                                lightHl, animFrameIndex, stScaleFactor);
+                    }
+                    gLight.dispose();
+                }
+
                 // Reverse the tilt + opacity wrap before the animation translate is
                 // reversed, so the absolute matrix returns to its pre-text state.
                 if (transformWrapApplied) {
@@ -10561,6 +10609,156 @@ public class GifSlideShowApp extends JFrame {
     }
 
     /**
+     * Paint a single light-overlay effect (Shimmer / Reveal / Wipe / Glow Trail / Scan)
+     * over the given text-block bounding box. Caller must already have set the clip
+     * to the text glyph shape so the light only paints over the letters.
+     *
+     * All effects loop on a fixed frame cycle so they animate consistently regardless
+     * of which audio segment is active. Negative {@code frame} renders a representative
+     * mid-cycle preview (used for the static GIF/preview path).
+     */
+    private static void paintAudioLightOverlay(Graphics2D g, String name,
+                                               int x, int y, int w, int h,
+                                               Color hl, int frame, float scale) {
+        if (w <= 0 || h <= 0 || name == null || name.isEmpty()) return;
+        java.awt.geom.AffineTransform savedTx = g.getTransform();
+        java.awt.Composite savedC = g.getComposite();
+        java.awt.Paint savedP = g.getPaint();
+        try {
+            switch (name) {
+                case "Shimmer": {
+                    // Diagonal bright band sweeps L→R repeatedly. Plate-glass / chrome look.
+                    int cycle = 60;                                  // ~2.0 s @ 30 fps
+                    double t = ((frame >= 0 ? frame : 30) % cycle) / (double) cycle;
+                    int bandW = Math.max((int) (40 * scale), w / 4);
+                    double cx = x - bandW + t * (w + 2.0 * bandW);
+                    double cy = y + h / 2.0;
+                    g.translate(cx, cy);
+                    g.rotate(Math.toRadians(-22));
+                    int bandH = Math.max(h * 3, (int) (200 * scale));
+                    LinearGradientPaint lgp = new LinearGradientPaint(
+                            new java.awt.geom.Point2D.Float(-bandW / 2f, 0),
+                            new java.awt.geom.Point2D.Float( bandW / 2f, 0),
+                            new float[] { 0f, 0.5f, 1f },
+                            new Color[] {
+                                    new Color(255, 255, 255, 0),
+                                    new Color(255, 255, 255, 200),
+                                    new Color(255, 255, 255, 0) });
+                    g.setPaint(lgp);
+                    g.setComposite(AlphaComposite.SrcOver);
+                    g.fillRect(-bandW, -bandH / 2, bandW * 2, bandH);
+                    break;
+                }
+                case "Reveal": {
+                    // Bright leading edge sweeps L→R once per cycle, illuminating each
+                    // letter as it passes, then fading off the right edge before resetting.
+                    int cycle = 54;                                  // ~1.8 s @ 30 fps
+                    double t = ((frame >= 0 ? frame : 22) % cycle) / (double) cycle;
+                    double edgeX = x + t * w;
+                    int trailW = Math.max((int) (60 * scale), w / 3);
+                    int leadW  = Math.max((int) (24 * scale), w / 8);
+                    LinearGradientPaint lgp = new LinearGradientPaint(
+                            new java.awt.geom.Point2D.Float((float)(edgeX - trailW), 0),
+                            new java.awt.geom.Point2D.Float((float)(edgeX + leadW),  0),
+                            new float[] { 0f, 0.7f, 0.85f, 1f },
+                            new Color[] {
+                                    new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), 0),
+                                    new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), 200),
+                                    new Color(255, 255, 255, 240),
+                                    new Color(255, 255, 255, 0) });
+                    g.setPaint(lgp);
+                    g.setComposite(AlphaComposite.SrcOver);
+                    g.fillRect(x, y, w, h);
+                    break;
+                }
+                case "Wipe": {
+                    // HL-color tint fills L→R, holds, then fades. Like a paint roller
+                    // followed by a soft wipe-off.
+                    int cycle = 72;                                  // ~2.4 s @ 30 fps
+                    int f = (frame >= 0 ? frame : 18) % cycle;
+                    double tFill = Math.min(1.0, f / 18.0);          // 0..1 over first 0.6 s
+                    double tFade;
+                    if (f < 36)      tFade = 1.0;                    // full hold
+                    else if (f < 60) tFade = 1.0 - (f - 36) / 24.0;  // fade out
+                    else             tFade = 0.0;                    // gap before next sweep
+                    int fillW = (int) Math.round(tFill * w);
+                    int alpha = (int) Math.round(160 * Math.max(0.0, tFade));
+                    if (fillW > 0 && alpha > 0) {
+                        g.setColor(new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), alpha));
+                        g.setComposite(AlphaComposite.SrcOver);
+                        g.fillRect(x, y, fillW, h);
+                    }
+                    break;
+                }
+                case "Glow Trail": {
+                    // A soft glowing blob travels L→R, leaving a trailing comet tail.
+                    int cycle = 60;                                  // ~2.0 s
+                    double t = ((frame >= 0 ? frame : 30) % cycle) / (double) cycle;
+                    double gx = x + t * w;
+                    double gy = y + h / 2.0;
+                    float radius = Math.max(h * 1.1f, 60f * scale);
+                    // Trail (long fade behind the glow point, alpha gradient).
+                    int trailW = (int) Math.max(80 * scale, w / 2.5);
+                    LinearGradientPaint trail = new LinearGradientPaint(
+                            new java.awt.geom.Point2D.Float((float)(gx - trailW), 0),
+                            new java.awt.geom.Point2D.Float((float) gx,           0),
+                            new float[] { 0f, 1f },
+                            new Color[] {
+                                    new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), 0),
+                                    new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), 140) });
+                    g.setPaint(trail);
+                    g.setComposite(AlphaComposite.SrcOver);
+                    g.fillRect((int)(gx - trailW), y, trailW, h);
+                    // Bright glow head (radial, additive blend for premium pop).
+                    java.awt.RadialGradientPaint head = new java.awt.RadialGradientPaint(
+                            new java.awt.geom.Point2D.Float((float) gx, (float) gy),
+                            radius,
+                            new float[] { 0f, 0.4f, 1f },
+                            new Color[] {
+                                    new Color(255, 255, 255, 230),
+                                    new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), 160),
+                                    new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), 0) });
+                    g.setPaint(head);
+                    g.setComposite(AlphaComposite.SrcOver);
+                    g.fillRect((int)(gx - radius), (int)(gy - radius),
+                               (int)(radius * 2), (int)(radius * 2));
+                    break;
+                }
+                case "Scan": {
+                    // Thin bright vertical line sweeps L→R, then jumps back. Cylon style.
+                    int cycle = 42;                                  // ~1.4 s
+                    double t = ((frame >= 0 ? frame : 14) % cycle) / (double) cycle;
+                    double sx = x + t * w;
+                    int lineW = Math.max(2, (int) (3 * scale));
+                    int glowW = Math.max(8, (int) (24 * scale));
+                    // Glow band around the line.
+                    LinearGradientPaint scan = new LinearGradientPaint(
+                            new java.awt.geom.Point2D.Float((float)(sx - glowW), 0),
+                            new java.awt.geom.Point2D.Float((float)(sx + glowW), 0),
+                            new float[] { 0f, 0.5f, 1f },
+                            new Color[] {
+                                    new Color(255, 255, 255, 0),
+                                    new Color(255, 255, 255, 220),
+                                    new Color(255, 255, 255, 0) });
+                    g.setPaint(scan);
+                    g.setComposite(AlphaComposite.SrcOver);
+                    g.fillRect((int)(sx - glowW), y, glowW * 2, h);
+                    // Solid bright core line.
+                    g.setPaint(new Color(255, 255, 255, 240));
+                    g.fillRect((int)(sx - lineW / 2.0), y, lineW, h);
+                    break;
+                }
+                default:
+                    break;
+            }
+        } finally {
+            g.setTransform(savedTx);
+            g.setComposite(savedC);
+            g.setPaint(savedP);
+        }
+    }
+
+    /**
      * Create a modified copy of slideTexts with the active text (by index) fully highlighted.
      * Supports multiple combinable effects: Glow, Enlarge, Bold, Underline, Color, Shake, Pulse.
      * @param animFrame frame index for animated effects (Shake/Pulse); use -1 for static rendering.
@@ -10771,6 +10969,16 @@ public class GifSlideShowApp extends JFrame {
                     }
                 }
 
+                // ----- Light-overlay effects (post-text, clipped to glyph shapes) -----
+                StringBuilder lightSb = new StringBuilder();
+                String[] lightNames = { "Shimmer", "Reveal", "Wipe", "Glow Trail", "Scan" };
+                for (String ln : lightNames) {
+                    if (fx.contains("Other:" + ln)) {
+                        if (lightSb.length() > 0) lightSb.append(",");
+                        lightSb.append(ln);
+                    }
+                }
+
                 SlideTextData hl = new SlideTextData(st.show, st.text, st.fontName, fontSize,
                         fontStyle, textColor, x, y, st.bgOpacity, st.bgColor,
                         st.justify, st.widthPct, st.shiftX, st.alignment,
@@ -10783,6 +10991,7 @@ public class GifSlideShowApp extends JFrame {
                 hl.audioOtherDxFrac = otherDxFrac;
                 hl.audioOtherAlpha  = otherAlpha;
                 hl.audioOtherTiltDeg = otherTilt;
+                hl.audioOtherLightEffects = lightSb.toString();
                 result.add(hl);
             } else {
                 result.add(st);
@@ -11078,6 +11287,10 @@ public class GifSlideShowApp extends JFrame {
         double audioOtherDxFrac = 0.0;     // horizontal translate, fraction of frame width
         double audioOtherAlpha  = 1.0;     // additional alpha multiplier (0..1)
         double audioOtherTiltDeg = 0.0;    // additional rotation in degrees
+        // Comma-separated light-overlay effects (Shimmer, Reveal, Wipe, Glow Trail, Scan).
+        // These are post-text overlays clipped to the text glyph shape so they appear
+        // to illuminate the letters themselves, not the surrounding rectangle.
+        String audioOtherLightEffects = "";
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
                       int fontStyle, Color color, int x, int y, int bgOpacity,
@@ -11621,7 +11834,8 @@ public class GifSlideShowApp extends JFrame {
         private static final String[] AUDIO_FX_OTHERS = {
                 "Wave", "Jitter", "Scale Pop", "Fade In",
                 "Slide In Left", "Slide In Right", "Slide In Up", "Slide In Down",
-                "Neon Flicker", "Tilt Sway"
+                "Neon Flicker", "Tilt Sway",
+                "Shimmer", "Reveal", "Wipe", "Glow Trail", "Scan"
         };
         private JButton audioFxOthersBtn;
         private final java.util.LinkedHashMap<String, JCheckBox> audioFxOthersChecks
