@@ -7184,6 +7184,8 @@ public class GifSlideShowApp extends JFrame {
                                     for (int df = 0; df < dwellFrames[i]; df++) {
                                         long elapsedMs = (long)(df * 1000.0 / fps);
                                         int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
+                                        long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
+                                        int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
                                         String frameName = String.format("frame_%05d.png", f);
                                         File frameFile = new File(tempDir, frameName);
 
@@ -7192,7 +7194,7 @@ public class GifSlideShowApp extends JFrame {
                                                     s.slideTexts, activeIdx,
                                                     hlColorAt(s.audioHlColor, activeIdx),
                                                     hlEffectsAt(s.audioHlEffects, activeIdx),
-                                                    df,
+                                                    segFrame,
                                                     hlGlowSizeAt(s.audioGlowSize, activeIdx));
                                             BufferedImage frame = renderFrame(
                                                     s.image, s.text, s.fontName, s.fontSize,
@@ -7601,11 +7603,13 @@ public class GifSlideShowApp extends JFrame {
                                         for (int d = 0; d < slideFrames; d++) {
                                             long elapsedMs = (long)(d * 1000.0 / fps);
                                             int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
+                                            long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
+                                            int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
                                             List<SlideTextData> hlTexts = applyActiveTextHighlight(
                                                     s.slideTexts, activeIdx,
                                                     hlColorAt(s.audioHlColor, activeIdx),
                                                     hlEffectsAt(s.audioHlEffects, activeIdx),
-                                                    d,
+                                                    segFrame,
                                                     hlGlowSizeAt(s.audioGlowSize, activeIdx));
                                             BufferedImage frame = renderFrame(
                                                     s.image, s.text, s.fontName, s.fontSize,
@@ -8940,11 +8944,13 @@ public class GifSlideShowApp extends JFrame {
                                     for (int d = 0; d < slideFrames; d++) {
                                         long elapsedMs = (long)(d * 1000.0 / fps);
                                         int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
+                                        long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
+                                        int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
                                         List<SlideTextData> hlTexts = applyActiveTextHighlight(
                                                 s.slideTexts, activeIdx,
                                                 hlColorAt(s.audioHlColor, activeIdx),
                                                 hlEffectsAt(s.audioHlEffects, activeIdx),
-                                                d,
+                                                segFrame,
                                                 hlGlowSizeAt(s.audioGlowSize, activeIdx));
                                         BufferedImage frame = renderFrame(
                                                 s.image, s.text, s.fontName, s.fontSize,
@@ -10870,7 +10876,10 @@ public class GifSlideShowApp extends JFrame {
     /**
      * Create a modified copy of slideTexts with the active text (by index) fully highlighted.
      * Supports multiple combinable effects: Glow, Enlarge, Bold, Underline, Color, Shake, Pulse.
-     * @param animFrame frame index for animated effects (Shake/Pulse); use -1 for static rendering.
+     * @param animFrame SEGMENT-relative frame index (counts from 0 each time a new audio
+     *                  segment becomes active), so one-shot effects like Fade In, Scale Pop
+     *                  and Slide In re-fire on every segment activation. Use -1 for the
+     *                  static (single-frame) rendering path.
      */
     private static List<SlideTextData> applyActiveTextHighlight(
             List<SlideTextData> origTexts, int activeIndex,
@@ -10998,22 +11007,24 @@ public class GifSlideShowApp extends JFrame {
                 double otherTilt   = 0.0;
                 if (fx.contains("Other:Wave")) {
                     if (animFrame >= 0) {
-                        // ~2 Hz vertical sine, ±1.2 % of frame height.
-                        shakeDyFrac += 0.012 * Math.sin(animFrame * 0.42);
+                        // ~2 Hz vertical sine, ±2.5 % of frame height (~27 px on 1080p)
+                        // — readable as a real wave, not a faint bob.
+                        shakeDyFrac += 0.025 * Math.sin(animFrame * 0.42);
                     } else {
-                        shakeDyFrac += 0.006;
+                        shakeDyFrac += 0.012;
                     }
                 }
                 if (fx.contains("Other:Jitter")) {
                     if (animFrame >= 0) {
-                        // Deterministic pseudo-random per-frame nudge, sub-pixel sized.
+                        // Deterministic pseudo-random per-frame nudge in both axes,
+                        // ~±1 % of frame size — clearly visible "nervous" motion.
                         long seed = animFrame * 2654435761L;
                         double rx = ((seed       & 0xFFFF) / 65535.0) - 0.5;
                         double ry = (((seed>>>16) & 0xFFFF) / 65535.0) - 0.5;
-                        otherDxFrac += rx * 0.006;
-                        shakeDyFrac += ry * 0.006;
+                        otherDxFrac += rx * 0.020;
+                        shakeDyFrac += ry * 0.020;
                     } else {
-                        otherDxFrac += 0.003;
+                        otherDxFrac += 0.008;
                     }
                 }
                 if (fx.contains("Other:Scale Pop")) {
@@ -11071,10 +11082,11 @@ public class GifSlideShowApp extends JFrame {
                 }
                 if (fx.contains("Other:Tilt Sway")) {
                     if (animFrame >= 0) {
-                        // ±3° sway, ~1.5 s cycle.
-                        otherTilt += 3.0 * Math.sin(animFrame * 0.14);
+                        // ±5° sway, ~1.5 s cycle — clearly readable as a rocking
+                        // motion rather than an almost-imperceptible lean.
+                        otherTilt += 5.0 * Math.sin(animFrame * 0.14);
                     } else {
-                        otherTilt += 1.5;
+                        otherTilt += 3.0;
                     }
                 }
 
@@ -11130,6 +11142,33 @@ public class GifSlideShowApp extends JFrame {
             audioIdx++;
         }
         return -1;
+    }
+
+    /**
+     * Cumulative elapsed-ms at which the audio segment that's currently active
+     * (at {@code elapsedMs}) started. Mirrors {@link #getActiveAudioTextIndex}'s
+     * walk so the value lines up byte-for-byte. Used to convert the slide-relative
+     * frame counter into a segment-relative one, so one-shot highlight effects
+     * (Fade In, Scale Pop, Slide In) re-fire each time their segment activates
+     * instead of only at slide start.
+     */
+    private static long getActiveSegmentStartMs(SlideData s, long elapsedMs) {
+        if (s.audioDurationsMs == null || s.audioDurationsMs.isEmpty()) return 0;
+        long cumulative = 0;
+        int audioIdx = 0;
+        for (int i = 0; i < s.audioDurationsMs.size(); i++) {
+            int dur = s.audioDurationsMs.get(i);
+            if (dur <= 0 || i >= s.audioFiles.size() || s.audioFiles.get(i) == null) {
+                continue;
+            }
+            if (audioIdx > 0) cumulative += s.audioGapMs;
+            if (elapsedMs >= cumulative && elapsedMs < cumulative + dur) {
+                return cumulative;
+            }
+            cumulative += dur;
+            audioIdx++;
+        }
+        return 0;
     }
 
     private static int probeAudioDurationMs(File audioFile) {
