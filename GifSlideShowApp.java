@@ -3331,6 +3331,21 @@ public class GifSlideShowApp extends JFrame {
                     g.translate(0.0, st.shakeRenderDyFrac * targetH);
                     transformWrapApplied = true;
                 }
+                if (st.audioOtherDxFrac != 0.0) {
+                    g.translate(st.audioOtherDxFrac * targetW, 0.0);
+                    transformWrapApplied = true;
+                }
+                if (st.audioOtherTiltDeg != 0.0) {
+                    g.rotate(Math.toRadians(st.audioOtherTiltDeg), stCenterX, stCenterY);
+                    transformWrapApplied = true;
+                }
+                if (st.audioOtherAlpha < 1.0) {
+                    float a = (float) Math.max(0.0, Math.min(1.0, st.audioOtherAlpha));
+                    if (st.opacity < 100) a *= st.opacity / 100f;
+                    g.setComposite(java.awt.AlphaComposite.getInstance(
+                            java.awt.AlphaComposite.SRC_OVER, a));
+                    transformWrapApplied = true;
+                }
 
                 if (st.bgOpacity > 0) {
                     int alpha = (int) (st.bgOpacity / 100.0 * 255);
@@ -10669,6 +10684,93 @@ public class GifSlideShowApp extends JFrame {
                     }
                 }
 
+                // ----- "Others" effects (multi-select). All are render-time only,
+                // so they never trigger text re-wrapping. Multiple effects compose. -----
+                double otherDxFrac = 0.0;
+                double otherAlpha  = 1.0;
+                double otherTilt   = 0.0;
+                if (fx.contains("Other:Wave")) {
+                    if (animFrame >= 0) {
+                        // ~2 Hz vertical sine, ±1.2 % of frame height.
+                        shakeDyFrac += 0.012 * Math.sin(animFrame * 0.42);
+                    } else {
+                        shakeDyFrac += 0.006;
+                    }
+                }
+                if (fx.contains("Other:Jitter")) {
+                    if (animFrame >= 0) {
+                        // Deterministic pseudo-random per-frame nudge, sub-pixel sized.
+                        long seed = animFrame * 2654435761L;
+                        double rx = ((seed       & 0xFFFF) / 65535.0) - 0.5;
+                        double ry = (((seed>>>16) & 0xFFFF) / 65535.0) - 0.5;
+                        otherDxFrac += rx * 0.006;
+                        shakeDyFrac += ry * 0.006;
+                    } else {
+                        otherDxFrac += 0.003;
+                    }
+                }
+                if (fx.contains("Other:Scale Pop")) {
+                    // Quick zoom-in once at activation, decays in ~12 frames (~0.4 s).
+                    if (animFrame >= 0 && animFrame < 12) {
+                        double t = animFrame / 12.0;
+                        // Start at 1.35, ease back to 1.0.
+                        pulseScale *= 1.0 + 0.35 * (1.0 - t) * (1.0 - t);
+                    } else if (animFrame < 0) {
+                        pulseScale *= 1.10;
+                    }
+                }
+                if (fx.contains("Other:Fade In")) {
+                    if (animFrame >= 0) {
+                        // Linear ramp 0→1 over the first 12 frames (~0.4 s).
+                        otherAlpha *= Math.max(0.0, Math.min(1.0, animFrame / 12.0));
+                    } else {
+                        otherAlpha *= 0.6;
+                    }
+                }
+                // Slide-in: text starts offset and eases to its resting position.
+                // Single-shot — only the first ~14 frames after activation animate.
+                double slideEase = -1.0;
+                if (animFrame >= 0 && animFrame < 14) {
+                    double t = animFrame / 14.0;
+                    // Ease-out cubic.
+                    slideEase = 1.0 - Math.pow(1.0 - t, 3);
+                }
+                if (fx.contains("Other:Slide In Left")) {
+                    if (slideEase >= 0) otherDxFrac += (slideEase - 1.0) * 0.5;
+                    else if (animFrame < 0) otherDxFrac -= 0.10;
+                }
+                if (fx.contains("Other:Slide In Right")) {
+                    if (slideEase >= 0) otherDxFrac += (1.0 - slideEase) * 0.5;
+                    else if (animFrame < 0) otherDxFrac += 0.10;
+                }
+                if (fx.contains("Other:Slide In Up")) {
+                    if (slideEase >= 0) shakeDyFrac += (1.0 - slideEase) * 0.4;
+                    else if (animFrame < 0) shakeDyFrac += 0.06;
+                }
+                if (fx.contains("Other:Slide In Down")) {
+                    if (slideEase >= 0) shakeDyFrac += (slideEase - 1.0) * 0.4;
+                    else if (animFrame < 0) shakeDyFrac -= 0.06;
+                }
+                if (fx.contains("Other:Neon Flicker")) {
+                    if (animFrame >= 0) {
+                        // Mostly-on with occasional dim flickers.
+                        long seed = animFrame * 1664525L + 1013904223L;
+                        double r = ((seed & 0xFFFF) / 65535.0);
+                        double dim = (r < 0.10) ? 0.55 : (r < 0.18 ? 0.80 : 1.0);
+                        otherAlpha *= dim;
+                    } else {
+                        otherAlpha *= 0.85;
+                    }
+                }
+                if (fx.contains("Other:Tilt Sway")) {
+                    if (animFrame >= 0) {
+                        // ±3° sway, ~1.5 s cycle.
+                        otherTilt += 3.0 * Math.sin(animFrame * 0.14);
+                    } else {
+                        otherTilt += 1.5;
+                    }
+                }
+
                 SlideTextData hl = new SlideTextData(st.show, st.text, st.fontName, fontSize,
                         fontStyle, textColor, x, y, st.bgOpacity, st.bgColor,
                         st.justify, st.widthPct, st.shiftX, st.alignment,
@@ -10678,6 +10780,9 @@ public class GifSlideShowApp extends JFrame {
                         st.boldText, st.italicText, st.colorText, st.colorTextColor, st.xLeftAligned, st.odometer, st.odometerSpeed, st.odometerRoll, st.odometerLand);
                 hl.pulseRenderScale = pulseScale;
                 hl.shakeRenderDyFrac = shakeDyFrac;
+                hl.audioOtherDxFrac = otherDxFrac;
+                hl.audioOtherAlpha  = otherAlpha;
+                hl.audioOtherTiltDeg = otherTilt;
                 result.add(hl);
             } else {
                 result.add(st);
@@ -10967,6 +11072,12 @@ public class GifSlideShowApp extends JFrame {
         // small amplitudes (st.y is integer-percent and would otherwise quantize the
         // motion into ~11 px steps on 1080p, looking jumpy instead of bouncy).
         double shakeRenderDyFrac = 0.0;
+        // Audio-highlight "Others" render hooks (Slide In, Wave, Jitter, Fade In,
+        // Neon Flicker, Tilt Sway, Scale Pop). Same pattern as pulse/shake: set by
+        // applyActiveTextHighlight, applied by the text renderer without re-wrapping.
+        double audioOtherDxFrac = 0.0;     // horizontal translate, fraction of frame width
+        double audioOtherAlpha  = 1.0;     // additional alpha multiplier (0..1)
+        double audioOtherTiltDeg = 0.0;    // additional rotation in degrees
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
                       int fontStyle, Color color, int x, int y, int bgOpacity,
@@ -11504,6 +11615,17 @@ public class GifSlideShowApp extends JFrame {
                 audioFxUnderline, audioFxColor, audioFxShake, audioFxPulse;
         private final JToggleButton audioFxNone;
         private final JSpinner audioGlowSizeSp;
+        // "Others" multi-select effects (button + checkbox popup). Effect names
+        // live in slideAudioHlEffectsMap as "Other:<Name>" tokens alongside the
+        // existing comma-separated effect string, so persistence stays compatible.
+        private static final String[] AUDIO_FX_OTHERS = {
+                "Wave", "Jitter", "Scale Pop", "Fade In",
+                "Slide In Left", "Slide In Right", "Slide In Up", "Slide In Down",
+                "Neon Flicker", "Tilt Sway"
+        };
+        private JButton audioFxOthersBtn;
+        private final java.util.LinkedHashMap<String, JCheckBox> audioFxOthersChecks
+                = new java.util.LinkedHashMap<>();
 
         // Slide picture overlay items
         private final List<SlidePictureData> slidePictureItems = new ArrayList<>();
@@ -13063,6 +13185,83 @@ public class GifSlideShowApp extends JFrame {
                 });
             }
 
+            // "Others" button + checkbox popup. Acts like an extra FX toggle that
+            // lights up when ≥1 effect is selected; clicking it pops up a vertical
+            // list of checkboxes that stays open while the user multi-selects.
+            audioFxOthersBtn = new JButton("Others ▾");
+            audioFxOthersBtn.setFont(fxBtnFont);
+            audioFxOthersBtn.setPreferredSize(new Dimension(78, 24));
+            audioFxOthersBtn.setFocusPainted(false);
+            audioFxOthersBtn.setToolTipText("More highlight effects (multi-select)");
+            audioFxOthersBtn.setBackground(fxBtnOffBg);
+            audioFxOthersBtn.setForeground(fxBtnOffFg);
+            audioFxOthersBtn.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
+            audioFxOthersBtn.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+            audioFxOthersBtn.setFocusable(false);
+
+            JPopupMenu audioFxOthersPopup = new JPopupMenu();
+            audioFxOthersPopup.setBackground(new Color(40, 44, 56));
+            audioFxOthersPopup.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
+            JPanel othersPanel = new JPanel();
+            othersPanel.setLayout(new BoxLayout(othersPanel, BoxLayout.Y_AXIS));
+            othersPanel.setBackground(new Color(40, 44, 56));
+            othersPanel.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
+            for (String name : AUDIO_FX_OTHERS) {
+                JCheckBox cb = new JCheckBox(name);
+                cb.setBackground(new Color(40, 44, 56));
+                cb.setForeground(new Color(220, 225, 235));
+                cb.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+                cb.setFocusPainted(false);
+                cb.addActionListener(e -> {
+                    if (cb.isSelected() && audioFxNone.isSelected()) audioFxNone.setSelected(false);
+                    refreshAudioFxOthersBtnAppearance();
+                    onFormatChanged();
+                });
+                audioFxOthersChecks.put(name, cb);
+                othersPanel.add(cb);
+            }
+            JPanel othersFooter = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 2));
+            othersFooter.setBackground(new Color(40, 44, 56));
+            JButton clearAllBtn = new JButton("Clear");
+            clearAllBtn.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+            clearAllBtn.setMargin(new Insets(2, 6, 2, 6));
+            clearAllBtn.setFocusPainted(false);
+            clearAllBtn.addActionListener(e -> {
+                boolean changed = false;
+                for (JCheckBox cb : audioFxOthersChecks.values()) {
+                    if (cb.isSelected()) { cb.setSelected(false); changed = true; }
+                }
+                if (changed) {
+                    refreshAudioFxOthersBtnAppearance();
+                    onFormatChanged();
+                }
+            });
+            JButton closeBtn = new JButton("OK");
+            closeBtn.setFont(new Font("Segoe UI", Font.BOLD, 10));
+            closeBtn.setMargin(new Insets(2, 8, 2, 8));
+            closeBtn.setFocusPainted(false);
+            closeBtn.addActionListener(e -> audioFxOthersPopup.setVisible(false));
+            othersFooter.add(clearAllBtn);
+            othersFooter.add(closeBtn);
+            othersPanel.add(othersFooter);
+            audioFxOthersPopup.add(othersPanel);
+
+            audioFxOthersBtn.addActionListener(e -> {
+                audioFxOthersPopup.show(audioFxOthersBtn, 0, audioFxOthersBtn.getHeight());
+            });
+
+            // Selecting None clears the Others checkboxes too. Hook into the
+            // existing audioFxNone listener chain by adding an extra listener.
+            audioFxNone.addItemListener(e -> {
+                if (audioFxNone.isSelected()) {
+                    boolean any = false;
+                    for (JCheckBox cb : audioFxOthersChecks.values()) {
+                        if (cb.isSelected()) { cb.setSelected(false); any = true; }
+                    }
+                    if (any) refreshAudioFxOthersBtnAppearance();
+                }
+            });
+
             audioGlowSizeSp = new JSpinner(new SpinnerNumberModel(7, 1, 20, 1));
             audioGlowSizeSp.setPreferredSize(new Dimension(48, 24));
             audioGlowSizeSp.setFont(new Font("Segoe UI", Font.BOLD, 11));
@@ -13102,6 +13301,8 @@ public class GifSlideShowApp extends JFrame {
             toolbar7b.add(audioFxColor);
             toolbar7b.add(audioFxShake);
             toolbar7b.add(audioFxPulse);
+            toolbar7b.add(audioFxOthersBtn);
+            refreshAudioFxOthersBtnAppearance();
 
             // ===== Toolbar Row 7c: Quiz Timer Style + Position =====
             JPanel toolbar7c = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
@@ -14392,8 +14593,32 @@ public class GifSlideShowApp extends JFrame {
             if (audioFxColor.isSelected())     sb.append("Color,");
             if (audioFxShake.isSelected())     sb.append("Shake,");
             if (audioFxPulse.isSelected())     sb.append("Pulse,");
+            if (audioFxOthersChecks != null) {
+                for (java.util.Map.Entry<String, JCheckBox> e : audioFxOthersChecks.entrySet()) {
+                    if (e.getValue().isSelected()) {
+                        sb.append("Other:").append(e.getKey()).append(",");
+                    }
+                }
+            }
             if (sb.length() > 0) sb.setLength(sb.length() - 1);
             return sb.toString();
+        }
+
+        /** Update the Others button label + colors to reflect how many effects are checked. */
+        private void refreshAudioFxOthersBtnAppearance() {
+            if (audioFxOthersBtn == null) return;
+            int n = 0;
+            for (JCheckBox cb : audioFxOthersChecks.values()) if (cb.isSelected()) n++;
+            audioFxOthersBtn.setText(n == 0 ? "Others ▾" : ("Others (" + n + ") ▾"));
+            if (n > 0) {
+                audioFxOthersBtn.setBackground(new Color(55, 120, 200));
+                audioFxOthersBtn.setForeground(Color.WHITE);
+                audioFxOthersBtn.setBorder(BorderFactory.createLineBorder(new Color(80, 150, 230), 1));
+            } else {
+                audioFxOthersBtn.setBackground(new Color(50, 55, 68));
+                audioFxOthersBtn.setForeground(new Color(140, 145, 160));
+                audioFxOthersBtn.setBorder(BorderFactory.createLineBorder(new Color(70, 75, 90), 1));
+            }
         }
 
         /** Capture current toolbar HL state into the maps for currentSlideTextIndex. */
@@ -14423,6 +14648,11 @@ public class GifSlideShowApp extends JFrame {
                 audioFxShake.setSelected(fxSet.contains("Shake"));
                 audioFxPulse.setSelected(fxSet.contains("Pulse"));
                 audioFxNone.setSelected(fxSet.contains("None") || effects.isEmpty());
+
+                for (java.util.Map.Entry<String, JCheckBox> e : audioFxOthersChecks.entrySet()) {
+                    e.getValue().setSelected(fxSet.contains("Other:" + e.getKey()));
+                }
+                refreshAudioFxOthersBtnAppearance();
 
                 audioHlColor = color;
                 audioHlColorBtn.setForeground(audioHlColor);
