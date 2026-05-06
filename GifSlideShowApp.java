@@ -7170,10 +7170,10 @@ public class GifSlideShowApp extends JFrame {
                                     if (af != null && af.exists() && adur > 0) validAudioCount++;
                                 }
                                 boolean hasMultiAudio = validAudioCount >= 2;
-                                boolean needsAnimatedFx = (hasMultiAudio && anyAudioHlAnimates(s.audioHlEffects))
-                                        || isQuizSlide(s);
+                                boolean hasAudioAnim = anyAudioHlAnimates(s.audioHlEffects);
+                                boolean needsAnimatedFx = hasAudioAnim || isQuizSlide(s);
 
-                                if (hasMultiAudio || isQuizSlide(s)) {
+                                if (hasMultiAudio || isQuizSlide(s) || hasAudioAnim) {
                                     // Render dwell frames honoring per-segment audio highlight.
                                     // Pulse/Shake need animation → render every frame.
                                     // Other FX (Glow/Enlarge/Bold/Color/Underline/None) are
@@ -7756,6 +7756,23 @@ public class GifSlideShowApp extends JFrame {
                                         // Has animated text effects — must render full frame each time
                                         publish("Rendering slide " + (i + 1) + " with " + slideFrames + " animated frames...");
                                         for (int d = 0; d < slideFrames; d++) {
+                                            long elapsedMs = (long)(d * 1000.0 / fps);
+                                            // Apply audio-highlight effects on the active text segment
+                                            // (works for single-audio too — activeIdx is the lone segment).
+                                            List<SlideTextData> framedTexts = s.slideTexts;
+                                            if (hasAudioHlAnim) {
+                                                int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
+                                                if (activeIdx >= 0) {
+                                                    long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
+                                                    int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
+                                                    framedTexts = applyActiveTextHighlight(
+                                                            s.slideTexts, activeIdx,
+                                                            hlColorAt(s.audioHlColor, activeIdx),
+                                                            hlEffectsAt(s.audioHlEffects, activeIdx),
+                                                            segFrame,
+                                                            hlGlowSizeAt(s.audioGlowSize, activeIdx));
+                                                }
+                                            }
                                             BufferedImage frame = renderFrame(
                                                     s.image, s.text, s.fontName, s.fontSize,
                                                     s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -7763,7 +7780,7 @@ public class GifSlideShowApp extends JFrame {
                                                     s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                                     s.slideNumberX, s.slideNumberY,
                                                     s.slideNumberSize, s.slideNumberColor,
-                                                    s.slideTexts,
+                                                    framedTexts,
                                                     s.fxRoundCorners, s.fxCornerRadius,
                                                     s.fxVignette, s.fxSepia, s.fxGrain,
                                                     s.fxWaterRipple, s.fxGlitch, s.fxShake,
@@ -8997,6 +9014,23 @@ public class GifSlideShowApp extends JFrame {
                                 } else {
                                     // Full render per-frame
                                     for (int d = 0; d < slideFrames; d++) {
+                                        long elapsedMs = (long)(d * 1000.0 / fps);
+                                        // Apply audio-highlight on the active segment so single-audio
+                                        // slides still get Pulse/Shake/Other-* effects animated.
+                                        List<SlideTextData> framedTexts = s.slideTexts;
+                                        if (hasAudioHlAnim) {
+                                            int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
+                                            if (activeIdx >= 0) {
+                                                long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
+                                                int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
+                                                framedTexts = applyActiveTextHighlight(
+                                                        s.slideTexts, activeIdx,
+                                                        hlColorAt(s.audioHlColor, activeIdx),
+                                                        hlEffectsAt(s.audioHlEffects, activeIdx),
+                                                        segFrame,
+                                                        hlGlowSizeAt(s.audioGlowSize, activeIdx));
+                                            }
+                                        }
                                         BufferedImage frame = renderFrame(
                                                 s.image, s.text, s.fontName, s.fontSize,
                                                 s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -9004,7 +9038,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                                 s.slideNumberX, s.slideNumberY,
                                                 s.slideNumberSize, s.slideNumberColor,
-                                                s.slideTexts,
+                                                framedTexts,
                                                 s.fxRoundCorners, s.fxCornerRadius,
                                                 s.fxVignette, s.fxSepia, s.fxGrain,
                                                 s.fxWaterRipple, s.fxGlitch, s.fxShake,
@@ -9012,8 +9046,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.overlayEnabled,
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
                                                 s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures);
-                                        long elapsedMsQ = (long)(d * 1000.0 / fps);
-                                        paintQuizOverlay(frame, s, elapsedMsQ);
+                                        paintQuizOverlay(frame, s, elapsedMs);
                                         writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
                                     }
                                 }
@@ -10601,11 +10634,17 @@ public class GifSlideShowApp extends JFrame {
         Integer v = list.get(idx);
         return (v != null && v > 0) ? v : DEFAULT_AUDIO_GLOW_SIZE;
     }
-    /** True iff any text row's effects contain Pulse or Shake (used to route the export path). */
+    /** True iff any text row's effects need per-frame rendering. Pulse/Shake plus
+     *  every "Other:*" effect (Wave, Jitter, Scale Pop, Fade In, Slide In *,
+     *  Neon Flicker, Tilt Sway, Shimmer, Reveal, Wipe, Glow Trail, Scan) are
+     *  animated and force the per-frame export path. The static highlight styles
+     *  (Glow / Enlarge / Bold / Underline / Color / None) are constant within a
+     *  segment and stay on the cheaper one-frame-per-segment path. */
     private static boolean anyAudioHlAnimates(List<String> list) {
         if (list == null) return false;
         for (String fx : list) {
-            if (fx != null && (fx.contains("Pulse") || fx.contains("Shake"))) return true;
+            if (fx == null) continue;
+            if (fx.contains("Pulse") || fx.contains("Shake") || fx.contains("Other:")) return true;
         }
         return false;
     }
