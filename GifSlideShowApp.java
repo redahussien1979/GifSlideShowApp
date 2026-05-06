@@ -5646,8 +5646,10 @@ public class GifSlideShowApp extends JFrame {
                 if (st.audioOtherLightEffects != null && !st.audioOtherLightEffects.isEmpty()
                         && !stWrappedLines.isEmpty() && stMaxLineWidth > 0 && totalTextHeight > 0) {
                     java.awt.geom.Path2D textShape = new java.awt.geom.Path2D.Float();
+                    java.util.List<java.awt.Rectangle> lineBounds = new java.util.ArrayList<>();
                     int lyAcc = stCenterY - totalTextHeight / 2 + stAscent;
                     java.awt.font.FontRenderContext frc = ((Graphics2D) g).getFontRenderContext();
+                    int descent = stFm.getDescent();
                     for (int liA = 0; liA < stWrappedLines.size(); liA++) {
                         String lineA = stWrappedLines.get(liA);
                         if (!lineA.isEmpty()) {
@@ -5664,6 +5666,11 @@ public class GifSlideShowApp extends JFrame {
                             java.awt.geom.AffineTransform txA =
                                     java.awt.geom.AffineTransform.getTranslateInstance(lxA, lyAcc);
                             textShape.append(tlA.getOutline(txA), false);
+                            // Per-line bounds: tight to the inked area so sweeps follow
+                            // each visible line individually instead of slicing across
+                            // all lines at once.
+                            lineBounds.add(new java.awt.Rectangle(
+                                    lxA, lyAcc - stAscent, lwA, stAscent + descent));
                         }
                         lyAcc += stLineHeight;
                     }
@@ -5680,7 +5687,7 @@ public class GifSlideShowApp extends JFrame {
                     gLight.clip(textShape);
                     for (String name : st.audioOtherLightEffects.split(",")) {
                         paintAudioLightOverlay(gLight, name.trim(),
-                                lboxX, lboxY, lboxW, lboxH,
+                                lboxX, lboxY, lboxW, lboxH, lineBounds,
                                 lightHl, animFrameIndex, stScaleFactor);
                     }
                     gLight.dispose();
@@ -10610,142 +10617,135 @@ public class GifSlideShowApp extends JFrame {
 
     /**
      * Paint a single light-overlay effect (Shimmer / Reveal / Wipe / Glow Trail / Scan)
-     * over the given text-block bounding box. Caller must already have set the clip
-     * to the text glyph shape so the light only paints over the letters.
+     * over the given text-block. Caller must already have set the clip to the text
+     * glyph shape so the light only paints over the letters.
      *
-     * All effects loop on a fixed frame cycle so they animate consistently regardless
-     * of which audio segment is active. Negative {@code frame} renders a representative
+     * Multi-line aware: Reveal / Glow Trail / Scan sweep along the natural reading
+     * order (line 1 → line 2 → ...), and Wipe fills every line in parallel based on
+     * each line's own width. Shimmer keeps a single global diagonal band because a
+     * plate-glass shine looks correct crossing all lines simultaneously.
+     *
+     * All effects loop on fixed cycles so they animate consistently regardless of
+     * which audio segment is active. Negative {@code frame} renders a representative
      * mid-cycle preview (used for the static GIF/preview path).
      */
     private static void paintAudioLightOverlay(Graphics2D g, String name,
                                                int x, int y, int w, int h,
+                                               java.util.List<java.awt.Rectangle> lineBounds,
                                                Color hl, int frame, float scale) {
         if (w <= 0 || h <= 0 || name == null || name.isEmpty()) return;
+        if (lineBounds == null) lineBounds = java.util.Collections.emptyList();
         java.awt.geom.AffineTransform savedTx = g.getTransform();
         java.awt.Composite savedC = g.getComposite();
         java.awt.Paint savedP = g.getPaint();
         try {
+            g.setComposite(AlphaComposite.SrcOver);
             switch (name) {
                 case "Shimmer": {
-                    // Diagonal bright band sweeps L→R repeatedly. Plate-glass / chrome look.
-                    int cycle = 60;                                  // ~2.0 s @ 30 fps
+                    // Diagonal bright band crosses the whole text block (multi-line
+                    // friendly — band height = bounding-box diagonal so the rotated
+                    // band always covers every line). Two-pass gradient: warm halo
+                    // + tight white spike for a convincing metallic shine.
+                    int cycle = 75;                                  // ~2.5 s @ 30 fps
                     double t = ((frame >= 0 ? frame : 30) % cycle) / (double) cycle;
-                    int bandW = Math.max((int) (40 * scale), w / 4);
+                    int bandW = Math.max((int) (160 * scale), w / 4);
+                    int bandH = (int) Math.ceil(Math.hypot(w, h)) + bandW;
                     double cx = x - bandW + t * (w + 2.0 * bandW);
                     double cy = y + h / 2.0;
                     g.translate(cx, cy);
                     g.rotate(Math.toRadians(-22));
-                    int bandH = Math.max(h * 3, (int) (200 * scale));
-                    LinearGradientPaint lgp = new LinearGradientPaint(
-                            new java.awt.geom.Point2D.Float(-bandW / 2f, 0),
-                            new java.awt.geom.Point2D.Float( bandW / 2f, 0),
+                    LinearGradientPaint halo = new LinearGradientPaint(
+                            new java.awt.geom.Point2D.Float(-bandW, 0),
+                            new java.awt.geom.Point2D.Float( bandW, 0),
+                            new float[] { 0f, 0.5f, 1f },
+                            new Color[] {
+                                    new Color(255, 240, 200, 0),
+                                    new Color(255, 240, 200, 180),
+                                    new Color(255, 240, 200, 0) });
+                    g.setPaint(halo);
+                    g.fillRect(-bandW * 2, -bandH / 2, bandW * 4, bandH);
+                    int spikeW = Math.max((int) (50 * scale), bandW / 3);
+                    LinearGradientPaint spike = new LinearGradientPaint(
+                            new java.awt.geom.Point2D.Float(-spikeW, 0),
+                            new java.awt.geom.Point2D.Float( spikeW, 0),
                             new float[] { 0f, 0.5f, 1f },
                             new Color[] {
                                     new Color(255, 255, 255, 0),
-                                    new Color(255, 255, 255, 200),
+                                    new Color(255, 255, 255, 255),
                                     new Color(255, 255, 255, 0) });
-                    g.setPaint(lgp);
-                    g.setComposite(AlphaComposite.SrcOver);
-                    g.fillRect(-bandW, -bandH / 2, bandW * 2, bandH);
+                    g.setPaint(spike);
+                    g.fillRect(-spikeW * 2, -bandH / 2, spikeW * 4, bandH);
                     break;
                 }
                 case "Reveal": {
-                    // Bright leading edge sweeps L→R once per cycle, illuminating each
-                    // letter as it passes, then fading off the right edge before resetting.
-                    int cycle = 54;                                  // ~1.8 s @ 30 fps
-                    double t = ((frame >= 0 ? frame : 22) % cycle) / (double) cycle;
-                    double edgeX = x + t * w;
-                    int trailW = Math.max((int) (60 * scale), w / 3);
-                    int leadW  = Math.max((int) (24 * scale), w / 8);
-                    LinearGradientPaint lgp = new LinearGradientPaint(
-                            new java.awt.geom.Point2D.Float((float)(edgeX - trailW), 0),
-                            new java.awt.geom.Point2D.Float((float)(edgeX + leadW),  0),
-                            new float[] { 0f, 0.7f, 0.85f, 1f },
-                            new Color[] {
-                                    new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), 0),
-                                    new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), 200),
-                                    new Color(255, 255, 255, 240),
-                                    new Color(255, 255, 255, 0) });
-                    g.setPaint(lgp);
-                    g.setComposite(AlphaComposite.SrcOver);
-                    g.fillRect(x, y, w, h);
+                    // Per-line sequential. Bright leading edge with HL-colored trail
+                    // travels along line 1, then line 2, etc. Each line is given a
+                    // slice of the cycle proportional to its width.
+                    int cycle = 90;                                  // 3.0 s
+                    double t = ((frame >= 0 ? frame : 30) % cycle) / (double) cycle;
+                    paintPerLineSequentialReveal(g, lineBounds, t, hl, scale);
                     break;
                 }
                 case "Wipe": {
-                    // HL-color tint fills L→R, holds, then fades. Like a paint roller
-                    // followed by a soft wipe-off.
-                    int cycle = 72;                                  // ~2.4 s @ 30 fps
-                    int f = (frame >= 0 ? frame : 18) % cycle;
-                    double tFill = Math.min(1.0, f / 18.0);          // 0..1 over first 0.6 s
-                    double tFade;
-                    if (f < 36)      tFade = 1.0;                    // full hold
-                    else if (f < 60) tFade = 1.0 - (f - 36) / 24.0;  // fade out
-                    else             tFade = 0.0;                    // gap before next sweep
-                    int fillW = (int) Math.round(tFill * w);
-                    int alpha = (int) Math.round(160 * Math.max(0.0, tFade));
-                    if (fillW > 0 && alpha > 0) {
-                        g.setColor(new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), alpha));
-                        g.setComposite(AlphaComposite.SrcOver);
-                        g.fillRect(x, y, fillW, h);
+                    // Per-line PARALLEL fill — every line fills L→R together based on
+                    // its own width, so a long line and short line finish at the same
+                    // beat. Holds full color briefly, then fades, then loops.
+                    int cycle = 96;                                  // 3.2 s
+                    int f = (frame >= 0 ? frame : 24) % cycle;
+                    double tFill;
+                    double alphaScale;
+                    if (f < 30) {           // fill phase
+                        tFill = f / 30.0;
+                        alphaScale = 0.5 + 0.5 * tFill;              // brighten as we fill
+                    } else if (f < 64) {    // hold phase
+                        tFill = 1.0;
+                        alphaScale = 1.0;
+                    } else if (f < 84) {    // fade phase
+                        tFill = 1.0;
+                        alphaScale = 1.0 - (f - 64) / 20.0;
+                    } else {                // gap before next cycle
+                        tFill = 0.0;
+                        alphaScale = 0.0;
+                    }
+                    if (alphaScale <= 0 || tFill <= 0) break;
+                    int tintAlpha = (int) Math.round(230 * alphaScale);
+                    Color tint = new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), tintAlpha);
+                    int edgeW = Math.max((int) (40 * scale), 18);
+                    for (java.awt.Rectangle lb : lineBounds) {
+                        int fillW = (int) Math.round(tFill * lb.width);
+                        if (fillW <= 0) continue;
+                        g.setColor(tint);
+                        g.fillRect(lb.x, lb.y, fillW, lb.height);
+                        // Bright leading-edge spike while still filling.
+                        if (tFill < 1.0) {
+                            LinearGradientPaint le = new LinearGradientPaint(
+                                    new java.awt.geom.Point2D.Float(lb.x + fillW - edgeW, 0),
+                                    new java.awt.geom.Point2D.Float(lb.x + fillW + edgeW, 0),
+                                    new float[] { 0f, 0.5f, 1f },
+                                    new Color[] {
+                                            new Color(255, 255, 255, 0),
+                                            new Color(255, 255, 255, 255),
+                                            new Color(255, 255, 255, 0) });
+                            g.setPaint(le);
+                            g.fillRect(lb.x + fillW - edgeW, lb.y, edgeW * 2, lb.height);
+                        }
                     }
                     break;
                 }
                 case "Glow Trail": {
-                    // A soft glowing blob travels L→R, leaving a trailing comet tail.
-                    int cycle = 60;                                  // ~2.0 s
+                    // Per-line sequential. A bright comet head (radial gradient) with
+                    // a long colored tail travels along each line in reading order.
+                    int cycle = 90;                                  // 3.0 s
                     double t = ((frame >= 0 ? frame : 30) % cycle) / (double) cycle;
-                    double gx = x + t * w;
-                    double gy = y + h / 2.0;
-                    float radius = Math.max(h * 1.1f, 60f * scale);
-                    // Trail (long fade behind the glow point, alpha gradient).
-                    int trailW = (int) Math.max(80 * scale, w / 2.5);
-                    LinearGradientPaint trail = new LinearGradientPaint(
-                            new java.awt.geom.Point2D.Float((float)(gx - trailW), 0),
-                            new java.awt.geom.Point2D.Float((float) gx,           0),
-                            new float[] { 0f, 1f },
-                            new Color[] {
-                                    new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), 0),
-                                    new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), 140) });
-                    g.setPaint(trail);
-                    g.setComposite(AlphaComposite.SrcOver);
-                    g.fillRect((int)(gx - trailW), y, trailW, h);
-                    // Bright glow head (radial, additive blend for premium pop).
-                    java.awt.RadialGradientPaint head = new java.awt.RadialGradientPaint(
-                            new java.awt.geom.Point2D.Float((float) gx, (float) gy),
-                            radius,
-                            new float[] { 0f, 0.4f, 1f },
-                            new Color[] {
-                                    new Color(255, 255, 255, 230),
-                                    new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), 160),
-                                    new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), 0) });
-                    g.setPaint(head);
-                    g.setComposite(AlphaComposite.SrcOver);
-                    g.fillRect((int)(gx - radius), (int)(gy - radius),
-                               (int)(radius * 2), (int)(radius * 2));
+                    paintPerLineSequentialGlow(g, lineBounds, t, hl, scale);
                     break;
                 }
                 case "Scan": {
-                    // Thin bright vertical line sweeps L→R, then jumps back. Cylon style.
-                    int cycle = 42;                                  // ~1.4 s
-                    double t = ((frame >= 0 ? frame : 14) % cycle) / (double) cycle;
-                    double sx = x + t * w;
-                    int lineW = Math.max(2, (int) (3 * scale));
-                    int glowW = Math.max(8, (int) (24 * scale));
-                    // Glow band around the line.
-                    LinearGradientPaint scan = new LinearGradientPaint(
-                            new java.awt.geom.Point2D.Float((float)(sx - glowW), 0),
-                            new java.awt.geom.Point2D.Float((float)(sx + glowW), 0),
-                            new float[] { 0f, 0.5f, 1f },
-                            new Color[] {
-                                    new Color(255, 255, 255, 0),
-                                    new Color(255, 255, 255, 220),
-                                    new Color(255, 255, 255, 0) });
-                    g.setPaint(scan);
-                    g.setComposite(AlphaComposite.SrcOver);
-                    g.fillRect((int)(sx - glowW), y, glowW * 2, h);
-                    // Solid bright core line.
-                    g.setPaint(new Color(255, 255, 255, 240));
-                    g.fillRect((int)(sx - lineW / 2.0), y, lineW, h);
+                    // Per-line sequential. A thick bright bar with soft halo passes
+                    // along each line, like a high-end scanner light.
+                    int cycle = 60;                                  // 2.0 s
+                    double t = ((frame >= 0 ? frame : 20) % cycle) / (double) cycle;
+                    paintPerLineSequentialScan(g, lineBounds, t, scale);
                     break;
                 }
                 default:
@@ -10756,6 +10756,115 @@ public class GifSlideShowApp extends JFrame {
             g.setComposite(savedC);
             g.setPaint(savedP);
         }
+    }
+
+    /**
+     * Map a global progress 0..1 across a sequence of per-line bounds, weighted by
+     * each line's width, to a specific line index and a local 0..1 position within
+     * that line. Returns {@code [-1, 0]} when there are no lines.
+     */
+    private static double[] resolveLineProgress(java.util.List<java.awt.Rectangle> lineBounds, double t) {
+        if (lineBounds == null || lineBounds.isEmpty()) return new double[] { -1, 0 };
+        double totalW = 0;
+        for (java.awt.Rectangle lb : lineBounds) totalW += Math.max(1, lb.width);
+        if (totalW <= 0) return new double[] { -1, 0 };
+        double targetX = t * totalW;
+        double accum = 0;
+        for (int li = 0; li < lineBounds.size(); li++) {
+            double lw = Math.max(1, lineBounds.get(li).width);
+            if (targetX < accum + lw) {
+                return new double[] { li, (targetX - accum) / lw };
+            }
+            accum += lw;
+        }
+        return new double[] { lineBounds.size() - 1, 1.0 };
+    }
+
+    private static void paintPerLineSequentialReveal(Graphics2D g,
+                                                     java.util.List<java.awt.Rectangle> lineBounds,
+                                                     double t, Color hl, float scale) {
+        double[] r = resolveLineProgress(lineBounds, t);
+        int li = (int) r[0];
+        if (li < 0) return;
+        java.awt.Rectangle lb = lineBounds.get(li);
+        double localT = r[1];
+        double edgeX = lb.x + localT * lb.width;
+        int trailW = Math.max((int) (180 * scale), lb.width / 2);
+        int leadW  = Math.max((int) (60 * scale),  lb.width / 8);
+        LinearGradientPaint lgp = new LinearGradientPaint(
+                new java.awt.geom.Point2D.Float((float)(edgeX - trailW), 0),
+                new java.awt.geom.Point2D.Float((float)(edgeX + leadW),  0),
+                new float[] { 0f, 0.6f, 0.88f, 1f },
+                new Color[] {
+                        new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), 0),
+                        new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), 230),
+                        new Color(255, 255, 255, 255),
+                        new Color(255, 255, 255, 0) });
+        g.setPaint(lgp);
+        g.fillRect(lb.x - trailW, lb.y, lb.width + trailW + leadW, lb.height);
+    }
+
+    private static void paintPerLineSequentialGlow(Graphics2D g,
+                                                   java.util.List<java.awt.Rectangle> lineBounds,
+                                                   double t, Color hl, float scale) {
+        double[] r = resolveLineProgress(lineBounds, t);
+        int li = (int) r[0];
+        if (li < 0) return;
+        java.awt.Rectangle lb = lineBounds.get(li);
+        double localT = r[1];
+        double gx = lb.x + localT * lb.width;
+        double gy = lb.y + lb.height / 2.0;
+        float radius = Math.max(lb.height * 1.4f, 110f * scale);
+        // Long colored tail behind the glow head.
+        int trailW = Math.max((int) (240 * scale), lb.width / 2);
+        LinearGradientPaint trail = new LinearGradientPaint(
+                new java.awt.geom.Point2D.Float((float)(gx - trailW), 0),
+                new java.awt.geom.Point2D.Float((float) gx,           0),
+                new float[] { 0f, 1f },
+                new Color[] {
+                        new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), 0),
+                        new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), 220) });
+        g.setPaint(trail);
+        g.fillRect((int)(gx - trailW), lb.y, trailW, lb.height);
+        // Bright radial glow head (white core, colored bloom).
+        java.awt.RadialGradientPaint head = new java.awt.RadialGradientPaint(
+                new java.awt.geom.Point2D.Float((float) gx, (float) gy),
+                radius,
+                new float[] { 0f, 0.3f, 1f },
+                new Color[] {
+                        new Color(255, 255, 255, 255),
+                        new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), 230),
+                        new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), 0) });
+        g.setPaint(head);
+        g.fillRect((int)(gx - radius), (int)(gy - radius),
+                   (int)(radius * 2), (int)(radius * 2));
+    }
+
+    private static void paintPerLineSequentialScan(Graphics2D g,
+                                                   java.util.List<java.awt.Rectangle> lineBounds,
+                                                   double t, float scale) {
+        double[] r = resolveLineProgress(lineBounds, t);
+        int li = (int) r[0];
+        if (li < 0) return;
+        java.awt.Rectangle lb = lineBounds.get(li);
+        double localT = r[1];
+        double sx = lb.x + localT * lb.width;
+        int lineW = Math.max(4, (int) (6 * scale));
+        int glowW = Math.max(28, (int) (90 * scale));
+        // Wide soft halo.
+        LinearGradientPaint scan = new LinearGradientPaint(
+                new java.awt.geom.Point2D.Float((float)(sx - glowW), 0),
+                new java.awt.geom.Point2D.Float((float)(sx + glowW), 0),
+                new float[] { 0f, 0.5f, 1f },
+                new Color[] {
+                        new Color(255, 255, 255, 0),
+                        new Color(255, 255, 255, 255),
+                        new Color(255, 255, 255, 0) });
+        g.setPaint(scan);
+        g.fillRect((int)(sx - glowW), lb.y, glowW * 2, lb.height);
+        // Solid bright core bar.
+        g.setPaint(new Color(255, 255, 255, 255));
+        g.fillRect((int)(sx - lineW / 2.0), lb.y, lineW, lb.height);
     }
 
     /**
