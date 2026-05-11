@@ -3373,48 +3373,15 @@ public class GifSlideShowApp extends JFrame {
                 // are joined with a single space because wrapTextStatic only
                 // breaks at whitespace, so the joined string mirrors what the
                 // user reads.
-                java.util.List<java.util.List<int[]>> stHlSegments = null;
-                String[] stHlTerms = null;
-                if (st.highlightText != null && !st.highlightText.isEmpty() && !stWrappedLines.isEmpty()) {
-                    stHlSegments = new ArrayList<>(stWrappedLines.size());
-                    for (int hi = 0; hi < stWrappedLines.size(); hi++) stHlSegments.add(new ArrayList<>());
-                    int[] hlLineStart = new int[stWrappedLines.size()];
-                    StringBuilder flatSb = new StringBuilder();
-                    for (int hi = 0; hi < stWrappedLines.size(); hi++) {
-                        if (hi > 0) flatSb.append(' ');
-                        hlLineStart[hi] = flatSb.length();
-                        flatSb.append(stWrappedLines.get(hi));
-                    }
-                    String flatLower = flatSb.toString().toLowerCase();
-                    String[] rawTerms = st.highlightText.split(",");
-                    java.util.List<String> trimmedTerms = new java.util.ArrayList<>();
-                    for (String t : rawTerms) {
-                        String tt = t.trim();
-                        if (!tt.isEmpty()) trimmedTerms.add(tt);
-                    }
-                    stHlTerms = trimmedTerms.toArray(new String[0]);
-                    for (int ti = 0; ti < stHlTerms.length; ti++) {
-                        String hlLowerTerm = stHlTerms[ti].toLowerCase();
-                        if (hlLowerTerm.isEmpty()) continue;
-                        int from = 0;
-                        while (from <= flatLower.length()) {
-                            int idx = flatLower.indexOf(hlLowerTerm, from);
-                            if (idx < 0) break;
-                            int matchEnd = idx + hlLowerTerm.length();
-                            for (int li2 = 0; li2 < stWrappedLines.size(); li2++) {
-                                int ls = hlLineStart[li2];
-                                int le = ls + stWrappedLines.get(li2).length();
-                                int segS = Math.max(ls, idx);
-                                int segE = Math.min(le, matchEnd);
-                                if (segS < segE) {
-                                    stHlSegments.get(li2).add(new int[]{segS - ls, segE - ls, ti});
-                                }
-                                if (le >= matchEnd) break;
-                            }
-                            from = idx + hlLowerTerm.length();
-                        }
-                    }
-                }
+                java.util.List<java.util.List<int[]>> stHlSegments = computeWrapSegments(stWrappedLines, st.highlightText);
+                String[] stHlTerms = splitTerms(st.highlightText);
+
+                // Same multi-line decomposition for UL. Falls back to highlightText
+                // when underlineText is empty, mirroring the runtime behavior below.
+                String ulSrcText = (st.underlineText != null && !st.underlineText.isEmpty())
+                        ? st.underlineText : st.highlightText;
+                java.util.List<java.util.List<int[]>> stUlSegments = computeWrapSegments(stWrappedLines, ulSrcText);
+                String[] stUlTerms = splitTerms(ulSrcText);
 
                 int lineY = stCenterY - totalTextHeight / 2 + stAscent;
                 for (int li = 0; li < stWrappedLines.size(); li++) {
@@ -4375,32 +4342,23 @@ public class GifSlideShowApp extends JFrame {
 
                     // === Slide text underline (independent word matching) ===
                     String ulStyle = st.underlineStyle != null ? st.underlineStyle : "None";
-                    if (!"None".equals(ulStyle)) {
-                        // Use underlineText if set, otherwise fall back to highlightText
-                        String ulTextRaw = (st.underlineText != null && !st.underlineText.isEmpty())
-                                ? st.underlineText : st.highlightText;
-                        if (ulTextRaw != null && !ulTextRaw.isEmpty()) {
-                            String lineLower = line.toLowerCase();
+                    if (!"None".equals(ulStyle) && stUlSegments != null && !stUlSegments.get(li).isEmpty()) {
+                        {
                             Color hlC = st.highlightColor != null ? st.highlightColor : new Color(255, 100, 150, 180);
-                            String[] ulTerms = ulTextRaw.split(",");
-                            for (String ulTerm : ulTerms) {
-                                ulTerm = ulTerm.trim();
-                                if (ulTerm.isEmpty()) continue;
-                                String ulLower = ulTerm.toLowerCase();
-                                int ulSearchFrom = 0;
-                                while (ulSearchFrom < lineLower.length()) {
-                                    int ulIdx = lineLower.indexOf(ulLower, ulSearchFrom);
-                                    if (ulIdx < 0) break;
+                            for (int[] seg : stUlSegments.get(li)) {
+                                int ulIdx = seg[0];
+                                int ulSegLen = seg[1] - seg[0];
+                                {
                                     // Use TextLayout for correct visual position (handles RTL/bidi text)
                                     int ulMatchX, ulMatchW;
                                     if (stTextLayout != null) {
-                                        java.awt.Shape ulVisShape = stTextLayout.getLogicalHighlightShape(ulIdx, ulIdx + ulTerm.length());
+                                        java.awt.Shape ulVisShape = stTextLayout.getLogicalHighlightShape(ulIdx, ulIdx + ulSegLen);
                                         java.awt.geom.Rectangle2D ulVisBounds = ulVisShape.getBounds2D();
                                         ulMatchX = lineX + (int) ulVisBounds.getX();
                                         ulMatchW = (int) Math.ceil(ulVisBounds.getWidth());
                                     } else {
                                         String ulBefore = line.substring(0, ulIdx);
-                                        String ulMatch = line.substring(ulIdx, ulIdx + ulTerm.length());
+                                        String ulMatch = line.substring(ulIdx, ulIdx + ulSegLen);
                                         ulMatchX = lineX + stFm.stringWidth(ulBefore);
                                         ulMatchW = stFm.stringWidth(ulMatch);
                                     }
@@ -4478,7 +4436,6 @@ public class GifSlideShowApp extends JFrame {
                                         }
                                     }
                                     gUL.dispose();
-                                    ulSearchFrom = ulIdx + ulTerm.length();
                                 }
                             }
                         }
@@ -6171,6 +6128,68 @@ public class GifSlideShowApp extends JFrame {
     }
 
     // ========== Text Wrapping ==========
+
+    /**
+     * Split a comma-separated list into trimmed, non-empty terms.
+     * Returns null if the input is null/empty so callers can short-circuit cheaply.
+     */
+    static String[] splitTerms(String csv) {
+        if (csv == null || csv.isEmpty()) return null;
+        String[] raw = csv.split(",");
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (String t : raw) {
+            String tt = t.trim();
+            if (!tt.isEmpty()) out.add(tt);
+        }
+        return out.isEmpty() ? null : out.toArray(new String[0]);
+    }
+
+    /**
+     * For each wrapped line, return a list of [startInLine, endExclusiveInLine, termIdx]
+     * segments that the comma-separated terms in {@code csv} cover. Matches are case-
+     * insensitive and may span multiple wrapped lines; spanning matches are decomposed
+     * into one segment per line. Returns null when there is nothing to match.
+     * Lines are joined with a single space because wrapTextStatic only breaks at
+     * whitespace, so the joined string mirrors what the user reads.
+     */
+    static java.util.List<java.util.List<int[]>> computeWrapSegments(List<String> wrappedLines, String csv) {
+        if (wrappedLines == null || wrappedLines.isEmpty()) return null;
+        String[] terms = splitTerms(csv);
+        if (terms == null) return null;
+        int n = wrappedLines.size();
+        java.util.List<java.util.List<int[]>> perLine = new java.util.ArrayList<>(n);
+        for (int i = 0; i < n; i++) perLine.add(new java.util.ArrayList<>());
+        int[] lineStart = new int[n];
+        StringBuilder flat = new StringBuilder();
+        for (int i = 0; i < n; i++) {
+            if (i > 0) flat.append(' ');
+            lineStart[i] = flat.length();
+            flat.append(wrappedLines.get(i));
+        }
+        String flatLower = flat.toString().toLowerCase();
+        for (int ti = 0; ti < terms.length; ti++) {
+            String needle = terms[ti].toLowerCase();
+            if (needle.isEmpty()) continue;
+            int from = 0;
+            while (from <= flatLower.length()) {
+                int idx = flatLower.indexOf(needle, from);
+                if (idx < 0) break;
+                int matchEnd = idx + needle.length();
+                for (int li = 0; li < n; li++) {
+                    int ls = lineStart[li];
+                    int le = ls + wrappedLines.get(li).length();
+                    int segS = Math.max(ls, idx);
+                    int segE = Math.min(le, matchEnd);
+                    if (segS < segE) {
+                        perLine.get(li).add(new int[]{segS - ls, segE - ls, ti});
+                    }
+                    if (le >= matchEnd) break;
+                }
+                from = idx + needle.length();
+            }
+        }
+        return perLine;
+    }
 
     static List<String> wrapTextStatic(String text, FontMetrics fm, int maxWidth) {
         List<String> lines = new ArrayList<>();
