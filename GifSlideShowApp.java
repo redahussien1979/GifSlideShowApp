@@ -3368,6 +3368,54 @@ public class GifSlideShowApp extends JFrame {
                 String effect = st.textEffect != null ? st.textEffect : "None";
                 double intensity = st.textEffectIntensity / 100.0;
 
+                // Precompute HL segments per wrapped line so a phrase that wraps
+                // across lines still highlights on every line it covers. Lines
+                // are joined with a single space because wrapTextStatic only
+                // breaks at whitespace, so the joined string mirrors what the
+                // user reads.
+                java.util.List<java.util.List<int[]>> stHlSegments = null;
+                String[] stHlTerms = null;
+                if (st.highlightText != null && !st.highlightText.isEmpty() && !stWrappedLines.isEmpty()) {
+                    stHlSegments = new ArrayList<>(stWrappedLines.size());
+                    for (int hi = 0; hi < stWrappedLines.size(); hi++) stHlSegments.add(new ArrayList<>());
+                    int[] hlLineStart = new int[stWrappedLines.size()];
+                    StringBuilder flatSb = new StringBuilder();
+                    for (int hi = 0; hi < stWrappedLines.size(); hi++) {
+                        if (hi > 0) flatSb.append(' ');
+                        hlLineStart[hi] = flatSb.length();
+                        flatSb.append(stWrappedLines.get(hi));
+                    }
+                    String flatLower = flatSb.toString().toLowerCase();
+                    String[] rawTerms = st.highlightText.split(",");
+                    java.util.List<String> trimmedTerms = new java.util.ArrayList<>();
+                    for (String t : rawTerms) {
+                        String tt = t.trim();
+                        if (!tt.isEmpty()) trimmedTerms.add(tt);
+                    }
+                    stHlTerms = trimmedTerms.toArray(new String[0]);
+                    for (int ti = 0; ti < stHlTerms.length; ti++) {
+                        String hlLowerTerm = stHlTerms[ti].toLowerCase();
+                        if (hlLowerTerm.isEmpty()) continue;
+                        int from = 0;
+                        while (from <= flatLower.length()) {
+                            int idx = flatLower.indexOf(hlLowerTerm, from);
+                            if (idx < 0) break;
+                            int matchEnd = idx + hlLowerTerm.length();
+                            for (int li2 = 0; li2 < stWrappedLines.size(); li2++) {
+                                int ls = hlLineStart[li2];
+                                int le = ls + stWrappedLines.get(li2).length();
+                                int segS = Math.max(ls, idx);
+                                int segE = Math.min(le, matchEnd);
+                                if (segS < segE) {
+                                    stHlSegments.get(li2).add(new int[]{segS - ls, segE - ls, ti});
+                                }
+                                if (le >= matchEnd) break;
+                            }
+                            from = idx + hlLowerTerm.length();
+                        }
+                    }
+                }
+
                 int lineY = stCenterY - totalTextHeight / 2 + stAscent;
                 for (int li = 0; li < stWrappedLines.size(); li++) {
                     String line = stWrappedLines.get(li);
@@ -3640,8 +3688,7 @@ public class GifSlideShowApp extends JFrame {
                     }
 
                     // === Slide text highlight (supports comma-separated words) ===
-                    if (st.highlightText != null && !st.highlightText.isEmpty()) {
-                        String lineLower = line.toLowerCase();
+                    if (stHlSegments != null && !stHlSegments.get(li).isEmpty()) {
                         // Tightness: positive = padding around text, negative = reduce height
                         int tightness = st.highlightTightness;
                         int hlPadX, hlPadY;
@@ -3656,25 +3703,21 @@ public class GifSlideShowApp extends JFrame {
                             float shrinkFactor = Math.abs(tightness) / 50.0f;
                             heightShrink = (int) (stFm.getHeight() * 0.7f * shrinkFactor);
                         }
-                        String[] hlTerms = st.highlightText.split(",");
-                        for (String hlTerm : hlTerms) {
-                            hlTerm = hlTerm.trim();
-                            if (hlTerm.isEmpty()) continue;
-                            String hlLower = hlTerm.toLowerCase();
-                            int searchFrom = 0;
-                            while (searchFrom < lineLower.length()) {
-                                int hlIdx = lineLower.indexOf(hlLower, searchFrom);
-                                if (hlIdx < 0) break;
+                        for (int[] seg : stHlSegments.get(li)) {
+                            int hlIdx = seg[0];
+                            int segLen = seg[1] - seg[0];
+                            String hlTerm = stHlTerms[seg[2]];
+                            {
                                 // Use TextLayout for correct visual position (handles RTL/bidi text)
                                 int hlX, hlW;
                                 if (stTextLayout != null) {
-                                    java.awt.Shape hlVisShape = stTextLayout.getLogicalHighlightShape(hlIdx, hlIdx + hlTerm.length());
+                                    java.awt.Shape hlVisShape = stTextLayout.getLogicalHighlightShape(hlIdx, hlIdx + segLen);
                                     java.awt.geom.Rectangle2D hlVisBounds = hlVisShape.getBounds2D();
                                     hlX = lineX + (int) hlVisBounds.getX();
                                     hlW = (int) Math.ceil(hlVisBounds.getWidth());
                                 } else {
                                     String before = line.substring(0, hlIdx);
-                                    String match = line.substring(hlIdx, hlIdx + hlTerm.length());
+                                    String match = line.substring(hlIdx, hlIdx + segLen);
                                     hlX = lineX + stFm.stringWidth(before);
                                     hlW = stFm.stringWidth(match);
                                 }
@@ -4326,7 +4369,6 @@ public class GifSlideShowApp extends JFrame {
                                     }
                                 }
                                 gHL.dispose();
-                                searchFrom = hlIdx + hlTerm.length();
                             }
                         }
                     }
@@ -5579,56 +5621,46 @@ public class GifSlideShowApp extends JFrame {
 
                     // === Post-text foreground highlight overlays ===
                     // Effects that must appear ON TOP of the text (e.g. Strikethrough).
-                    if (st.highlightText != null && !st.highlightText.isEmpty()) {
+                    if (stHlSegments != null && !stHlSegments.get(li).isEmpty()) {
                         String rawHlStyleFG = st.highlightStyle != null ? st.highlightStyle : "Regular";
                         String hlStyleFG = rawHlStyleFG;
                         int colonIdxFG = rawHlStyleFG.indexOf(':');
                         if (colonIdxFG > 0) hlStyleFG = rawHlStyleFG.substring(0, colonIdxFG);
 
                         if ("Strikethrough".equals(hlStyleFG)) {
-                            String lineLowerFG = line.toLowerCase();
                             Color hlCFG = st.highlightColor != null ? st.highlightColor : new Color(255, 100, 150, 180);
-                            String[] hlTermsFG = st.highlightText.split(",");
-                            for (String hlTermFG : hlTermsFG) {
-                                hlTermFG = hlTermFG.trim();
-                                if (hlTermFG.isEmpty()) continue;
-                                String hlLowerFG = hlTermFG.toLowerCase();
-                                int searchFromFG = 0;
-                                while (searchFromFG < lineLowerFG.length()) {
-                                    int hlIdxFG = lineLowerFG.indexOf(hlLowerFG, searchFromFG);
-                                    if (hlIdxFG < 0) break;
-                                    int hlXFG, hlWFG;
-                                    if (stTextLayout != null) {
-                                        java.awt.Shape hlVisShapeFG = stTextLayout.getLogicalHighlightShape(hlIdxFG, hlIdxFG + hlTermFG.length());
-                                        java.awt.geom.Rectangle2D hlVisBoundsFG = hlVisShapeFG.getBounds2D();
-                                        hlXFG = lineX + (int) hlVisBoundsFG.getX();
-                                        hlWFG = (int) Math.ceil(hlVisBoundsFG.getWidth());
-                                    } else {
-                                        String beforeFG = line.substring(0, hlIdxFG);
-                                        String matchFG = line.substring(hlIdxFG, hlIdxFG + hlTermFG.length());
-                                        hlXFG = lineX + stFm.stringWidth(beforeFG);
-                                        hlWFG = stFm.stringWidth(matchFG);
-                                    }
-                                    Graphics2D gFG = (Graphics2D) g.create();
-                                    gFG.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-
-                                    // Strike through the visual center of the text
-                                    int strikeY = lineY - (int) Math.round(stFm.getAscent() * 0.32);
-                                    int sx1 = hlXFG - (int)(2 * stScaleFactor);
-                                    int sx2 = hlXFG + hlWFG + (int)(2 * stScaleFactor);
-                                    float strokeSW = Math.max(2f, stFm.getAscent() * 0.10f);
-                                    gFG.setStroke(new BasicStroke(strokeSW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                                    // Subtle shadow for legibility on any background
-                                    int shOff = (int) Math.max(1, stScaleFactor);
-                                    gFG.setColor(new Color(0, 0, 0, Math.min(70, hlCFG.getAlpha() / 4)));
-                                    gFG.drawLine(sx1 + shOff, strikeY + shOff, sx2 + shOff, strikeY + shOff);
-                                    // Main strike
-                                    gFG.setColor(new Color(hlCFG.getRed(), hlCFG.getGreen(), hlCFG.getBlue(), hlCFG.getAlpha()));
-                                    gFG.drawLine(sx1, strikeY, sx2, strikeY);
-                                    gFG.dispose();
-
-                                    searchFromFG = hlIdxFG + hlTermFG.length();
+                            for (int[] seg : stHlSegments.get(li)) {
+                                int hlIdxFG = seg[0];
+                                int segLenFG = seg[1] - seg[0];
+                                int hlXFG, hlWFG;
+                                if (stTextLayout != null) {
+                                    java.awt.Shape hlVisShapeFG = stTextLayout.getLogicalHighlightShape(hlIdxFG, hlIdxFG + segLenFG);
+                                    java.awt.geom.Rectangle2D hlVisBoundsFG = hlVisShapeFG.getBounds2D();
+                                    hlXFG = lineX + (int) hlVisBoundsFG.getX();
+                                    hlWFG = (int) Math.ceil(hlVisBoundsFG.getWidth());
+                                } else {
+                                    String beforeFG = line.substring(0, hlIdxFG);
+                                    String matchFG = line.substring(hlIdxFG, hlIdxFG + segLenFG);
+                                    hlXFG = lineX + stFm.stringWidth(beforeFG);
+                                    hlWFG = stFm.stringWidth(matchFG);
                                 }
+                                Graphics2D gFG = (Graphics2D) g.create();
+                                gFG.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                                // Strike through the visual center of the text
+                                int strikeY = lineY - (int) Math.round(stFm.getAscent() * 0.32);
+                                int sx1 = hlXFG - (int)(2 * stScaleFactor);
+                                int sx2 = hlXFG + hlWFG + (int)(2 * stScaleFactor);
+                                float strokeSW = Math.max(2f, stFm.getAscent() * 0.10f);
+                                gFG.setStroke(new BasicStroke(strokeSW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                // Subtle shadow for legibility on any background
+                                int shOff = (int) Math.max(1, stScaleFactor);
+                                gFG.setColor(new Color(0, 0, 0, Math.min(70, hlCFG.getAlpha() / 4)));
+                                gFG.drawLine(sx1 + shOff, strikeY + shOff, sx2 + shOff, strikeY + shOff);
+                                // Main strike
+                                gFG.setColor(new Color(hlCFG.getRed(), hlCFG.getGreen(), hlCFG.getBlue(), hlCFG.getAlpha()));
+                                gFG.drawLine(sx1, strikeY, sx2, strikeY);
+                                gFG.dispose();
                             }
                         }
                     }
