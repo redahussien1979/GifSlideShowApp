@@ -277,6 +277,8 @@ public class GifSlideShowApp extends JFrame {
         props.setProperty("slideNumberY", String.valueOf(source.getSlideNumberY()));
         props.setProperty("slideNumberSize", String.valueOf(source.getSlideNumberSize()));
         props.setProperty("slideNumberColor", colorToHex(source.getSlideNumberColor()));
+        props.setProperty("slideNumberStyle", source.getSlideNumberStyle());
+        props.setProperty("slideNumberEffect", source.getSlideNumberEffect());
 
         // Effects
         props.setProperty("fxRoundCorners", String.valueOf(source.isFxRoundCorners()));
@@ -453,6 +455,8 @@ public class GifSlideShowApp extends JFrame {
         int slideNumberY = Integer.parseInt(props.getProperty("slideNumberY", "50"));
         int slideNumberSize = Integer.parseInt(props.getProperty("slideNumberSize", "80"));
         Color slideNumberColor = hexToColor(props.getProperty("slideNumberColor", "#FFFFFF"));
+        String slideNumberStyle = props.getProperty("slideNumberStyle", "Circle");
+        String slideNumberEffect = props.getProperty("slideNumberEffect", "None");
 
         boolean fxRoundCorners = Boolean.parseBoolean(props.getProperty("fxRoundCorners", "false"));
         int fxCornerRadius = Integer.parseInt(props.getProperty("fxCornerRadius", "40"));
@@ -586,6 +590,7 @@ public class GifSlideShowApp extends JFrame {
                 row.applyFormatting(fontName, fontSize, fontStyle, fontColor, alignment, showPin, displayMode,
                         subtitleY, subtitleBgOpacity,
                         showSlideNumber, slideNumberFontName, slideNumberX, slideNumberY, slideNumberSize, slideNumberColor,
+                        slideNumberStyle, slideNumberEffect,
                         slideTextFormats, null,
                         fxRoundCorners, fxCornerRadius,
                         fxVignetteOn, fxVignetteVal, fxSepiaOn, fxSepiaVal,
@@ -744,6 +749,7 @@ public class GifSlideShowApp extends JFrame {
         titleRow.applyFormatting("Segoe UI", 48, Font.BOLD,
                 Color.WHITE, SwingConstants.CENTER, false, "Blur-Fit", 5, 78,
                 false, loadedFontNames[0], 50, 10, 80, Color.WHITE,
+                "Circle", "None",
                 Collections.singletonList(new SlideTextData(false, "", "Segoe UI", 40, Font.PLAIN,
                         Color.YELLOW, 50, 50, 0, Color.BLACK, false, 100, 0, SwingConstants.CENTER)),
                 null,
@@ -2383,6 +2389,7 @@ public class GifSlideShowApp extends JFrame {
                 if (row == source || row.isTitleGridSlide) continue;
                 row.applyFormatting(fontName, fontSize, fontStyle, fontColor, alignment, showPin, displayMode, subtitleY, subtitleBgOpacity,
                         showSlideNumber, slideNumberFontName, slideNumberX, slideNumberY, slideNumberSize, slideNumberColor,
+                        source.getSlideNumberStyle(), source.getSlideNumberEffect(),
                         slideTextFormats, slidePictureFormats,
                         fxRoundCorners, fxCornerRadius,
                         fxVignetteOn, fxVignetteVal, fxSepiaOn, fxSepiaVal,
@@ -2631,6 +2638,7 @@ public class GifSlideShowApp extends JFrame {
         return renderFrame(image, text, fontName, fontSize, fontStyle,
                 fontColor, alignment, showPin, targetW, targetH, "Blur-Fit", 5, 78,
                 false, null, null, 0, 0, 0, null,
+                null, null,
                 null,
                 false, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 "None", 0,
@@ -2646,6 +2654,7 @@ public class GifSlideShowApp extends JFrame {
         return renderFrame(image, text, fontName, fontSize, fontStyle,
                 fontColor, alignment, showPin, targetW, targetH, displayMode, 5, 78,
                 false, null, null, 0, 0, 0, null,
+                null, null,
                 null,
                 false, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 "None", 0,
@@ -2662,6 +2671,7 @@ public class GifSlideShowApp extends JFrame {
                                      String slideNumberFontName,
                                      int slideNumberX, int slideNumberY,
                                      int slideNumberSize, Color slideNumberColor,
+                                     String slideNumberStyle, String slideNumberEffect,
                                      List<SlideTextData> slideTexts,
                                      boolean fxRoundCorners, int fxCornerRadius,
                                      int fxVignette, int fxSepia,
@@ -2673,6 +2683,7 @@ public class GifSlideShowApp extends JFrame {
                 subtitleY, subtitleBgOpacity,
                 showSlideNumber, slideNumberText, slideNumberFontName,
                 slideNumberX, slideNumberY, slideNumberSize, slideNumberColor,
+                slideNumberStyle, slideNumberEffect,
                 slideTexts,
                 fxRoundCorners, fxCornerRadius, fxVignette, fxSepia,
                 fxGrain, fxWaterRipple, fxGlitch, fxShake,
@@ -2692,6 +2703,7 @@ public class GifSlideShowApp extends JFrame {
                                      String slideNumberFontName,
                                      int slideNumberX, int slideNumberY,
                                      int slideNumberSize, Color slideNumberColor,
+                                     String slideNumberStyle, String slideNumberEffect,
                                      List<SlideTextData> slideTexts,
                                      boolean fxRoundCorners, int fxCornerRadius,
                                      int fxVignette, int fxSepia,
@@ -2710,6 +2722,7 @@ public class GifSlideShowApp extends JFrame {
                 showPin, targetW, targetH, displayMode, subtitleY, subtitleBgOpacity,
                 showSlideNumber, slideNumberText, slideNumberFontName,
                 slideNumberX, slideNumberY, slideNumberSize, slideNumberColor,
+                slideNumberStyle, slideNumberEffect,
                 slideTexts, fxRoundCorners, fxCornerRadius,
                 fxVignette, fxSepia, fxGrain, fxWaterRipple, fxGlitch, fxShake,
                 fxScanline, fxRaised, fxOtherKind, fxOther, overlayEnabled,
@@ -2727,6 +2740,7 @@ public class GifSlideShowApp extends JFrame {
                                      String slideNumberFontName,
                                      int slideNumberX, int slideNumberY,
                                      int slideNumberSize, Color slideNumberColor,
+                                     String slideNumberStyle, String slideNumberEffect,
                                      List<SlideTextData> slideTexts,
                                      boolean fxRoundCorners, int fxCornerRadius,
                                      int fxVignette, int fxSepia,
@@ -2746,6 +2760,7 @@ public class GifSlideShowApp extends JFrame {
                 showPin, targetW, targetH, displayMode, subtitleY, subtitleBgOpacity,
                 showSlideNumber, slideNumberText, slideNumberFontName,
                 slideNumberX, slideNumberY, slideNumberSize, slideNumberColor,
+                slideNumberStyle, slideNumberEffect,
                 slideTexts, fxRoundCorners, fxCornerRadius,
                 fxVignette, fxSepia, fxGrain, fxWaterRipple, fxGlitch, fxShake,
                 fxScanline, fxRaised, fxOtherKind, fxOther, overlayEnabled,
@@ -2771,6 +2786,7 @@ public class GifSlideShowApp extends JFrame {
                                      String slideNumberFontName,
                                      int slideNumberX, int slideNumberY,
                                      int slideNumberSize, Color slideNumberColor,
+                                     String slideNumberStyle, String slideNumberEffect,
                                      List<SlideTextData> slideTexts,
                                      boolean fxRoundCorners, int fxCornerRadius,
                                      int fxVignette, int fxSepia,
@@ -3165,39 +3181,9 @@ public class GifSlideShowApp extends JFrame {
 
         // ========== SLIDE NUMBER OVERLAY ==========
         if (showSlideNumber && slideNumberText != null && !slideNumberText.isEmpty()) {
-            float numScaleFactor = Math.max(targetW, targetH) / 1920.0f;
-            int scaledNumSize = Math.max(10, (int) (slideNumberSize * numScaleFactor));
-
-            // Resolve font from loaded fonts map
-            Font baseFont = loadedFonts.getOrDefault(slideNumberFontName,
-                    loadedFonts.values().iterator().next());
-            Font numFont = baseFont.deriveFont(Font.BOLD, (float) scaledNumSize);
-            g.setFont(numFont);
-            FontMetrics numFm = g.getFontMetrics();
-
-            int numX = (int) (slideNumberX / 100.0 * targetW);
-            int numY = (int) (slideNumberY / 100.0 * targetH);
-
-            int textW = numFm.stringWidth(slideNumberText);
-            int ascent = numFm.getAscent();
-            int descent = numFm.getDescent();
-            int drawX = numX - textW / 2;
-            int drawY = numY + (ascent - descent) / 2;
-
-            // Circular transparent background sized to fit 1 or 2 digits
-            int diameter = (int) (Math.max(textW, ascent + descent) * 1.5);
-            int circleX = numX - diameter / 2;
-            int circleY = numY - diameter / 2;
-
-            Graphics2D g2 = (Graphics2D) g.create();
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2.setColor(new Color(0, 0, 0, 120));
-            g2.fillOval(circleX, circleY, diameter, diameter);
-            g2.dispose();
-
-            // Draw number text centered in circle
-            g.setColor(slideNumberColor != null ? slideNumberColor : Color.WHITE);
-            g.drawString(slideNumberText, drawX, drawY);
+            drawSlideNumber(g, slideNumberText, slideNumberFontName, slideNumberX, slideNumberY,
+                    slideNumberSize, slideNumberColor, slideNumberStyle, slideNumberEffect,
+                    targetW, targetH);
         }
 
         // ========== SLIDE TEXT OVERLAY(S) ==========
@@ -6191,6 +6177,294 @@ public class GifSlideShowApp extends JFrame {
         return perLine;
     }
 
+    /**
+     * Draw the slide number badge with the configured style (background shape)
+     * and effect (text treatment). Centered on (slideNumberX%, slideNumberY%).
+     */
+    private static void drawSlideNumber(Graphics2D g, String text, String fontName,
+                                 int slideNumberX, int slideNumberY,
+                                 int slideNumberSize, Color color,
+                                 String style, String effect,
+                                 int targetW, int targetH) {
+        float scale = Math.max(targetW, targetH) / 1920.0f;
+        int sz = Math.max(10, (int) (slideNumberSize * scale));
+
+        Font baseFont = loadedFonts.getOrDefault(fontName,
+                loadedFonts.values().iterator().next());
+        Font numFont = baseFont.deriveFont(Font.BOLD, (float) sz);
+
+        int cx = (int) (slideNumberX / 100.0 * targetW);
+        int cy = (int) (slideNumberY / 100.0 * targetH);
+
+        Graphics2D g2 = (Graphics2D) g.create();
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        g2.setFont(numFont);
+        FontMetrics fm = g2.getFontMetrics();
+
+        int textW = fm.stringWidth(text);
+        int ascent = fm.getAscent();
+        int descent = fm.getDescent();
+        int diameter = (int) (Math.max(textW, ascent + descent) * 1.5);
+        int boxX = cx - diameter / 2;
+        int boxY = cy - diameter / 2;
+        int boxSize = diameter;
+
+        Color textColor = color != null ? color : Color.WHITE;
+        Color bgColor = new Color(0, 0, 0, 130);
+        String s = style != null ? style : "Circle";
+
+        // ----- Background shape -----
+        switch (s) {
+            case "None":
+                break;
+            case "Square": {
+                g2.setColor(bgColor);
+                g2.fillRect(boxX, boxY, boxSize, boxSize);
+                break;
+            }
+            case "Rounded": {
+                int arc = (int) (boxSize * 0.25);
+                g2.setColor(bgColor);
+                g2.fillRoundRect(boxX, boxY, boxSize, boxSize, arc, arc);
+                break;
+            }
+            case "Pill": {
+                int pillW = (int) (boxSize * 1.4);
+                int pillH = (int) (boxSize * 0.85);
+                int px = cx - pillW / 2;
+                int py = cy - pillH / 2;
+                g2.setColor(bgColor);
+                g2.fillRoundRect(px, py, pillW, pillH, pillH, pillH);
+                break;
+            }
+            case "Hexagon": {
+                java.awt.geom.Path2D.Double hex = new java.awt.geom.Path2D.Double();
+                double r = boxSize / 2.0;
+                for (int i = 0; i < 6; i++) {
+                    double a = Math.toRadians(60 * i - 30);
+                    double x = cx + r * Math.cos(a);
+                    double y = cy + r * Math.sin(a);
+                    if (i == 0) hex.moveTo(x, y); else hex.lineTo(x, y);
+                }
+                hex.closePath();
+                g2.setColor(bgColor);
+                g2.fill(hex);
+                g2.setColor(new Color(textColor.getRed(), textColor.getGreen(), textColor.getBlue(), 200));
+                g2.setStroke(new BasicStroke(Math.max(2f, 2.5f * scale)));
+                g2.draw(hex);
+                break;
+            }
+            case "Ribbon": {
+                int rW = (int) (boxSize * 1.5);
+                int rH = (int) (boxSize * 0.75);
+                int rx = cx - rW / 2;
+                int ry = cy - rH / 2;
+                int notch = (int) (rH * 0.32);
+                java.awt.geom.Path2D.Double ribbon = new java.awt.geom.Path2D.Double();
+                ribbon.moveTo(rx, ry);
+                ribbon.lineTo(rx + rW, ry);
+                ribbon.lineTo(rx + rW - notch, ry + rH / 2.0);
+                ribbon.lineTo(rx + rW, ry + rH);
+                ribbon.lineTo(rx, ry + rH);
+                ribbon.lineTo(rx + notch, ry + rH / 2.0);
+                ribbon.closePath();
+                Color ribbonBg = new Color(
+                        Math.max(0, textColor.getRed() - 40),
+                        Math.max(0, textColor.getGreen() - 40),
+                        Math.max(0, textColor.getBlue() - 40), 220);
+                g2.setColor(ribbonBg);
+                g2.fill(ribbon);
+                g2.setColor(new Color(0, 0, 0, 90));
+                g2.setStroke(new BasicStroke(Math.max(1f, 1.5f * scale)));
+                g2.draw(ribbon);
+                break;
+            }
+            case "Stamp": {
+                int teeth = 14;
+                double r = boxSize / 2.0;
+                double inner = r * 0.92;
+                java.awt.geom.Path2D.Double stamp = new java.awt.geom.Path2D.Double();
+                for (int i = 0; i < teeth * 2; i++) {
+                    double a = Math.toRadians(360.0 * i / (teeth * 2));
+                    double rad = (i % 2 == 0) ? r : inner;
+                    double x = cx + rad * Math.cos(a);
+                    double y = cy + rad * Math.sin(a);
+                    if (i == 0) stamp.moveTo(x, y); else stamp.lineTo(x, y);
+                }
+                stamp.closePath();
+                g2.setColor(new Color(255, 255, 255, 230));
+                g2.fill(stamp);
+                g2.setColor(new Color(textColor.getRed(), textColor.getGreen(), textColor.getBlue(), 200));
+                g2.setStroke(new BasicStroke(Math.max(2f, 3f * scale)));
+                g2.draw(stamp);
+                break;
+            }
+            case "Star": {
+                java.awt.geom.Path2D.Double star = new java.awt.geom.Path2D.Double();
+                double rOuter = boxSize / 2.0 * 1.05;
+                double rInner = rOuter * 0.45;
+                for (int i = 0; i < 10; i++) {
+                    double a = Math.toRadians(36 * i - 90);
+                    double rad = (i % 2 == 0) ? rOuter : rInner;
+                    double x = cx + rad * Math.cos(a);
+                    double y = cy + rad * Math.sin(a);
+                    if (i == 0) star.moveTo(x, y); else star.lineTo(x, y);
+                }
+                star.closePath();
+                g2.setColor(new Color(textColor.getRed(), textColor.getGreen(), textColor.getBlue(), 220));
+                g2.fill(star);
+                g2.setColor(new Color(0, 0, 0, 160));
+                g2.setStroke(new BasicStroke(Math.max(1.5f, 2f * scale)));
+                g2.draw(star);
+                // Star background shifts the text color so it stays readable.
+                textColor = Color.WHITE;
+                break;
+            }
+            case "Shield": {
+                double r = boxSize / 2.0;
+                double sx = cx - r;
+                double sy = cy - r;
+                double w = boxSize;
+                double h = boxSize * 1.15;
+                java.awt.geom.Path2D.Double shield = new java.awt.geom.Path2D.Double();
+                shield.moveTo(sx, sy);
+                shield.lineTo(sx + w, sy);
+                shield.lineTo(sx + w, sy + h * 0.55);
+                shield.quadTo(sx + w, sy + h, sx + w / 2, sy + h);
+                shield.quadTo(sx, sy + h, sx, sy + h * 0.55);
+                shield.closePath();
+                g2.setColor(bgColor);
+                g2.fill(shield);
+                g2.setColor(new Color(textColor.getRed(), textColor.getGreen(), textColor.getBlue(), 220));
+                g2.setStroke(new BasicStroke(Math.max(2f, 3f * scale)));
+                g2.draw(shield);
+                break;
+            }
+            case "Circle":
+            default: {
+                g2.setColor(bgColor);
+                g2.fillOval(boxX, boxY, boxSize, boxSize);
+                break;
+            }
+        }
+
+        // ----- Text effect -----
+        int drawX = cx - textW / 2;
+        int drawY = cy + (ascent - descent) / 2;
+        String fx = effect != null ? effect : "None";
+        drawSlideNumberText(g2, text, drawX, drawY, textColor, fx, scale, ascent);
+        g2.dispose();
+    }
+
+    private static void drawSlideNumberText(Graphics2D g, String text, int drawX, int drawY,
+                                            Color textColor, String effect, float scale, int ascent) {
+        switch (effect) {
+            case "Shadow": {
+                int sOff = Math.max(2, (int) (4 * scale));
+                g.setColor(new Color(0, 0, 0, 160));
+                g.drawString(text, drawX + sOff, drawY + sOff);
+                g.setColor(textColor);
+                g.drawString(text, drawX, drawY);
+                break;
+            }
+            case "Outline": {
+                // Stroke the text outline, then fill thin.
+                java.awt.font.FontRenderContext frc = g.getFontRenderContext();
+                java.awt.font.GlyphVector gv = g.getFont().createGlyphVector(frc, text);
+                java.awt.Shape outline = gv.getOutline(drawX, drawY);
+                g.setStroke(new BasicStroke(Math.max(2f, 3f * scale),
+                        BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g.setColor(new Color(0, 0, 0, 200));
+                g.draw(outline);
+                g.setColor(textColor);
+                g.fill(outline);
+                break;
+            }
+            case "Glow": {
+                int layers = 6;
+                for (int i = layers; i >= 1; i--) {
+                    int alpha = (int) (60 * (1.0 - (double) i / layers));
+                    g.setColor(new Color(textColor.getRed(), textColor.getGreen(), textColor.getBlue(), alpha));
+                    int off = (int) (i * 1.5 * scale);
+                    g.drawString(text, drawX - off, drawY);
+                    g.drawString(text, drawX + off, drawY);
+                    g.drawString(text, drawX, drawY - off);
+                    g.drawString(text, drawX, drawY + off);
+                }
+                g.setColor(textColor);
+                g.drawString(text, drawX, drawY);
+                break;
+            }
+            case "Emboss": {
+                int off = Math.max(1, (int) (1.5f * scale));
+                g.setColor(new Color(255, 255, 255, 180));
+                g.drawString(text, drawX - off, drawY - off);
+                g.setColor(new Color(0, 0, 0, 180));
+                g.drawString(text, drawX + off, drawY + off);
+                g.setColor(textColor);
+                g.drawString(text, drawX, drawY);
+                break;
+            }
+            case "3D": {
+                int depth = Math.max(2, (int) (5 * scale));
+                Color dark = new Color(
+                        Math.max(0, textColor.getRed() - 80),
+                        Math.max(0, textColor.getGreen() - 80),
+                        Math.max(0, textColor.getBlue() - 80));
+                for (int i = depth; i >= 1; i--) {
+                    g.setColor(dark);
+                    g.drawString(text, drawX + i, drawY + i);
+                }
+                g.setColor(textColor);
+                g.drawString(text, drawX, drawY);
+                break;
+            }
+            case "Gradient": {
+                java.awt.font.FontRenderContext frc = g.getFontRenderContext();
+                java.awt.font.GlyphVector gv = g.getFont().createGlyphVector(frc, text);
+                java.awt.Shape outline = gv.getOutline(drawX, drawY);
+                java.awt.geom.Rectangle2D b = outline.getBounds2D();
+                Color top = textColor.brighter();
+                Color bot = textColor.darker();
+                java.awt.GradientPaint gp = new java.awt.GradientPaint(
+                        0, (float) b.getMinY(), top, 0, (float) b.getMaxY(), bot);
+                java.awt.Paint prev = g.getPaint();
+                g.setPaint(gp);
+                g.fill(outline);
+                g.setPaint(prev);
+                // Subtle outline for legibility on busy backgrounds.
+                g.setColor(new Color(0, 0, 0, 130));
+                g.setStroke(new BasicStroke(Math.max(1f, scale)));
+                g.draw(outline);
+                break;
+            }
+            case "Neon": {
+                int layers = 8;
+                for (int i = layers; i >= 1; i--) {
+                    float t = i / (float) layers;
+                    int alpha = (int) (90 * (1 - t) + 20);
+                    g.setColor(new Color(textColor.getRed(), textColor.getGreen(), textColor.getBlue(), alpha));
+                    int off = (int) (i * 1.8f * scale);
+                    g.drawString(text, drawX - off, drawY);
+                    g.drawString(text, drawX + off, drawY);
+                    g.drawString(text, drawX, drawY - off);
+                    g.drawString(text, drawX, drawY + off);
+                    g.drawString(text, drawX - off, drawY - off);
+                    g.drawString(text, drawX + off, drawY + off);
+                }
+                g.setColor(Color.WHITE);
+                g.drawString(text, drawX, drawY);
+                break;
+            }
+            case "None":
+            default:
+                g.setColor(textColor);
+                g.drawString(text, drawX, drawY);
+                break;
+        }
+    }
+
     static List<String> wrapTextStatic(String text, FontMetrics fm, int maxWidth) {
         List<String> lines = new ArrayList<>();
         if (maxWidth <= 0) { lines.add(text); return lines; }
@@ -6297,6 +6571,8 @@ public class GifSlideShowApp extends JFrame {
             // can paint the countdown / reveal overlay per frame.
             slides.get(slides.size() - 1).quiz = row.getQuiz() != null
                     ? row.getQuiz().copy() : null;
+            slides.get(slides.size() - 1).slideNumberStyle = row.getSlideNumberStyle();
+            slides.get(slides.size() - 1).slideNumberEffect = row.getSlideNumberEffect();
         }
         if (slides.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Add at least one slide.", "No Slides", JOptionPane.WARNING_MESSAGE);
@@ -6377,6 +6653,7 @@ public class GifSlideShowApp extends JFrame {
                     s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                     s.slideNumberX, s.slideNumberY,
                     s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                     s.slideTexts,
                     s.fxRoundCorners, s.fxCornerRadius,
                     s.fxVignette, s.fxSepia, s.fxGrain,
@@ -7178,6 +7455,7 @@ public class GifSlideShowApp extends JFrame {
                                         s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                         s.slideNumberX, s.slideNumberY,
                                         s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                         s.slideTexts,
                                         s.fxRoundCorners, s.fxCornerRadius,
                                         s.fxVignette, s.fxSepia, s.fxGrain,
@@ -7254,6 +7532,7 @@ public class GifSlideShowApp extends JFrame {
                                                     s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                                     s.slideNumberX, s.slideNumberY,
                                                     s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                                     hlTexts,
                                                     s.fxRoundCorners, s.fxCornerRadius,
                                                     s.fxVignette, s.fxSepia, s.fxGrain,
@@ -7284,6 +7563,7 @@ public class GifSlideShowApp extends JFrame {
                                                         s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                                         s.slideNumberX, s.slideNumberY,
                                                         s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                                         hlTexts,
                                                         s.fxRoundCorners, s.fxCornerRadius,
                                                         s.fxVignette, s.fxSepia, s.fxGrain,
@@ -7408,6 +7688,7 @@ public class GifSlideShowApp extends JFrame {
                                                     s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                                     s.slideNumberX, s.slideNumberY,
                                                     s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                                     s.slideTexts,
                                                     s.fxRoundCorners, s.fxCornerRadius,
                                                     s.fxVignette, s.fxSepia, s.fxGrain,
@@ -7447,6 +7728,7 @@ public class GifSlideShowApp extends JFrame {
                                                     s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                                     s.slideNumberX, s.slideNumberY,
                                                     s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                                     highlightedTexts,
                                                     s.fxRoundCorners, s.fxCornerRadius,
                                                     s.fxVignette, s.fxSepia, s.fxGrain,
@@ -7476,6 +7758,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                                 s.slideNumberX, s.slideNumberY,
                                                 s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                                 s.slideTexts,
                                                 s.fxRoundCorners, s.fxCornerRadius,
                                                 s.fxVignette, s.fxSepia, s.fxGrain,
@@ -7503,6 +7786,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                                 s.slideNumberX, s.slideNumberY,
                                                 s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                                 s.slideTexts,
                                                 s.fxRoundCorners, s.fxCornerRadius,
                                                 s.fxVignette, s.fxSepia, s.fxGrain,
@@ -7606,6 +7890,7 @@ public class GifSlideShowApp extends JFrame {
                                                     s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                                     s.slideNumberX, s.slideNumberY,
                                                     s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                                     s.slideTexts,
                                                     s.fxRoundCorners, s.fxCornerRadius,
                                                     s.fxVignette, s.fxSepia, s.fxGrain,
@@ -7669,6 +7954,7 @@ public class GifSlideShowApp extends JFrame {
                                                     s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                                     s.slideNumberX, s.slideNumberY,
                                                     s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                                     hlTexts,
                                                     s.fxRoundCorners, s.fxCornerRadius,
                                                     s.fxVignette, s.fxSepia, s.fxGrain,
@@ -7695,6 +7981,7 @@ public class GifSlideShowApp extends JFrame {
                                                     s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                                     s.slideNumberX, s.slideNumberY,
                                                     s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                                     s.slideTexts,
                                                     s.fxRoundCorners, s.fxCornerRadius,
                                                     s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
@@ -7734,6 +8021,7 @@ public class GifSlideShowApp extends JFrame {
                                                     s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                                     s.slideNumberX, s.slideNumberY,
                                                     s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                                     hlTexts,
                                                     s.fxRoundCorners, s.fxCornerRadius,
                                                     s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
@@ -7759,6 +8047,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                                 s.slideNumberX, s.slideNumberY,
                                                 s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                                 s.slideTexts,
                                                 s.fxRoundCorners, s.fxCornerRadius,
                                                 s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
@@ -7782,6 +8071,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                                 s.slideNumberX, s.slideNumberY,
                                                 s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                                 s.slideTexts,
                                                 s.fxRoundCorners, s.fxCornerRadius,
                                                 s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,  // zero out animated fx
@@ -7831,6 +8121,7 @@ public class GifSlideShowApp extends JFrame {
                                                     s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                                     s.slideNumberX, s.slideNumberY,
                                                     s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                                     framedTexts,
                                                     s.fxRoundCorners, s.fxCornerRadius,
                                                     s.fxVignette, s.fxSepia, s.fxGrain,
@@ -7851,6 +8142,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                                 s.slideNumberX, s.slideNumberY,
                                                 s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                                 s.slideTexts,
                                                 s.fxRoundCorners, s.fxCornerRadius,
                                                 s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
@@ -8823,6 +9115,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                                 s.slideNumberX, s.slideNumberY,
                                                 s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                                 s.slideTexts,
                                                 s.fxRoundCorners, s.fxCornerRadius,
                                                 s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
@@ -8861,6 +9154,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                                 s.slideNumberX, s.slideNumberY,
                                                 s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                                 hlTexts,
                                                 s.fxRoundCorners, s.fxCornerRadius,
                                                 s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
@@ -8888,6 +9182,7 @@ public class GifSlideShowApp extends JFrame {
                                             s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                             s.slideNumberX, s.slideNumberY,
                                             s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                             s.slideTexts,
                                             s.fxRoundCorners, s.fxCornerRadius,
                                             s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
@@ -8916,6 +9211,7 @@ public class GifSlideShowApp extends JFrame {
                                             s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                             s.slideNumberX, s.slideNumberY,
                                             s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                             s.slideTexts,
                                             s.fxRoundCorners, s.fxCornerRadius,
                                             s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
@@ -9027,6 +9323,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                                 s.slideNumberX, s.slideNumberY,
                                                 s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                                 hlTexts,
                                                 s.fxRoundCorners, s.fxCornerRadius,
                                                 s.fxVignette, s.fxSepia, s.fxGrain,
@@ -9046,6 +9343,7 @@ public class GifSlideShowApp extends JFrame {
                                             s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                             s.slideNumberX, s.slideNumberY,
                                             s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                             s.slideTexts,
                                             s.fxRoundCorners, s.fxCornerRadius,
                                             s.fxVignette, s.fxSepia, 0, 0, 0, 0, 0, 0,
@@ -9089,6 +9387,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                                 s.slideNumberX, s.slideNumberY,
                                                 s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                                 framedTexts,
                                                 s.fxRoundCorners, s.fxCornerRadius,
                                                 s.fxVignette, s.fxSepia, s.fxGrain,
@@ -9534,6 +9833,7 @@ public class GifSlideShowApp extends JFrame {
                                     s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                                     s.slideNumberX, s.slideNumberY,
                                     s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                                     s.slideTexts,
                                     s.fxRoundCorners, s.fxCornerRadius,
                                     s.fxVignette, s.fxSepia, s.fxGrain,
@@ -11332,6 +11632,7 @@ public class GifSlideShowApp extends JFrame {
                     s.subtitleY, s.subtitleBgOpacity,
                     s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                     s.slideNumberX, s.slideNumberY, s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                     s.slideTexts,
                     false, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     "None", 0,
@@ -11351,6 +11652,7 @@ public class GifSlideShowApp extends JFrame {
                     s.subtitleY, s.subtitleBgOpacity,
                     s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                     s.slideNumberX, s.slideNumberY, s.slideNumberSize, s.slideNumberColor,
+                    s.slideNumberStyle, s.slideNumberEffect,
                     s.slideTexts,
                     false, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     "None", 0,
@@ -11770,6 +12072,10 @@ public class GifSlideShowApp extends JFrame {
         final int slideNumberY;
         final int slideNumberSize;
         final Color slideNumberColor;
+        // Set externally after construction (like quiz) so we don't have to
+        // thread two more args through the SlideData constructor.
+        String slideNumberStyle = "Circle";
+        String slideNumberEffect = "None";
         final List<SlideTextData> slideTexts;
         final List<SlidePictureData> slidePictures;
         final boolean fxRoundCorners;
@@ -11934,6 +12240,8 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner slideNumberYSpinner;
         private final JSpinner slideNumberSizeSpinner;
         private final JButton slideNumberColorBtn;
+        private final JComboBox<String> slideNumberStyleCombo;
+        private final JComboBox<String> slideNumberEffectCombo;
         private Color slideNumberColor = Color.WHITE;
         private final List<SlideTextData> slideTextItems = new ArrayList<>();
         private int currentSlideTextIndex = 0;
@@ -12423,6 +12731,20 @@ public class GifSlideShowApp extends JFrame {
                 }
             });
 
+            slideNumberStyleCombo = new JComboBox<>(new String[]{
+                    "None", "Circle", "Square", "Rounded", "Hexagon", "Ribbon", "Pill", "Stamp", "Star", "Shield"});
+            slideNumberStyleCombo.setSelectedItem("Circle");
+            slideNumberStyleCombo.setPreferredSize(new Dimension(85, 28));
+            slideNumberStyleCombo.setToolTipText("Number badge style");
+            slideNumberStyleCombo.addActionListener(e -> onFormatChanged());
+
+            slideNumberEffectCombo = new JComboBox<>(new String[]{
+                    "None", "Shadow", "Outline", "Glow", "Emboss", "3D", "Gradient", "Neon"});
+            slideNumberEffectCombo.setSelectedItem("None");
+            slideNumberEffectCombo.setPreferredSize(new Dimension(85, 28));
+            slideNumberEffectCombo.setToolTipText("Number text effect");
+            slideNumberEffectCombo.addActionListener(e -> onFormatChanged());
+
             toolbar3.add(slideNumberCheckBox);
             toolbar3.add(slideNumberField);
             toolbar3.add(slideNumberColorBtn);
@@ -12433,6 +12755,10 @@ public class GifSlideShowApp extends JFrame {
             toolbar3.add(slideNumberYSpinner);
             toolbar3.add(styledLabel("Size:"));
             toolbar3.add(slideNumberSizeSpinner);
+            toolbar3.add(styledLabel("Style:"));
+            toolbar3.add(slideNumberStyleCombo);
+            toolbar3.add(styledLabel("FX:"));
+            toolbar3.add(slideNumberEffectCombo);
 
             // ===== Toolbar Row 4: Slide text overlays (multiple via dropdown) =====
             JPanel toolbar4a = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
@@ -14564,6 +14890,7 @@ public class GifSlideShowApp extends JFrame {
                              boolean showSlideNumber, String slideNumberFontName,
                              int slideNumberX, int slideNumberY,
                              int slideNumberSize, Color slideNumberColor,
+                             String slideNumberStyle, String slideNumberEffect,
                              List<SlideTextData> slideTextFormats,
                              List<SlidePictureData> slidePictureFormats,
                              boolean fxRoundCorners, int fxCornerRadius,
@@ -14612,6 +14939,8 @@ public class GifSlideShowApp extends JFrame {
             slideNumberSizeSpinner.setValue(slideNumberSize);
             this.slideNumberColor = slideNumberColor;
             slideNumberColorBtn.setForeground(slideNumberColor);
+            if (slideNumberStyle != null) slideNumberStyleCombo.setSelectedItem(slideNumberStyle);
+            if (slideNumberEffect != null) slideNumberEffectCombo.setSelectedItem(slideNumberEffect);
 
             applySlideTextFormats(slideTextFormats);
             applySlidePictureFormats(slidePictureFormats);
@@ -14726,6 +15055,7 @@ public class GifSlideShowApp extends JFrame {
                     isShowSlideNumber(), getSlideNumberText(), getSlideNumberFontName(),
                     getSlideNumberX(), getSlideNumberY(),
                     getSlideNumberSize(), getSlideNumberColor(),
+                    getSlideNumberStyle(), getSlideNumberEffect(),
                     getSlideTextDataList(),
                     isFxRoundCorners(), getFxCornerRadius(),
                     getFxVignette(), getFxSepia(), getFxGrain(),
@@ -14959,6 +15289,8 @@ public class GifSlideShowApp extends JFrame {
         int getSlideNumberY() { return (int) slideNumberYSpinner.getValue(); }
         int getSlideNumberSize() { return (int) slideNumberSizeSpinner.getValue(); }
         Color getSlideNumberColor() { return slideNumberColor; }
+        String getSlideNumberStyle() { return (String) slideNumberStyleCombo.getSelectedItem(); }
+        String getSlideNumberEffect() { return (String) slideNumberEffectCombo.getSelectedItem(); }
 
 
         boolean isFxRoundCorners() { return fxRoundCornersCheck.isSelected(); }
