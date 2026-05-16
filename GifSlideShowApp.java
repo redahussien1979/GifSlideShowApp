@@ -15315,7 +15315,8 @@ public class GifSlideShowApp extends JFrame {
                         hlText, fmt.highlightColor, fmt.highlightStyle,
                         fmt.highlightTightness, fmt.underlineStyle, ulText,
                         bText, iText, cText, fmt.colorTextColor, existing.xLeftAligned, fmt.odometer, fmt.odometerSpeed, fmt.odometerRoll, fmt.odometerLand,
-                        fmt.animEnabled, fmt.animPath, fmt.animDurationMs, fmt.animStartMs, fmt.animEasing));
+                        fmt.animEnabled, fmt.animPath, fmt.animDurationMs, fmt.animStartMs, fmt.animEasing,
+                        fmt.tiltDegrees, fmt.letterSpacing, fmt.lineSpacing, fmt.opacity));
             }
             // For extra items beyond what the source has, apply formatting
             // from the last source item so they get consistent styling.
@@ -15338,7 +15339,8 @@ public class GifSlideShowApp extends JFrame {
                             hlText, lastFmt.highlightColor, lastFmt.highlightStyle,
                             lastFmt.highlightTightness, lastFmt.underlineStyle, ulText,
                             bText, iText, cText, lastFmt.colorTextColor, existing.xLeftAligned, false, 50, 3, "Sequential",
-                            lastFmt.animEnabled, lastFmt.animPath, lastFmt.animDurationMs, lastFmt.animStartMs, lastFmt.animEasing));
+                            lastFmt.animEnabled, lastFmt.animPath, lastFmt.animDurationMs, lastFmt.animStartMs, lastFmt.animEasing,
+                            lastFmt.tiltDegrees, lastFmt.letterSpacing, lastFmt.lineSpacing, lastFmt.opacity));
                 }
             }
             if (currentSlideTextIndex >= slideTextItems.size()) {
