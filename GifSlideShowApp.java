@@ -11584,11 +11584,27 @@ public class GifSlideShowApp extends JFrame {
                 int karaokeIdx = -1;
                 if (wordTimings != null && !wordTimings.isEmpty() && segElapsedMs >= 0) {
                     double t = segElapsedMs / 1000.0;
+                    // Active word = the latest entry whose startSec has passed.
+                    // Bridges Scribe's per-word gaps so the highlight stays on
+                    // the previously-spoken word until the next one actually
+                    // begins, instead of vanishing during the gap (which read
+                    // as the highlight "jumping" over words).
+                    int candidate = -1;
                     for (int wi = 0; wi < wordTimings.size(); wi++) {
                         WordTiming wt = wordTimings.get(wi);
-                        if (wt != null && t >= wt.startSec && t < wt.endSec) {
-                            karaokeIdx = wi;
-                            break;
+                        if (wt == null) continue;
+                        if (t >= wt.startSec) candidate = wi;
+                        else break;
+                    }
+                    if (candidate >= 0) {
+                        WordTiming wt = wordTimings.get(candidate);
+                        // For the very last word, drop the highlight ~300ms
+                        // after its endSec so we don't keep it lit forever.
+                        boolean isLast = (candidate == wordTimings.size() - 1);
+                        if (isLast && wt.endSec > 0 && t > wt.endSec + 0.3) {
+                            karaokeIdx = -1;
+                        } else {
+                            karaokeIdx = candidate;
                         }
                     }
                 }
