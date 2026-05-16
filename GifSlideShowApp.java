@@ -3363,6 +3363,18 @@ public class GifSlideShowApp extends JFrame {
                 // user reads.
                 java.util.List<java.util.List<int[]>> stHlSegments = computeWrapSegments(stWrappedLines, st.highlightText);
                 String[] stHlTerms = splitTerms(st.highlightText);
+                // Karaoke: when the active-word index is set on this SlideTextData,
+                // narrow the highlight to JUST the word at that position. Without
+                // this override, computeWrapSegments would light up every occurrence
+                // of the word string in the line (wrong when a word repeats).
+                if (st.karaokeWordIndex >= 0) {
+                    java.util.List<java.util.List<int[]>> single =
+                            computeWordIndexSegment(stWrappedLines, st.karaokeWordIndex);
+                    if (single != null) {
+                        stHlSegments = single;
+                        stHlTerms = new String[]{ st.highlightText != null ? st.highlightText : "" };
+                    }
+                }
 
                 // Same multi-line decomposition for UL. Falls back to highlightText
                 // when underlineText is empty, mirroring the runtime behavior below.
@@ -6140,6 +6152,36 @@ public class GifSlideShowApp extends JFrame {
      * Lines are joined with a single space because wrapTextStatic only breaks at
      * whitespace, so the joined string mirrors what the user reads.
      */
+    /** Segments for the Nth word (0-based, whitespace-separated) across wrapped
+     *  lines. Returns the same structure as {@link #computeWrapSegments} but
+     *  with at most a single segment, located by position rather than by string
+     *  matching. Used by the karaoke renderer so a repeated word doesn't all
+     *  light up — only the word actively being spoken. */
+    static java.util.List<java.util.List<int[]>> computeWordIndexSegment(List<String> wrappedLines, int wordIdx) {
+        if (wrappedLines == null || wrappedLines.isEmpty() || wordIdx < 0) return null;
+        int n = wrappedLines.size();
+        java.util.List<java.util.List<int[]>> perLine = new java.util.ArrayList<>(n);
+        for (int i = 0; i < n; i++) perLine.add(new java.util.ArrayList<>());
+        int wordCount = 0;
+        for (int li = 0; li < n; li++) {
+            String line = wrappedLines.get(li);
+            int cursor = 0;
+            while (cursor < line.length()) {
+                while (cursor < line.length() && Character.isWhitespace(line.charAt(cursor))) cursor++;
+                if (cursor >= line.length()) break;
+                int wStart = cursor;
+                while (cursor < line.length() && !Character.isWhitespace(line.charAt(cursor))) cursor++;
+                int wEnd = cursor;
+                if (wordCount == wordIdx) {
+                    perLine.get(li).add(new int[]{wStart, wEnd, 0});
+                    return perLine;
+                }
+                wordCount++;
+            }
+        }
+        return null;
+    }
+
     static java.util.List<java.util.List<int[]>> computeWrapSegments(List<String> wrappedLines, String csv) {
         if (wrappedLines == null || wrappedLines.isEmpty()) return null;
         String[] terms = splitTerms(csv);
@@ -6576,6 +6618,7 @@ public class GifSlideShowApp extends JFrame {
             slides.get(slides.size() - 1).slideNumberStyle = row.getSlideNumberStyle();
             slides.get(slides.size() - 1).slideNumberEffect = row.getSlideNumberEffect();
             slides.get(slides.size() - 1).sourceVideoVolume = row.getSourceVideoVolume();
+            slides.get(slides.size() - 1).audioWordTimings = row.getSlideAudioWordTimingsList();
         }
         if (slides.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Add at least one slide.", "No Slides", JOptionPane.WARNING_MESSAGE);
@@ -7502,7 +7545,7 @@ public class GifSlideShowApp extends JFrame {
                                     if (af != null && af.exists() && adur > 0) validAudioCount++;
                                 }
                                 boolean hasMultiAudio = validAudioCount >= 2;
-                                boolean hasAudioAnim = anyAudioHlAnimates(s.audioHlEffects);
+                                boolean hasAudioAnim = anyAudioHlAnimates(s.audioHlEffects) || anyKaraokeTimings(s.audioWordTimings);
                                 boolean needsAnimatedFx = hasAudioAnim || isQuizSlide(s);
 
                                 if (hasMultiAudio || isQuizSlide(s) || hasAudioAnim) {
@@ -7527,7 +7570,9 @@ public class GifSlideShowApp extends JFrame {
                                                     hlColorAt(s.audioHlColor, activeIdx),
                                                     hlEffectsAt(s.audioHlEffects, activeIdx),
                                                     segFrame,
-                                                    hlGlowSizeAt(s.audioGlowSize, activeIdx));
+                                                    hlGlowSizeAt(s.audioGlowSize, activeIdx),
+                                                    wordTimingsAt(s.audioWordTimings, activeIdx),
+                                                    elapsedMs - segStartMs);
                                             BufferedImage frame = renderFrame(
                                                     s.image, s.text, s.fontName, s.fontSize,
                                                     s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -7632,7 +7677,7 @@ public class GifSlideShowApp extends JFrame {
                             for (SlideData s : slides) {
                                 boolean hasAnim = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxRaised > 0 || (s.fxOther > 0 && !"None".equals(s.fxOtherKind));
                                 // Audio-highlight Pulse/Shake also need per-frame rendering.
-                                if (!hasAnim && anyAudioHlAnimates(s.audioHlEffects)) {
+                                if (!hasAnim && (anyAudioHlAnimates(s.audioHlEffects) || anyKaraokeTimings(s.audioWordTimings))) {
                                     hasAnim = true;
                                 }
                                 if (!hasAnim && s.slideTexts != null) {
@@ -7913,7 +7958,7 @@ public class GifSlideShowApp extends JFrame {
 
                                     boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxRaised > 0 || (s.fxOther > 0 && !"None".equals(s.fxOtherKind));
                                     // Audio-highlight Pulse/Shake animate per-frame too.
-                                    boolean hasAudioHlAnim = anyAudioHlAnimates(s.audioHlEffects);
+                                    boolean hasAudioHlAnim = anyAudioHlAnimates(s.audioHlEffects) || anyKaraokeTimings(s.audioWordTimings);
                                     boolean hasAnimatedText = hasAudioHlAnim;
                                     if (!hasAnimatedText && s.slideTexts != null) {
                                         for (SlideTextData stx : s.slideTexts) {
@@ -7949,7 +7994,9 @@ public class GifSlideShowApp extends JFrame {
                                                     hlColorAt(s.audioHlColor, activeIdx),
                                                     hlEffectsAt(s.audioHlEffects, activeIdx),
                                                     segFrame,
-                                                    hlGlowSizeAt(s.audioGlowSize, activeIdx));
+                                                    hlGlowSizeAt(s.audioGlowSize, activeIdx),
+                                                    wordTimingsAt(s.audioWordTimings, activeIdx),
+                                                    elapsedMs - segStartMs);
                                             BufferedImage frame = renderFrame(
                                                     s.image, s.text, s.fontName, s.fontSize,
                                                     s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -8114,7 +8161,9 @@ public class GifSlideShowApp extends JFrame {
                                                             hlColorAt(s.audioHlColor, activeIdx),
                                                             hlEffectsAt(s.audioHlEffects, activeIdx),
                                                             segFrame,
-                                                            hlGlowSizeAt(s.audioGlowSize, activeIdx));
+                                                            hlGlowSizeAt(s.audioGlowSize, activeIdx),
+                                                            wordTimingsAt(s.audioWordTimings, activeIdx),
+                                                            elapsedMs - segStartMs);
                                                 }
                                             }
                                             BufferedImage frame = renderFrame(
@@ -9078,7 +9127,7 @@ public class GifSlideShowApp extends JFrame {
                         try {
                             boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxRaised > 0 || (s.fxOther > 0 && !"None".equals(s.fxOtherKind));
                             // Audio-highlight Pulse/Shake animate per-frame too.
-                            boolean hasAudioHlAnim = anyAudioHlAnimates(s.audioHlEffects);
+                            boolean hasAudioHlAnim = anyAudioHlAnimates(s.audioHlEffects) || anyKaraokeTimings(s.audioWordTimings);
                             boolean hasAnimatedText = hasAudioHlAnim;
                             if (!hasAnimatedText && s.slideTexts != null) {
                                 for (SlideTextData stx : s.slideTexts) {
@@ -9322,7 +9371,9 @@ public class GifSlideShowApp extends JFrame {
                                                 hlColorAt(s.audioHlColor, activeIdx),
                                                 hlEffectsAt(s.audioHlEffects, activeIdx),
                                                 segFrame,
-                                                hlGlowSizeAt(s.audioGlowSize, activeIdx));
+                                                hlGlowSizeAt(s.audioGlowSize, activeIdx),
+                                                wordTimingsAt(s.audioWordTimings, activeIdx),
+                                                elapsedMs - segStartMs);
                                         BufferedImage frame = renderFrame(
                                                 s.image, s.text, s.fontName, s.fontSize,
                                                 s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -9384,7 +9435,9 @@ public class GifSlideShowApp extends JFrame {
                                                         hlColorAt(s.audioHlColor, activeIdx),
                                                         hlEffectsAt(s.audioHlEffects, activeIdx),
                                                         segFrame,
-                                                        hlGlowSizeAt(s.audioGlowSize, activeIdx));
+                                                        hlGlowSizeAt(s.audioGlowSize, activeIdx),
+                                                        wordTimingsAt(s.audioWordTimings, activeIdx),
+                                                        elapsedMs - segStartMs);
                                             }
                                         }
                                         BufferedImage frame = renderFrame(
@@ -11010,6 +11063,17 @@ public class GifSlideShowApp extends JFrame {
         return false;
     }
 
+    /** True iff any text row has karaoke word timings — karaoke is inherently
+     *  per-frame (the active word changes ~1× per second of speech) so its
+     *  presence forces the per-frame export path the same way Pulse/Shake do. */
+    private static boolean anyKaraokeTimings(List<List<WordTiming>> list) {
+        if (list == null) return false;
+        for (List<WordTiming> t : list) {
+            if (t != null && !t.isEmpty()) return true;
+        }
+        return false;
+    }
+
     /** True when the slide carries an enabled quiz (timer + reveal). */
     private static boolean isQuizSlide(SlideData s) {
         return s != null && s.quiz != null && s.quiz.enabled;
@@ -11284,12 +11348,27 @@ public class GifSlideShowApp extends JFrame {
     private static List<SlideTextData> applyActiveTextHighlight(
             List<SlideTextData> origTexts, int activeIndex,
             Color hlColor, String effects, int animFrame) {
-        return applyActiveTextHighlight(origTexts, activeIndex, hlColor, effects, animFrame, 7);
+        return applyActiveTextHighlight(origTexts, activeIndex, hlColor, effects, animFrame, 7, null, -1);
     }
 
     private static List<SlideTextData> applyActiveTextHighlight(
             List<SlideTextData> origTexts, int activeIndex,
             Color hlColor, String effects, int animFrame, int glowSize) {
+        return applyActiveTextHighlight(origTexts, activeIndex, hlColor, effects, animFrame, glowSize, null, -1);
+    }
+
+    /**
+     * Karaoke-aware overload. When {@code wordTimings} is non-null and a word's
+     * time range contains {@code segElapsedMs / 1000}, the resulting active
+     * SlideTextData has {@code karaokeWordIndex} set so the renderer highlights
+     * just that word instead of the whole-text glow. Pass {@code wordTimings =
+     * null} (or {@code segElapsedMs &lt; 0}) to disable karaoke and fall back to
+     * the existing per-segment behavior.
+     */
+    private static List<SlideTextData> applyActiveTextHighlight(
+            List<SlideTextData> origTexts, int activeIndex,
+            Color hlColor, String effects, int animFrame, int glowSize,
+            List<WordTiming> wordTimings, long segElapsedMs) {
         if (activeIndex < 0 || origTexts == null || origTexts.isEmpty()) return origTexts;
         java.util.Set<String> fx = new java.util.HashSet<>();
         boolean explicitNone = false;
@@ -11313,10 +11392,36 @@ public class GifSlideShowApp extends JFrame {
             if (i == activeIndex && st.show && st.text != null && !st.text.trim().isEmpty()) {
                 String allText = st.text.replace("\n", ",").replace("\r", "");
 
-                // Glow: highlight all text with glow style + boost highlight layers
-                String useHlText = fx.contains("Glow") ? allText : st.highlightText;
-                Color useHlColor = fx.contains("Glow") ? hlColor : st.highlightColor;
-                String useHlStyle = fx.contains("Glow") ? ("Glow:" + glowSize) : st.highlightStyle;
+                // Karaoke: when this row has per-word timings AND the current
+                // segment-relative time lands inside a word's [start, end), narrow
+                // the highlight to that one word instead of the whole text. The
+                // returned SlideTextData carries `karaokeWordIndex` so the renderer
+                // can target only that position (not every occurrence of the word).
+                int karaokeIdx = -1;
+                String karaokeActiveWord = null;
+                if (wordTimings != null && !wordTimings.isEmpty() && segElapsedMs >= 0) {
+                    double t = segElapsedMs / 1000.0;
+                    for (int wi = 0; wi < wordTimings.size(); wi++) {
+                        WordTiming wt = wordTimings.get(wi);
+                        if (wt != null && t >= wt.startSec && t < wt.endSec) {
+                            karaokeIdx = wi;
+                            karaokeActiveWord = wt.word;
+                            break;
+                        }
+                    }
+                }
+                boolean karaokeActive = karaokeIdx >= 0;
+
+                // Glow: highlight all text with glow style + boost highlight layers.
+                // Karaoke overrides the highlight TEXT (so a single word lights up)
+                // while preserving the user's chosen highlight color/style — that
+                // way Glow / underline / color all keep working at the word level.
+                String useHlText = karaokeActive ? karaokeActiveWord
+                        : (fx.contains("Glow") ? allText : st.highlightText);
+                Color useHlColor = (fx.contains("Glow") || karaokeActive) ? hlColor : st.highlightColor;
+                String useHlStyle = fx.contains("Glow") ? ("Glow:" + glowSize)
+                        : (karaokeActive && (st.highlightStyle == null || st.highlightStyle.isEmpty())
+                                ? ("Glow:" + glowSize) : st.highlightStyle);
 
                 // Enlarge: modify font size (this WILL re-wrap, which is intentional
                 // for Enlarge — the user expects bigger boxes). Pulse is handled below
@@ -11513,12 +11618,20 @@ public class GifSlideShowApp extends JFrame {
                 hl.audioOtherAlpha  = otherAlpha;
                 hl.audioOtherTiltDeg = otherTilt;
                 hl.audioOtherLightEffects = lightSb.toString();
+                hl.karaokeWordIndex = karaokeIdx;
                 result.add(hl);
             } else {
                 result.add(st);
             }
         }
         return result;
+    }
+
+    /** Lookup helper parallel to hlColorAt — returns the per-text word timings
+     *  for the active audio index, or null when none. */
+    private static List<WordTiming> wordTimingsAt(List<List<WordTiming>> list, int idx) {
+        if (list == null || idx < 0 || idx >= list.size()) return null;
+        return list.get(idx);
     }
 
     /**
@@ -11628,6 +11741,7 @@ public class GifSlideShowApp extends JFrame {
             if (af != null && af.exists()) { hasAudio = true; break; }
         }
         if (!hasAudio) return false;
+        if (anyKaraokeTimings(s.audioWordTimings)) return true;
         if (s.audioHlEffects == null) return true; // legacy default = "Glow"
         for (String fx : s.audioHlEffects) {
             if (fx == null) continue;
@@ -11692,7 +11806,9 @@ public class GifSlideShowApp extends JFrame {
                             hlColorAt(s.audioHlColor, activeIdx),
                             hlEffectsAt(s.audioHlEffects, activeIdx),
                             segFrame,
-                            hlGlowSizeAt(s.audioGlowSize, activeIdx));
+                            hlGlowSizeAt(s.audioGlowSize, activeIdx),
+                            wordTimingsAt(s.audioWordTimings, activeIdx),
+                            elapsedMs - segStartMs);
                 }
             }
             BufferedImage img = renderFrame(
@@ -11880,6 +11996,11 @@ public class GifSlideShowApp extends JFrame {
         // These are post-text overlays clipped to the text glyph shape so they appear
         // to illuminate the letters themselves, not the surrounding rectangle.
         String audioOtherLightEffects = "";
+        // Karaoke: index of the source-text word that should be highlighted on this
+        // frame (computed each frame from per-word audio timings), or -1 when no
+        // word is active. The renderer overrides the regular highlight segment
+        // computation with a position-based one so repeated words don't all light up.
+        int karaokeWordIndex = -1;
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
                       int fontStyle, Color color, int x, int y, int bgOpacity,
@@ -12100,6 +12221,308 @@ public class GifSlideShowApp extends JFrame {
         }
     }
 
+    // ==================== Word Timing (Karaoke) ====================
+    /**
+     * One word with its audio-relative start/end time in seconds. Produced by
+     * ElevenLabs Scribe and used by the renderer to highlight whichever source
+     * word is being spoken at the current frame.
+     */
+    static class WordTiming {
+        final String word;
+        final double startSec;
+        final double endSec;
+        WordTiming(String word, double startSec, double endSec) {
+            this.word = word == null ? "" : word;
+            this.startSec = startSec;
+            this.endSec = endSec;
+        }
+    }
+
+    /** Persistent on-disk format for a list of word timings, stored as a `.timings`
+     *  sidecar next to the audio file. One line per word: `start|end|word`.
+     *  Pipes are used (instead of JSON) so the file is human-grep-able and the
+     *  parser is one line of Java. Spaces inside the word are preserved. */
+    static class WordTimingFile {
+        static List<WordTiming> readSidecar(File audioFile) {
+            if (audioFile == null) return null;
+            File side = sidecarFor(audioFile);
+            if (!side.isFile()) return null;
+            List<WordTiming> out = new ArrayList<>();
+            try (BufferedReader r = new BufferedReader(new java.io.FileReader(side, java.nio.charset.StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = r.readLine()) != null) {
+                    if (line.isEmpty()) continue;
+                    String[] parts = line.split("\\|", 3);
+                    if (parts.length != 3) continue;
+                    try {
+                        double s = Double.parseDouble(parts[0]);
+                        double e = Double.parseDouble(parts[1]);
+                        out.add(new WordTiming(parts[2], s, e));
+                    } catch (NumberFormatException ignored) {}
+                }
+            } catch (IOException e) {
+                return null;
+            }
+            return out.isEmpty() ? null : out;
+        }
+        static void writeSidecar(File audioFile, List<WordTiming> timings) throws IOException {
+            File side = sidecarFor(audioFile);
+            try (java.io.Writer w = new java.io.OutputStreamWriter(
+                    new java.io.FileOutputStream(side), java.nio.charset.StandardCharsets.UTF_8)) {
+                for (WordTiming t : timings) {
+                    w.write(String.format(java.util.Locale.US, "%.3f|%.3f|%s%n",
+                            t.startSec, t.endSec, t.word.replace("\r", "").replace("\n", " ")));
+                }
+            }
+        }
+        static File sidecarFor(File audioFile) {
+            return new File(audioFile.getParentFile(),
+                    audioFile.getName() + ".timings");
+        }
+    }
+
+    // ==================== ElevenLabs Scribe (Speech-to-Text) ====================
+    /**
+     * Calls the ElevenLabs Scribe API to get per-word timestamps for an audio
+     * file. The user's typed text is sent as a hint via the `prompt` field —
+     * Scribe biases its decoding toward those words, which is what makes the
+     * timings line up with the rendered text instead of an alternate
+     * transcription. API key is read from `ELEVENLABS_API_KEY` env var or
+     * `~/.gifslideshow/elevenlabs.key`; if neither is set we surface a clear
+     * IOException so the caller can prompt the user.
+     */
+    static class ElevenLabsScribe {
+        private static final String ENDPOINT = "https://api.elevenlabs.io/v1/speech-to-text";
+
+        static String resolveApiKey() {
+            String env = System.getenv("ELEVENLABS_API_KEY");
+            if (env != null && !env.isBlank()) return env.trim();
+            File f = new File(System.getProperty("user.home"), ".gifslideshow/elevenlabs.key");
+            if (f.isFile()) {
+                try {
+                    String s = new String(java.nio.file.Files.readAllBytes(f.toPath()),
+                            java.nio.charset.StandardCharsets.UTF_8).trim();
+                    if (!s.isEmpty()) return s;
+                } catch (IOException ignored) {}
+            }
+            return null;
+        }
+
+        static void saveApiKey(String key) throws IOException {
+            File dir = new File(System.getProperty("user.home"), ".gifslideshow");
+            dir.mkdirs();
+            File f = new File(dir, "elevenlabs.key");
+            try (java.io.Writer w = new java.io.OutputStreamWriter(
+                    new java.io.FileOutputStream(f), java.nio.charset.StandardCharsets.UTF_8)) {
+                w.write(key.trim());
+            }
+            try { java.nio.file.Files.setPosixFilePermissions(f.toPath(),
+                    java.util.EnumSet.of(java.nio.file.attribute.PosixFilePermission.OWNER_READ,
+                            java.nio.file.attribute.PosixFilePermission.OWNER_WRITE)); } catch (Exception ignored) {}
+        }
+
+        /** Detect language code from text content. Returns "ara" for any text containing
+         *  Arabic script, otherwise "eng". Scribe accepts ISO-639-3 codes. */
+        static String detectLanguage(String text) {
+            if (text == null) return "eng";
+            for (int i = 0; i < text.length(); i++) {
+                int cp = text.codePointAt(i);
+                if ((cp >= 0x0600 && cp <= 0x06FF)
+                        || (cp >= 0x0750 && cp <= 0x077F)
+                        || (cp >= 0xFB50 && cp <= 0xFDFF)
+                        || (cp >= 0xFE70 && cp <= 0xFEFF)) return "ara";
+            }
+            return "eng";
+        }
+
+        /** Strip punctuation + Arabic tashkeel so source-word matching is robust.
+         *  Mirrors the cleaning done in the user's working Node script. */
+        static String cleanWord(String raw) {
+            if (raw == null) return "";
+            String s = raw.trim();
+            s = s.replaceAll("[\\p{P}\\p{S}]", "");
+            s = s.replaceAll("[\\u064B-\\u0652\\u0670]", "");
+            return s;
+        }
+
+        static List<WordTiming> transcribe(File audioFile, String hintText, String languageCode) throws IOException, InterruptedException {
+            String apiKey = resolveApiKey();
+            if (apiKey == null) {
+                throw new IOException("No ElevenLabs API key. Set ELEVENLABS_API_KEY env var or ~/.gifslideshow/elevenlabs.key");
+            }
+            String boundary = "----GifSlideShowBoundary" + System.currentTimeMillis();
+            byte[] body = buildMultipartBody(audioFile, hintText, languageCode, boundary);
+
+            java.net.http.HttpClient http = java.net.http.HttpClient.newBuilder()
+                    .connectTimeout(java.time.Duration.ofSeconds(15))
+                    .build();
+            java.net.http.HttpRequest req = java.net.http.HttpRequest.newBuilder()
+                    .uri(java.net.URI.create(ENDPOINT))
+                    .timeout(java.time.Duration.ofMinutes(5))
+                    .header("xi-api-key", apiKey)
+                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                    .POST(java.net.http.HttpRequest.BodyPublishers.ofByteArray(body))
+                    .build();
+            java.net.http.HttpResponse<String> resp = http.send(req,
+                    java.net.http.HttpResponse.BodyHandlers.ofString(java.nio.charset.StandardCharsets.UTF_8));
+            if (resp.statusCode() / 100 != 2) {
+                throw new IOException("ElevenLabs Scribe HTTP " + resp.statusCode() + ": "
+                        + truncate(resp.body(), 500));
+            }
+            return parseWords(resp.body());
+        }
+
+        private static byte[] buildMultipartBody(File audioFile, String hintText, String languageCode, String boundary) throws IOException {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] audio = java.nio.file.Files.readAllBytes(audioFile.toPath());
+            String dash = "--";
+            String crlf = "\r\n";
+            String name = audioFile.getName();
+            String mime = guessAudioMime(name);
+
+            appendUtf8(out, dash + boundary + crlf);
+            appendUtf8(out, "Content-Disposition: form-data; name=\"model_id\"" + crlf + crlf + "scribe_v1" + crlf);
+
+            appendUtf8(out, dash + boundary + crlf);
+            appendUtf8(out, "Content-Disposition: form-data; name=\"language_code\"" + crlf + crlf + (languageCode == null ? "eng" : languageCode) + crlf);
+
+            appendUtf8(out, dash + boundary + crlf);
+            appendUtf8(out, "Content-Disposition: form-data; name=\"timestamps_granularity\"" + crlf + crlf + "word" + crlf);
+
+            if (hintText != null && !hintText.isBlank()) {
+                appendUtf8(out, dash + boundary + crlf);
+                appendUtf8(out, "Content-Disposition: form-data; name=\"prompt\"" + crlf
+                        + "Content-Type: text/plain; charset=UTF-8" + crlf + crlf + hintText + crlf);
+            }
+
+            appendUtf8(out, dash + boundary + crlf);
+            appendUtf8(out, "Content-Disposition: form-data; name=\"file\"; filename=\"" + name + "\"" + crlf);
+            appendUtf8(out, "Content-Type: " + mime + crlf + crlf);
+            out.write(audio);
+            appendUtf8(out, crlf);
+
+            appendUtf8(out, dash + boundary + dash + crlf);
+            return out.toByteArray();
+        }
+
+        private static void appendUtf8(java.io.ByteArrayOutputStream out, String s) throws IOException {
+            out.write(s.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+
+        private static String guessAudioMime(String name) {
+            String n = name.toLowerCase();
+            if (n.endsWith(".mp3")) return "audio/mpeg";
+            if (n.endsWith(".wav")) return "audio/wav";
+            if (n.endsWith(".m4a") || n.endsWith(".mp4") || n.endsWith(".aac")) return "audio/mp4";
+            if (n.endsWith(".ogg") || n.endsWith(".oga")) return "audio/ogg";
+            if (n.endsWith(".flac")) return "audio/flac";
+            if (n.endsWith(".webm")) return "audio/webm";
+            return "application/octet-stream";
+        }
+
+        private static String truncate(String s, int n) {
+            if (s == null) return "";
+            return s.length() <= n ? s : s.substring(0, n) + "…";
+        }
+
+        /** Minimal JSON parser for the Scribe response shape we care about:
+         *  `{"words":[{"text":"hello","type":"word","start":0.12,"end":0.41}, ...]}`.
+         *  Pulls each word entry's text/start/end via regex — keeps us off a
+         *  full JSON library dependency for one endpoint. Skips entries whose
+         *  `type` is "spacing" (Scribe's word for the gaps between words). */
+        static List<WordTiming> parseWords(String json) {
+            List<WordTiming> out = new ArrayList<>();
+            if (json == null) return out;
+            int wordsStart = json.indexOf("\"words\"");
+            if (wordsStart < 0) return out;
+            int arrStart = json.indexOf('[', wordsStart);
+            if (arrStart < 0) return out;
+            int depth = 0;
+            int objStart = -1;
+            for (int i = arrStart; i < json.length(); i++) {
+                char c = json.charAt(i);
+                if (c == '[') depth++;
+                else if (c == ']') { depth--; if (depth == 0) break; }
+                else if (c == '{' && depth == 1 && objStart < 0) objStart = i;
+                else if (c == '}' && depth == 1 && objStart >= 0) {
+                    String obj = json.substring(objStart, i + 1);
+                    objStart = -1;
+                    String type = extractJsonString(obj, "type");
+                    if (type != null && type.equals("spacing")) continue;
+                    String text = extractJsonString(obj, "text");
+                    if (text == null) text = extractJsonString(obj, "word");
+                    Double s = extractJsonNumber(obj, "start");
+                    Double e = extractJsonNumber(obj, "end");
+                    if (text != null && s != null && e != null) {
+                        out.add(new WordTiming(text, s, e));
+                    }
+                }
+            }
+            return out;
+        }
+
+        private static String extractJsonString(String obj, String key) {
+            String needle = "\"" + key + "\"";
+            int k = obj.indexOf(needle);
+            if (k < 0) return null;
+            int colon = obj.indexOf(':', k + needle.length());
+            if (colon < 0) return null;
+            int i = colon + 1;
+            while (i < obj.length() && Character.isWhitespace(obj.charAt(i))) i++;
+            if (i >= obj.length() || obj.charAt(i) != '"') return null;
+            i++;
+            StringBuilder sb = new StringBuilder();
+            while (i < obj.length()) {
+                char c = obj.charAt(i);
+                if (c == '\\' && i + 1 < obj.length()) {
+                    char n = obj.charAt(i + 1);
+                    switch (n) {
+                        case '"': sb.append('"'); break;
+                        case '\\': sb.append('\\'); break;
+                        case '/': sb.append('/'); break;
+                        case 'n': sb.append('\n'); break;
+                        case 't': sb.append('\t'); break;
+                        case 'r': sb.append('\r'); break;
+                        case 'b': sb.append('\b'); break;
+                        case 'f': sb.append('\f'); break;
+                        case 'u':
+                            if (i + 5 < obj.length()) {
+                                try { sb.append((char) Integer.parseInt(obj.substring(i + 2, i + 6), 16)); } catch (Exception ignored) {}
+                                i += 4;
+                            }
+                            break;
+                        default: sb.append(n);
+                    }
+                    i += 2;
+                } else if (c == '"') {
+                    return sb.toString();
+                } else {
+                    sb.append(c);
+                    i++;
+                }
+            }
+            return null;
+        }
+
+        private static Double extractJsonNumber(String obj, String key) {
+            String needle = "\"" + key + "\"";
+            int k = obj.indexOf(needle);
+            if (k < 0) return null;
+            int colon = obj.indexOf(':', k + needle.length());
+            if (colon < 0) return null;
+            int i = colon + 1;
+            while (i < obj.length() && Character.isWhitespace(obj.charAt(i))) i++;
+            int start = i;
+            while (i < obj.length()) {
+                char c = obj.charAt(i);
+                if ((c >= '0' && c <= '9') || c == '.' || c == '-' || c == 'e' || c == 'E' || c == '+') i++;
+                else break;
+            }
+            if (i == start) return null;
+            try { return Double.parseDouble(obj.substring(start, i)); } catch (NumberFormatException e) { return null; }
+        }
+    }
+
     // ==================== SlideData ====================
 
     private static class SlideData {
@@ -12173,6 +12596,12 @@ public class GifSlideShowApp extends JFrame {
         // Source-video audio volume as a 0..100 percentage. Default 25 matches the
         // legacy hardcoded -0.25 attenuation so existing exports stay byte-identical.
         int sourceVideoVolume = 25;
+        // Per-text-row word timings, parallel to audioFiles. Index N applies when
+        // audioFiles.get(N) is playing — produced by ElevenLabs Scribe via the
+        // "🎤 Word Sync" toolbar button. Null entries (or null list) mean that
+        // text row has no per-word highlighting; the renderer falls back to its
+        // existing whole-text highlight behavior.
+        List<List<WordTiming>> audioWordTimings;
         // Quiz config snapshot (timer + reveal). Set externally after construction
         // so we don't have to thread another arg through the giant ctor.
         QuizSlide quiz;
@@ -12401,6 +12830,14 @@ public class GifSlideShowApp extends JFrame {
         private final java.util.Map<Integer, String>  slideAudioHlEffectsMap = new java.util.HashMap<>();
         private final java.util.Map<Integer, Color>   slideAudioHlColorMap   = new java.util.HashMap<>();
         private final java.util.Map<Integer, Integer> slideAudioHlGlowSizeMap = new java.util.HashMap<>();
+        // Karaoke word timings per text-row index. Populated by the 🎤 Word Sync
+        // button (ElevenLabs Scribe) or auto-loaded from the audio file's
+        // .timings sidecar when an audio file is assigned to a text row.
+        private final java.util.Map<Integer, List<WordTiming>> slideAudioWordTimingsMap = new java.util.HashMap<>();
+        // toolbar7d (karaoke row) — refreshed whenever currentSlideTextIndex changes.
+        private JLabel karaokeStatusLabel;
+        private JButton karaokeSyncBtn;
+        private JButton karaokeClearBtn;
         // Suppresses listener-driven write-back during programmatic UI repopulation.
         private boolean isLoadingAudioHl = false;
         private final JButton audioBtn;
@@ -14142,6 +14579,48 @@ public class GifSlideShowApp extends JFrame {
             toolbar7b.add(audioFxOthersBtn);
             refreshAudioFxOthersBtnAppearance();
 
+            // ===== Toolbar Row 7d: Karaoke (per-word highlight via ElevenLabs Scribe) =====
+            JPanel toolbar7d = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+            toolbar7d.setBackground(new Color(30, 50, 50));
+            toolbar7d.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(60, 110, 110)),
+                    BorderFactory.createEmptyBorder(2, 4, 2, 4)));
+
+            JLabel karaokeLbl = styledLabel("🎤 Word Sync:");
+            karaokeLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            karaokeLbl.setForeground(new Color(120, 220, 200));
+
+            karaokeSyncBtn = new JButton("Sync");
+            karaokeSyncBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            karaokeSyncBtn.setBackground(new Color(40, 130, 130));
+            karaokeSyncBtn.setForeground(Color.WHITE);
+            karaokeSyncBtn.setFocusPainted(false);
+            karaokeSyncBtn.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(new Color(70, 180, 180), 1),
+                    BorderFactory.createEmptyBorder(2, 10, 2, 10)));
+            karaokeSyncBtn.setToolTipText("Send the current text's audio to ElevenLabs Scribe to get per-word timestamps");
+            karaokeSyncBtn.addActionListener(e -> runKaraokeSync());
+
+            karaokeStatusLabel = new JLabel("(no audio)");
+            karaokeStatusLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            karaokeStatusLabel.setForeground(new Color(180, 180, 180));
+
+            karaokeClearBtn = new JButton("Clear");
+            karaokeClearBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            karaokeClearBtn.setBackground(new Color(60, 50, 50));
+            karaokeClearBtn.setForeground(new Color(220, 180, 180));
+            karaokeClearBtn.setFocusPainted(false);
+            karaokeClearBtn.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(new Color(120, 80, 80), 1),
+                    BorderFactory.createEmptyBorder(2, 8, 2, 8)));
+            karaokeClearBtn.setToolTipText("Discard the word timings for this text row");
+            karaokeClearBtn.addActionListener(e -> clearKaraokeForCurrent());
+
+            toolbar7d.add(karaokeLbl);
+            toolbar7d.add(karaokeSyncBtn);
+            toolbar7d.add(karaokeStatusLabel);
+            toolbar7d.add(karaokeClearBtn);
+
             // ===== Toolbar Row 7c: Quiz Timer Style + Position =====
             JPanel toolbar7c = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
             toolbar7c.setBackground(new Color(38, 28, 56));
@@ -14404,6 +14883,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar7);
             toolbarsPanel.add(toolbar7b);
+            toolbarsPanel.add(toolbar7d);
             toolbarsPanel.add(toolbar7c);
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar8);
@@ -15426,6 +15906,139 @@ public class GifSlideShowApp extends JFrame {
 
         int getAudioGapMs() { return (int)(((Number) audioGapSpinner.getValue()).doubleValue() * 1000); }
 
+        /** Parallel to getSlideAudioFilesList() — element N is the word-timing
+         *  list for audioFiles[N], or null when that audio hasn't been synced. */
+        java.util.List<java.util.List<WordTiming>> getSlideAudioWordTimingsList() {
+            int maxIdx = -1;
+            for (int k : slideAudioFiles.keySet()) if (k > maxIdx) maxIdx = k;
+            if (maxIdx < 0) return new java.util.ArrayList<>();
+            java.util.List<java.util.List<WordTiming>> result = new java.util.ArrayList<>();
+            for (int i = 0; i <= maxIdx; i++) result.add(slideAudioWordTimingsMap.get(i));
+            return result;
+        }
+
+        /** Update the toolbar7d "(N words)" / "(no audio)" / "(not synced)" label
+         *  for the currently-selected text row. Also enables/disables the buttons. */
+        private void refreshKaraokeStatus() {
+            if (karaokeStatusLabel == null) return;
+            File audio = slideAudioFiles.get(currentSlideTextIndex);
+            List<WordTiming> t = slideAudioWordTimingsMap.get(currentSlideTextIndex);
+            if (audio == null) {
+                karaokeStatusLabel.setText("(no audio)");
+                karaokeStatusLabel.setForeground(new Color(140, 140, 140));
+                karaokeSyncBtn.setEnabled(false);
+                karaokeClearBtn.setEnabled(false);
+            } else if (t == null || t.isEmpty()) {
+                karaokeStatusLabel.setText("(not synced)");
+                karaokeStatusLabel.setForeground(new Color(210, 180, 120));
+                karaokeSyncBtn.setEnabled(true);
+                karaokeClearBtn.setEnabled(false);
+            } else {
+                karaokeStatusLabel.setText("✓ " + t.size() + " words");
+                karaokeStatusLabel.setForeground(new Color(140, 230, 170));
+                karaokeSyncBtn.setEnabled(true);
+                karaokeClearBtn.setEnabled(true);
+            }
+        }
+
+        private void clearKaraokeForCurrent() {
+            slideAudioWordTimingsMap.remove(currentSlideTextIndex);
+            File audio = slideAudioFiles.get(currentSlideTextIndex);
+            if (audio != null) {
+                File side = WordTimingFile.sidecarFor(audio);
+                if (side.isFile()) side.delete();
+            }
+            refreshKaraokeStatus();
+            schedulePreview();
+        }
+
+        /** Kick off a Scribe sync for the current text row's audio in a background
+         *  worker so the EDT stays responsive while the network call is in flight. */
+        private void runKaraokeSync() {
+            final int idx = currentSlideTextIndex;
+            final File audio = slideAudioFiles.get(idx);
+            if (audio == null || !audio.isFile()) return;
+            final String text = getSlideTextItemText(idx);
+            if (text == null || text.trim().isEmpty()) {
+                JOptionPane.showMessageDialog(panel,
+                        "Type the words for this text row before syncing — Scribe needs them as a hint to align the audio.",
+                        "Word Sync", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            if (ElevenLabsScribe.resolveApiKey() == null) {
+                promptForApiKey();
+                if (ElevenLabsScribe.resolveApiKey() == null) return;
+            }
+            final String language = ElevenLabsScribe.detectLanguage(text);
+            karaokeSyncBtn.setEnabled(false);
+            karaokeStatusLabel.setText("syncing… (" + language + ")");
+            karaokeStatusLabel.setForeground(new Color(180, 200, 255));
+
+            new SwingWorker<List<WordTiming>, Void>() {
+                String err;
+                @Override protected List<WordTiming> doInBackground() {
+                    try {
+                        return ElevenLabsScribe.transcribe(audio, text, language);
+                    } catch (Exception ex) {
+                        err = ex.getMessage();
+                        return null;
+                    }
+                }
+                @Override protected void done() {
+                    try {
+                        List<WordTiming> r = get();
+                        if (r == null || r.isEmpty()) {
+                            karaokeStatusLabel.setText("(failed)");
+                            karaokeStatusLabel.setForeground(new Color(240, 130, 130));
+                            karaokeSyncBtn.setEnabled(true);
+                            JOptionPane.showMessageDialog(panel,
+                                    "Scribe returned no word timings.\n\n" + (err != null ? err : "(empty response)"),
+                                    "Word Sync failed", JOptionPane.ERROR_MESSAGE);
+                            return;
+                        }
+                        slideAudioWordTimingsMap.put(idx, r);
+                        try { WordTimingFile.writeSidecar(audio, r); } catch (IOException ignored) {}
+                        refreshKaraokeStatus();
+                        schedulePreview();
+                    } catch (Exception ex) {
+                        karaokeStatusLabel.setText("(failed)");
+                        karaokeSyncBtn.setEnabled(true);
+                    }
+                }
+            }.execute();
+        }
+
+        private void promptForApiKey() {
+            JPanel p = new JPanel(new BorderLayout(6, 6));
+            p.add(new JLabel("<html>Paste your ElevenLabs API key.<br>"
+                    + "Stored locally at <code>~/.gifslideshow/elevenlabs.key</code> — never committed."
+                    + "</html>"), BorderLayout.NORTH);
+            JTextField field = new JTextField(40);
+            p.add(field, BorderLayout.CENTER);
+            int r = JOptionPane.showConfirmDialog(panel, p, "ElevenLabs API key",
+                    JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+            if (r != JOptionPane.OK_OPTION) return;
+            String key = field.getText().trim();
+            if (key.isEmpty()) return;
+            try { ElevenLabsScribe.saveApiKey(key); }
+            catch (IOException ex) {
+                JOptionPane.showMessageDialog(panel, "Could not save key: " + ex.getMessage(),
+                        "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+
+        /** Fetch the typed text for a given text-row index (the per-text text the
+         *  Scribe hint needs to align). Falls back to the row's main subtitle for
+         *  index 0 when there are no extra text items. */
+        private String getSlideTextItemText(int idx) {
+            if (slideTextItems != null && idx >= 0 && idx < slideTextItems.size()) {
+                SlideTextData it = slideTextItems.get(idx);
+                if (it != null && it.text != null) return it.text;
+            }
+            if (idx == 0) return getSubtitleText();
+            return "";
+        }
+
         // ---------- Per-text audio highlight: storage helpers ----------
 
         /** Read the current toolbar UI's effects toggles into a single comma-separated string. */
@@ -15640,6 +16253,10 @@ public class GifSlideShowApp extends JFrame {
                 }
                 slideAudioFiles.put(currentSlideTextIndex, file);
                 slideAudioDurationsMs.put(currentSlideTextIndex, durationMs);
+                // Auto-load karaoke timings if a sidecar exists from a previous sync.
+                List<WordTiming> existing = WordTimingFile.readSidecar(file);
+                if (existing != null) slideAudioWordTimingsMap.put(currentSlideTextIndex, existing);
+                else slideAudioWordTimingsMap.remove(currentSlideTextIndex);
                 updateAudioUI();
             }
         }
@@ -15647,6 +16264,7 @@ public class GifSlideShowApp extends JFrame {
         private void clearSlideAudio() {
             slideAudioFiles.remove(currentSlideTextIndex);
             slideAudioDurationsMs.remove(currentSlideTextIndex);
+            slideAudioWordTimingsMap.remove(currentSlideTextIndex);
             updateAudioUI();
         }
 
@@ -15711,6 +16329,9 @@ public class GifSlideShowApp extends JFrame {
         void setSlideAudio(int textIndex, File file, int durationMs) {
             slideAudioFiles.put(textIndex, file);
             slideAudioDurationsMs.put(textIndex, durationMs);
+            List<WordTiming> existing = file != null ? WordTimingFile.readSidecar(file) : null;
+            if (existing != null) slideAudioWordTimingsMap.put(textIndex, existing);
+            else slideAudioWordTimingsMap.remove(textIndex);
             if (currentSlideTextIndex == textIndex) {
                 updateAudioUI();
             }
@@ -15734,6 +16355,7 @@ public class GifSlideShowApp extends JFrame {
                 audioDurationLabel.setText("");
                 audioClearBtn.setVisible(false);
             }
+            refreshKaraokeStatus();
         }
     }
 
