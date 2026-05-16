@@ -14853,7 +14853,7 @@ public class GifSlideShowApp extends JFrame {
             karaokeSyncBtn.setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createLineBorder(new Color(70, 180, 180), 1),
                     BorderFactory.createEmptyBorder(2, 10, 2, 10)));
-            karaokeSyncBtn.setToolTipText("Send the current text's audio to ElevenLabs Scribe to get per-word timestamps");
+            karaokeSyncBtn.setToolTipText("Run ElevenLabs Scribe on every slide's audio rows that have text. Word timings are written back to each slide individually.");
             karaokeSyncBtn.addActionListener(e -> runKaraokeSync());
 
             karaokeStatusLabel = new JLabel("(no audio)");
@@ -16297,16 +16297,42 @@ public class GifSlideShowApp extends JFrame {
             schedulePreview();
         }
 
-        /** Kick off a Scribe sync for the current text row's audio in a background
-         *  worker so the EDT stays responsive while the network call is in flight. */
+        /** Kick off Scribe sync for every non-title-grid slide's audio rows in a
+         *  single background worker. The job queue is built up front; the queue
+         *  runs sequentially so we never DoS Scribe. Each result is written back
+         *  to the owning SlideRow's timings map + sidecar on the EDT. */
         private void runKaraokeSync() {
-            final int idx = currentSlideTextIndex;
-            final File audio = slideAudioFiles.get(idx);
-            if (audio == null || !audio.isFile()) return;
-            final String text = getSlideTextItemText(idx);
-            if (text == null || text.trim().isEmpty()) {
+            // Build the batch: walk every non-title-grid slide and every text row
+            // that has both audio AND non-empty text.
+            class Job {
+                final SlideRow row;
+                final int textIdx;
+                final File audio;
+                final String text;
+                final String language;
+                Job(SlideRow row, int textIdx, File audio, String text, String language) {
+                    this.row = row; this.textIdx = textIdx; this.audio = audio;
+                    this.text = text; this.language = language;
+                }
+            }
+            final java.util.List<Job> jobs = new java.util.ArrayList<>();
+            int skippedNoText = 0;
+            for (SlideRow row : slideRows) {
+                if (row.isTitleGridSlide) continue;
+                int maxIdx = -1;
+                for (int k : row.slideAudioFiles.keySet()) if (k > maxIdx) maxIdx = k;
+                for (int i = 0; i <= maxIdx; i++) {
+                    File audio = row.slideAudioFiles.get(i);
+                    if (audio == null || !audio.isFile()) continue;
+                    String text = row.getSlideTextItemText(i);
+                    if (text == null || text.trim().isEmpty()) { skippedNoText++; continue; }
+                    jobs.add(new Job(row, i, audio, text, ElevenLabsScribe.detectLanguage(text)));
+                }
+            }
+            if (jobs.isEmpty()) {
                 JOptionPane.showMessageDialog(panel,
-                        "Type the words for this text row before syncing — Scribe needs them as a hint to align the audio.",
+                        "No audio rows are ready to sync. Each row needs an audio file AND its text typed in."
+                                + (skippedNoText > 0 ? "\n\nSkipped " + skippedNoText + " row(s) with audio but no text." : ""),
                         "Word Sync", JOptionPane.WARNING_MESSAGE);
                 return;
             }
@@ -16314,41 +16340,70 @@ public class GifSlideShowApp extends JFrame {
                 promptForApiKey();
                 if (ElevenLabsScribe.resolveApiKey() == null) return;
             }
-            final String language = ElevenLabsScribe.detectLanguage(text);
+
             karaokeSyncBtn.setEnabled(false);
-            karaokeStatusLabel.setText("syncing… (" + language + ")");
+            karaokeStatusLabel.setText("syncing 0/" + jobs.size() + "…");
             karaokeStatusLabel.setForeground(new Color(180, 200, 255));
 
-            new SwingWorker<List<WordTiming>, Void>() {
-                String err;
-                @Override protected List<WordTiming> doInBackground() {
-                    try {
-                        return ElevenLabsScribe.transcribe(audio, text, language);
-                    } catch (Exception ex) {
-                        err = ex.getMessage();
-                        return null;
+            final int total = jobs.size();
+            new SwingWorker<Void, Object[]>() {
+                int succeeded = 0;
+                int failed = 0;
+                String lastErr;
+
+                @Override protected Void doInBackground() {
+                    for (int i = 0; i < jobs.size(); i++) {
+                        Job j = jobs.get(i);
+                        final int done = i;
+                        publish(new Object[] { "progress", done, total, j.language });
+                        try {
+                            List<WordTiming> r = ElevenLabsScribe.transcribe(j.audio, j.text, j.language);
+                            if (r != null && !r.isEmpty()) {
+                                succeeded++;
+                                publish(new Object[] { "result", j, r });
+                            } else {
+                                failed++;
+                            }
+                        } catch (Exception ex) {
+                            failed++;
+                            lastErr = ex.getMessage();
+                        }
+                    }
+                    return null;
+                }
+
+                @Override protected void process(java.util.List<Object[]> chunks) {
+                    for (Object[] c : chunks) {
+                        String kind = (String) c[0];
+                        if ("progress".equals(kind)) {
+                            int doneIdx = (Integer) c[1];
+                            int tot = (Integer) c[2];
+                            String lang = (String) c[3];
+                            karaokeStatusLabel.setText("syncing " + (doneIdx + 1) + "/" + tot + "… (" + lang + ")");
+                        } else if ("result".equals(kind)) {
+                            Job j = (Job) c[1];
+                            @SuppressWarnings("unchecked")
+                            List<WordTiming> r = (List<WordTiming>) c[2];
+                            j.row.slideAudioWordTimingsMap.put(j.textIdx, r);
+                            try { WordTimingFile.writeSidecar(j.audio, r); } catch (IOException ignored) {}
+                            j.row.refreshKaraokeStatus();
+                        }
                     }
                 }
+
                 @Override protected void done() {
-                    try {
-                        List<WordTiming> r = get();
-                        if (r == null || r.isEmpty()) {
-                            karaokeStatusLabel.setText("(failed)");
-                            karaokeStatusLabel.setForeground(new Color(240, 130, 130));
-                            karaokeSyncBtn.setEnabled(true);
-                            JOptionPane.showMessageDialog(panel,
-                                    "Scribe returned no word timings.\n\n" + (err != null ? err : "(empty response)"),
-                                    "Word Sync failed", JOptionPane.ERROR_MESSAGE);
-                            return;
-                        }
-                        slideAudioWordTimingsMap.put(idx, r);
-                        try { WordTimingFile.writeSidecar(audio, r); } catch (IOException ignored) {}
-                        refreshKaraokeStatus();
-                        schedulePreview();
-                    } catch (Exception ex) {
-                        karaokeStatusLabel.setText("(failed)");
-                        karaokeSyncBtn.setEnabled(true);
+                    karaokeSyncBtn.setEnabled(true);
+                    if (failed == 0) {
+                        karaokeStatusLabel.setText("synced " + succeeded + "/" + total + " ✓");
+                        karaokeStatusLabel.setForeground(new Color(140, 220, 160));
+                    } else {
+                        karaokeStatusLabel.setText("synced " + succeeded + "/" + total + " (" + failed + " failed)");
+                        karaokeStatusLabel.setForeground(new Color(240, 180, 130));
+                        JOptionPane.showMessageDialog(panel,
+                                failed + " row(s) failed to sync.\n\n" + (lastErr != null ? "Last error: " + lastErr : "(empty Scribe responses)"),
+                                "Word Sync — partial", JOptionPane.WARNING_MESSAGE);
                     }
+                    schedulePreview();
                 }
             }.execute();
         }
