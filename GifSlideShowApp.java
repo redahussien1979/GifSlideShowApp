@@ -11606,6 +11606,28 @@ public class GifSlideShowApp extends JFrame {
     }
 
     /**
+     * True iff the slide has any audio-segment highlight (Glow/Big/Bold/UL/Clr/Shake/Pulse/Others)
+     * that must be baked into the decoration PNG so it remains visible on top of the
+     * source video. Without this, the audio FX would only exist on the base slide
+     * (which gets covered by the source video) and not on the decoration overlay.
+     */
+    private static boolean hasAudioHighlightDecoration(SlideData s) {
+        if (s == null || s.audioFiles == null) return false;
+        boolean hasAudio = false;
+        for (File af : s.audioFiles) {
+            if (af != null && af.exists()) { hasAudio = true; break; }
+        }
+        if (!hasAudio) return false;
+        if (s.audioHlEffects == null) return true; // legacy default = "Glow"
+        for (String fx : s.audioHlEffects) {
+            if (fx == null) continue;
+            String t = fx.trim();
+            if (!t.isEmpty() && !t.equals("None")) return true;
+        }
+        return false;
+    }
+
+    /**
      * Render the per-slide decoration overlay to disk.
      *
      * If the slide has animated decorations, writes `<outDir>/00001.png … 0NNNNN.png`
@@ -11624,8 +11646,10 @@ public class GifSlideShowApp extends JFrame {
                                                     boolean[] isSeqOut) throws IOException {
         outDir.mkdirs();
         boolean animated = hasAnimatedDecoration(s);
-        isSeqOut[0] = animated;
-        if (!animated) {
+        boolean audioHl = hasAudioHighlightDecoration(s);
+        boolean useSequence = animated || audioHl;
+        isSeqOut[0] = useSequence;
+        if (!useSequence) {
             BufferedImage img = renderFrame(
                     s.image, s.text, s.fontName, s.fontSize, s.fontStyle, s.fontColor,
                     s.alignment, s.showPin, videoW, videoH, s.displayMode,
@@ -11646,6 +11670,21 @@ public class GifSlideShowApp extends JFrame {
             return f;
         }
         for (int f = 0; f < slideFrames; f++) {
+            List<SlideTextData> framedTexts = s.slideTexts;
+            if (audioHl) {
+                long elapsedMs = (long) (f * 1000.0 / fps);
+                int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
+                if (activeIdx >= 0) {
+                    long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
+                    int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
+                    framedTexts = applyActiveTextHighlight(
+                            s.slideTexts, activeIdx,
+                            hlColorAt(s.audioHlColor, activeIdx),
+                            hlEffectsAt(s.audioHlEffects, activeIdx),
+                            segFrame,
+                            hlGlowSizeAt(s.audioGlowSize, activeIdx));
+                }
+            }
             BufferedImage img = renderFrame(
                     s.image, s.text, s.fontName, s.fontSize, s.fontStyle, s.fontColor,
                     s.alignment, s.showPin, videoW, videoH, s.displayMode,
@@ -11653,7 +11692,7 @@ public class GifSlideShowApp extends JFrame {
                     s.showSlideNumber, s.slideNumberText, s.slideNumberFontName,
                     s.slideNumberX, s.slideNumberY, s.slideNumberSize, s.slideNumberColor,
                     s.slideNumberStyle, s.slideNumberEffect,
-                    s.slideTexts,
+                    framedTexts,
                     false, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     "None", 0,
                     false, null, null, null, 0, 0, 0,
