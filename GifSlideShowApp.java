@@ -14853,7 +14853,7 @@ public class GifSlideShowApp extends JFrame {
             karaokeSyncBtn.setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createLineBorder(new Color(70, 180, 180), 1),
                     BorderFactory.createEmptyBorder(2, 10, 2, 10)));
-            karaokeSyncBtn.setToolTipText("Send the currently-selected text row's audio to ElevenLabs Scribe to get per-word timestamps for that one row");
+            karaokeSyncBtn.setToolTipText("Run Scribe on this text row's audio, then auto-run on the same text-row index on every other slide that has audio + text. Each slide uses its own audio.");
             karaokeSyncBtn.addActionListener(e -> runKaraokeSync());
 
             karaokeStatusLabel = new JLabel("(no audio)");
@@ -16307,9 +16307,12 @@ public class GifSlideShowApp extends JFrame {
             schedulePreview();
         }
 
-        /** Kick off a Scribe sync for the currently-selected text row's audio in a
-         *  background worker so the EDT stays responsive while the network call
-         *  is in flight. Only this one text row of this one slide is synced. */
+        /** Kick off a Scribe sync for the currently-selected text row, and then
+         *  for the SAME text-row index on every other non-title-grid slide that
+         *  also has audio + text at that index. Each slide is synced against
+         *  its own audio (timings can't be shared across different files).
+         *  All calls run sequentially in one background worker so the EDT
+         *  stays responsive and we don't DoS Scribe. */
         private void runKaraokeSync() {
             final int idx = currentSlideTextIndex;
             final File audio = slideAudioFiles.get(idx);
@@ -16325,41 +16328,103 @@ public class GifSlideShowApp extends JFrame {
                 promptForApiKey();
                 if (ElevenLabsScribe.resolveApiKey() == null) return;
             }
-            final String language = ElevenLabsScribe.detectLanguage(text);
+
+            class Job {
+                final SlideRow row;
+                final File audio;
+                final String text;
+                final String language;
+                Job(SlideRow row, File audio, String text) {
+                    this.row = row; this.audio = audio; this.text = text;
+                    this.language = ElevenLabsScribe.detectLanguage(text);
+                }
+            }
+            final java.util.List<Job> jobs = new java.util.ArrayList<>();
+            jobs.add(new Job(this, audio, text));
+            // Propagate to other slides' same text-row index.
+            for (SlideRow row : slideRows) {
+                if (row == this || row.isTitleGridSlide) continue;
+                File a = row.slideAudioFiles.get(idx);
+                String t = row.getSlideTextItemText(idx);
+                if (a != null && a.isFile() && t != null && !t.trim().isEmpty()) {
+                    jobs.add(new Job(row, a, t));
+                }
+            }
+
             karaokeSyncBtn.setEnabled(false);
-            karaokeStatusLabel.setText("syncing… (" + language + ")");
+            final int total = jobs.size();
+            if (total == 1) {
+                karaokeStatusLabel.setText("syncing… (" + jobs.get(0).language + ")");
+            } else {
+                karaokeStatusLabel.setText("syncing 1/" + total + "… (" + jobs.get(0).language + ")");
+            }
             karaokeStatusLabel.setForeground(new Color(180, 200, 255));
 
-            new SwingWorker<List<WordTiming>, Void>() {
-                String err;
-                @Override protected List<WordTiming> doInBackground() {
-                    try {
-                        return ElevenLabsScribe.transcribe(audio, text, language);
-                    } catch (Exception ex) {
-                        err = ex.getMessage();
-                        return null;
+            new SwingWorker<Void, Object[]>() {
+                int succeeded = 0;
+                int failed = 0;
+                String lastErr;
+
+                @Override protected Void doInBackground() {
+                    for (int i = 0; i < jobs.size(); i++) {
+                        Job j = jobs.get(i);
+                        publish(new Object[] { "progress", i, total, j.language });
+                        try {
+                            List<WordTiming> r = ElevenLabsScribe.transcribe(j.audio, j.text, j.language);
+                            if (r != null && !r.isEmpty()) {
+                                succeeded++;
+                                publish(new Object[] { "result", j, r });
+                            } else {
+                                failed++;
+                            }
+                        } catch (Exception ex) {
+                            failed++;
+                            lastErr = ex.getMessage();
+                        }
+                    }
+                    return null;
+                }
+
+                @Override protected void process(java.util.List<Object[]> chunks) {
+                    for (Object[] c : chunks) {
+                        String kind = (String) c[0];
+                        if ("progress".equals(kind) && total > 1) {
+                            int doneIdx = (Integer) c[1];
+                            String lang = (String) c[3];
+                            karaokeStatusLabel.setText("syncing " + (doneIdx + 1) + "/" + total + "… (" + lang + ")");
+                        } else if ("result".equals(kind)) {
+                            Job j = (Job) c[1];
+                            @SuppressWarnings("unchecked")
+                            List<WordTiming> r = (List<WordTiming>) c[2];
+                            j.row.slideAudioWordTimingsMap.put(idx, r);
+                            try { WordTimingFile.writeSidecar(j.audio, r); } catch (IOException ignored) {}
+                            j.row.refreshKaraokeStatus();
+                        }
                     }
                 }
+
                 @Override protected void done() {
-                    try {
-                        List<WordTiming> r = get();
-                        if (r == null || r.isEmpty()) {
+                    karaokeSyncBtn.setEnabled(true);
+                    if (total == 1) {
+                        if (succeeded == 0) {
                             karaokeStatusLabel.setText("(failed)");
                             karaokeStatusLabel.setForeground(new Color(240, 130, 130));
-                            karaokeSyncBtn.setEnabled(true);
                             JOptionPane.showMessageDialog(panel,
-                                    "Scribe returned no word timings.\n\n" + (err != null ? err : "(empty response)"),
+                                    "Scribe returned no word timings.\n\n" + (lastErr != null ? lastErr : "(empty response)"),
                                     "Word Sync failed", JOptionPane.ERROR_MESSAGE);
-                            return;
                         }
-                        slideAudioWordTimingsMap.put(idx, r);
-                        try { WordTimingFile.writeSidecar(audio, r); } catch (IOException ignored) {}
-                        refreshKaraokeStatus();
-                        schedulePreview();
-                    } catch (Exception ex) {
-                        karaokeStatusLabel.setText("(failed)");
-                        karaokeSyncBtn.setEnabled(true);
+                        // success status was set inline by refreshKaraokeStatus().
+                    } else if (failed == 0) {
+                        karaokeStatusLabel.setText("synced " + succeeded + "/" + total + " ✓");
+                        karaokeStatusLabel.setForeground(new Color(140, 220, 160));
+                    } else {
+                        karaokeStatusLabel.setText("synced " + succeeded + "/" + total + " (" + failed + " failed)");
+                        karaokeStatusLabel.setForeground(new Color(240, 180, 130));
+                        JOptionPane.showMessageDialog(panel,
+                                failed + " slide(s) failed to sync at row " + idx + ".\n\n" + (lastErr != null ? "Last error: " + lastErr : "(empty Scribe responses)"),
+                                "Word Sync — partial", JOptionPane.WARNING_MESSAGE);
                     }
+                    schedulePreview();
                 }
             }.execute();
         }
