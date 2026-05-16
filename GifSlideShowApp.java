@@ -16261,6 +16261,16 @@ public class GifSlideShowApp extends JFrame {
             slideKaraokeStyleMap.put(currentSlideTextIndex, style != null ? style : DEFAULT_KARAOKE_STYLE);
             slideKaraokeColorMap.put(currentSlideTextIndex, karaokeColor);
             schedulePreview();
+            // If this is the master slide, broadcast Word FX style/color to the rest
+            // — same trigger pattern as onFormatChanged().
+            if (!isSyncingFormat && !isTitleGridSlide && !slideRows.isEmpty()) {
+                for (SlideRow row : slideRows) {
+                    if (!row.isTitleGridSlide) {
+                        if (row == this) syncFormattingFromFirstSlide();
+                        break;
+                    }
+                }
+            }
         }
 
         /** Parallel to getSlideAudioFilesList() — one entry per text-row's
@@ -16555,6 +16565,9 @@ public class GifSlideShowApp extends JFrame {
                 slideKaraokeStyleMap.put(i, pickFromMaster(masterStyles, i, DEFAULT_KARAOKE_STYLE));
                 slideKaraokeColorMap.put(i, pickFromMaster(masterColors, i, DEFAULT_KARAOKE_COLOR));
             }
+            // Rebind the visible Word FX combo + color swatch to the freshly-synced
+            // value for the current text-row index.
+            refreshKaraokeStatus();
         }
 
         private static <T> T pickFromMaster(java.util.List<T> list, int idx, T defaultVal) {
