@@ -269,6 +269,7 @@ public class GifSlideShowApp extends JFrame {
         props.setProperty("displayMode", source.getDisplayMode());
         props.setProperty("subtitleY", String.valueOf(source.getSubtitleY()));
         props.setProperty("subtitleBgOpacity", String.valueOf(source.getSubtitleBgOpacity()));
+        props.setProperty("sourceVideoVolume", String.valueOf(source.getSourceVideoVolume()));
 
         // Slide number
         props.setProperty("showSlideNumber", String.valueOf(source.isShowSlideNumber()));
@@ -448,6 +449,7 @@ public class GifSlideShowApp extends JFrame {
         String displayMode = props.getProperty("displayMode", "Blur-Fit");
         int subtitleY = Integer.parseInt(props.getProperty("subtitleY", "5"));
         int subtitleBgOpacity = Integer.parseInt(props.getProperty("subtitleBgOpacity", "78"));
+        int sourceVideoVolume = Integer.parseInt(props.getProperty("sourceVideoVolume", "25"));
 
         boolean showSlideNumber = Boolean.parseBoolean(props.getProperty("showSlideNumber", "false"));
         String slideNumberFontName = props.getProperty("slideNumberFontName", loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI");
@@ -588,7 +590,7 @@ public class GifSlideShowApp extends JFrame {
             for (SlideRow row : slideRows) {
                 if (row.isTitleGridSlide) continue;
                 row.applyFormatting(fontName, fontSize, fontStyle, fontColor, alignment, showPin, displayMode,
-                        subtitleY, subtitleBgOpacity,
+                        subtitleY, subtitleBgOpacity, sourceVideoVolume,
                         showSlideNumber, slideNumberFontName, slideNumberX, slideNumberY, slideNumberSize, slideNumberColor,
                         slideNumberStyle, slideNumberEffect,
                         slideTextFormats, null,
@@ -747,7 +749,7 @@ public class GifSlideShowApp extends JFrame {
                 "📸 Layout " + layoutIndex + " (" + images.size() + " images)");
         titleRow.setSubtitleText(titleText);
         titleRow.applyFormatting("Segoe UI", 48, Font.BOLD,
-                Color.WHITE, SwingConstants.CENTER, false, "Blur-Fit", 5, 78,
+                Color.WHITE, SwingConstants.CENTER, false, "Blur-Fit", 5, 78, 25,
                 false, loadedFontNames[0], 50, 10, 80, Color.WHITE,
                 "Circle", "None",
                 Collections.singletonList(new SlideTextData(false, "", "Segoe UI", 40, Font.PLAIN,
@@ -2387,7 +2389,7 @@ public class GifSlideShowApp extends JFrame {
         try {
             for (SlideRow row : slideRows) {
                 if (row == source || row.isTitleGridSlide) continue;
-                row.applyFormatting(fontName, fontSize, fontStyle, fontColor, alignment, showPin, displayMode, subtitleY, subtitleBgOpacity,
+                row.applyFormatting(fontName, fontSize, fontStyle, fontColor, alignment, showPin, displayMode, subtitleY, subtitleBgOpacity, source.getSourceVideoVolume(),
                         showSlideNumber, slideNumberFontName, slideNumberX, slideNumberY, slideNumberSize, slideNumberColor,
                         source.getSlideNumberStyle(), source.getSlideNumberEffect(),
                         slideTextFormats, slidePictureFormats,
@@ -6573,6 +6575,7 @@ public class GifSlideShowApp extends JFrame {
                     ? row.getQuiz().copy() : null;
             slides.get(slides.size() - 1).slideNumberStyle = row.getSlideNumberStyle();
             slides.get(slides.size() - 1).slideNumberEffect = row.getSlideNumberEffect();
+            slides.get(slides.size() - 1).sourceVideoVolume = row.getSourceVideoVolume();
         }
         if (slides.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Add at least one slide.", "No Slides", JOptionPane.WARNING_MESSAGE);
@@ -8720,6 +8723,8 @@ public class GifSlideShowApp extends JFrame {
                             // Track which audio inputs are from uploaded source videos so we can
                             // attenuate them (base slideshow audio should dominate).
                             java.util.List<Boolean> ovAudioIsSourceVideo = new java.util.ArrayList<>();
+                            // Per-entry source-video volume (0..100 → 0.0..1.0 in the filter).
+                            java.util.List<Integer> ovAudioSourceVideoVolume = new java.util.ArrayList<>();
                             for (int j = 0; j < ovSlideIdx.size(); j++) {
                                 int si = ovSlideIdx.get(j);
                                 int ii = ovInputIdx.get(j);
@@ -8731,13 +8736,13 @@ public class GifSlideShowApp extends JFrame {
                                     ovAudioInputIdx.add(ii);
                                     ovAudioDelay.add(slideStartSec[si] * 1000.0);
                                     ovAudioIsSourceVideo.add(ovTaskIsSourceVideo.get(j));
+                                    ovAudioSourceVideoVolume.add(slides.get(si).sourceVideoVolume);
                                 }
                             }
 
-                            // Attenuation applied to uploaded-source-video audio so that the
-                            // base slideshow audio stays clearly dominant in the mix. Video
-                            // Overlay toolbar audio is not attenuated.
-                            final String sourceVideoVolume = "0.25";
+                            // Per-entry source-video attenuation. Video Overlay toolbar audio
+                            // is not attenuated — only uploaded source-video audio is, using
+                            // each slide's "Vol%" setting (default 25 = legacy 0.25 attenuation).
 
                             // Build audio filter: mix base audio with overlay audio
                             boolean baseHasAudio = probeHasAudio(finalOut);
@@ -8748,7 +8753,8 @@ public class GifSlideShowApp extends JFrame {
                                     int ii = ovAudioInputIdx.get(j);
                                     long delayMs = Math.round(ovAudioDelay.get(j));
                                     String volPrefix = ovAudioIsSourceVideo.get(j)
-                                            ? ("volume=" + sourceVideoVolume + ",") : "";
+                                            ? String.format(java.util.Locale.US, "volume=%.3f,",
+                                                    ovAudioSourceVideoVolume.get(j) / 100.0) : "";
                                     // Source-video audio: trim to the slide's duration so it
                                     // can't leak into the next slide when the uploaded video
                                     // is longer than the slide's audio anchor.
@@ -8777,7 +8783,8 @@ public class GifSlideShowApp extends JFrame {
                                     int ii = ovAudioInputIdx.get(j);
                                     long delayMs = Math.round(ovAudioDelay.get(j));
                                     String volPrefix = ovAudioIsSourceVideo.get(j)
-                                            ? ("volume=" + sourceVideoVolume + ",") : "";
+                                            ? String.format(java.util.Locale.US, "volume=%.3f,",
+                                                    ovAudioSourceVideoVolume.get(j) / 100.0) : "";
                                     String trim = "";
                                     if (ovAudioIsSourceVideo.get(j)) {
                                         int si = ovSlideIdx.get(j);
@@ -9442,7 +9449,8 @@ public class GifSlideShowApp extends JFrame {
                                     decoOut = null;
                                 }
                                 applySourceVideoAndDecoration(slideOutFile, s.sourceVideoFile,
-                                        decoOut, decoIsSeq, fps, videoW, videoH, crf, tempDir);
+                                        decoOut, decoIsSeq, fps, videoW, videoH, crf, tempDir,
+                                        s.sourceVideoVolume);
                             }
 
                             // Apply per-slide video overlay if set
@@ -9655,7 +9663,8 @@ public class GifSlideShowApp extends JFrame {
                                                       File decoration, boolean decorationIsSeq,
                                                       int decoFps,
                                                       int videoW, int videoH, int crf,
-                                                      File tempDir) throws IOException, InterruptedException {
+                                                      File tempDir,
+                                                      int sourceVideoVolumePct) throws IOException, InterruptedException {
         File preOverlay = new File(tempDir, "pre_sv_" + System.currentTimeMillis() + ".mp4");
         if (!baseVideo.renameTo(preOverlay)) {
             java.nio.file.Files.copy(baseVideo.toPath(), preOverlay.toPath(),
@@ -9685,9 +9694,10 @@ public class GifSlideShowApp extends JFrame {
 
         boolean baseHasAudio = probeHasAudio(preOverlay);
         boolean srcHasAudio = probeHasAudio(sourceVideo);
-        // Attenuate the uploaded source video's audio so that the base slideshow
-        // audio stays clearly dominant in the mix.
-        final String sourceVideoVolume = "0.25";
+        // Attenuate the uploaded source video's audio per the slide's "Vol%" setting
+        // (default 25 = legacy 0.25) so the base slideshow audio can stay dominant.
+        final String sourceVideoVolume = String.format(java.util.Locale.US, "%.3f",
+                sourceVideoVolumePct / 100.0);
         String audioMap = null;
         if (baseHasAudio && srcHasAudio) {
             vf.append(";[1:a]volume=").append(sourceVideoVolume).append("[sva];")
@@ -12160,6 +12170,9 @@ public class GifSlideShowApp extends JFrame {
         // Independent "this slide IS a video" source (separate from the overlay toolbar).
         final File sourceVideoFile;
         final int sourceVideoDurationMs;
+        // Source-video audio volume as a 0..100 percentage. Default 25 matches the
+        // legacy hardcoded -0.25 attenuation so existing exports stay byte-identical.
+        int sourceVideoVolume = 25;
         // Quiz config snapshot (timer + reveal). Set externally after construction
         // so we don't have to thread another arg through the giant ctor.
         QuizSlide quiz;
@@ -12334,6 +12347,7 @@ public class GifSlideShowApp extends JFrame {
         private Color slideTextColorTextColor = new Color(255, 80, 80);
         private final JSpinner subtitleYSpinner;
         private final JSpinner subtitleBgOpacitySpinner;
+        private final JSpinner sourceVideoVolumeSpinner;
         private final JCheckBox fxRoundCornersCheck;
         private final JSpinner fxCornerRadiusSpinner;
         private final JCheckBox fxVignetteCheck;
@@ -12708,10 +12722,17 @@ public class GifSlideShowApp extends JFrame {
             subtitleBgOpacitySpinner.setToolTipText("Subtitle background opacity (0=transparent, 100=solid)");
             subtitleBgOpacitySpinner.addChangeListener(e -> onFormatChanged());
 
+            sourceVideoVolumeSpinner = new JSpinner(new SpinnerNumberModel(25, 0, 100, 5));
+            sourceVideoVolumeSpinner.setPreferredSize(new Dimension(50, 28));
+            sourceVideoVolumeSpinner.setToolTipText("Uploaded source-video volume (0=mute, 100=full)");
+            sourceVideoVolumeSpinner.addChangeListener(e -> onFormatChanged());
+
             toolbar2.add(styledLabel("Text Y%:"));
             toolbar2.add(subtitleYSpinner);
             toolbar2.add(styledLabel("BG%:"));
             toolbar2.add(subtitleBgOpacitySpinner);
+            toolbar2.add(styledLabel("🔊 Vol%:"));
+            toolbar2.add(sourceVideoVolumeSpinner);
 
             // ===== Toolbar Row 3: Slide number overlay =====
             JPanel toolbar3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
@@ -14925,7 +14946,7 @@ public class GifSlideShowApp extends JFrame {
 
         void applyFormatting(String fontName, int fontSize, int fontStyle,
                              Color fontColor, int alignment, boolean showPin, String displayMode,
-                             int subtitleY, int subtitleBgOpacity,
+                             int subtitleY, int subtitleBgOpacity, int sourceVideoVolume,
                              boolean showSlideNumber, String slideNumberFontName,
                              int slideNumberX, int slideNumberY,
                              int slideNumberSize, Color slideNumberColor,
@@ -14970,6 +14991,7 @@ public class GifSlideShowApp extends JFrame {
             displayModeCombo.setSelectedItem(displayMode);
             subtitleYSpinner.setValue(subtitleY);
             subtitleBgOpacitySpinner.setValue(subtitleBgOpacity);
+            sourceVideoVolumeSpinner.setValue(sourceVideoVolume);
 
             slideNumberCheckBox.setSelected(showSlideNumber);
             slideNumberFontCombo.setSelectedItem(slideNumberFontName);
@@ -15268,6 +15290,7 @@ public class GifSlideShowApp extends JFrame {
 
         File getSourceVideoFile() { return sourceVideoFile; }
         int getSourceVideoDurationMs() { return sourceVideoDurationMs; }
+        int getSourceVideoVolume() { return (int) sourceVideoVolumeSpinner.getValue(); }
 
         private void updateImagePreviewThumb(String fileName) {
             BufferedImage thumbSource = (isTitleGridSlide && titleBgImage != null) ? titleBgImage : loadedImage;
