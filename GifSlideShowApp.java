@@ -361,6 +361,8 @@ public class GifSlideShowApp extends JFrame {
         java.util.List<String>  audioHlEffectsList = source.getAudioHlEffectsList();
         java.util.List<Color>   audioHlColorList   = source.getAudioHlColorList();
         java.util.List<Integer> audioGlowSizeList  = source.getAudioGlowSizeList();
+        java.util.List<String>  karaokeStyleList   = source.getSlideAudioKaraokeStyleList();
+        java.util.List<Color>   karaokeColorList   = source.getSlideAudioKaraokeColorList();
         for (int i = 0; i < texts.size(); i++) {
             String p = "slideText." + i + ".";
             String  fx    = i < audioHlEffectsList.size() ? audioHlEffectsList.get(i) : DEFAULT_AUDIO_HL_EFFECTS;
@@ -369,6 +371,10 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(p + "audioHlEffects", fx != null ? fx : DEFAULT_AUDIO_HL_EFFECTS);
             props.setProperty(p + "audioHlColor",   colorToHex(color != null ? color : DEFAULT_AUDIO_HL_COLOR));
             props.setProperty(p + "audioGlowSize",  String.valueOf(glow != null && glow > 0 ? glow : DEFAULT_AUDIO_GLOW_SIZE));
+            String kStyle = i < karaokeStyleList.size() ? karaokeStyleList.get(i) : DEFAULT_KARAOKE_STYLE;
+            Color  kColor = i < karaokeColorList.size() ? karaokeColorList.get(i) : DEFAULT_KARAOKE_COLOR;
+            props.setProperty(p + "karaokeStyle", kStyle != null ? kStyle : DEFAULT_KARAOKE_STYLE);
+            props.setProperty(p + "karaokeColor", colorToHex(kColor != null ? kColor : DEFAULT_KARAOKE_COLOR));
         }
 
         // Orientation
@@ -540,6 +546,8 @@ public class GifSlideShowApp extends JFrame {
         List<String>  audioHlEffectsList = new ArrayList<>();
         List<Color>   audioHlColorList   = new ArrayList<>();
         List<Integer> audioGlowSizeList  = new ArrayList<>();
+        List<String>  karaokeStyleList   = new ArrayList<>();
+        List<Color>   karaokeColorList   = new ArrayList<>();
         for (int i = 0; i < slideTextCount; i++) {
             String p = "slideText." + i + ".";
             audioHlEffectsList.add(props.getProperty(p + "audioHlEffects", DEFAULT_AUDIO_HL_EFFECTS));
@@ -547,6 +555,9 @@ public class GifSlideShowApp extends JFrame {
                     colorToHex(DEFAULT_AUDIO_HL_COLOR))));
             audioGlowSizeList.add(Integer.parseInt(
                     props.getProperty(p + "audioGlowSize", String.valueOf(DEFAULT_AUDIO_GLOW_SIZE))));
+            karaokeStyleList.add(props.getProperty(p + "karaokeStyle", DEFAULT_KARAOKE_STYLE));
+            karaokeColorList.add(hexToColor(props.getProperty(p + "karaokeColor",
+                    colorToHex(DEFAULT_KARAOKE_COLOR))));
         }
 
         // Orientation
@@ -604,7 +615,8 @@ public class GifSlideShowApp extends JFrame {
                         textJustify, textWidthPct, highlightText, highlightColor,
                         textShiftX,
                         null, -1, 50, 25, 30, false, false,
-                        0.0, audioHlColorList, audioHlEffectsList, audioGlowSizeList);
+                        0.0, audioHlColorList, audioHlEffectsList, audioGlowSizeList,
+                        karaokeStyleList, karaokeColorList);
                 row.getQuiz().copyVisualSettingsFrom(tmpl);
                 row.refreshQuizToolbarFromState();
             }
@@ -762,7 +774,7 @@ public class GifSlideShowApp extends JFrame {
                 false, 100, "", new Color(255, 255, 0, 180), 0,
 
                 null, -1, 50, 25, 30, false, false,
-                0.0, null, null, null);
+                0.0, null, null, null, null, null);
 
         slideRows.add(0, titleRow);
         rebuildSlidesPanel();
@@ -2384,6 +2396,11 @@ public class GifSlideShowApp extends JFrame {
         List<Color>   audioHlColorList   = source.getAudioHlColorList();
         List<String>  audioHlEffectsList = source.getAudioHlEffectsList();
         List<Integer> audioGlowSizeList  = source.getAudioGlowSizeList();
+        // Karaoke (toolbar 7d) per-row settings broadcast alongside audio HL —
+        // word-timings themselves stay row-local since they're tied to that
+        // row's audio file, but Word FX style + color follow the master.
+        List<String>  karaokeStyleList   = source.getSlideAudioKaraokeStyleList();
+        List<Color>   karaokeColorList   = source.getSlideAudioKaraokeColorList();
 
         isSyncingFormat = true;
         try {
@@ -2403,7 +2420,8 @@ public class GifSlideShowApp extends JFrame {
                         textJustify, textWidthPct, highlightText, hlColor,
                         textShiftX,
                         voFile, voDurationMs, voX, voY, voSize, voFill, voBehind,
-                        audioGapSeconds, audioHlColorList, audioHlEffectsList, audioGlowSizeList);
+                        audioGapSeconds, audioHlColorList, audioHlEffectsList, audioGlowSizeList,
+                        karaokeStyleList, karaokeColorList);
                 // Broadcast the master row's quiz visual / shared settings
                 // (everything except the per-slide enabled flag, correct
                 // answer index, and question/generated audio files).
@@ -3363,18 +3381,6 @@ public class GifSlideShowApp extends JFrame {
                 // user reads.
                 java.util.List<java.util.List<int[]>> stHlSegments = computeWrapSegments(stWrappedLines, st.highlightText);
                 String[] stHlTerms = splitTerms(st.highlightText);
-                // Karaoke: when the active-word index is set on this SlideTextData,
-                // narrow the highlight to JUST the word at that position. Without
-                // this override, computeWrapSegments would light up every occurrence
-                // of the word string in the line (wrong when a word repeats).
-                if (st.karaokeWordIndex >= 0) {
-                    java.util.List<java.util.List<int[]>> single =
-                            computeWordIndexSegment(stWrappedLines, st.karaokeWordIndex);
-                    if (single != null) {
-                        stHlSegments = single;
-                        stHlTerms = new String[]{ st.highlightText != null ? st.highlightText : "" };
-                    }
-                }
 
                 // Same multi-line decomposition for UL. Falls back to highlightText
                 // when underlineText is empty, mirroring the runtime behavior below.
@@ -5682,6 +5688,56 @@ public class GifSlideShowApp extends JFrame {
                     gLight.dispose();
                 }
 
+                // ===== Karaoke per-word effect overlay (toolbar 7d) =====
+                // Runs as an independent post-pass: the existing whole-text HL/FX
+                // above have already painted; here we draw a tight-fit geometry
+                // around the single word that's currently being spoken. The
+                // current Graphics2D state still carries the slide-text tilt /
+                // opacity / pulse / shake wrap, so the karaoke decoration moves
+                // with the rest of the text block.
+                if (st.karaokeWordIndex >= 0 && st.karaokeStyle != null
+                        && !"None".equals(st.karaokeStyle)) {
+                    java.util.List<java.util.List<int[]>> kSeg =
+                            computeWordIndexSegment(stWrappedLines, st.karaokeWordIndex);
+                    if (kSeg != null) {
+                        int kBaselineY0 = stCenterY - totalTextHeight / 2 + stAscent;
+                        for (int li = 0; li < kSeg.size(); li++) {
+                            java.util.List<int[]> segs = kSeg.get(li);
+                            if (segs.isEmpty()) continue;
+                            String kline = stWrappedLines.get(li);
+                            int klineW = stFm.stringWidth(kline);
+                            int klineX;
+                            if (st.alignment == SwingConstants.LEFT) {
+                                klineX = stAlignLeft;
+                            } else if (st.alignment == SwingConstants.RIGHT) {
+                                klineX = stAlignLeft + stAlignWidth - klineW;
+                            } else {
+                                klineX = stCenterX - klineW / 2;
+                            }
+                            int kBaselineY = kBaselineY0 + li * stLineHeight;
+                            java.awt.font.TextLayout kLayout = kline.isEmpty() ? null
+                                    : new java.awt.font.TextLayout(kline, stFont, g.getFontRenderContext());
+                            for (int[] seg : segs) {
+                                int sCol = seg[0], eCol = seg[1];
+                                int wX, wW;
+                                if (kLayout != null) {
+                                    java.awt.Shape shp = kLayout.getLogicalHighlightShape(sCol, eCol);
+                                    java.awt.geom.Rectangle2D b = shp.getBounds2D();
+                                    wX = klineX + (int) Math.floor(b.getX());
+                                    wW = (int) Math.ceil(b.getWidth());
+                                } else {
+                                    wX = klineX + stFm.stringWidth(kline.substring(0, sCol));
+                                    wW = stFm.stringWidth(kline.substring(sCol, eCol));
+                                }
+                                drawKaraokeWordEffect(g, st.karaokeStyle,
+                                        st.karaokeColor != null ? st.karaokeColor : DEFAULT_KARAOKE_COLOR,
+                                        wX, kBaselineY, wW, stAscent, stFm.getDescent(),
+                                        kline.substring(sCol, eCol), stFont, stScaleFactor);
+                            }
+                        }
+                    }
+                }
+
                 // Reverse the tilt + opacity wrap before the animation translate is
                 // reversed, so the absolute matrix returns to its pre-text state.
                 if (transformWrapApplied) {
@@ -6152,6 +6208,92 @@ public class GifSlideShowApp extends JFrame {
      * Lines are joined with a single space because wrapTextStatic only breaks at
      * whitespace, so the joined string mirrors what the user reads.
      */
+    /** Draw a per-word karaoke effect tightly fitted to the word's bounding box.
+     *  Independent of the whole-text HL/FX — the existing toolbar-7b controls
+     *  paint first, then this overlay sits on top of just the spoken word.
+     *  @param baselineY pixel y of the text baseline for this line
+     *  @param ascent    font ascent (top of the word = baselineY − ascent)
+     *  @param descent   font descent (bottom of the word = baselineY + descent) */
+    private static void drawKaraokeWordEffect(Graphics2D g, String style, Color color,
+                                              int x, int baselineY, int w,
+                                              int ascent, int descent,
+                                              String word, Font font, float scale) {
+        if (color == null) color = DEFAULT_KARAOKE_COLOR;
+        Graphics2D g2 = (Graphics2D) g.create();
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_LCD_HRGB);
+
+        int padX = Math.max(2, (int)(3 * scale));
+        int padY = Math.max(1, (int)(2 * scale));
+        int top = baselineY - ascent;
+        int height = ascent + descent;
+        int rx = x - padX, ry = top - padY, rw = w + padX * 2, rh = height + padY * 2;
+        int arc = Math.max(4, (int)(6 * scale));
+
+        switch (style) {
+            case "Box": {
+                float sw = Math.max(1.4f, 1.8f * scale);
+                g2.setStroke(new BasicStroke(sw, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2.setColor(color);
+                g2.drawRoundRect(rx, ry, rw, rh, arc, arc);
+                break;
+            }
+            case "Background": {
+                g2.setColor(color);
+                g2.fillRoundRect(rx, ry, rw, rh, arc, arc);
+                break;
+            }
+            case "Underline": {
+                int ulY = baselineY + Math.max(2, (int)(3 * scale));
+                float sw = Math.max(2f, 2.6f * scale);
+                g2.setStroke(new BasicStroke(sw, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2.setColor(color);
+                g2.drawLine(x, ulY, x + w, ulY);
+                break;
+            }
+            case "Color": {
+                g2.setFont(font);
+                g2.setColor(color);
+                g2.drawString(word, x, baselineY);
+                break;
+            }
+            case "Glow": {
+                for (int gl = 4; gl >= 1; gl--) {
+                    int alpha = Math.max(15, (int)(color.getAlpha() * 0.35 / gl));
+                    g2.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha));
+                    float sw = Math.max(2f, gl * 2.0f * scale);
+                    g2.setStroke(new BasicStroke(sw, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    int expand = (int)(gl * 1.5f * scale);
+                    g2.drawRoundRect(rx - expand, ry - expand,
+                            rw + 2 * expand, rh + 2 * expand,
+                            arc + expand, arc + expand);
+                }
+                break;
+            }
+            case "Bold": {
+                Font bf = font.deriveFont(font.getStyle() | Font.BOLD);
+                g2.setFont(bf);
+                g2.setColor(color);
+                g2.drawString(word, x, baselineY);
+                break;
+            }
+            case "Scale": {
+                float k = 1.15f;
+                Font bigger = font.deriveFont(font.getSize2D() * k);
+                g2.setFont(bigger);
+                FontMetrics bfm = g2.getFontMetrics();
+                int bw = bfm.stringWidth(word);
+                int cx = x + w / 2;
+                int cy = baselineY + (int)((bfm.getAscent() - ascent) * 0.5);
+                g2.setColor(color);
+                g2.drawString(word, cx - bw / 2, cy);
+                break;
+            }
+            default: /* "None" or unknown — no-op */ break;
+        }
+        g2.dispose();
+    }
+
     /** Segments for the Nth word (0-based, whitespace-separated) across wrapped
      *  lines. Returns the same structure as {@link #computeWrapSegments} but
      *  with at most a single segment, located by position rather than by string
@@ -6619,6 +6761,8 @@ public class GifSlideShowApp extends JFrame {
             slides.get(slides.size() - 1).slideNumberEffect = row.getSlideNumberEffect();
             slides.get(slides.size() - 1).sourceVideoVolume = row.getSourceVideoVolume();
             slides.get(slides.size() - 1).audioWordTimings = row.getSlideAudioWordTimingsList();
+            slides.get(slides.size() - 1).audioKaraokeStyle = row.getSlideAudioKaraokeStyleList();
+            slides.get(slides.size() - 1).audioKaraokeColor = row.getSlideAudioKaraokeColorList();
         }
         if (slides.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Add at least one slide.", "No Slides", JOptionPane.WARNING_MESSAGE);
@@ -7572,7 +7716,9 @@ public class GifSlideShowApp extends JFrame {
                                                     segFrame,
                                                     hlGlowSizeAt(s.audioGlowSize, activeIdx),
                                                     wordTimingsAt(s.audioWordTimings, activeIdx),
-                                                    elapsedMs - segStartMs);
+                                                    elapsedMs - segStartMs,
+                                                    karaokeStyleAt(s.audioKaraokeStyle, activeIdx),
+                                                    karaokeColorAt(s.audioKaraokeColor, activeIdx));
                                             BufferedImage frame = renderFrame(
                                                     s.image, s.text, s.fontName, s.fontSize,
                                                     s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -7996,7 +8142,9 @@ public class GifSlideShowApp extends JFrame {
                                                     segFrame,
                                                     hlGlowSizeAt(s.audioGlowSize, activeIdx),
                                                     wordTimingsAt(s.audioWordTimings, activeIdx),
-                                                    elapsedMs - segStartMs);
+                                                    elapsedMs - segStartMs,
+                                                    karaokeStyleAt(s.audioKaraokeStyle, activeIdx),
+                                                    karaokeColorAt(s.audioKaraokeColor, activeIdx));
                                             BufferedImage frame = renderFrame(
                                                     s.image, s.text, s.fontName, s.fontSize,
                                                     s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -8163,7 +8311,9 @@ public class GifSlideShowApp extends JFrame {
                                                             segFrame,
                                                             hlGlowSizeAt(s.audioGlowSize, activeIdx),
                                                             wordTimingsAt(s.audioWordTimings, activeIdx),
-                                                            elapsedMs - segStartMs);
+                                                            elapsedMs - segStartMs,
+                                                            karaokeStyleAt(s.audioKaraokeStyle, activeIdx),
+                                                            karaokeColorAt(s.audioKaraokeColor, activeIdx));
                                                 }
                                             }
                                             BufferedImage frame = renderFrame(
@@ -9373,7 +9523,9 @@ public class GifSlideShowApp extends JFrame {
                                                 segFrame,
                                                 hlGlowSizeAt(s.audioGlowSize, activeIdx),
                                                 wordTimingsAt(s.audioWordTimings, activeIdx),
-                                                elapsedMs - segStartMs);
+                                                elapsedMs - segStartMs,
+                                                karaokeStyleAt(s.audioKaraokeStyle, activeIdx),
+                                                karaokeColorAt(s.audioKaraokeColor, activeIdx));
                                         BufferedImage frame = renderFrame(
                                                 s.image, s.text, s.fontName, s.fontSize,
                                                 s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -9437,7 +9589,9 @@ public class GifSlideShowApp extends JFrame {
                                                         segFrame,
                                                         hlGlowSizeAt(s.audioGlowSize, activeIdx),
                                                         wordTimingsAt(s.audioWordTimings, activeIdx),
-                                                        elapsedMs - segStartMs);
+                                                        elapsedMs - segStartMs,
+                                                        karaokeStyleAt(s.audioKaraokeStyle, activeIdx),
+                                                        karaokeColorAt(s.audioKaraokeColor, activeIdx));
                                             }
                                         }
                                         BufferedImage frame = renderFrame(
@@ -11348,27 +11502,36 @@ public class GifSlideShowApp extends JFrame {
     private static List<SlideTextData> applyActiveTextHighlight(
             List<SlideTextData> origTexts, int activeIndex,
             Color hlColor, String effects, int animFrame) {
-        return applyActiveTextHighlight(origTexts, activeIndex, hlColor, effects, animFrame, 7, null, -1);
+        return applyActiveTextHighlight(origTexts, activeIndex, hlColor, effects, animFrame, 7, null, -1, null, null);
     }
 
     private static List<SlideTextData> applyActiveTextHighlight(
             List<SlideTextData> origTexts, int activeIndex,
             Color hlColor, String effects, int animFrame, int glowSize) {
-        return applyActiveTextHighlight(origTexts, activeIndex, hlColor, effects, animFrame, glowSize, null, -1);
+        return applyActiveTextHighlight(origTexts, activeIndex, hlColor, effects, animFrame, glowSize, null, -1, null, null);
+    }
+
+    private static List<SlideTextData> applyActiveTextHighlight(
+            List<SlideTextData> origTexts, int activeIndex,
+            Color hlColor, String effects, int animFrame, int glowSize,
+            List<WordTiming> wordTimings, long segElapsedMs) {
+        return applyActiveTextHighlight(origTexts, activeIndex, hlColor, effects, animFrame, glowSize, wordTimings, segElapsedMs, null, null);
     }
 
     /**
      * Karaoke-aware overload. When {@code wordTimings} is non-null and a word's
      * time range contains {@code segElapsedMs / 1000}, the resulting active
-     * SlideTextData has {@code karaokeWordIndex} set so the renderer highlights
-     * just that word instead of the whole-text glow. Pass {@code wordTimings =
-     * null} (or {@code segElapsedMs &lt; 0}) to disable karaoke and fall back to
-     * the existing per-segment behavior.
+     * SlideTextData has {@code karaokeWordIndex} set so the renderer can draw
+     * a per-word effect over the active word as an independent post-pass. The
+     * existing whole-text HL/FX on toolbar 7b are NOT modified by karaoke.
+     * {@code karaokeStyle} / {@code karaokeColor} are the toolbar-7d settings
+     * for the active text row (defaults: "Box" / yellow).
      */
     private static List<SlideTextData> applyActiveTextHighlight(
             List<SlideTextData> origTexts, int activeIndex,
             Color hlColor, String effects, int animFrame, int glowSize,
-            List<WordTiming> wordTimings, long segElapsedMs) {
+            List<WordTiming> wordTimings, long segElapsedMs,
+            String karaokeStyle, Color karaokeColor) {
         if (activeIndex < 0 || origTexts == null || origTexts.isEmpty()) return origTexts;
         java.util.Set<String> fx = new java.util.HashSet<>();
         boolean explicitNone = false;
@@ -11393,35 +11556,28 @@ public class GifSlideShowApp extends JFrame {
                 String allText = st.text.replace("\n", ",").replace("\r", "");
 
                 // Karaoke: when this row has per-word timings AND the current
-                // segment-relative time lands inside a word's [start, end), narrow
-                // the highlight to that one word instead of the whole text. The
-                // returned SlideTextData carries `karaokeWordIndex` so the renderer
-                // can target only that position (not every occurrence of the word).
+                // segment-relative time lands inside a word's [start, end), record
+                // which word position is active. We do NOT touch the existing FX
+                // (Glow / Underline / Color / Box / Bold / Shake / Pulse / Others)
+                // — they keep operating on the whole active text exactly as before.
+                // The karaoke word effect is rendered as an independent post-pass
+                // configured via toolbar 7d (karaokeStyle / karaokeColor).
                 int karaokeIdx = -1;
-                String karaokeActiveWord = null;
                 if (wordTimings != null && !wordTimings.isEmpty() && segElapsedMs >= 0) {
                     double t = segElapsedMs / 1000.0;
                     for (int wi = 0; wi < wordTimings.size(); wi++) {
                         WordTiming wt = wordTimings.get(wi);
                         if (wt != null && t >= wt.startSec && t < wt.endSec) {
                             karaokeIdx = wi;
-                            karaokeActiveWord = wt.word;
                             break;
                         }
                     }
                 }
-                boolean karaokeActive = karaokeIdx >= 0;
 
-                // Glow: highlight all text with glow style + boost highlight layers.
-                // Karaoke overrides the highlight TEXT (so a single word lights up)
-                // while preserving the user's chosen highlight color/style — that
-                // way Glow / underline / color all keep working at the word level.
-                String useHlText = karaokeActive ? karaokeActiveWord
-                        : (fx.contains("Glow") ? allText : st.highlightText);
-                Color useHlColor = (fx.contains("Glow") || karaokeActive) ? hlColor : st.highlightColor;
-                String useHlStyle = fx.contains("Glow") ? ("Glow:" + glowSize)
-                        : (karaokeActive && (st.highlightStyle == null || st.highlightStyle.isEmpty())
-                                ? ("Glow:" + glowSize) : st.highlightStyle);
+                // Glow: highlight all text with glow style + boost highlight layers
+                String useHlText = fx.contains("Glow") ? allText : st.highlightText;
+                Color useHlColor = fx.contains("Glow") ? hlColor : st.highlightColor;
+                String useHlStyle = fx.contains("Glow") ? ("Glow:" + glowSize) : st.highlightStyle;
 
                 // Enlarge: modify font size (this WILL re-wrap, which is intentional
                 // for Enlarge — the user expects bigger boxes). Pulse is handled below
@@ -11619,6 +11775,8 @@ public class GifSlideShowApp extends JFrame {
                 hl.audioOtherTiltDeg = otherTilt;
                 hl.audioOtherLightEffects = lightSb.toString();
                 hl.karaokeWordIndex = karaokeIdx;
+                if (karaokeStyle != null && !karaokeStyle.isEmpty()) hl.karaokeStyle = karaokeStyle;
+                if (karaokeColor != null) hl.karaokeColor = karaokeColor;
                 result.add(hl);
             } else {
                 result.add(st);
@@ -11632,6 +11790,16 @@ public class GifSlideShowApp extends JFrame {
     private static List<WordTiming> wordTimingsAt(List<List<WordTiming>> list, int idx) {
         if (list == null || idx < 0 || idx >= list.size()) return null;
         return list.get(idx);
+    }
+    private static String karaokeStyleAt(List<String> list, int idx) {
+        if (list == null || idx < 0 || idx >= list.size()) return DEFAULT_KARAOKE_STYLE;
+        String s = list.get(idx);
+        return (s == null || s.isEmpty()) ? DEFAULT_KARAOKE_STYLE : s;
+    }
+    private static Color karaokeColorAt(List<Color> list, int idx) {
+        if (list == null || idx < 0 || idx >= list.size()) return DEFAULT_KARAOKE_COLOR;
+        Color c = list.get(idx);
+        return c != null ? c : DEFAULT_KARAOKE_COLOR;
     }
 
     /**
@@ -11808,7 +11976,9 @@ public class GifSlideShowApp extends JFrame {
                             segFrame,
                             hlGlowSizeAt(s.audioGlowSize, activeIdx),
                             wordTimingsAt(s.audioWordTimings, activeIdx),
-                            elapsedMs - segStartMs);
+                            elapsedMs - segStartMs,
+                            karaokeStyleAt(s.audioKaraokeStyle, activeIdx),
+                            karaokeColorAt(s.audioKaraokeColor, activeIdx));
                 }
             }
             BufferedImage img = renderFrame(
@@ -11926,6 +12096,15 @@ public class GifSlideShowApp extends JFrame {
     };
 
     static final String[] HIGHLIGHT_STYLES = { "Regular", "Brush", "Brush2", "Pill", "Gradient", "Glow", "Box", "Circle", "Scribble", "Sketch", "Sketch Bold", "Ink", "Strikethrough", "Tag", "Speech Bubble", "Marker" };
+
+    /** Per-word effects available on toolbar 7d. Each style is rendered as a
+     *  geometry tightly fitted to the active word's bounding box, independent
+     *  of the existing whole-text HL/FX on toolbar 7b. */
+    static final String[] KARAOKE_STYLES = {
+            "None", "Box", "Background", "Underline", "Color", "Glow", "Bold", "Scale"
+    };
+    static final String DEFAULT_KARAOKE_STYLE = "Box";
+    static final Color  DEFAULT_KARAOKE_COLOR = new Color(255, 220, 0, 220);
     static final String[] UNDERLINE_STYLES = { "None", "Straight", "Wavy", "Double", "Dotted", "Dashed", "Thick", "Zigzag" };
 
     static class SlideTextData {
@@ -11998,9 +12177,18 @@ public class GifSlideShowApp extends JFrame {
         String audioOtherLightEffects = "";
         // Karaoke: index of the source-text word that should be highlighted on this
         // frame (computed each frame from per-word audio timings), or -1 when no
-        // word is active. The renderer overrides the regular highlight segment
-        // computation with a position-based one so repeated words don't all light up.
+        // word is active. Rendered as a SEPARATE post-pass on top of the normal
+        // text + HL/FX so the existing toolbar 7b (HL color / Glow / Big / Bold /
+        // UL / Clr / Shake / Pulse / Others) keeps its full-text semantics and is
+        // not touched by the karaoke layer.
         int karaokeWordIndex = -1;
+        // Per-word effect style chosen on toolbar 7d (None / Box / Background /
+        // Underline / Color / Glow / Bold / Scale). "None" means "timings are
+        // captured but draw nothing" so the user can A/B with karaoke off.
+        String karaokeStyle = "Box";
+        // Color used by the karaoke post-pass (border / fill / recolor / glow).
+        // Independent of the audio-HL color so users can mix the two.
+        Color karaokeColor = new Color(255, 220, 0, 220);
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
                       int fontStyle, Color color, int x, int y, int bgOpacity,
@@ -12602,6 +12790,11 @@ public class GifSlideShowApp extends JFrame {
         // text row has no per-word highlighting; the renderer falls back to its
         // existing whole-text highlight behavior.
         List<List<WordTiming>> audioWordTimings;
+        // Per-text-row karaoke effect style + color (toolbar 7d). Parallel to
+        // audioFiles. Independent of audioHl* — the karaoke post-pass reads
+        // these regardless of what the existing audio-HL FX are doing.
+        List<String> audioKaraokeStyle;
+        List<Color>  audioKaraokeColor;
         // Quiz config snapshot (timer + reveal). Set externally after construction
         // so we don't have to thread another arg through the giant ctor.
         QuizSlide quiz;
@@ -12834,10 +13027,17 @@ public class GifSlideShowApp extends JFrame {
         // button (ElevenLabs Scribe) or auto-loaded from the audio file's
         // .timings sidecar when an audio file is assigned to a text row.
         private final java.util.Map<Integer, List<WordTiming>> slideAudioWordTimingsMap = new java.util.HashMap<>();
+        // Per-text-row karaoke effect style + color. Independent of audio-HL.
+        private final java.util.Map<Integer, String> slideKaraokeStyleMap = new java.util.HashMap<>();
+        private final java.util.Map<Integer, Color>  slideKaraokeColorMap = new java.util.HashMap<>();
         // toolbar7d (karaoke row) — refreshed whenever currentSlideTextIndex changes.
         private JLabel karaokeStatusLabel;
         private JButton karaokeSyncBtn;
         private JButton karaokeClearBtn;
+        private JComboBox<String> karaokeStyleCombo;
+        private JButton karaokeColorBtn;
+        private Color karaokeColor = new Color(255, 220, 0, 220);
+        private boolean isLoadingKaraoke = false;
         // Suppresses listener-driven write-back during programmatic UI repopulation.
         private boolean isLoadingAudioHl = false;
         private final JButton audioBtn;
@@ -13334,11 +13534,17 @@ public class GifSlideShowApp extends JFrame {
                 slideAudioHlEffectsMap.remove(removedIdx);
                 slideAudioHlColorMap.remove(removedIdx);
                 slideAudioHlGlowSizeMap.remove(removedIdx);
+                slideAudioWordTimingsMap.remove(removedIdx);
+                slideKaraokeStyleMap.remove(removedIdx);
+                slideKaraokeColorMap.remove(removedIdx);
                 java.util.Map<Integer, File> shiftedFiles = new java.util.HashMap<>();
                 java.util.Map<Integer, Integer> shiftedDurations = new java.util.HashMap<>();
                 java.util.Map<Integer, String>  shiftedHlEffects = new java.util.HashMap<>();
                 java.util.Map<Integer, Color>   shiftedHlColor   = new java.util.HashMap<>();
                 java.util.Map<Integer, Integer> shiftedHlGlow    = new java.util.HashMap<>();
+                java.util.Map<Integer, List<WordTiming>> shiftedKaraokeTimings = new java.util.HashMap<>();
+                java.util.Map<Integer, String> shiftedKaraokeStyle = new java.util.HashMap<>();
+                java.util.Map<Integer, Color>  shiftedKaraokeColor = new java.util.HashMap<>();
                 for (java.util.Map.Entry<Integer, File> entry : slideAudioFiles.entrySet()) {
                     int key = entry.getKey();
                     shiftedFiles.put(key > removedIdx ? key - 1 : key, entry.getValue());
@@ -13359,6 +13565,18 @@ public class GifSlideShowApp extends JFrame {
                     int key = entry.getKey();
                     shiftedHlGlow.put(key > removedIdx ? key - 1 : key, entry.getValue());
                 }
+                for (java.util.Map.Entry<Integer, List<WordTiming>> entry : slideAudioWordTimingsMap.entrySet()) {
+                    int key = entry.getKey();
+                    shiftedKaraokeTimings.put(key > removedIdx ? key - 1 : key, entry.getValue());
+                }
+                for (java.util.Map.Entry<Integer, String> entry : slideKaraokeStyleMap.entrySet()) {
+                    int key = entry.getKey();
+                    shiftedKaraokeStyle.put(key > removedIdx ? key - 1 : key, entry.getValue());
+                }
+                for (java.util.Map.Entry<Integer, Color> entry : slideKaraokeColorMap.entrySet()) {
+                    int key = entry.getKey();
+                    shiftedKaraokeColor.put(key > removedIdx ? key - 1 : key, entry.getValue());
+                }
                 slideAudioFiles.clear();
                 slideAudioFiles.putAll(shiftedFiles);
                 slideAudioDurationsMs.clear();
@@ -13369,6 +13587,12 @@ public class GifSlideShowApp extends JFrame {
                 slideAudioHlColorMap.putAll(shiftedHlColor);
                 slideAudioHlGlowSizeMap.clear();
                 slideAudioHlGlowSizeMap.putAll(shiftedHlGlow);
+                slideAudioWordTimingsMap.clear();
+                slideAudioWordTimingsMap.putAll(shiftedKaraokeTimings);
+                slideKaraokeStyleMap.clear();
+                slideKaraokeStyleMap.putAll(shiftedKaraokeStyle);
+                slideKaraokeColorMap.clear();
+                slideKaraokeColorMap.putAll(shiftedKaraokeColor);
                 if (currentSlideTextIndex >= slideTextItems.size()) {
                     currentSlideTextIndex = slideTextItems.size() - 1;
                 }
@@ -14616,10 +14840,44 @@ public class GifSlideShowApp extends JFrame {
             karaokeClearBtn.setToolTipText("Discard the word timings for this text row");
             karaokeClearBtn.addActionListener(e -> clearKaraokeForCurrent());
 
+            // Per-word effect chooser — totally independent of toolbar 7b's HL/FX.
+            // These effects "fit the word exactly", i.e. their geometry is sized
+            // to the word's bounding box rather than the whole text block.
+            JLabel karaokeFxLbl = styledLabel("Word FX:");
+            karaokeFxLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            karaokeFxLbl.setForeground(new Color(120, 220, 200));
+
+            karaokeStyleCombo = new JComboBox<>(KARAOKE_STYLES);
+            karaokeStyleCombo.setPreferredSize(new Dimension(110, 24));
+            karaokeStyleCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            karaokeStyleCombo.setToolTipText("Per-word effect rendered on the active spoken word (tight-fit to the word's bounding box)");
+            karaokeStyleCombo.setSelectedItem("Box");
+            karaokeStyleCombo.addActionListener(e -> onKaraokeUiChanged());
+
+            karaokeColorBtn = new JButton();
+            karaokeColorBtn.setPreferredSize(new Dimension(28, 24));
+            karaokeColorBtn.setBackground(karaokeColor);
+            karaokeColorBtn.setBorder(BorderFactory.createLineBorder(new Color(120, 180, 180), 1));
+            karaokeColorBtn.setFocusPainted(false);
+            karaokeColorBtn.setToolTipText("Color of the per-word effect (with alpha)");
+            karaokeColorBtn.addActionListener(e -> {
+                Color c = JColorChooser.showDialog(panel, "Karaoke word color",
+                        new Color(karaokeColor.getRed(), karaokeColor.getGreen(), karaokeColor.getBlue()));
+                if (c != null) {
+                    karaokeColor = new Color(c.getRed(), c.getGreen(), c.getBlue(), karaokeColor.getAlpha());
+                    karaokeColorBtn.setBackground(karaokeColor);
+                    onKaraokeUiChanged();
+                }
+            });
+
             toolbar7d.add(karaokeLbl);
             toolbar7d.add(karaokeSyncBtn);
             toolbar7d.add(karaokeStatusLabel);
             toolbar7d.add(karaokeClearBtn);
+            toolbar7d.add(new JLabel("   "));
+            toolbar7d.add(karaokeFxLbl);
+            toolbar7d.add(karaokeStyleCombo);
+            toolbar7d.add(karaokeColorBtn);
 
             // ===== Toolbar Row 7c: Quiz Timer Style + Position =====
             JPanel toolbar7c = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
@@ -15453,7 +15711,9 @@ public class GifSlideShowApp extends JFrame {
                              double audioGapSeconds,
                              List<Color> audioHlColorList,
                              List<String> audioHlEffectsList,
-                             List<Integer> audioGlowSizeList) {
+                             List<Integer> audioGlowSizeList,
+                             List<String> karaokeStyleList,
+                             List<Color>  karaokeColorList) {
             fontCombo.setSelectedItem(fontName);
             sizeSpinner.setValue(fontSize);
             boldBtn.setSelected((fontStyle & Font.BOLD) != 0);
@@ -15541,8 +15801,11 @@ public class GifSlideShowApp extends JFrame {
             // For each of THIS row's text indices, take master's matching index;
             // if master has fewer text rows, fall back to master[0] (or default).
             applyAudioHlListsFromMaster(audioHlColorList, audioHlEffectsList, audioGlowSizeList);
+            // Same pattern for the karaoke (toolbar 7d) per-row settings.
+            applyKaraokeListsFromMaster(karaokeStyleList, karaokeColorList);
             // Repaint the toolbar from the (now updated) map for the visible text.
             loadAudioHlForCurrentText();
+            refreshKaraokeStatus();
 
             updateTextAreaStyle();
             schedulePreview();
@@ -15918,7 +16181,9 @@ public class GifSlideShowApp extends JFrame {
         }
 
         /** Update the toolbar7d "(N words)" / "(no audio)" / "(not synced)" label
-         *  for the currently-selected text row. Also enables/disables the buttons. */
+         *  for the currently-selected text row. Also enables/disables the buttons
+         *  and re-binds the Word FX combo / color button to whatever was stored
+         *  for the now-active text row. */
         private void refreshKaraokeStatus() {
             if (karaokeStatusLabel == null) return;
             File audio = slideAudioFiles.get(currentSlideTextIndex);
@@ -15939,6 +16204,50 @@ public class GifSlideShowApp extends JFrame {
                 karaokeSyncBtn.setEnabled(true);
                 karaokeClearBtn.setEnabled(true);
             }
+            // Rebind Word FX combo + color button to the per-text-row stored values.
+            isLoadingKaraoke = true;
+            try {
+                String style = slideKaraokeStyleMap.getOrDefault(currentSlideTextIndex, DEFAULT_KARAOKE_STYLE);
+                if (karaokeStyleCombo != null) karaokeStyleCombo.setSelectedItem(style);
+                Color c = slideKaraokeColorMap.getOrDefault(currentSlideTextIndex, DEFAULT_KARAOKE_COLOR);
+                karaokeColor = c;
+                if (karaokeColorBtn != null) karaokeColorBtn.setBackground(c);
+            } finally {
+                isLoadingKaraoke = false;
+            }
+        }
+
+        /** Listener for both the Word FX combo and the karaoke color picker —
+         *  writes back to the per-text-row map and re-renders the preview. */
+        private void onKaraokeUiChanged() {
+            if (isLoadingKaraoke) return;
+            String style = (String) karaokeStyleCombo.getSelectedItem();
+            slideKaraokeStyleMap.put(currentSlideTextIndex, style != null ? style : DEFAULT_KARAOKE_STYLE);
+            slideKaraokeColorMap.put(currentSlideTextIndex, karaokeColor);
+            schedulePreview();
+        }
+
+        /** Parallel to getSlideAudioFilesList() — one entry per text-row's
+         *  karaoke style (defaulting to "Box" so first-time rows render visibly). */
+        java.util.List<String> getSlideAudioKaraokeStyleList() {
+            int maxIdx = -1;
+            for (int k : slideAudioFiles.keySet()) if (k > maxIdx) maxIdx = k;
+            if (maxIdx < 0) return new java.util.ArrayList<>();
+            java.util.List<String> result = new java.util.ArrayList<>();
+            for (int i = 0; i <= maxIdx; i++) {
+                result.add(slideKaraokeStyleMap.getOrDefault(i, DEFAULT_KARAOKE_STYLE));
+            }
+            return result;
+        }
+        java.util.List<Color> getSlideAudioKaraokeColorList() {
+            int maxIdx = -1;
+            for (int k : slideAudioFiles.keySet()) if (k > maxIdx) maxIdx = k;
+            if (maxIdx < 0) return new java.util.ArrayList<>();
+            java.util.List<Color> result = new java.util.ArrayList<>();
+            for (int i = 0; i <= maxIdx; i++) {
+                result.add(slideKaraokeColorMap.getOrDefault(i, DEFAULT_KARAOKE_COLOR));
+            }
+            return result;
         }
 
         private void clearKaraokeForCurrent() {
@@ -16138,6 +16447,22 @@ public class GifSlideShowApp extends JFrame {
                 slideAudioHlColorMap.put(i, pickFromMaster(masterColors,  i, DEFAULT_AUDIO_HL_COLOR));
                 slideAudioHlEffectsMap.put(i, pickFromMaster(masterEffects, i, DEFAULT_AUDIO_HL_EFFECTS));
                 slideAudioHlGlowSizeMap.put(i, pickFromMaster(masterGlow,   i, DEFAULT_AUDIO_GLOW_SIZE));
+            }
+        }
+
+        /** Per-text karaoke (Word FX) propagation from the master slide. Mirrors
+         *  applyAudioHlListsFromMaster — replaces this row's maps with master[i]
+         *  when present, otherwise master[0], otherwise the static default. The
+         *  per-row word-timing data itself is NOT broadcast (it belongs to the
+         *  audio file on disk, which is row-local). */
+        private void applyKaraokeListsFromMaster(java.util.List<String> masterStyles,
+                                                 java.util.List<Color>  masterColors) {
+            int n = slideTextItems.size();
+            slideKaraokeStyleMap.clear();
+            slideKaraokeColorMap.clear();
+            for (int i = 0; i < n; i++) {
+                slideKaraokeStyleMap.put(i, pickFromMaster(masterStyles, i, DEFAULT_KARAOKE_STYLE));
+                slideKaraokeColorMap.put(i, pickFromMaster(masterColors, i, DEFAULT_KARAOKE_COLOR));
             }
         }
 
