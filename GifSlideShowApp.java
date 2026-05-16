@@ -12488,6 +12488,111 @@ public class GifSlideShowApp extends JFrame {
         }
     }
 
+    /** Re-bucket Scribe's raw word timings so index i corresponds to the i-th
+     *  whitespace-separated token of the hint text — which is exactly what the
+     *  renderer's computeWordIndexSegment counts. Scribe's tokenization diverges
+     *  from the visible text in two routine ways: it splits contractions
+     *  ("it's" → "it" + "'s"), emits punctuation as its own word entry, and may
+     *  include audio-event entries; conversely it can also drop words it didn't
+     *  hear. Either way the bare Scribe index points at the wrong visible word
+     *  and the highlight appears to skip. We walk both streams of letter/digit
+     *  characters in parallel, attributing each Scribe entry's [start, end] to
+     *  the visible token its chars land on. Visible tokens with no matched
+     *  Scribe chars (e.g., a word Scribe missed, or punctuation-only tokens)
+     *  inherit a window interpolated from their neighbours so the highlight
+     *  still passes through. If the hint and Scribe diverge too far for the
+     *  alignment to be meaningful, the original timings are returned unchanged.
+     */
+    static List<WordTiming> alignTimingsToText(List<WordTiming> scribe, String hintText) {
+        if (scribe == null || scribe.isEmpty() || hintText == null) return scribe;
+        String trimmed = hintText.trim();
+        if (trimmed.isEmpty()) return scribe;
+        String[] tokens = trimmed.split("\\s+");
+
+        String[] tnorm = new String[tokens.length];
+        int totalChars = 0;
+        for (int i = 0; i < tokens.length; i++) {
+            tnorm[i] = normalizeWordForAlign(tokens[i]);
+            totalChars += tnorm[i].length();
+        }
+        if (totalChars == 0) return scribe;
+
+        int[] charToToken = new int[totalChars];
+        StringBuilder hintNormBuf = new StringBuilder(totalChars);
+        int p = 0;
+        for (int i = 0; i < tokens.length; i++) {
+            for (int k = 0; k < tnorm[i].length(); k++) charToToken[p + k] = i;
+            hintNormBuf.append(tnorm[i]);
+            p += tnorm[i].length();
+        }
+        String hintNorm = hintNormBuf.toString();
+
+        double[] minStart = new double[tokens.length];
+        double[] maxEnd   = new double[tokens.length];
+        java.util.Arrays.fill(minStart, Double.POSITIVE_INFINITY);
+        java.util.Arrays.fill(maxEnd,   Double.NEGATIVE_INFINITY);
+
+        int hintPos = 0;
+        int matchedChars = 0;
+        final int LOOK_AHEAD = 8;
+        for (WordTiming sw : scribe) {
+            if (sw == null) continue;
+            String w = normalizeWordForAlign(sw.word);
+            if (w.isEmpty()) continue;
+            int wi = 0;
+            while (wi < w.length() && hintPos < hintNorm.length()) {
+                if (hintNorm.charAt(hintPos) == w.charAt(wi)) {
+                    int tok = charToToken[hintPos];
+                    if (sw.startSec < minStart[tok]) minStart[tok] = sw.startSec;
+                    if (sw.endSec   > maxEnd[tok])   maxEnd[tok]   = sw.endSec;
+                    hintPos++; wi++;
+                    matchedChars++;
+                } else {
+                    int max = Math.min(LOOK_AHEAD, hintNorm.length() - hintPos);
+                    int look = 1;
+                    boolean found = false;
+                    for (; look < max; look++) {
+                        if (hintNorm.charAt(hintPos + look) == w.charAt(wi)) { found = true; break; }
+                    }
+                    if (found) hintPos += look;   // skip hint chars Scribe didn't transcribe
+                    else wi++;                    // skip Scribe char hint doesn't have
+                }
+            }
+        }
+
+        if (matchedChars < Math.max(1, hintNorm.length() / 4)) return scribe;
+
+        List<WordTiming> out = new ArrayList<>(tokens.length);
+        for (int i = 0; i < tokens.length; i++) {
+            double s = minStart[i], e = maxEnd[i];
+            if (s == Double.POSITIVE_INFINITY) {
+                double prev = Double.NEGATIVE_INFINITY;
+                for (int j = i - 1; j >= 0; j--)
+                    if (maxEnd[j] != Double.NEGATIVE_INFINITY) { prev = maxEnd[j]; break; }
+                double next = Double.POSITIVE_INFINITY;
+                for (int j = i + 1; j < tokens.length; j++)
+                    if (minStart[j] != Double.POSITIVE_INFINITY) { next = minStart[j]; break; }
+                if (prev != Double.NEGATIVE_INFINITY && next != Double.POSITIVE_INFINITY) { s = prev; e = next; }
+                else if (prev != Double.NEGATIVE_INFINITY) { s = prev; e = prev + 0.15; }
+                else if (next != Double.POSITIVE_INFINITY) { s = Math.max(0, next - 0.15); e = next; }
+                else { s = 0; e = 0.05; }
+            }
+            if (e <= s) e = s + 0.05;
+            out.add(new WordTiming(tokens[i], s, e));
+        }
+        return out;
+    }
+
+    private static String normalizeWordForAlign(String s) {
+        if (s == null) return "";
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (Character.isLetterOrDigit(c)) sb.append(Character.toLowerCase(c));
+        }
+        return sb.toString();
+    }
+
     // ==================== ElevenLabs Scribe (Speech-to-Text) ====================
     /**
      * Calls the ElevenLabs Scribe API to get per-word timestamps for an audio
@@ -16371,6 +16476,7 @@ public class GifSlideShowApp extends JFrame {
                         publish(new Object[] { "progress", i, total, j.language });
                         try {
                             List<WordTiming> r = ElevenLabsScribe.transcribe(j.audio, j.text, j.language);
+                            r = alignTimingsToText(r, j.text);
                             if (r != null && !r.isEmpty()) {
                                 succeeded++;
                                 publish(new Object[] { "result", j, r });
