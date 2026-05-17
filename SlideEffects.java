@@ -112,12 +112,85 @@ final class SlideEffects {
     }
 
     /**
+     * Per-effect frame cache for the heavy motion/grade effects. Long
+     * audio slides produce hundreds of frames where the input frame is
+     * identical (no time-varying effects upstream) and the output changes
+     * imperceptibly between consecutive frames once motion has settled.
+     * The render pipeline is sequential per slide, so static caches are
+     * safe. Cache is invalidated automatically when the input frame hash
+     * changes (e.g., upstream grain/glitch enabled).
+     *
+     * Recompute policy: recompute every frame for the first {@code FAST_T}
+     * frames (motion changes fastest there), then every {@code STRIDE}
+     * frames thereafter.
+     */
+    private static final int FAST_T = 60;
+    private static final int STRIDE = 3;
+
+    private static final class FxCache {
+        int inputHash;
+        int lastT = Integer.MIN_VALUE;
+        int fxOther = -1;
+        int w, h;
+        int[] out;
+    }
+    private static final FxCache KB_CACHE = new FxCache();
+    private static final FxCache HD_CACHE = new FxCache();
+    private static final FxCache GB_CACHE = new FxCache();
+
+    private static boolean tryCacheHit(FxCache c, int inputHash, int fxOther, int W, int H, int t,
+                                       BufferedImage frame) {
+        if (c.out == null || c.w != W || c.h != H) return false;
+        if (c.inputHash != inputHash || c.fxOther != fxOther) return false;
+        int dt = t - c.lastT;
+        if (dt <= 0) return false;
+        boolean fastPhase = (t < FAST_T) || (c.lastT < FAST_T);
+        int allowedStride = fastPhase ? 1 : STRIDE;
+        if (dt >= allowedStride) return false;
+        // Apply cached output to frame.
+        int ft = frame.getType();
+        if (ft == BufferedImage.TYPE_INT_ARGB
+                || ft == BufferedImage.TYPE_INT_RGB
+                || ft == BufferedImage.TYPE_INT_ARGB_PRE) {
+            int[] dst = ((java.awt.image.DataBufferInt) frame.getRaster().getDataBuffer()).getData();
+            System.arraycopy(c.out, 0, dst, 0, c.out.length);
+        } else {
+            frame.setRGB(0, 0, W, H, c.out, 0, W);
+        }
+        return true;
+    }
+
+    private static void storeCache(FxCache c, int inputHash, int fxOther, int W, int H, int t,
+                                   BufferedImage frame) {
+        if (c.out == null || c.w != W || c.h != H) {
+            c.out = new int[W * H];
+            c.w = W;
+            c.h = H;
+        }
+        int ft = frame.getType();
+        if (ft == BufferedImage.TYPE_INT_ARGB
+                || ft == BufferedImage.TYPE_INT_RGB
+                || ft == BufferedImage.TYPE_INT_ARGB_PRE) {
+            int[] dst = ((java.awt.image.DataBufferInt) frame.getRaster().getDataBuffer()).getData();
+            System.arraycopy(dst, 0, c.out, 0, dst.length);
+        } else {
+            frame.getRGB(0, 0, W, H, c.out, 0, W);
+        }
+        c.inputHash = inputHash;
+        c.fxOther = fxOther;
+        c.lastT = t;
+    }
+
+    /**
      * Ken Burns: slow zoom-in combined with a gentle pan whose direction
      * varies per slide. Asymptotic ease keeps both zoom and pan smoothly
      * progressing toward their maxima. Pan amplitude is bounded by the
      * scaled-up extra pixels so the frame edge is never revealed.
      */
     private static void applyKenBurns(BufferedImage frame, int W, int H, int fxOther, int t) {
+        int inputHash = slideSeed(frame, W, H);
+        if (tryCacheHit(KB_CACHE, inputHash, fxOther, W, H, t, frame)) return;
+
         // Max zoom: intensity 100 -> +50% (1.5x). Tasteful upper bound.
         double maxAdd = (fxOther / 100.0) * 0.5;
         // Asymptotic ease: progress = t / (t + halfLife). Reaches half of
@@ -157,6 +230,8 @@ final class SlideEffects {
         g.setComposite(AlphaComposite.Src);
         g.drawImage(src, offX, offY, newW, newH, null);
         g.dispose();
+
+        storeCache(KB_CACHE, inputHash, fxOther, W, H, t, frame);
     }
 
     /**
@@ -169,6 +244,8 @@ final class SlideEffects {
         double strength = fxOther / 100.0;
 
         int seed = slideSeed(frame, W, H);
+        if (tryCacheHit(HD_CACHE, seed, fxOther, W, H, t, frame)) return;
+
         double phaseX = prand(seed, 1) * Math.PI * 2.0;
         double phaseY = prand(seed, 2) * Math.PI * 2.0;
         double phaseR = prand(seed, 3) * Math.PI * 2.0;
@@ -207,6 +284,8 @@ final class SlideEffects {
         g.translate(-W / 2.0, -H / 2.0);
         g.drawImage(src, 0, 0, null);
         g.dispose();
+
+        storeCache(HD_CACHE, seed, fxOther, W, H, t, frame);
     }
 
     /**
@@ -219,6 +298,8 @@ final class SlideEffects {
         double strength = fxOther / 100.0;
 
         int seed = slideSeed(frame, W, H);
+        if (tryCacheHit(GB_CACHE, seed, fxOther, W, H, t, frame)) return;
+
         double phaseW = prand(seed, 1) * Math.PI * 2.0;
         double phaseV = prand(seed, 2) * Math.PI * 2.0;
 
@@ -290,6 +371,8 @@ final class SlideEffects {
         if (!direct) {
             frame.setRGB(0, 0, W, H, pixels, 0, W);
         }
+
+        storeCache(GB_CACHE, seed, fxOther, W, H, t, frame);
     }
 
     /**
