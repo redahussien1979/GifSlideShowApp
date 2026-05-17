@@ -141,16 +141,19 @@ final class SlideEffects {
         int offX = (W - newW) / 2 + (int) panX;
         int offY = (H - newH) / 2 + (int) panY;
 
-        int[] pixels = new int[W * H];
-        frame.getRGB(0, 0, W, H, pixels, 0, W);
+        // Snapshot via Graphics2D blit (avoids int[] round-trip through
+        // getRGB/setRGB on managed images).
         BufferedImage src = new BufferedImage(W, H, BufferedImage.TYPE_INT_ARGB);
-        src.setRGB(0, 0, W, H, pixels, 0, W);
+        Graphics2D sg = src.createGraphics();
+        sg.setComposite(AlphaComposite.Src);
+        sg.drawImage(frame, 0, 0, null);
+        sg.dispose();
 
         Graphics2D g = frame.createGraphics();
+        // Bilinear is ~3x faster than bicubic and visually indistinguishable
+        // for the slow uniform zoom this effect produces.
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
-                RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-        g.setRenderingHint(RenderingHints.KEY_RENDERING,
-                RenderingHints.VALUE_RENDER_QUALITY);
+                RenderingHints.VALUE_INTERPOLATION_BILINEAR);
         g.setComposite(AlphaComposite.Src);
         g.drawImage(src, offX, offY, newW, newH, null);
         g.dispose();
@@ -184,10 +187,12 @@ final class SlideEffects {
 
         if (Math.abs(tx) < 0.1 && Math.abs(ty) < 0.1 && Math.abs(rot) < 0.0005) return;
 
-        int[] pixels = new int[W * H];
-        frame.getRGB(0, 0, W, H, pixels, 0, W);
+        // Snapshot via Graphics2D blit (avoids int[] round-trip).
         BufferedImage src = new BufferedImage(W, H, BufferedImage.TYPE_INT_ARGB);
-        src.setRGB(0, 0, W, H, pixels, 0, W);
+        Graphics2D sg = src.createGraphics();
+        sg.setComposite(AlphaComposite.Src);
+        sg.drawImage(frame, 0, 0, null);
+        sg.dispose();
 
         // Slight over-scale prevents the edge from being revealed by motion.
         double margin = 1.04;
@@ -224,36 +229,67 @@ final class SlideEffects {
         int warmShift = (int) (warmth * 8.0 * strength);
         double vigPeak = vigPulse * 0.12 * strength;
 
-        int[] pixels = new int[W * H];
-        frame.getRGB(0, 0, W, H, pixels, 0, W);
+        // Channel LUTs: one add + one clamp per source byte, precomputed once.
+        int[] rLut = new int[256];
+        int[] bLut = new int[256];
+        for (int i = 0; i < 256; i++) {
+            int rv = i + warmShift;
+            if (rv < 0) rv = 0; else if (rv > 255) rv = 255;
+            rLut[i] = rv;
+            int bv = i - warmShift;
+            if (bv < 0) bv = 0; else if (bv > 255) bv = 255;
+            bLut[i] = bv;
+        }
+
+        // Direct access to the underlying int array when the frame is one of
+        // the supported INT-packed types avoids two full-frame memcopies
+        // (the int[] round-trip through getRGB/setRGB).
+        int frameType = frame.getType();
+        boolean direct = (frameType == BufferedImage.TYPE_INT_ARGB
+                       || frameType == BufferedImage.TYPE_INT_RGB
+                       || frameType == BufferedImage.TYPE_INT_ARGB_PRE);
+        int[] pixels;
+        if (direct) {
+            pixels = ((java.awt.image.DataBufferInt) frame.getRaster().getDataBuffer()).getData();
+        } else {
+            pixels = new int[W * H];
+            frame.getRGB(0, 0, W, H, pixels, 0, W);
+        }
 
         double cx = W / 2.0, cy = H / 2.0;
-        double maxR2 = cx * cx + cy * cy;
+        double k = vigPeak / (cx * cx + cy * cy);
+        // Per-column dx² precomputed once for the whole frame.
+        double[] dxSq = new double[W];
+        for (int x = 0; x < W; x++) {
+            double dxV = x - cx;
+            dxSq[x] = dxV * dxV;
+        }
+        // Per-row vignette factor cache as fixed-point 16.16, scaled to 0..65536.
+        int[] facRow = new int[W];
+
         for (int y = 0; y < H; y++) {
             double dyV = y - cy;
+            double dySqK = dyV * dyV * k;
+            for (int x = 0; x < W; x++) {
+                facRow[x] = (int) ((1.0 - (dxSq[x] * k + dySqK)) * 65536.0);
+            }
             int rowOff = y * W;
             for (int x = 0; x < W; x++) {
                 int idx = rowOff + x;
                 int p = pixels[idx];
-                int a = (p >>> 24) & 0xFF;
-                int r = (p >> 16) & 0xFF;
-                int gC = (p >> 8) & 0xFF;
-                int b = p & 0xFF;
-
-                r = Math.max(0, Math.min(255, r + warmShift));
-                b = Math.max(0, Math.min(255, b - warmShift));
-
-                double dxV = x - cx;
-                double dist2 = (dxV * dxV + dyV * dyV) / maxR2;
-                double vigFactor = 1.0 - vigPeak * dist2;
-                r = (int) (r * vigFactor);
-                gC = (int) (gC * vigFactor);
-                b = (int) (b * vigFactor);
-
-                pixels[idx] = (a << 24) | (r << 16) | (gC << 8) | b;
+                int r = rLut[(p >> 16) & 0xFF];
+                int g = (p >> 8) & 0xFF;
+                int b = bLut[p & 0xFF];
+                int f = facRow[x];
+                r = (r * f) >> 16;
+                g = (g * f) >> 16;
+                b = (b * f) >> 16;
+                pixels[idx] = (p & 0xFF000000) | (r << 16) | (g << 8) | b;
             }
         }
-        frame.setRGB(0, 0, W, H, pixels, 0, W);
+        if (!direct) {
+            frame.setRGB(0, 0, W, H, pixels, 0, W);
+        }
     }
 
     /**
