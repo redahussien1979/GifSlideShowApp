@@ -13735,7 +13735,8 @@ public class GifSlideShowApp extends JFrame {
             fxRaisedSpinner.addChangeListener(e -> onFormatChanged());
 
             fxOtherCombo = new JComboBox<>(new String[]{
-                    "None", "Zoom", "Dust Motes", "Fog", "Embers", "Film Scratches",
+                    "None", "Ken Burns", "Handheld Drift", "Grade Breathe",
+                    "Dust Motes", "Fog", "Embers", "Film Scratches",
                     "Snow", "Rain", "Falling Leaves", "Cherry Blossom",
                     "Confetti", "Bokeh", "Water Droplets", "Water Waves", "Water Waves 2",
                     "Sparkle", "Fireflies", "Bubbles", "Light Leaks", "Lens Flare", "Heat Haze"});

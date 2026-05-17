@@ -42,8 +42,16 @@ final class SlideEffects {
             applyHeatHaze(frame, targetW, targetH, fxOther, animFrameIndex);
             return;
         }
-        if ("Zoom".equals(fxOtherKind)) {
-            applyZoom(frame, targetW, targetH, fxOther, animFrameIndex);
+        if ("Ken Burns".equals(fxOtherKind)) {
+            applyKenBurns(frame, targetW, targetH, fxOther, animFrameIndex);
+            return;
+        }
+        if ("Handheld Drift".equals(fxOtherKind)) {
+            applyHandheldDrift(frame, targetW, targetH, fxOther, animFrameIndex);
+            return;
+        }
+        if ("Grade Breathe".equals(fxOtherKind)) {
+            applyGradeBreathe(frame, targetW, targetH, fxOther, animFrameIndex);
             return;
         }
 
@@ -89,11 +97,27 @@ final class SlideEffects {
     // ==================== New effects ====================
 
     /**
-     * Ken Burns slow zoom-in. Asymptotic ease so the zoom progresses smoothly
-     * toward the user-controlled maximum as the slide's animated frames elapse.
-     * Stateless: zoom factor is determined entirely by animFrameIndex.
+     * Per-slide deterministic seed sampled from the slide's pixel content.
+     * Different slide images produce different seeds, so motion direction
+     * varies naturally across a slideshow without needing slide identity
+     * plumbed in. Stateless and reproducible for a given image.
      */
-    private static void applyZoom(BufferedImage frame, int W, int H, int fxOther, int t) {
+    private static int slideSeed(BufferedImage frame, int W, int H) {
+        int p0 = frame.getRGB(0, 0);
+        int p1 = frame.getRGB(W - 1, 0);
+        int p2 = frame.getRGB(0, H - 1);
+        int p3 = frame.getRGB(W - 1, H - 1);
+        int p4 = frame.getRGB(W / 2, H / 2);
+        return p0 ^ (p1 * 31) ^ (p2 * 131) ^ (p3 * 1597) ^ (p4 * 7919);
+    }
+
+    /**
+     * Ken Burns: slow zoom-in combined with a gentle pan whose direction
+     * varies per slide. Asymptotic ease keeps both zoom and pan smoothly
+     * progressing toward their maxima. Pan amplitude is bounded by the
+     * scaled-up extra pixels so the frame edge is never revealed.
+     */
+    private static void applyKenBurns(BufferedImage frame, int W, int H, int fxOther, int t) {
         // Max zoom: intensity 100 -> +50% (1.5x). Tasteful upper bound.
         double maxAdd = (fxOther / 100.0) * 0.5;
         // Asymptotic ease: progress = t / (t + halfLife). Reaches half of
@@ -103,15 +127,24 @@ final class SlideEffects {
         double zoom = 1.0 + maxAdd * progress;
         if (zoom <= 1.0005) return;
 
+        int newW = (int) Math.round(W * zoom);
+        int newH = (int) Math.round(H * zoom);
+
+        // Per-slide pan direction. Pan stays within 35% of the available
+        // headroom so corners of the scaled image never come into view.
+        int seed = slideSeed(frame, W, H);
+        double angle = prand(seed, 1) * Math.PI * 2.0;
+        double maxPanX = (newW - W) * 0.35;
+        double maxPanY = (newH - H) * 0.35;
+        double panX = Math.cos(angle) * maxPanX * progress;
+        double panY = Math.sin(angle) * maxPanY * progress;
+        int offX = (W - newW) / 2 + (int) panX;
+        int offY = (H - newH) / 2 + (int) panY;
+
         int[] pixels = new int[W * H];
         frame.getRGB(0, 0, W, H, pixels, 0, W);
         BufferedImage src = new BufferedImage(W, H, BufferedImage.TYPE_INT_ARGB);
         src.setRGB(0, 0, W, H, pixels, 0, W);
-
-        int newW = (int) Math.round(W * zoom);
-        int newH = (int) Math.round(H * zoom);
-        int offX = (W - newW) / 2;
-        int offY = (H - newH) / 2;
 
         Graphics2D g = frame.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
@@ -121,6 +154,106 @@ final class SlideEffects {
         g.setComposite(AlphaComposite.Src);
         g.drawImage(src, offX, offY, newW, newH, null);
         g.dispose();
+    }
+
+    /**
+     * Handheld drift: subtle low-frequency translation + sub-degree rotation
+     * simulating an unsteady operator. Two octaves of sine give smooth
+     * organic motion. Frame is scaled up slightly so rotation/translation
+     * never reveal the edge.
+     */
+    private static void applyHandheldDrift(BufferedImage frame, int W, int H, int fxOther, int t) {
+        double strength = fxOther / 100.0;
+
+        int seed = slideSeed(frame, W, H);
+        double phaseX = prand(seed, 1) * Math.PI * 2.0;
+        double phaseY = prand(seed, 2) * Math.PI * 2.0;
+        double phaseR = prand(seed, 3) * Math.PI * 2.0;
+
+        // Low-frequency noise: very slow base + smaller faster wobble.
+        double slowX = Math.sin(t * 0.012 + phaseX) + 0.5 * Math.sin(t * 0.031 + phaseX * 1.3);
+        double slowY = Math.cos(t * 0.010 + phaseY) + 0.5 * Math.cos(t * 0.028 + phaseY * 1.7);
+        double slowR = Math.sin(t * 0.008 + phaseR) + 0.4 * Math.sin(t * 0.023 + phaseR * 1.5);
+
+        double maxTx = W * 0.015 * strength;
+        double maxTy = H * 0.015 * strength;
+        double maxRot = Math.toRadians(0.6) * strength;
+        double tx = slowX / 1.5 * maxTx;
+        double ty = slowY / 1.5 * maxTy;
+        double rot = slowR / 1.4 * maxRot;
+
+        if (Math.abs(tx) < 0.1 && Math.abs(ty) < 0.1 && Math.abs(rot) < 0.0005) return;
+
+        int[] pixels = new int[W * H];
+        frame.getRGB(0, 0, W, H, pixels, 0, W);
+        BufferedImage src = new BufferedImage(W, H, BufferedImage.TYPE_INT_ARGB);
+        src.setRGB(0, 0, W, H, pixels, 0, W);
+
+        // Slight over-scale prevents the edge from being revealed by motion.
+        double margin = 1.04;
+
+        Graphics2D g = frame.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g.setComposite(AlphaComposite.Src);
+        g.translate(W / 2.0 + tx, H / 2.0 + ty);
+        g.rotate(rot);
+        g.scale(margin, margin);
+        g.translate(-W / 2.0, -H / 2.0);
+        g.drawImage(src, 0, 0, null);
+        g.dispose();
+    }
+
+    /**
+     * Grade breathe: slow oscillation of warm/cool color balance combined
+     * with a subtle radial vignette pulse. Sub-perceptual per-frame, but
+     * the cumulative effect is what makes a static frame feel "alive"
+     * rather than frozen. Both phases vary per slide.
+     */
+    private static void applyGradeBreathe(BufferedImage frame, int W, int H, int fxOther, int t) {
+        double strength = fxOther / 100.0;
+
+        int seed = slideSeed(frame, W, H);
+        double phaseW = prand(seed, 1) * Math.PI * 2.0;
+        double phaseV = prand(seed, 2) * Math.PI * 2.0;
+
+        // Warmth oscillates -1..1; vignette pulses 0..1.
+        double warmth = Math.sin(t * 0.035 + phaseW);
+        double vigPulse = 0.5 + 0.5 * Math.sin(t * 0.025 + phaseV);
+
+        int warmShift = (int) (warmth * 8.0 * strength);
+        double vigPeak = vigPulse * 0.12 * strength;
+
+        int[] pixels = new int[W * H];
+        frame.getRGB(0, 0, W, H, pixels, 0, W);
+
+        double cx = W / 2.0, cy = H / 2.0;
+        double maxR2 = cx * cx + cy * cy;
+        for (int y = 0; y < H; y++) {
+            double dyV = y - cy;
+            int rowOff = y * W;
+            for (int x = 0; x < W; x++) {
+                int idx = rowOff + x;
+                int p = pixels[idx];
+                int a = (p >>> 24) & 0xFF;
+                int r = (p >> 16) & 0xFF;
+                int gC = (p >> 8) & 0xFF;
+                int b = p & 0xFF;
+
+                r = Math.max(0, Math.min(255, r + warmShift));
+                b = Math.max(0, Math.min(255, b - warmShift));
+
+                double dxV = x - cx;
+                double dist2 = (dxV * dxV + dyV * dyV) / maxR2;
+                double vigFactor = 1.0 - vigPeak * dist2;
+                r = (int) (r * vigFactor);
+                gC = (int) (gC * vigFactor);
+                b = (int) (b * vigFactor);
+
+                pixels[idx] = (a << 24) | (r << 16) | (gC << 8) | b;
+            }
+        }
+        frame.setRGB(0, 0, W, H, pixels, 0, W);
     }
 
     /**
