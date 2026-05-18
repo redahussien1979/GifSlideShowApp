@@ -200,23 +200,19 @@ final class SlideEffects {
     }
 
     /**
-     * Cinematic: layered camera framing + light pulse + atmospheric dust.
+     * Cinematic: real camera-style pan over a pre-scaled base + light pulse
+     * + atmospheric dust.
      *
-     * The expensive zoom+pan bilinear pass is moved out of the per-frame
-     * loop entirely. We render it once per slide into a cached
-     * {@link BufferedImage}; subsequent frames blit that cache (a single
-     * memcpy-class operation) and then apply the cheap per-frame layers:
-     * an animated warm/cool grade pulse and drifting dust motes.
-     *
-     * Trade-off versus the standalone Ken Burns entry: the zoom is fixed
-     * for the whole slide rather than animating from 1.0x to max over
-     * time. The video feel comes from the dust + light pulse layers
-     * (which a real held cinematic shot also relies on more than zoom).
+     * The expensive bilinear zoom is amortized: we pre-render an
+     * over-scanned base (larger than W×H) once per slide and cache it.
+     * Per frame we blit a W×H sub-region of that cached buffer at a
+     * pan offset that progresses smoothly across the slide — so the
+     * camera actually moves instead of sitting on a frozen zoom.
      */
     private static void applyCinematic(BufferedImage frame, int W, int H, int fxOther, int t) {
         int hash = slideSeed(frame, W, H);
 
-        // Per-slide one-time pre-render of zoom + pan.
+        // Per-slide one-time pre-render of the over-scanned base.
         SlideBaseCache c = CIN_BASE_CACHE;
         if (c.base == null || c.hash != hash || c.fxOther != fxOther
                 || c.w != W || c.h != H) {
@@ -227,19 +223,40 @@ final class SlideEffects {
             c.h = H;
         }
 
-        // Per-frame layer 1: blit cached zoomed/panned base.
+        int baseW = c.base.getWidth();
+        int baseH = c.base.getHeight();
+        int panRangeX = Math.max(0, baseW - W);
+        int panRangeY = Math.max(0, baseH - H);
+
+        // Per-slide pan axis varies via slideSeed so consecutive slides
+        // move in different directions.
+        double angle = prand(hash, 1) * Math.PI * 2.0;
+
+        // Smoothstep progression over ~10s. Ease-in-out gives a paced
+        // dolly that never stops mid-slide and never abruptly clamps.
+        double target = 300.0;
+        double rawP = Math.min(1.0, t / target);
+        double progress = rawP * rawP * (3.0 - 2.0 * rawP);
+
+        // Sweep the viewport from one edge of the headroom to the other.
+        // 0.7 of the full range leaves a tiny margin so we never sample
+        // beyond the pre-scaled buffer's edge.
+        double panX = Math.cos(angle) * panRangeX * (progress - 0.5) * 0.7;
+        double panY = Math.sin(angle) * panRangeY * (progress - 0.5) * 0.7;
+        int srcX = panRangeX / 2 + (int) panX;
+        int srcY = panRangeY / 2 + (int) panY;
+        if (srcX < 0) srcX = 0; else if (srcX > panRangeX) srcX = panRangeX;
+        if (srcY < 0) srcY = 0; else if (srcY > panRangeY) srcY = panRangeY;
+
         Graphics2D bg = frame.createGraphics();
         bg.setComposite(AlphaComposite.Src);
-        bg.drawImage(c.base, 0, 0, null);
+        bg.drawImage(c.base, 0, 0, W, H, srcX, srcY, srcX + W, srcY + H, null);
         bg.dispose();
 
         // Per-frame layer 2: warm/cool light pulse + vignette breathing.
-        // Its own internal cache hits naturally here because the input
-        // (the cached base) is bit-identical every frame.
         applyGradeBreathe(frame, W, H, fxOther, t);
 
         // Per-frame layer 3: faint drifting dust motes for atmosphere.
-        // Half the standalone density so it sits behind the framing.
         Graphics2D dg = frame.createGraphics();
         dg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         double density = (fxOther / 100.0) * 0.5;
@@ -249,28 +266,16 @@ final class SlideEffects {
     }
 
     /**
-     * Render the slide's fixed zoom + pan base. Called once per slide.
-     * Zoom amount scales with intensity (max ~+25%); pan direction varies
-     * per slide via the slideSeed hash.
+     * Render the slide's over-scanned base. Called once per slide.
+     * The base is sized newW×newH (>= W×H); per-frame pan slides a W×H
+     * viewport across it for real camera motion at no per-frame bilinear cost.
      */
     private static BufferedImage renderCinematicBase(BufferedImage frame, int W, int H, int fxOther) {
-        // Fixed zoom: intensity 100 -> +25%. Lower than Ken Burns max
-        // because there's no animation to ease into the zoom — the user
-        // sees the zoom amount as the slide's starting framing.
-        double zoom = 1.0 + (fxOther / 100.0) * 0.25;
+        // Over-scan: intensity 100 -> +30% headroom for the pan to travel
+        // across. Lower intensity -> less pan range, more subtle effect.
+        double zoom = 1.0 + (fxOther / 100.0) * 0.30;
         int newW = (int) Math.round(W * zoom);
         int newH = (int) Math.round(H * zoom);
-
-        int seed = slideSeed(frame, W, H);
-        double angle = prand(seed, 1) * Math.PI * 2.0;
-        // Pan to about half the headroom in the chosen direction so each
-        // slide picks a distinctive framing.
-        double maxPanX = (newW - W) * 0.35;
-        double maxPanY = (newH - H) * 0.35;
-        double panX = Math.cos(angle) * maxPanX * 0.5;
-        double panY = Math.sin(angle) * maxPanY * 0.5;
-        int offX = (W - newW) / 2 + (int) panX;
-        int offY = (H - newH) / 2 + (int) panY;
 
         // Snapshot src via Graphics2D blit (avoids int[] round-trip).
         BufferedImage src = new BufferedImage(W, H, BufferedImage.TYPE_INT_ARGB);
@@ -279,21 +284,22 @@ final class SlideEffects {
         sg.drawImage(frame, 0, 0, null);
         sg.dispose();
 
-        BufferedImage base = new BufferedImage(W, H, BufferedImage.TYPE_INT_RGB);
+        BufferedImage base = new BufferedImage(newW, newH, BufferedImage.TYPE_INT_RGB);
         Graphics2D bg = base.createGraphics();
         bg.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
                 RenderingHints.VALUE_INTERPOLATION_BILINEAR);
         bg.setComposite(AlphaComposite.Src);
-        bg.drawImage(src, offX, offY, newW, newH, null);
+        bg.drawImage(src, 0, 0, newW, newH, null);
         bg.dispose();
         return base;
     }
 
     /**
      * Ken Burns: slow zoom-in combined with a gentle pan whose direction
-     * varies per slide. Asymptotic ease keeps both zoom and pan smoothly
-     * progressing toward their maxima. Pan amplitude is bounded by the
-     * scaled-up extra pixels so the frame edge is never revealed.
+     * varies per slide. Smoothstep ramp over a target duration delivers
+     * visible motion velocity throughout a typical slide instead of
+     * asymptoting after a couple of seconds. Pan amplitude is bounded by
+     * the scaled-up extra pixels so the frame edge is never revealed.
      */
     private static void applyKenBurns(BufferedImage frame, int W, int H, int fxOther, int t) {
         int inputHash = slideSeed(frame, W, H);
@@ -301,10 +307,11 @@ final class SlideEffects {
 
         // Max zoom: intensity 100 -> +50% (1.5x). Tasteful upper bound.
         double maxAdd = (fxOther / 100.0) * 0.5;
-        // Asymptotic ease: progress = t / (t + halfLife). Reaches half of
-        // maxAdd at halfLife frames, ~90% at 9*halfLife. Never overshoots.
-        double halfLife = 90.0;
-        double progress = t / (t + halfLife);
+        // Smoothstep ramp to full zoom over ~8s @ 30fps. Constant-ish
+        // velocity through the middle with gentle ease at the ends.
+        double target = 240.0;
+        double rawP = Math.min(1.0, t / target);
+        double progress = rawP * rawP * (3.0 - 2.0 * rawP);
         double zoom = 1.0 + maxAdd * progress;
         if (zoom <= 1.0005) return;
 
@@ -412,11 +419,11 @@ final class SlideEffects {
         double phaseV = prand(seed, 2) * Math.PI * 2.0;
 
         // Warmth oscillates -1..1; vignette pulses 0..1.
-        double warmth = Math.sin(t * 0.035 + phaseW);
-        double vigPulse = 0.5 + 0.5 * Math.sin(t * 0.025 + phaseV);
+        double warmth = Math.sin(t * 0.045 + phaseW);
+        double vigPulse = 0.5 + 0.5 * Math.sin(t * 0.032 + phaseV);
 
-        int warmShift = (int) (warmth * 8.0 * strength);
-        double vigPeak = vigPulse * 0.12 * strength;
+        int warmShift = (int) (warmth * 16.0 * strength);
+        double vigPeak = vigPulse * 0.22 * strength;
 
         // Channel LUTs: one add + one clamp per source byte, precomputed once.
         int[] rLut = new int[256];
