@@ -141,7 +141,20 @@ final class SlideEffects {
     private static final FxCache KB_CACHE = new FxCache();
     private static final FxCache HD_CACHE = new FxCache();
     private static final FxCache GB_CACHE = new FxCache();
-    private static final FxCache CIN_CACHE = new FxCache();
+
+    /**
+     * Per-slide cache for Cinematic's heavy pre-render. The render pipeline
+     * iterates frames for a slide sequentially with identical base pixels,
+     * so we can move the expensive zoom+pan bilinear pass out of the
+     * per-frame loop entirely and reuse the result for every frame.
+     */
+    private static final class SlideBaseCache {
+        int hash;
+        int fxOther = -1;
+        int w, h;
+        BufferedImage base;
+    }
+    private static final SlideBaseCache CIN_BASE_CACHE = new SlideBaseCache();
 
     private static boolean tryCacheHit(FxCache c, int inputHash, int fxOther, int W, int H, int t,
                                        BufferedImage frame) {
@@ -187,34 +200,93 @@ final class SlideEffects {
     }
 
     /**
-     * Cinematic: layered motion combining a visible Ken Burns camera move,
-     * a slow warm/cool grade pulse, and faint drifting dust motes. One
-     * subtle effect on its own reads as a moving photo; stacked together
-     * they read as a real video shot. A single outer cache covers the
-     * whole stack so the per-frame cost is similar to one component.
+     * Cinematic: layered camera framing + light pulse + atmospheric dust.
+     *
+     * The expensive zoom+pan bilinear pass is moved out of the per-frame
+     * loop entirely. We render it once per slide into a cached
+     * {@link BufferedImage}; subsequent frames blit that cache (a single
+     * memcpy-class operation) and then apply the cheap per-frame layers:
+     * an animated warm/cool grade pulse and drifting dust motes.
+     *
+     * Trade-off versus the standalone Ken Burns entry: the zoom is fixed
+     * for the whole slide rather than animating from 1.0x to max over
+     * time. The video feel comes from the dust + light pulse layers
+     * (which a real held cinematic shot also relies on more than zoom).
      */
     private static void applyCinematic(BufferedImage frame, int W, int H, int fxOther, int t) {
-        int inputHash = slideSeed(frame, W, H);
-        if (tryCacheHit(CIN_CACHE, inputHash, fxOther, W, H, t, frame)) return;
+        int hash = slideSeed(frame, W, H);
 
-        // Layer 1: visible camera motion (zoom + pan).
-        applyKenBurns(frame, W, H, fxOther, t);
+        // Per-slide one-time pre-render of zoom + pan.
+        SlideBaseCache c = CIN_BASE_CACHE;
+        if (c.base == null || c.hash != hash || c.fxOther != fxOther
+                || c.w != W || c.h != H) {
+            c.base = renderCinematicBase(frame, W, H, fxOther);
+            c.hash = hash;
+            c.fxOther = fxOther;
+            c.w = W;
+            c.h = H;
+        }
 
-        // Layer 2: warm/cool light pulse + vignette breathing.
+        // Per-frame layer 1: blit cached zoomed/panned base.
+        Graphics2D bg = frame.createGraphics();
+        bg.setComposite(AlphaComposite.Src);
+        bg.drawImage(c.base, 0, 0, null);
+        bg.dispose();
+
+        // Per-frame layer 2: warm/cool light pulse + vignette breathing.
+        // Its own internal cache hits naturally here because the input
+        // (the cached base) is bit-identical every frame.
         applyGradeBreathe(frame, W, H, fxOther, t);
 
-        // Layer 3: faint drifting dust motes (atmospheric). Half the
-        // density of the standalone Dust Motes effect at the same
-        // intensity, so it sits in the background rather than competing
-        // with the camera motion.
-        Graphics2D g = frame.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        // Per-frame layer 3: faint drifting dust motes for atmosphere.
+        // Half the standalone density so it sits behind the framing.
+        Graphics2D dg = frame.createGraphics();
+        dg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         double density = (fxOther / 100.0) * 0.5;
         double scale = Math.max(0.5, H / 720.0);
-        drawDustMotes(g, W, H, density, scale, t);
-        g.dispose();
+        drawDustMotes(dg, W, H, density, scale, t);
+        dg.dispose();
+    }
 
-        storeCache(CIN_CACHE, inputHash, fxOther, W, H, t, frame);
+    /**
+     * Render the slide's fixed zoom + pan base. Called once per slide.
+     * Zoom amount scales with intensity (max ~+25%); pan direction varies
+     * per slide via the slideSeed hash.
+     */
+    private static BufferedImage renderCinematicBase(BufferedImage frame, int W, int H, int fxOther) {
+        // Fixed zoom: intensity 100 -> +25%. Lower than Ken Burns max
+        // because there's no animation to ease into the zoom — the user
+        // sees the zoom amount as the slide's starting framing.
+        double zoom = 1.0 + (fxOther / 100.0) * 0.25;
+        int newW = (int) Math.round(W * zoom);
+        int newH = (int) Math.round(H * zoom);
+
+        int seed = slideSeed(frame, W, H);
+        double angle = prand(seed, 1) * Math.PI * 2.0;
+        // Pan to about half the headroom in the chosen direction so each
+        // slide picks a distinctive framing.
+        double maxPanX = (newW - W) * 0.35;
+        double maxPanY = (newH - H) * 0.35;
+        double panX = Math.cos(angle) * maxPanX * 0.5;
+        double panY = Math.sin(angle) * maxPanY * 0.5;
+        int offX = (W - newW) / 2 + (int) panX;
+        int offY = (H - newH) / 2 + (int) panY;
+
+        // Snapshot src via Graphics2D blit (avoids int[] round-trip).
+        BufferedImage src = new BufferedImage(W, H, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D sg = src.createGraphics();
+        sg.setComposite(AlphaComposite.Src);
+        sg.drawImage(frame, 0, 0, null);
+        sg.dispose();
+
+        BufferedImage base = new BufferedImage(W, H, BufferedImage.TYPE_INT_RGB);
+        Graphics2D bg = base.createGraphics();
+        bg.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        bg.setComposite(AlphaComposite.Src);
+        bg.drawImage(src, offX, offY, newW, newH, null);
+        bg.dispose();
+        return base;
     }
 
     /**
