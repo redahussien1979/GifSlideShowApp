@@ -46,6 +46,10 @@ final class SlideEffects {
             applyKenBurns(frame, targetW, targetH, fxOther, animFrameIndex);
             return;
         }
+        if ("Cinematic".equals(fxOtherKind)) {
+            applyCinematic(frame, targetW, targetH, fxOther, animFrameIndex);
+            return;
+        }
         if ("Handheld Drift".equals(fxOtherKind)) {
             applyHandheldDrift(frame, targetW, targetH, fxOther, animFrameIndex);
             return;
@@ -137,6 +141,7 @@ final class SlideEffects {
     private static final FxCache KB_CACHE = new FxCache();
     private static final FxCache HD_CACHE = new FxCache();
     private static final FxCache GB_CACHE = new FxCache();
+    private static final FxCache CIN_CACHE = new FxCache();
 
     private static boolean tryCacheHit(FxCache c, int inputHash, int fxOther, int W, int H, int t,
                                        BufferedImage frame) {
@@ -179,6 +184,37 @@ final class SlideEffects {
         c.inputHash = inputHash;
         c.fxOther = fxOther;
         c.lastT = t;
+    }
+
+    /**
+     * Cinematic: layered motion combining a visible Ken Burns camera move,
+     * a slow warm/cool grade pulse, and faint drifting dust motes. One
+     * subtle effect on its own reads as a moving photo; stacked together
+     * they read as a real video shot. A single outer cache covers the
+     * whole stack so the per-frame cost is similar to one component.
+     */
+    private static void applyCinematic(BufferedImage frame, int W, int H, int fxOther, int t) {
+        int inputHash = slideSeed(frame, W, H);
+        if (tryCacheHit(CIN_CACHE, inputHash, fxOther, W, H, t, frame)) return;
+
+        // Layer 1: visible camera motion (zoom + pan).
+        applyKenBurns(frame, W, H, fxOther, t);
+
+        // Layer 2: warm/cool light pulse + vignette breathing.
+        applyGradeBreathe(frame, W, H, fxOther, t);
+
+        // Layer 3: faint drifting dust motes (atmospheric). Half the
+        // density of the standalone Dust Motes effect at the same
+        // intensity, so it sits in the background rather than competing
+        // with the camera motion.
+        Graphics2D g = frame.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        double density = (fxOther / 100.0) * 0.5;
+        double scale = Math.max(0.5, H / 720.0);
+        drawDustMotes(g, W, H, density, scale, t);
+        g.dispose();
+
+        storeCache(CIN_CACHE, inputHash, fxOther, W, H, t, frame);
     }
 
     /**
