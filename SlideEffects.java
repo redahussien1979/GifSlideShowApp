@@ -228,21 +228,25 @@ final class SlideEffects {
         int panRangeX = Math.max(0, baseW - W);
         int panRangeY = Math.max(0, baseH - H);
 
-        // Per-slide pan axis varies via slideSeed so consecutive slides
-        // move in different directions.
-        double angle = prand(hash, 1) * Math.PI * 2.0;
+        // Continuous elliptical drift around the base center. Two slightly
+        // different periods on X and Y produce an organic, non-repeating
+        // Lissajous path that never stops — the camera is always in motion
+        // regardless of how long the slide runs. Per-slide phase offsets
+        // vary the path so consecutive slides don't trace the same shape.
+        double phaseX = prand(hash, 1) * Math.PI * 2.0;
+        double phaseY = prand(hash, 2) * Math.PI * 2.0;
+        double omegaX = 2.0 * Math.PI / 600.0;  // 20s period
+        double omegaY = 2.0 * Math.PI / 720.0;  // 24s period (Lissajous)
+        double rx = panRangeX * 0.45;
+        double ry = panRangeY * 0.45;
 
-        // Smoothstep progression over ~10s. Ease-in-out gives a paced
-        // dolly that never stops mid-slide and never abruptly clamps.
-        double target = 300.0;
-        double rawP = Math.min(1.0, t / target);
-        double progress = rawP * rawP * (3.0 - 2.0 * rawP);
+        // Soft engage over the first ~2s so the camera starts from the
+        // center of the base instead of snapping to an off-center sample.
+        double engage = Math.min(1.0, t / 60.0);
+        engage = engage * engage * (3.0 - 2.0 * engage);
 
-        // Sweep the viewport from one edge of the headroom to the other.
-        // 0.7 of the full range leaves a tiny margin so we never sample
-        // beyond the pre-scaled buffer's edge.
-        double panX = Math.cos(angle) * panRangeX * (progress - 0.5) * 0.7;
-        double panY = Math.sin(angle) * panRangeY * (progress - 0.5) * 0.7;
+        double panX = Math.cos(t * omegaX + phaseX) * rx * engage;
+        double panY = Math.sin(t * omegaY + phaseY) * ry * engage;
         int srcX = panRangeX / 2 + (int) panX;
         int srcY = panRangeY / 2 + (int) panY;
         if (srcX < 0) srcX = 0; else if (srcX > panRangeX) srcX = panRangeX;
@@ -296,10 +300,12 @@ final class SlideEffects {
 
     /**
      * Ken Burns: slow zoom-in combined with a gentle pan whose direction
-     * varies per slide. Smoothstep ramp over a target duration delivers
-     * visible motion velocity throughout a typical slide instead of
-     * asymptoting after a couple of seconds. Pan amplitude is bounded by
-     * the scaled-up extra pixels so the frame edge is never revealed.
+     * varies per slide. Asymptotic ramp with a power tweak: the long-term
+     * curve approaches maxAdd but never reaches it, so the camera keeps
+     * drifting for the full length of any slide. The power tweak boosts
+     * early visible motion so short slides also see meaningful travel.
+     * Pan amplitude is bounded by the scaled-up extra pixels so the frame
+     * edge is never revealed.
      */
     private static void applyKenBurns(BufferedImage frame, int W, int H, int fxOther, int t) {
         int inputHash = slideSeed(frame, W, H);
@@ -307,11 +313,12 @@ final class SlideEffects {
 
         // Max zoom: intensity 100 -> +50% (1.5x). Tasteful upper bound.
         double maxAdd = (fxOther / 100.0) * 0.5;
-        // Smoothstep ramp to full zoom over ~8s @ 30fps. Constant-ish
-        // velocity through the middle with gentle ease at the ends.
-        double target = 240.0;
-        double rawP = Math.min(1.0, t / target);
-        double progress = rawP * rawP * (3.0 - 2.0 * rawP);
+        // Unbounded asymptotic ramp: rawP -> 1 as t -> ∞ but never reaches it.
+        // Power 0.7 sharpens the early phase so motion is visible by ~1s,
+        // halfLife 480 keeps non-trivial velocity well past 30s slides.
+        double halfLife = 480.0;
+        double rawP = t / (t + halfLife);
+        double progress = Math.pow(rawP, 0.7);
         double zoom = 1.0 + maxAdd * progress;
         if (zoom <= 1.0005) return;
 
