@@ -142,7 +142,7 @@ public class GifSlideShowApp extends JFrame {
         dictImportBtn.addActionListener(e -> dictionaryImport());
 
         JButton quizImportBtn = createStyledButton("Quiz Import", new Color(180, 120, 200));
-        quizImportBtn.setToolTipText("Import CSV/TSV of quiz settings: each row = one slide. Headers: QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD, QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO, QUIZ_TIMER_STYLE/X/Y/SIZE/WIDTH/COLOR/LABEL/START_MODE.");
+        quizImportBtn.setToolTipText("Import CSV/TSV of quiz settings: each row = one slide. Headers: QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD, QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO, QUIZ_TIMER_STYLE/X/Y/SIZE/WIDTH/COLOR/TEXT_COLOR/FONT/LABEL/START_MODE, QUIZ_REVEAL_MARK_STYLE/SIZE/COLOR, QUIZ_REVEAL_PAD.");
         quizImportBtn.addActionListener(e -> quizImport());
 
         JButton titleGridBtn = createStyledButton("Title Grid", new Color(60, 160, 200));
@@ -393,7 +393,15 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty("quiz.timerWidthPct",      String.valueOf(qs.timerWidthPct));
             props.setProperty("quiz.timerColor",         colorToHex(qs.timerColor != null
                     ? qs.timerColor : new Color(80, 200, 255)));
+            props.setProperty("quiz.timerTextColor",     colorToHex(qs.timerTextColor != null
+                    ? qs.timerTextColor : Color.WHITE));
+            props.setProperty("quiz.timerFont",          qs.timerFont != null ? qs.timerFont : "Segoe UI");
             props.setProperty("quiz.timerLabel",         qs.timerLabel != null ? qs.timerLabel : "");
+            props.setProperty("quiz.revealMarkStyle",    qs.revealMarkStyle != null ? qs.revealMarkStyle : "Check");
+            props.setProperty("quiz.revealMarkSizePct",  String.valueOf(qs.revealMarkSizePct));
+            props.setProperty("quiz.revealMarkColor",    colorToHex(qs.revealMarkColor != null
+                    ? qs.revealMarkColor : new Color(60, 220, 110)));
+            props.setProperty("quiz.revealPadPct",       String.valueOf(qs.revealPadPct));
             props.setProperty("quiz.timerSeconds",       String.valueOf(qs.timerSeconds));
             props.setProperty("quiz.redThresholdSeconds", String.valueOf(qs.redThresholdSeconds));
             props.setProperty("quiz.timerStartMode",     qs.timerStartMode != null
@@ -584,7 +592,20 @@ public class GifSlideShowApp extends JFrame {
                 String.valueOf(tmpl.timerWidthPct)));
         tmpl.timerColor         = hexToColor(props.getProperty("quiz.timerColor",
                 colorToHex(tmpl.timerColor)));
+        tmpl.timerTextColor     = hexToColor(props.getProperty("quiz.timerTextColor",
+                colorToHex(tmpl.timerTextColor != null ? tmpl.timerTextColor : Color.WHITE)));
+        tmpl.timerFont          = props.getProperty("quiz.timerFont",
+                tmpl.timerFont != null ? tmpl.timerFont : "Segoe UI");
         tmpl.timerLabel         = props.getProperty("quiz.timerLabel", "");
+        tmpl.revealMarkStyle    = props.getProperty("quiz.revealMarkStyle",
+                tmpl.revealMarkStyle != null ? tmpl.revealMarkStyle : "Check");
+        tmpl.revealMarkSizePct  = Integer.parseInt(props.getProperty("quiz.revealMarkSizePct",
+                String.valueOf(tmpl.revealMarkSizePct)));
+        tmpl.revealMarkColor    = hexToColor(props.getProperty("quiz.revealMarkColor",
+                colorToHex(tmpl.revealMarkColor != null ? tmpl.revealMarkColor
+                        : new Color(60, 220, 110))));
+        tmpl.revealPadPct       = Integer.parseInt(props.getProperty("quiz.revealPadPct",
+                String.valueOf(tmpl.revealPadPct)));
         tmpl.timerSeconds       = Integer.parseInt(props.getProperty("quiz.timerSeconds",
                 String.valueOf(tmpl.timerSeconds)));
         tmpl.redThresholdSeconds = Integer.parseInt(props.getProperty("quiz.redThresholdSeconds",
@@ -1870,7 +1891,11 @@ public class GifSlideShowApp extends JFrame {
                         + "  QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO,\n"
                         + "  QUIZ_TIMER_STYLE, QUIZ_TIMER_X, QUIZ_TIMER_Y,\n"
                         + "  QUIZ_TIMER_SIZE, QUIZ_TIMER_WIDTH, QUIZ_TIMER_COLOR,\n"
-                        + "  QUIZ_TIMER_LABEL, QUIZ_TIMER_START_MODE.\n"
+                        + "  QUIZ_TIMER_TEXT_COLOR, QUIZ_TIMER_FONT,\n"
+                        + "  QUIZ_TIMER_LABEL, QUIZ_TIMER_START_MODE,\n"
+                        + "  QUIZ_REVEAL_MARK_STYLE (Check/Star/Crown/Trophy/Heart/Thumbs Up/None),\n"
+                        + "  QUIZ_REVEAL_MARK_SIZE (50..200), QUIZ_REVEAL_MARK_COLOR,\n"
+                        + "  QUIZ_REVEAL_PAD (50..200).\n"
                         + "Empty cell = leave that value unchanged.\n"
                         + "Visual / style fields are taken from the FIRST data row and\n"
                         + "applied to all slides.\n"
@@ -2255,8 +2280,40 @@ public class GifSlideShowApp extends JFrame {
                     + s + "' not recognised. Ignored.");
         }
 
+        s = quizCellAt(fields, col.get("QUIZ_TIMER_TEXT_COLOR"));
+        if (s != null && !s.trim().isEmpty()) {
+            Color c = parseQuizColor(s.trim());
+            if (c != null) q.timerTextColor = c;
+            else warnings.add("Row " + rowNum + ": QUIZ_TIMER_TEXT_COLOR '"
+                    + s + "' not recognised. Ignored.");
+        }
+
+        s = quizCellAt(fields, col.get("QUIZ_TIMER_FONT"));
+        if (s != null && !s.trim().isEmpty()) q.timerFont = s.trim();
+
         s = quizCellAt(fields, col.get("QUIZ_TIMER_LABEL"));
         if (s != null) q.timerLabel = s;
+
+        s = quizCellAt(fields, col.get("QUIZ_REVEAL_MARK_STYLE"));
+        if (s != null && !s.trim().isEmpty()) q.revealMarkStyle = s.trim();
+
+        s = quizCellAt(fields, col.get("QUIZ_REVEAL_MARK_SIZE"));
+        if (s != null && !s.trim().isEmpty())
+            q.revealMarkSizePct = parseQuizScalePct(s, q.revealMarkSizePct,
+                    "QUIZ_REVEAL_MARK_SIZE", rowNum, warnings);
+
+        s = quizCellAt(fields, col.get("QUIZ_REVEAL_MARK_COLOR"));
+        if (s != null && !s.trim().isEmpty()) {
+            Color c = parseQuizColor(s.trim());
+            if (c != null) q.revealMarkColor = c;
+            else warnings.add("Row " + rowNum + ": QUIZ_REVEAL_MARK_COLOR '"
+                    + s + "' not recognised. Ignored.");
+        }
+
+        s = quizCellAt(fields, col.get("QUIZ_REVEAL_PAD"));
+        if (s != null && !s.trim().isEmpty())
+            q.revealPadPct = parseQuizScalePct(s, q.revealPadPct,
+                    "QUIZ_REVEAL_PAD", rowNum, warnings);
 
         s = quizCellAt(fields, col.get("QUIZ_TIMER_START_MODE"));
         if (s != null && !s.trim().isEmpty()) {
@@ -2283,6 +2340,24 @@ public class GifSlideShowApp extends JFrame {
             if (v < 0 || v > 100) {
                 warnings.add("Row " + rowNum + ": " + field + "=" + v
                         + " out of 0..100. Ignored.");
+                return def;
+            }
+            return v;
+        } catch (NumberFormatException nfe) {
+            warnings.add("Row " + rowNum + ": " + field + " not a number ('"
+                    + s + "'). Ignored.");
+            return def;
+        }
+    }
+
+    /** Like parseQuizPct but bounded to 50..200 (used for the reveal size + pad scalers). */
+    private static int parseQuizScalePct(String s, int def, String field, int rowNum,
+                                         List<String> warnings) {
+        try {
+            int v = Integer.parseInt(s.trim());
+            if (v < 50 || v > 200) {
+                warnings.add("Row " + rowNum + ": " + field + "=" + v
+                        + " out of 50..200. Ignored.");
                 return def;
             }
             return v;
@@ -12430,6 +12505,13 @@ public class GifSlideShowApp extends JFrame {
         private JSpinner quizXSp, quizYSp, quizSzSp, quizWSp;
         private JButton  quizColorBtn;
         private JTextField quizLabelField;
+        // Extended timer-text + reveal controls.
+        private JComboBox<String> quizFontCombo;
+        private JButton  quizTextColorBtn;
+        private JComboBox<String> quizRevealStyleCombo;
+        private JSpinner quizRevealSizeSp;
+        private JButton  quizRevealColorBtn;
+        private JSpinner quizRevealPadSp;
         // Audio highlight effect controls
         private final JSpinner audioGapSpinner;
         private final JButton audioHlColorBtn;
@@ -14362,6 +14444,41 @@ public class GifSlideShowApp extends JFrame {
                         @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { sync(); }
                     });
 
+            // ----- Timer text: font + text color (independent of accent) -----
+            JLabel fontLbl = styledLabel("Font");
+            String[] sysFonts = GraphicsEnvironment.getLocalGraphicsEnvironment()
+                    .getAvailableFontFamilyNames();
+            quizFontCombo = new JComboBox<>(sysFonts);
+            quizFontCombo.setSelectedItem(quiz.timerFont != null ? quiz.timerFont : "Segoe UI");
+            quizFontCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            quizFontCombo.setPreferredSize(new Dimension(130, 24));
+            quizFontCombo.setToolTipText("Font family of the countdown digit and label");
+            quizFontCombo.addActionListener(e -> {
+                Object sel = quizFontCombo.getSelectedItem();
+                if (sel != null) {
+                    quiz.timerFont = sel.toString();
+                    onFormatChanged();
+                }
+            });
+
+            JLabel textColorLbl = styledLabel("Text");
+            quizTextColorBtn = new JButton("A");
+            quizTextColorBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            quizTextColorBtn.setPreferredSize(new Dimension(28, 24));
+            quizTextColorBtn.setForeground(quiz.timerTextColor != null
+                    ? quiz.timerTextColor : Color.WHITE);
+            quizTextColorBtn.setToolTipText("Digit text color (red still wins in the final seconds)");
+            quizTextColorBtn.addActionListener(e -> {
+                Color picked = JColorChooser.showDialog(panel,
+                        "Timer text color",
+                        quiz.timerTextColor != null ? quiz.timerTextColor : Color.WHITE);
+                if (picked != null) {
+                    quiz.timerTextColor = picked;
+                    quizTextColorBtn.setForeground(picked);
+                    onFormatChanged();
+                }
+            });
+
             toolbar7c.add(quizTimerLbl);
             toolbar7c.add(quizStyleCombo);
             toolbar7c.add(xLbl); toolbar7c.add(quizXSp);
@@ -14369,7 +14486,82 @@ public class GifSlideShowApp extends JFrame {
             toolbar7c.add(szLbl); toolbar7c.add(quizSzSp);
             toolbar7c.add(wLbl); toolbar7c.add(quizWSp);
             toolbar7c.add(colorLbl); toolbar7c.add(quizColorBtn);
+            toolbar7c.add(textColorLbl); toolbar7c.add(quizTextColorBtn);
+            toolbar7c.add(fontLbl); toolbar7c.add(quizFontCombo);
             toolbar7c.add(labelLbl); toolbar7c.add(quizLabelField);
+
+            // ===== Toolbar Row 7c2: Reveal mark (correct-answer indicator) =====
+            JPanel toolbar7c2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            toolbar7c2.setBackground(new Color(38, 28, 56));
+            toolbar7c2.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(80, 60, 130)),
+                    BorderFactory.createEmptyBorder(2, 4, 2, 4)));
+
+            JLabel revealLbl = styledLabel("✔ Reveal:");
+            revealLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            revealLbl.setForeground(new Color(190, 160, 240));
+
+            quizRevealStyleCombo = new JComboBox<>(new String[] {
+                    "Check", "Star", "Crown", "Trophy", "Heart", "Thumbs Up", "None"
+            });
+            quizRevealStyleCombo.setSelectedItem(quiz.revealMarkStyle != null
+                    ? quiz.revealMarkStyle : "Check");
+            quizRevealStyleCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            quizRevealStyleCombo.setPreferredSize(new Dimension(110, 24));
+            quizRevealStyleCombo.setToolTipText("Badge drawn next to the correct option");
+            quizRevealStyleCombo.addActionListener(e -> {
+                quiz.revealMarkStyle = (String) quizRevealStyleCombo.getSelectedItem();
+                onFormatChanged();
+            });
+
+            JLabel revealSzLbl = styledLabel("Size%");
+            quizRevealSizeSp = new JSpinner(
+                    new SpinnerNumberModel(
+                            Math.max(50, Math.min(200, quiz.revealMarkSizePct)),
+                            50, 200, 5));
+            quizRevealSizeSp.setPreferredSize(new Dimension(60, 24));
+            quizRevealSizeSp.setToolTipText("Badge size, 50–200% (tighten or enlarge)");
+            quizRevealSizeSp.addChangeListener(e -> {
+                quiz.revealMarkSizePct = ((Number) quizRevealSizeSp.getValue()).intValue();
+                onFormatChanged();
+            });
+
+            JLabel revealColorLbl = styledLabel("Color");
+            quizRevealColorBtn = new JButton("■");
+            quizRevealColorBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            quizRevealColorBtn.setPreferredSize(new Dimension(28, 24));
+            quizRevealColorBtn.setForeground(quiz.revealMarkColor != null
+                    ? quiz.revealMarkColor : new Color(60, 220, 110));
+            quizRevealColorBtn.setToolTipText("Color of the reveal badge and highlight ring");
+            quizRevealColorBtn.addActionListener(e -> {
+                Color picked = JColorChooser.showDialog(panel,
+                        "Reveal mark color",
+                        quiz.revealMarkColor != null ? quiz.revealMarkColor
+                                : new Color(60, 220, 110));
+                if (picked != null) {
+                    quiz.revealMarkColor = picked;
+                    quizRevealColorBtn.setForeground(picked);
+                    onFormatChanged();
+                }
+            });
+
+            JLabel revealPadLbl = styledLabel("Pad%");
+            quizRevealPadSp = new JSpinner(
+                    new SpinnerNumberModel(
+                            Math.max(50, Math.min(200, quiz.revealPadPct)),
+                            50, 200, 5));
+            quizRevealPadSp.setPreferredSize(new Dimension(60, 24));
+            quizRevealPadSp.setToolTipText("Padding around the highlighted option, 50–200% (tighten or expand)");
+            quizRevealPadSp.addChangeListener(e -> {
+                quiz.revealPadPct = ((Number) quizRevealPadSp.getValue()).intValue();
+                onFormatChanged();
+            });
+
+            toolbar7c2.add(revealLbl);
+            toolbar7c2.add(quizRevealStyleCombo);
+            toolbar7c2.add(revealSzLbl); toolbar7c2.add(quizRevealSizeSp);
+            toolbar7c2.add(revealColorLbl); toolbar7c2.add(quizRevealColorBtn);
+            toolbar7c2.add(revealPadLbl); toolbar7c2.add(quizRevealPadSp);
 
             // ===== Toolbar Row 8: Per-Slide Video Overlay =====
             JPanel toolbar8 = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 3));
@@ -14527,6 +14719,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(toolbar7b);
             toolbarsPanel.add(toolbar7d);
             toolbarsPanel.add(toolbar7c);
+            toolbarsPanel.add(toolbar7c2);
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar8);
 
@@ -16110,6 +16303,26 @@ public class GifSlideShowApp extends JFrame {
                 quizWSp.setValue(quiz.timerWidthPct);
                 if (quiz.timerColor != null) quizColorBtn.setForeground(quiz.timerColor);
                 quizLabelField.setText(quiz.timerLabel != null ? quiz.timerLabel : "");
+                if (quizFontCombo != null) {
+                    quizFontCombo.setSelectedItem(quiz.timerFont != null
+                            ? quiz.timerFont : "Segoe UI");
+                }
+                if (quizTextColorBtn != null && quiz.timerTextColor != null) {
+                    quizTextColorBtn.setForeground(quiz.timerTextColor);
+                }
+                if (quizRevealStyleCombo != null) {
+                    quizRevealStyleCombo.setSelectedItem(quiz.revealMarkStyle != null
+                            ? quiz.revealMarkStyle : "Check");
+                }
+                if (quizRevealSizeSp != null) {
+                    quizRevealSizeSp.setValue(Math.max(50, Math.min(200, quiz.revealMarkSizePct)));
+                }
+                if (quizRevealColorBtn != null && quiz.revealMarkColor != null) {
+                    quizRevealColorBtn.setForeground(quiz.revealMarkColor);
+                }
+                if (quizRevealPadSp != null) {
+                    quizRevealPadSp.setValue(Math.max(50, Math.min(200, quiz.revealPadPct)));
+                }
                 updateQuizStatus();
             } finally {
                 isSyncingFormat = prev;
