@@ -142,7 +142,7 @@ public class GifSlideShowApp extends JFrame {
         dictImportBtn.addActionListener(e -> dictionaryImport());
 
         JButton quizImportBtn = createStyledButton("Quiz Import", new Color(180, 120, 200));
-        quizImportBtn.setToolTipText("Import CSV/TSV of quiz settings: each row = one slide. Headers: QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD, QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO, QUIZ_TIMER_STYLE/X/Y/SIZE/WIDTH/COLOR/TEXT_COLOR/FONT/LABEL/START_MODE, QUIZ_REVEAL_MARK_STYLE/SIZE/COLOR, QUIZ_REVEAL_PAD.");
+        quizImportBtn.setToolTipText("Import CSV/TSV of quiz settings: each row = one slide. Headers: QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD, QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO, QUIZ_TIMER_STYLE/X/Y/SIZE/WIDTH/COLOR/TEXT_COLOR/FONT/LABEL/START_MODE, QUIZ_BAR_SHAPE, QUIZ_REVEAL_MARK_STYLE/SIZE/COLOR, QUIZ_REVEAL_PAD.");
         quizImportBtn.addActionListener(e -> quizImport());
 
         JButton titleGridBtn = createStyledButton("Title Grid", new Color(60, 160, 200));
@@ -393,6 +393,8 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty("quiz.timerWidthPct",      String.valueOf(qs.timerWidthPct));
             props.setProperty("quiz.timerColor",         colorToHex(qs.timerColor != null
                     ? qs.timerColor : new Color(80, 200, 255)));
+            props.setProperty("quiz.progressBarShape",   qs.progressBarShape != null
+                    ? qs.progressBarShape : "Rounded");
             props.setProperty("quiz.timerTextColor",     colorToHex(qs.timerTextColor != null
                     ? qs.timerTextColor : Color.WHITE));
             props.setProperty("quiz.timerFont",          qs.timerFont != null ? qs.timerFont : "Segoe UI");
@@ -592,6 +594,8 @@ public class GifSlideShowApp extends JFrame {
                 String.valueOf(tmpl.timerWidthPct)));
         tmpl.timerColor         = hexToColor(props.getProperty("quiz.timerColor",
                 colorToHex(tmpl.timerColor)));
+        tmpl.progressBarShape   = props.getProperty("quiz.progressBarShape",
+                tmpl.progressBarShape != null ? tmpl.progressBarShape : "Rounded");
         tmpl.timerTextColor     = hexToColor(props.getProperty("quiz.timerTextColor",
                 colorToHex(tmpl.timerTextColor != null ? tmpl.timerTextColor : Color.WHITE)));
         tmpl.timerFont          = props.getProperty("quiz.timerFont",
@@ -1891,6 +1895,7 @@ public class GifSlideShowApp extends JFrame {
                         + "  QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO,\n"
                         + "  QUIZ_TIMER_STYLE, QUIZ_TIMER_X, QUIZ_TIMER_Y,\n"
                         + "  QUIZ_TIMER_SIZE, QUIZ_TIMER_WIDTH, QUIZ_TIMER_COLOR,\n"
+                        + "  QUIZ_BAR_SHAPE (Rounded/Square/Pill/Segmented),\n"
                         + "  QUIZ_TIMER_TEXT_COLOR, QUIZ_TIMER_FONT,\n"
                         + "  QUIZ_TIMER_LABEL, QUIZ_TIMER_START_MODE,\n"
                         + "  QUIZ_REVEAL_MARK_STYLE (Check/Star/Crown/Trophy/Heart/Thumbs Up/None),\n"
@@ -2279,6 +2284,9 @@ public class GifSlideShowApp extends JFrame {
             else warnings.add("Row " + rowNum + ": QUIZ_TIMER_COLOR '"
                     + s + "' not recognised. Ignored.");
         }
+
+        s = quizCellAt(fields, col.get("QUIZ_BAR_SHAPE"));
+        if (s != null && !s.trim().isEmpty()) q.progressBarShape = s.trim();
 
         s = quizCellAt(fields, col.get("QUIZ_TIMER_TEXT_COLOR"));
         if (s != null && !s.trim().isEmpty()) {
@@ -12506,6 +12514,7 @@ public class GifSlideShowApp extends JFrame {
         private JButton  quizColorBtn;
         private JTextField quizLabelField;
         // Extended timer-text + reveal controls.
+        private JComboBox<String> quizBarShapeCombo;
         private JComboBox<String> quizFontCombo;
         private JButton  quizTextColorBtn;
         private JComboBox<String> quizRevealStyleCombo;
@@ -14409,6 +14418,20 @@ public class GifSlideShowApp extends JFrame {
                 onFormatChanged();
             });
 
+            JLabel shapeLbl = styledLabel("Shape");
+            quizBarShapeCombo = new JComboBox<>(new String[] {
+                    "Rounded", "Square", "Pill", "Segmented"
+            });
+            quizBarShapeCombo.setSelectedItem(quiz.progressBarShape != null
+                    ? quiz.progressBarShape : "Rounded");
+            quizBarShapeCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            quizBarShapeCombo.setPreferredSize(new Dimension(95, 24));
+            quizBarShapeCombo.setToolTipText("Progress bar shape (Rounded/Square/Pill/Segmented). Used for Progress Bar styles only.");
+            quizBarShapeCombo.addActionListener(e -> {
+                quiz.progressBarShape = (String) quizBarShapeCombo.getSelectedItem();
+                onFormatChanged();
+            });
+
             // Color picker for the timer accent (ring/hand/digit color).
             JLabel colorLbl = styledLabel("Color");
             quizColorBtn = new JButton("■");
@@ -14485,6 +14508,7 @@ public class GifSlideShowApp extends JFrame {
             toolbar7c.add(yLbl); toolbar7c.add(quizYSp);
             toolbar7c.add(szLbl); toolbar7c.add(quizSzSp);
             toolbar7c.add(wLbl); toolbar7c.add(quizWSp);
+            toolbar7c.add(shapeLbl); toolbar7c.add(quizBarShapeCombo);
             toolbar7c.add(colorLbl); toolbar7c.add(quizColorBtn);
             toolbar7c.add(textColorLbl); toolbar7c.add(quizTextColorBtn);
             toolbar7c.add(fontLbl); toolbar7c.add(quizFontCombo);
@@ -16303,6 +16327,10 @@ public class GifSlideShowApp extends JFrame {
                 quizWSp.setValue(quiz.timerWidthPct);
                 if (quiz.timerColor != null) quizColorBtn.setForeground(quiz.timerColor);
                 quizLabelField.setText(quiz.timerLabel != null ? quiz.timerLabel : "");
+                if (quizBarShapeCombo != null) {
+                    quizBarShapeCombo.setSelectedItem(quiz.progressBarShape != null
+                            ? quiz.progressBarShape : "Rounded");
+                }
                 if (quizFontCombo != null) {
                     quizFontCombo.setSelectedItem(quiz.timerFont != null
                             ? quiz.timerFont : "Segoe UI");
