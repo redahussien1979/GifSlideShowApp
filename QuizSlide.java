@@ -236,6 +236,17 @@ public class QuizSlide {
      * editor and see the result without exporting. No-op when quiz disabled.
      */
     public static void applyPreviewOverlay(BufferedImage frame, QuizSlide quiz) {
+        applyPreviewOverlay(frame, quiz, null);
+    }
+
+    /**
+     * Same as {@link #applyPreviewOverlay(BufferedImage, QuizSlide)} but also
+     * paints the reveal badge + highlight ring on the correct option, so the
+     * editor preview is WYSIWYG for the tick-mark style/size/color too.
+     * Pass the slide's text list (may be null to skip the reveal preview).
+     */
+    public static void applyPreviewOverlay(BufferedImage frame, QuizSlide quiz,
+                                           List<?> slideTexts) {
         if (quiz == null || !quiz.enabled || frame == null) return;
         int w = frame.getWidth();
         int h = frame.getHeight();
@@ -245,9 +256,14 @@ public class QuizSlide {
                     RenderingHints.VALUE_ANTIALIAS_ON);
             g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
                     RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-            // Frozen at full seconds, no progress depletion — what the viewer
-            // sees the instant the question begins reading.
+            // Timer frozen at full seconds — what the viewer sees the instant
+            // the question begins reading.
             drawCountdown(g, w, h, quiz, quiz.timerSeconds, false, 0.0);
+            // Reveal (badge + highlight box) drawn past the pulse-in window so
+            // it's stable, not animating, in the editor preview.
+            if (slideTexts != null) {
+                drawReveal(g, w, h, slideTexts, quiz, 1500L);
+            }
         } finally {
             g.dispose();
         }
