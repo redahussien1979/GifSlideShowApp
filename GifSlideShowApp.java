@@ -2320,7 +2320,7 @@ public class GifSlideShowApp extends JFrame {
 
         s = quizCellAt(fields, col.get("QUIZ_REVEAL_PAD"));
         if (s != null && !s.trim().isEmpty())
-            q.revealPadPct = parseQuizScalePct(s, q.revealPadPct,
+            q.revealPadPct = parseQuizScalePct0(s, q.revealPadPct,
                     "QUIZ_REVEAL_PAD", rowNum, warnings);
 
         s = quizCellAt(fields, col.get("QUIZ_TIMER_START_MODE"));
@@ -2358,7 +2358,7 @@ public class GifSlideShowApp extends JFrame {
         }
     }
 
-    /** Like parseQuizPct but bounded to 50..200 (used for the reveal size + pad scalers). */
+    /** Like parseQuizPct but bounded to 50..200 (used for the reveal size scaler). */
     private static int parseQuizScalePct(String s, int def, String field, int rowNum,
                                          List<String> warnings) {
         try {
@@ -2366,6 +2366,24 @@ public class GifSlideShowApp extends JFrame {
             if (v < 50 || v > 200) {
                 warnings.add("Row " + rowNum + ": " + field + "=" + v
                         + " out of 50..200. Ignored.");
+                return def;
+            }
+            return v;
+        } catch (NumberFormatException nfe) {
+            warnings.add("Row " + rowNum + ": " + field + " not a number ('"
+                    + s + "'). Ignored.");
+            return def;
+        }
+    }
+
+    /** Like parseQuizScalePct but allows 0 (used for the reveal padding scaler). */
+    private static int parseQuizScalePct0(String s, int def, String field, int rowNum,
+                                          List<String> warnings) {
+        try {
+            int v = Integer.parseInt(s.trim());
+            if (v < 0 || v > 200) {
+                warnings.add("Row " + rowNum + ": " + field + "=" + v
+                        + " out of 0..200. Ignored.");
                 return def;
             }
             return v;
@@ -14585,10 +14603,10 @@ public class GifSlideShowApp extends JFrame {
             JLabel revealPadLbl = styledLabel("Pad%");
             quizRevealPadSp = new JSpinner(
                     new SpinnerNumberModel(
-                            Math.max(50, Math.min(200, quiz.revealPadPct)),
-                            50, 200, 5));
+                            Math.max(0, Math.min(200, quiz.revealPadPct)),
+                            0, 200, 5));
             quizRevealPadSp.setPreferredSize(new Dimension(60, 24));
-            quizRevealPadSp.setToolTipText("Padding around the highlighted option, 50–200% (tighten or expand)");
+            quizRevealPadSp.setToolTipText("Padding around the highlighted option, 0–200% (0 = hug the text)");
             quizRevealPadSp.addChangeListener(e -> {
                 quiz.revealPadPct = ((Number) quizRevealPadSp.getValue()).intValue();
                 onFormatChanged();
@@ -16392,7 +16410,7 @@ public class GifSlideShowApp extends JFrame {
                     quizRevealColorBtn.setForeground(quiz.revealMarkColor);
                 }
                 if (quizRevealPadSp != null) {
-                    quizRevealPadSp.setValue(Math.max(50, Math.min(200, quiz.revealPadPct)));
+                    quizRevealPadSp.setValue(Math.max(0, Math.min(200, quiz.revealPadPct)));
                 }
                 updateQuizStatus();
             } finally {

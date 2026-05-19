@@ -696,17 +696,17 @@ public class QuizSlide {
             float scale = Math.max(w, h) / 1920.0f;
             int fontPx = Math.max(18, (int) (fSizeRef * scale));
 
-            int tw = (int) (text.length() * fontPx * 0.55) + fontPx;
-            int th = (int) (fontPx * 1.5);
+            int tw = (int) (text.length() * fontPx * 0.55) + fontPx / 3;
+            int th = (int) (fontPx * 1.15);
 
             int bx = px - tw / 2;
             int by = py - th / 2;
 
             // Padding scales by both the pulse-in animation AND the user setting.
-            double padScale = Math.max(0.5, Math.min(2.0, quiz.revealPadPct / 100.0));
+            double padScale = Math.max(0.0, Math.min(2.0, quiz.revealPadPct / 100.0));
             float pulse = (float) Math.max(0.0,
                     Math.min(1.0, 1.0 - sinceRevealMs / 800.0));
-            int padBase  = (int) ((12 + 18 * pulse) * padScale);
+            int padBase  = (int) ((4 + 8 * pulse) * padScale);
             int rx = bx - padBase;
             int ry = by - padBase;
             int rw = tw + padBase * 2;
