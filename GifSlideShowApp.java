@@ -14773,20 +14773,25 @@ public class GifSlideShowApp extends JFrame {
 
             // Wrap the toolbars stack in a JScrollPane so a user with limited
             // vertical room can slide down through every row instead of having
-            // the bottom rows pushed off-screen.
+            // the bottom rows pushed off-screen. The CENTER of the right pane
+            // is given to the toolbar scroll so it stretches to fill, while
+            // the text editor sits in SOUTH at its minimum height.
             JScrollPane toolbarsScroll = new JScrollPane(toolbarsPanel,
                     JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
                     JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
             toolbarsScroll.setBorder(BorderFactory.createEmptyBorder());
             toolbarsScroll.getViewport().setBackground(new Color(44, 47, 51));
             toolbarsScroll.getVerticalScrollBar().setUnitIncrement(18);
-            // Cap the visible height so the bottom half of the right pane can
-            // host the slide-text editor. The scrollbar appears when the
-            // toolbar stack is taller than this.
-            toolbarsScroll.setPreferredSize(new Dimension(0, 360));
 
-            rightPanel.add(toolbarsScroll, BorderLayout.NORTH);
-            rightPanel.add(textScroll, BorderLayout.CENTER);
+            // Compact slide-text editor — pinned to the bottom at a small
+            // fixed height (3 rows ≈ ~60px) so the toolbars take almost the
+            // entire right pane. Resize the window to grow the toolbars; the
+            // text editor stays small.
+            textScroll.setPreferredSize(new Dimension(0, 70));
+            textScroll.setMinimumSize(new Dimension(0, 50));
+
+            rightPanel.add(toolbarsScroll, BorderLayout.CENTER);
+            rightPanel.add(textScroll, BorderLayout.SOUTH);
 
             JPanel westPanel = new JPanel(new BorderLayout(4, 0));
             westPanel.setBackground(new Color(44, 47, 51));
@@ -15526,7 +15531,7 @@ public class GifSlideShowApp extends JFrame {
                 copyG.drawImage(preview, 0, 0, null);
                 copyG.dispose();
                 preview = argbPreview;
-                QuizSlide.applyPreviewOverlay(preview, quiz);
+                QuizSlide.applyPreviewOverlay(preview, quiz, getSlideTextDataList());
             }
 
             // Draw video overlay indicator if this slide has a video overlay
