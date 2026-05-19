@@ -72,11 +72,26 @@ public class QuizSlide {
     // "Width" = bar length (% of frame width for horiz, % of frame height
     //           for vert). Ignored for Circle / Ring / Clock.
     public int timerWidthPct = 30;
-    // Accent color of the ring/arc/bar/hand (digit too). Switches to red for
+    // Accent color of the ring/arc/bar/hand. Switches to red for
     // the last `redThresholdSeconds` regardless of this setting.
     public Color timerColor = new Color(80, 200, 255);
+    // Digit text color (independent of the accent). Red mode still overrides.
+    public Color timerTextColor = Color.WHITE;
+    // Font family for the countdown digit. Resolved against installed fonts.
+    public String timerFont = "Segoe UI";
     // Optional label drawn above the digit (e.g., "Time:", "⏱ Remaining").
     public String timerLabel = "";
+
+    // ---- Correct-answer reveal style ----
+    // Badge shape next to the highlighted option.
+    //   "Check" (default), "Star", "Crown", "Trophy", "Heart", "Thumbs Up", "None".
+    public String revealMarkStyle = "Check";
+    // 50..200 — scales the badge relative to the option's font size.
+    public int    revealMarkSizePct = 100;
+    // Color of the badge AND the highlight ring around the correct option.
+    public Color  revealMarkColor = new Color(60, 220, 110);
+    // 50..200 — scales the glow box padding around the correct option.
+    public int    revealPadPct = 100;
     // When does the countdown start?
     //  "AfterQuestion" (default): timer is shown frozen during question audio;
     //                             counting begins when question audio ends.
@@ -106,8 +121,14 @@ public class QuizSlide {
         c.timerSizePct   = timerSizePct;
         c.timerWidthPct  = timerWidthPct;
         c.timerColor     = timerColor;
+        c.timerTextColor = timerTextColor;
+        c.timerFont      = timerFont;
         c.timerLabel     = timerLabel;
         c.timerStartMode = timerStartMode;
+        c.revealMarkStyle   = revealMarkStyle;
+        c.revealMarkSizePct = revealMarkSizePct;
+        c.revealMarkColor   = revealMarkColor;
+        c.revealPadPct      = revealPadPct;
         return c;
     }
 
@@ -126,7 +147,13 @@ public class QuizSlide {
         this.timerSizePct      = src.timerSizePct;
         this.timerWidthPct     = src.timerWidthPct;
         this.timerColor        = src.timerColor;
+        this.timerTextColor    = src.timerTextColor;
+        this.timerFont         = src.timerFont;
         this.timerLabel        = src.timerLabel;
+        this.revealMarkStyle   = src.revealMarkStyle;
+        this.revealMarkSizePct = src.revealMarkSizePct;
+        this.revealMarkColor   = src.revealMarkColor;
+        this.revealPadPct      = src.revealPadPct;
         this.timerSeconds      = src.timerSeconds;
         this.redThresholdSeconds = src.redThresholdSeconds;
         this.timerStartMode    = src.timerStartMode;
@@ -189,7 +216,7 @@ public class QuizSlide {
             } else {
                 // Reveal phase: highlight the correct option.
                 long sinceReveal = elapsedMs - revealAt;
-                drawReveal(g, w, h, slideTexts, quiz.correctOptionIndex, sinceReveal);
+                drawReveal(g, w, h, slideTexts, quiz, sinceReveal);
                 // Show "0" timer or a fully-filled bar briefly.
                 drawCountdown(g, w, h, quiz, 0, true, 1.0);
             }
@@ -230,8 +257,24 @@ public class QuizSlide {
                 : new Color(80, 200, 255);
         Color accent = red ? new Color(235, 70, 70) : userColor;
         Color bg     = new Color(15, 18, 25, 220);
-        Color textCol = red ? new Color(255, 235, 235) : Color.WHITE;
+        Color userText = quiz.timerTextColor != null ? quiz.timerTextColor : Color.WHITE;
+        Color textCol = red ? new Color(255, 235, 235) : userText;
         String style = quiz.timerStyle != null ? quiz.timerStyle : "Number Circle";
+
+        // Pulse animation: in the last few "red" seconds, gently scale up at
+        // each tick and ease back to 1.0. Applied as a transform around the
+        // timer's visual center so all styles pulse uniformly.
+        java.awt.geom.AffineTransform savedTx = null;
+        if (red && quiz.timerSeconds > 0) {
+            double secFrac = (progress * quiz.timerSeconds) % 1.0;
+            if (secFrac < 0) secFrac += 1.0;
+            double pulse = 1.0 + 0.10 * (1.0 - secFrac); // 1.10 at tick → 1.0 by next sec
+            double[] cxy = pulseCenter(w, h, quiz);
+            savedTx = g.getTransform();
+            g.translate(cxy[0], cxy[1]);
+            g.scale(pulse, pulse);
+            g.translate(-cxy[0], -cxy[1]);
+        }
 
         switch (style) {
             case "Progress Bar H":
@@ -256,7 +299,26 @@ public class QuizSlide {
                 }
                 break;
         }
+        if (savedTx != null) g.setTransform(savedTx);
         drawTimerLabel(g, w, h, quiz, accent);
+    }
+
+    /** Visual center used for the pulse-in-red-phase scale transform. */
+    private static double[] pulseCenter(int w, int h, QuizSlide quiz) {
+        double x = w * quiz.timerXPct / 100.0;
+        double y = h * quiz.timerYPct / 100.0;
+        String s = quiz.timerStyle != null ? quiz.timerStyle : "";
+        if ("Progress Bar H".equals(s)) {
+            double barW = Math.max(50, w * quiz.timerWidthPct / 100.0);
+            double barH = Math.max(14, h * quiz.timerSizePct / 100.0);
+            return new double[] { x + barW / 2.0, y + barH / 2.0 };
+        }
+        if ("Progress Bar V".equals(s)) {
+            double barW = Math.max(14, h * quiz.timerSizePct / 100.0);
+            double barH = Math.max(50, h * quiz.timerWidthPct / 100.0);
+            return new double[] { x + barW / 2.0, y + barH / 2.0 };
+        }
+        return new double[] { x, y };
     }
 
     /** Draws the user-supplied label string above (or beside) the timer shape. */
@@ -268,7 +330,9 @@ public class QuizSlide {
         int cy = (int) (h * quiz.timerYPct / 100.0);
         int diameter = Math.max(40, (int) (h * quiz.timerSizePct / 100.0));
         int fontPx = Math.max(12, diameter / 4);
-        Font f = new Font("Segoe UI", Font.BOLD, fontPx);
+        String labelFamily = (quiz.timerFont != null && !quiz.timerFont.isEmpty())
+                ? quiz.timerFont : "Segoe UI";
+        Font f = new Font(labelFamily, Font.BOLD, fontPx);
         g.setFont(f);
         FontMetrics fm = g.getFontMetrics();
         int tw = fm.stringWidth(quiz.timerLabel);
@@ -316,7 +380,7 @@ public class QuizSlide {
         g.setStroke(new BasicStroke(Math.max(3, diameter / 18f)));
         g.drawOval(cx - diameter / 2 + 2, cy - diameter / 2 + 2, diameter - 4, diameter - 4);
 
-        drawDigit(g, cx, cy, diameter, remainingSec, textCol, red);
+        drawDigit(g, cx, cy, diameter, remainingSec, textCol, red, quiz);
     }
 
     /**
@@ -347,7 +411,7 @@ public class QuizSlide {
                 90, -sweep, Arc2D.OPEN));
         g.setStroke(s0);
 
-        drawDigit(g, cx, cy, diameter, remainingSec, textCol, red);
+        drawDigit(g, cx, cy, diameter, remainingSec, textCol, red, quiz);
     }
 
     /**
@@ -418,7 +482,7 @@ public class QuizSlide {
         g.setStroke(s0);
 
         // Digit, smaller and pushed up a bit so it doesn't fight the hand.
-        drawDigit(g, cx, cy + radius / 4, diameter / 2, remainingSec, textCol, red);
+        drawDigit(g, cx, cy + radius / 4, diameter / 2, remainingSec, textCol, red, quiz);
     }
 
     /** (Legacy hook — no longer used; kept so old presets don't NPE.) */
@@ -428,7 +492,9 @@ public class QuizSlide {
         int cx = (int) (w * quiz.timerXPct / 100.0);
         int cy = (int) (h * quiz.timerYPct / 100.0);
 
-        Font font = new Font("Segoe UI", Font.BOLD, fontPx);
+        String family = (quiz.timerFont != null && !quiz.timerFont.isEmpty())
+                ? quiz.timerFont : "Segoe UI";
+        Font font = new Font(family, Font.BOLD, fontPx);
         g.setFont(font);
         FontMetrics fm = g.getFontMetrics();
         String txt = remainingSec <= 0 ? "0" : String.valueOf(remainingSec);
@@ -496,13 +562,16 @@ public class QuizSlide {
         int cx = x + barW / 2;
         int cy = y + barH / 2;
         int digitSize = (int) (Math.min(barW, barH) * 0.7);
-        drawDigit(g, cx, cy, digitSize, remainingSec, textCol, red);
+        drawDigit(g, cx, cy, digitSize, remainingSec, textCol, red, quiz);
     }
 
     private static void drawDigit(Graphics2D g, int cx, int cy, int sizeRef,
-                                  int remainingSec, Color textCol, boolean red) {
+                                  int remainingSec, Color textCol, boolean red,
+                                  QuizSlide quiz) {
         String txt = remainingSec <= 0 ? "0" : String.valueOf(remainingSec);
-        Font font = new Font("Segoe UI", Font.BOLD, Math.max(12, (int) (sizeRef * 0.55)));
+        String family = (quiz != null && quiz.timerFont != null && !quiz.timerFont.isEmpty())
+                ? quiz.timerFont : "Segoe UI";
+        Font font = new Font(family, Font.BOLD, Math.max(12, (int) (sizeRef * 0.55)));
         g.setFont(font);
         FontMetrics fm = g.getFontMetrics();
         int tw = fm.stringWidth(txt);
@@ -525,9 +594,10 @@ public class QuizSlide {
     }
 
     private static void drawReveal(Graphics2D g, int w, int h,
-                                   List<?> slideTexts, int optionIdx1Based,
+                                   List<?> slideTexts, QuizSlide quiz,
                                    long sinceRevealMs) {
         if (slideTexts == null || slideTexts.isEmpty()) return;
+        int optionIdx1Based = quiz.correctOptionIndex;
         int idx = optionIdx1Based - 1;
         if (idx < 0 || idx >= slideTexts.size()) return;
 
@@ -545,40 +615,37 @@ public class QuizSlide {
             if (text == null || text.isEmpty()) text = "Option " + optionIdx1Based;
 
             // The slide-text coordinates are percentages of frame dimensions.
-            // Text is centered around (x%, y%) in this app's renderer.
             int px = (int) (w * xPct / 100.0);
             int py = (int) (h * yPct / 100.0);
-            // fontSize in this app is in 1920p reference pixels and gets
-            // scaled by max(targetW,targetH)/1920 at draw time (see renderFrame).
             float scale = Math.max(w, h) / 1920.0f;
             int fontPx = Math.max(18, (int) (fSizeRef * scale));
 
-            // Estimate text width (no measurement context for the actual font;
-            // generous estimate: avg glyph width ~= 0.55 * font size).
             int tw = (int) (text.length() * fontPx * 0.55) + fontPx;
             int th = (int) (fontPx * 1.5);
 
-            // Box centered on the text anchor (most slide texts are centered
-            // around their (x,y) point in this app).
             int bx = px - tw / 2;
             int by = py - th / 2;
 
-            // Pulse: stronger glow in first 800ms, then steady.
+            // Padding scales by both the pulse-in animation AND the user setting.
+            double padScale = Math.max(0.5, Math.min(2.0, quiz.revealPadPct / 100.0));
             float pulse = (float) Math.max(0.0,
                     Math.min(1.0, 1.0 - sinceRevealMs / 800.0));
-            int padPulse = (int) (12 + 18 * pulse);
-            int rx = bx - padPulse;
-            int ry = by - padPulse;
-            int rw = tw + padPulse * 2;
-            int rh = th + padPulse * 2;
-            int arc = th + padPulse;
+            int padBase  = (int) ((12 + 18 * pulse) * padScale);
+            int rx = bx - padBase;
+            int ry = by - padBase;
+            int rw = tw + padBase * 2;
+            int rh = th + padBase * 2;
+            int arc = th + padBase;
 
-            // Outer glow rings.
+            Color markColor = quiz.revealMarkColor != null
+                    ? quiz.revealMarkColor : new Color(60, 220, 110);
+
+            // Outer glow rings tinted to match the user's mark color.
             Composite oldC = g.getComposite();
             for (int i = 6; i >= 0; i--) {
                 float alpha = (float) (0.10 + 0.05 * pulse) * (1 - i / 8f);
                 g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
-                g.setColor(new Color(60, 220, 110));
+                g.setColor(markColor);
                 g.fillRoundRect(rx - i * 4, ry - i * 4, rw + i * 8, rh + i * 8,
                         arc + i * 4, arc + i * 4);
             }
@@ -586,30 +653,175 @@ public class QuizSlide {
 
             // Solid border.
             g.setStroke(new BasicStroke(Math.max(3, fontPx / 14f)));
-            g.setColor(new Color(80, 240, 130));
+            g.setColor(brighter(markColor, 0.12f));
             g.drawRoundRect(rx, ry, rw, rh, arc, arc);
 
-            // Checkmark badge to the right of the box.
-            int badge = Math.max(36, fontPx);
-            int bxC = rx + rw + badge / 2 + 6;
-            int byC = ry + rh / 2;
-            if (bxC + badge / 2 < w) {
-                g.setColor(new Color(40, 200, 90));
-                g.fillOval(bxC - badge / 2, byC - badge / 2, badge, badge);
-                g.setColor(Color.WHITE);
-                g.setStroke(new BasicStroke(Math.max(3, badge / 9f),
-                        BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                int qx = bxC - badge / 4;
-                int qy = byC + badge / 12;
+            // Badge.
+            String style = quiz.revealMarkStyle != null ? quiz.revealMarkStyle : "Check";
+            if (!"None".equalsIgnoreCase(style)) {
+                double sizeScale = Math.max(0.5, Math.min(2.0, quiz.revealMarkSizePct / 100.0));
+                int badge = Math.max(24, (int) (Math.max(36, fontPx) * sizeScale));
+                int bxC = rx + rw + badge / 2 + 6;
+                int byC = ry + rh / 2;
+                if (bxC + badge / 2 < w) {
+                    drawRevealBadge(g, bxC, byC, badge, style, markColor);
+                }
+            }
+        } catch (Exception ex) {
+            System.err.println("[QuizSlide] reveal-overlay reflection failed: " + ex);
+        }
+    }
+
+    /** Brightens a color toward white by the given fraction (0..1). */
+    private static Color brighter(Color c, float f) {
+        f = Math.max(0f, Math.min(1f, f));
+        int r = (int) (c.getRed()   + (255 - c.getRed())   * f);
+        int gg= (int) (c.getGreen() + (255 - c.getGreen()) * f);
+        int b = (int) (c.getBlue()  + (255 - c.getBlue())  * f);
+        return new Color(r, gg, b);
+    }
+
+    /**
+     * Paints one of several badge shapes centered at (cx,cy), filling a
+     * bounding box of side `badge`. The disc is drawn in `fill`; the inner
+     * glyph is white (or contrast-aware).
+     */
+    private static void drawRevealBadge(Graphics2D g, int cx, int cy, int badge,
+                                        String style, Color fill) {
+        int half = badge / 2;
+        // Filled disc backdrop (skipped for "Heart" — the heart silhouette is the badge).
+        boolean discBackdrop = !"Heart".equalsIgnoreCase(style)
+                            && !"Star".equalsIgnoreCase(style);
+        if (discBackdrop) {
+            g.setColor(fill);
+            g.fillOval(cx - half, cy - half, badge, badge);
+        }
+        Color glyph = Color.WHITE;
+        float strokeW = Math.max(3, badge / 9f);
+        g.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        switch (style.toLowerCase()) {
+            case "star": {
+                fillStar(g, cx, cy, half, fill);
+                break;
+            }
+            case "crown": {
+                fillCrown(g, cx, cy, badge, glyph);
+                break;
+            }
+            case "trophy": {
+                fillTrophy(g, cx, cy, badge, glyph);
+                break;
+            }
+            case "heart": {
+                fillHeart(g, cx, cy, badge, fill);
+                break;
+            }
+            case "thumbs up":
+            case "thumbsup":
+            case "thumbs-up": {
+                fillThumbsUp(g, cx, cy, badge, glyph);
+                break;
+            }
+            case "check":
+            default: {
+                g.setColor(glyph);
+                int qx = cx - badge / 4;
+                int qy = cy + badge / 12;
                 g.drawLine(qx, qy, qx + badge / 6, qy + badge / 5);
                 g.drawLine(qx + badge / 6, qy + badge / 5,
                         qx + badge / 2, qy - badge / 4);
+                break;
             }
-        } catch (Exception ex) {
-            // Reflection mismatch — fail visibly to stderr but don't break the export.
-            System.err.println("[QuizSlide] reveal-overlay reflection failed: "
-                    + ex);
         }
+    }
+
+    private static void fillStar(Graphics2D g, int cx, int cy, int r, Color fill) {
+        java.awt.Polygon p = new java.awt.Polygon();
+        for (int i = 0; i < 10; i++) {
+            double ang = Math.toRadians(-90 + i * 36);
+            double rad = (i % 2 == 0) ? r : r * 0.45;
+            p.addPoint(cx + (int) (rad * Math.cos(ang)),
+                       cy + (int) (rad * Math.sin(ang)));
+        }
+        g.setColor(fill);
+        g.fillPolygon(p);
+        g.setColor(brighter(fill, 0.25f));
+        g.drawPolygon(p);
+    }
+
+    private static void fillCrown(Graphics2D g, int cx, int cy, int s, Color glyph) {
+        int w = (int) (s * 0.7);
+        int h = (int) (s * 0.5);
+        int x = cx - w / 2;
+        int y = cy - h / 2;
+        java.awt.Polygon p = new java.awt.Polygon();
+        p.addPoint(x,             y + h);
+        p.addPoint(x,             y + h / 3);
+        p.addPoint(x + w / 4,     y + h);
+        p.addPoint(x + w / 2,     y);
+        p.addPoint(x + 3 * w / 4, y + h);
+        p.addPoint(x + w,         y + h / 3);
+        p.addPoint(x + w,         y + h);
+        g.setColor(glyph);
+        g.fillPolygon(p);
+        // Gem dots.
+        int dot = Math.max(2, s / 16);
+        g.fillOval(x + w / 2 - dot / 2,     y + h / 2 - dot / 2,     dot, dot);
+        g.fillOval(x + w / 4 - dot / 2,     y + 2 * h / 3 - dot / 2, dot, dot);
+        g.fillOval(x + 3 * w / 4 - dot / 2, y + 2 * h / 3 - dot / 2, dot, dot);
+    }
+
+    private static void fillTrophy(Graphics2D g, int cx, int cy, int s, Color glyph) {
+        int cupW = (int) (s * 0.55);
+        int cupH = (int) (s * 0.45);
+        int x = cx - cupW / 2;
+        int y = cy - cupH / 2 - s / 12;
+        g.setColor(glyph);
+        // Cup body.
+        g.fillRoundRect(x, y, cupW, cupH, cupW / 3, cupH / 2);
+        // Handles.
+        g.setStroke(new BasicStroke(Math.max(2, s / 18f)));
+        g.drawArc(x - cupW / 4, y, cupW / 2, cupH, 90, 180);
+        g.drawArc(x + cupW - cupW / 4, y, cupW / 2, cupH, 270, 180);
+        // Stem + base.
+        int stemW = cupW / 6;
+        g.fillRect(cx - stemW / 2, y + cupH, stemW, s / 8);
+        int baseW = (int) (cupW * 0.7);
+        g.fillRoundRect(cx - baseW / 2, y + cupH + s / 8, baseW, s / 10, s / 14, s / 14);
+    }
+
+    private static void fillHeart(Graphics2D g, int cx, int cy, int s, Color fill) {
+        int r = (int) (s * 0.28);
+        int hw = (int) (s * 0.85);
+        int hh = (int) (s * 0.78);
+        int x = cx - hw / 2;
+        int y = cy - hh / 2;
+        java.awt.geom.GeneralPath path = new java.awt.geom.GeneralPath();
+        path.moveTo(cx, y + hh);
+        path.curveTo(x, y + hh * 0.6, x, y, x + hw / 4.0, y);
+        path.curveTo(x + hw / 2.0, y, cx, y + r, cx, y + r * 1.3);
+        path.curveTo(cx, y + r, x + 3 * hw / 4.0, y, x + 3 * hw / 4.0, y);
+        path.curveTo(x + hw, y, x + hw, y + hh * 0.6, cx, y + hh);
+        path.closePath();
+        g.setColor(fill);
+        g.fill(path);
+        g.setColor(brighter(fill, 0.2f));
+        g.draw(path);
+    }
+
+    private static void fillThumbsUp(Graphics2D g, int cx, int cy, int s, Color glyph) {
+        g.setColor(glyph);
+        int handW = (int) (s * 0.55);
+        int handH = (int) (s * 0.45);
+        int x = cx - handW / 2;
+        int y = cy - handH / 3;
+        // Palm/fist.
+        g.fillRoundRect(x, y, handW, handH, handW / 4, handH / 2);
+        // Thumb sticking up.
+        int thumbW = handW / 2;
+        int thumbH = (int) (handH * 0.7);
+        g.fillRoundRect(x + handW / 5, y - thumbH + handH / 6,
+                thumbW, thumbH, thumbW / 2, thumbW / 2);
     }
 
     private static int readIntField(Object o, String name) throws Exception {
