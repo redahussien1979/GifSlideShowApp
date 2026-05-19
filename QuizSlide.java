@@ -72,6 +72,9 @@ public class QuizSlide {
     // "Width" = bar length (% of frame width for horiz, % of frame height
     //           for vert). Ignored for Circle / Ring / Clock.
     public int timerWidthPct = 30;
+    // Shape of the progress bar fill+track. Ignored for non-bar styles.
+    //   "Rounded" (default), "Square", "Pill", "Segmented".
+    public String progressBarShape = "Rounded";
     // Accent color of the ring/arc/bar/hand. Switches to red for
     // the last `redThresholdSeconds` regardless of this setting.
     public Color timerColor = new Color(80, 200, 255);
@@ -121,6 +124,7 @@ public class QuizSlide {
         c.timerSizePct   = timerSizePct;
         c.timerWidthPct  = timerWidthPct;
         c.timerColor     = timerColor;
+        c.progressBarShape = progressBarShape;
         c.timerTextColor = timerTextColor;
         c.timerFont      = timerFont;
         c.timerLabel     = timerLabel;
@@ -147,6 +151,7 @@ public class QuizSlide {
         this.timerSizePct      = src.timerSizePct;
         this.timerWidthPct     = src.timerWidthPct;
         this.timerColor        = src.timerColor;
+        this.progressBarShape  = src.progressBarShape;
         this.timerTextColor    = src.timerTextColor;
         this.timerFont         = src.timerFont;
         this.timerLabel        = src.timerLabel;
@@ -535,34 +540,89 @@ public class QuizSlide {
 
         int barW = horizontal ? length : thickness;
         int barH = horizontal ? thickness : length;
-        int arc  = thickness;
+        String shape = quiz.progressBarShape != null ? quiz.progressBarShape : "Rounded";
 
-        // Track background.
-        g.setColor(bg);
-        g.fillRoundRect(x, y, barW, barH, arc, arc);
-
-        // Filled portion (depleting).
-        int filled;
-        if (horizontal) {
-            filled = (int) (barW * (1.0 - progress));
-            g.setColor(accent);
-            g.fillRoundRect(x, y, Math.max(0, filled), barH, arc, arc);
+        if ("Segmented".equalsIgnoreCase(shape)) {
+            drawProgressBarSegmented(g, x, y, barW, barH, quiz, remainingSec,
+                    accent, bg, horizontal);
         } else {
-            filled = (int) (barH * (1.0 - progress));
-            g.setColor(accent);
-            g.fillRoundRect(x, y + (barH - filled), barW, Math.max(0, filled), arc, arc);
-        }
+            int arc;
+            switch (shape.toLowerCase()) {
+                case "square": arc = 0; break;
+                case "pill":   arc = Math.min(barW, barH); break;
+                case "rounded":
+                default:       arc = thickness; break;
+            }
 
-        // Border.
-        g.setColor(new Color(255, 255, 255, 80));
-        g.setStroke(new BasicStroke(2f));
-        g.drawRoundRect(x, y, barW, barH, arc, arc);
+            // Track background.
+            g.setColor(bg);
+            g.fillRoundRect(x, y, barW, barH, arc, arc);
+
+            // Filled portion (depleting).
+            int filled;
+            if (horizontal) {
+                filled = (int) (barW * (1.0 - progress));
+                g.setColor(accent);
+                g.fillRoundRect(x, y, Math.max(0, filled), barH, arc, arc);
+            } else {
+                filled = (int) (barH * (1.0 - progress));
+                g.setColor(accent);
+                g.fillRoundRect(x, y + (barH - filled), barW, Math.max(0, filled), arc, arc);
+            }
+
+            // Border.
+            g.setColor(new Color(255, 255, 255, 80));
+            g.setStroke(new BasicStroke(2f));
+            g.drawRoundRect(x, y, barW, barH, arc, arc);
+        }
 
         // Digit centered on the bar.
         int cx = x + barW / 2;
         int cy = y + barH / 2;
         int digitSize = (int) (Math.min(barW, barH) * 0.7);
         drawDigit(g, cx, cy, digitSize, remainingSec, textCol, red, quiz);
+    }
+
+    /**
+     * Segmented progress bar: one block per second of `timerSeconds`. Blocks
+     * empty one at a time as seconds elapse — the leftmost (or top) block
+     * disappears first so the visual flows naturally toward the digit.
+     */
+    private static void drawProgressBarSegmented(Graphics2D g, int x, int y,
+                                                 int barW, int barH, QuizSlide quiz,
+                                                 int remainingSec, Color accent,
+                                                 Color bg, boolean horizontal) {
+        int totalSegs = Math.max(1, quiz.timerSeconds);
+        int filledSegs = Math.max(0, Math.min(totalSegs, remainingSec));
+        int gap = Math.max(2, Math.min(barW, barH) / 12);
+        int segArc = Math.max(2, Math.min(barW, barH) / 6);
+
+        if (horizontal) {
+            int segW = Math.max(2, (barW - gap * (totalSegs - 1)) / totalSegs);
+            for (int i = 0; i < totalSegs; i++) {
+                int sx = x + i * (segW + gap);
+                // Deplete from the LEFT so the remaining block sits near the digit.
+                boolean lit = i >= (totalSegs - filledSegs);
+                g.setColor(lit ? accent : bg);
+                g.fillRoundRect(sx, y, segW, barH, segArc, segArc);
+                g.setColor(new Color(255, 255, 255, 60));
+                g.setStroke(new BasicStroke(1.5f));
+                g.drawRoundRect(sx, y, segW, barH, segArc, segArc);
+            }
+        } else {
+            int segH = Math.max(2, (barH - gap * (totalSegs - 1)) / totalSegs);
+            for (int i = 0; i < totalSegs; i++) {
+                // Top-down index. Deplete from the TOP so the remaining stack
+                // sits at the bottom — same depletion direction as Rounded.
+                int sy = y + i * (segH + gap);
+                boolean lit = i >= (totalSegs - filledSegs);
+                g.setColor(lit ? accent : bg);
+                g.fillRoundRect(x, sy, barW, segH, segArc, segArc);
+                g.setColor(new Color(255, 255, 255, 60));
+                g.setStroke(new BasicStroke(1.5f));
+                g.drawRoundRect(x, sy, barW, segH, segArc, segArc);
+            }
+        }
     }
 
     private static void drawDigit(Graphics2D g, int cx, int cy, int sizeRef,
