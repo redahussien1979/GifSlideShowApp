@@ -14509,10 +14509,23 @@ public class GifSlideShowApp extends JFrame {
             toolbar7c.add(szLbl); toolbar7c.add(quizSzSp);
             toolbar7c.add(wLbl); toolbar7c.add(quizWSp);
             toolbar7c.add(shapeLbl); toolbar7c.add(quizBarShapeCombo);
-            toolbar7c.add(colorLbl); toolbar7c.add(quizColorBtn);
-            toolbar7c.add(textColorLbl); toolbar7c.add(quizTextColorBtn);
-            toolbar7c.add(fontLbl); toolbar7c.add(quizFontCombo);
-            toolbar7c.add(labelLbl); toolbar7c.add(quizLabelField);
+
+            // ===== Toolbar Row 7c (b): Timer appearance (color / font / label) =====
+            JPanel toolbar7cB = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            toolbar7cB.setBackground(new Color(38, 28, 56));
+            toolbar7cB.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(80, 60, 130)),
+                    BorderFactory.createEmptyBorder(2, 4, 2, 4)));
+
+            JLabel timerAppearLbl = styledLabel("⏱ Look:");
+            timerAppearLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            timerAppearLbl.setForeground(new Color(190, 160, 240));
+
+            toolbar7cB.add(timerAppearLbl);
+            toolbar7cB.add(colorLbl); toolbar7cB.add(quizColorBtn);
+            toolbar7cB.add(textColorLbl); toolbar7cB.add(quizTextColorBtn);
+            toolbar7cB.add(fontLbl); toolbar7cB.add(quizFontCombo);
+            toolbar7cB.add(labelLbl); toolbar7cB.add(quizLabelField);
 
             // ===== Toolbar Row 7c2: Reveal mark (correct-answer indicator) =====
             JPanel toolbar7c2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
@@ -14713,7 +14726,17 @@ public class GifSlideShowApp extends JFrame {
             textScroll.setBorder(BorderFactory.createLineBorder(new Color(60, 63, 68)));
 
 
-            JPanel toolbarsPanel = new JPanel();
+            // Subclass JPanel so the wrapping JScrollPane below uses the
+            // viewport's width (no horizontal scrollbar) and computes height
+            // from the actual stack height.
+            JPanel toolbarsPanel = new JPanel() {
+                @Override public Dimension getPreferredSize() {
+                    Dimension d = super.getPreferredSize();
+                    Container vp = SwingUtilities.getAncestorOfClass(JViewport.class, this);
+                    if (vp != null) d.width = vp.getWidth();
+                    return d;
+                }
+            };
             toolbarsPanel.setLayout(new BoxLayout(toolbarsPanel, BoxLayout.Y_AXIS));
             toolbarsPanel.setBackground(new Color(44, 47, 51));
             toolbarsPanel.add(toolbar1);
@@ -14743,11 +14766,26 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(toolbar7b);
             toolbarsPanel.add(toolbar7d);
             toolbarsPanel.add(toolbar7c);
+            toolbarsPanel.add(toolbar7cB);
             toolbarsPanel.add(toolbar7c2);
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar8);
 
-            rightPanel.add(toolbarsPanel, BorderLayout.NORTH);
+            // Wrap the toolbars stack in a JScrollPane so a user with limited
+            // vertical room can slide down through every row instead of having
+            // the bottom rows pushed off-screen.
+            JScrollPane toolbarsScroll = new JScrollPane(toolbarsPanel,
+                    JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
+                    JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+            toolbarsScroll.setBorder(BorderFactory.createEmptyBorder());
+            toolbarsScroll.getViewport().setBackground(new Color(44, 47, 51));
+            toolbarsScroll.getVerticalScrollBar().setUnitIncrement(18);
+            // Cap the visible height so the bottom half of the right pane can
+            // host the slide-text editor. The scrollbar appears when the
+            // toolbar stack is taller than this.
+            toolbarsScroll.setPreferredSize(new Dimension(0, 360));
+
+            rightPanel.add(toolbarsScroll, BorderLayout.NORTH);
             rightPanel.add(textScroll, BorderLayout.CENTER);
 
             JPanel westPanel = new JPanel(new BorderLayout(4, 0));
