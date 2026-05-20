@@ -9662,6 +9662,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.overlayEnabled,
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
                                                 s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures, s.bgTransparency);
+                                        paintQuizOverlay(frame, s, elapsedMs);
                                         writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
                                     }
                                 } else if (hasAnimatedFx && !hasAnimatedText) {
