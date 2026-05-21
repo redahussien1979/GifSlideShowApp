@@ -399,6 +399,12 @@ public class GifSlideShowApp extends JFrame {
                     ? qs.timerTextColor : Color.WHITE));
             props.setProperty("quiz.timerFont",          qs.timerFont != null ? qs.timerFont : "Segoe UI");
             props.setProperty("quiz.timerLabel",         qs.timerLabel != null ? qs.timerLabel : "");
+            props.setProperty("quiz.digitXOffsetPct",    String.valueOf(qs.digitXOffsetPct));
+            props.setProperty("quiz.digitYOffsetPct",    String.valueOf(qs.digitYOffsetPct));
+            props.setProperty("quiz.digitSizePct",       String.valueOf(qs.digitSizePct));
+            props.setProperty("quiz.digitBold",          String.valueOf(qs.digitBold));
+            props.setProperty("quiz.digitShadow",        String.valueOf(qs.digitShadow));
+            props.setProperty("quiz.barReverse",         String.valueOf(qs.barReverse));
             props.setProperty("quiz.revealMarkStyle",    qs.revealMarkStyle != null ? qs.revealMarkStyle : "Check");
             props.setProperty("quiz.revealMarkSizePct",  String.valueOf(qs.revealMarkSizePct));
             props.setProperty("quiz.revealMarkColor",    colorToHex(qs.revealMarkColor != null
@@ -601,6 +607,18 @@ public class GifSlideShowApp extends JFrame {
         tmpl.timerFont          = props.getProperty("quiz.timerFont",
                 tmpl.timerFont != null ? tmpl.timerFont : "Segoe UI");
         tmpl.timerLabel         = props.getProperty("quiz.timerLabel", "");
+        tmpl.digitXOffsetPct    = Integer.parseInt(props.getProperty("quiz.digitXOffsetPct",
+                String.valueOf(tmpl.digitXOffsetPct)));
+        tmpl.digitYOffsetPct    = Integer.parseInt(props.getProperty("quiz.digitYOffsetPct",
+                String.valueOf(tmpl.digitYOffsetPct)));
+        tmpl.digitSizePct       = Integer.parseInt(props.getProperty("quiz.digitSizePct",
+                String.valueOf(tmpl.digitSizePct)));
+        tmpl.digitBold          = Boolean.parseBoolean(props.getProperty("quiz.digitBold",
+                String.valueOf(tmpl.digitBold)));
+        tmpl.digitShadow        = Boolean.parseBoolean(props.getProperty("quiz.digitShadow",
+                String.valueOf(tmpl.digitShadow)));
+        tmpl.barReverse         = Boolean.parseBoolean(props.getProperty("quiz.barReverse",
+                String.valueOf(tmpl.barReverse)));
         tmpl.revealMarkStyle    = props.getProperty("quiz.revealMarkStyle",
                 tmpl.revealMarkStyle != null ? tmpl.revealMarkStyle : "Check");
         tmpl.revealMarkSizePct  = Integer.parseInt(props.getProperty("quiz.revealMarkSizePct",
@@ -12551,6 +12569,10 @@ public class GifSlideShowApp extends JFrame {
         private JSpinner quizRevealSizeSp;
         private JButton  quizRevealColorBtn;
         private JSpinner quizRevealPadSp;
+        // Digit fine-tuning + bar direction (Look toolbar).
+        private JSpinner quizDigitXSp, quizDigitYSp, quizDigitSizeSp;
+        private JCheckBox quizDigitBoldChk, quizDigitShadowChk;
+        private JComboBox<String> quizBarDirCombo;
         // Audio highlight effect controls
         private final JSpinner audioGapSpinner;
         private final JButton audioHlColorBtn;
@@ -14551,11 +14573,88 @@ public class GifSlideShowApp extends JFrame {
             timerAppearLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
             timerAppearLbl.setForeground(new Color(190, 160, 240));
 
+            // ----- Digit nudge + size + bold + shadow + bar direction -----
+            JLabel digitXLbl = styledLabel("#X%");
+            quizDigitXSp = new JSpinner(
+                    new SpinnerNumberModel(
+                            Math.max(-100, Math.min(100, quiz.digitXOffsetPct)),
+                            -100, 100, 1));
+            quizDigitXSp.setPreferredSize(new Dimension(60, 24));
+            quizDigitXSp.setToolTipText("Nudge the countdown digit horizontally (% of timer size, ±100)");
+            quizDigitXSp.addChangeListener(e -> {
+                quiz.digitXOffsetPct = ((Number) quizDigitXSp.getValue()).intValue();
+                onFormatChanged();
+            });
+
+            JLabel digitYLbl = styledLabel("#Y%");
+            quizDigitYSp = new JSpinner(
+                    new SpinnerNumberModel(
+                            Math.max(-100, Math.min(100, quiz.digitYOffsetPct)),
+                            -100, 100, 1));
+            quizDigitYSp.setPreferredSize(new Dimension(60, 24));
+            quizDigitYSp.setToolTipText("Nudge the countdown digit vertically (% of timer size, ±100)");
+            quizDigitYSp.addChangeListener(e -> {
+                quiz.digitYOffsetPct = ((Number) quizDigitYSp.getValue()).intValue();
+                onFormatChanged();
+            });
+
+            JLabel digitSizeLbl = styledLabel("#Size%");
+            quizDigitSizeSp = new JSpinner(
+                    new SpinnerNumberModel(
+                            Math.max(50, Math.min(200,
+                                    quiz.digitSizePct <= 0 ? 100 : quiz.digitSizePct)),
+                            50, 200, 5));
+            quizDigitSizeSp.setPreferredSize(new Dimension(60, 24));
+            quizDigitSizeSp.setToolTipText("Digit font size multiplier (50–200%, 100% = default)");
+            quizDigitSizeSp.addChangeListener(e -> {
+                quiz.digitSizePct = ((Number) quizDigitSizeSp.getValue()).intValue();
+                onFormatChanged();
+            });
+
+            quizDigitBoldChk = new JCheckBox("Bold", quiz.digitBold);
+            quizDigitBoldChk.setOpaque(false);
+            quizDigitBoldChk.setForeground(new Color(200, 200, 220));
+            quizDigitBoldChk.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            quizDigitBoldChk.setToolTipText("Bold the countdown digit");
+            quizDigitBoldChk.addActionListener(e -> {
+                quiz.digitBold = quizDigitBoldChk.isSelected();
+                onFormatChanged();
+            });
+
+            quizDigitShadowChk = new JCheckBox("Shadow", quiz.digitShadow);
+            quizDigitShadowChk.setOpaque(false);
+            quizDigitShadowChk.setForeground(new Color(200, 200, 220));
+            quizDigitShadowChk.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            quizDigitShadowChk.setToolTipText("Soft dark drop shadow behind the digit so it stays readable over any background");
+            quizDigitShadowChk.addActionListener(e -> {
+                quiz.digitShadow = quizDigitShadowChk.isSelected();
+                onFormatChanged();
+            });
+
+            JLabel barDirLbl = styledLabel("Tick");
+            quizBarDirCombo = new JComboBox<>(new String[] {
+                    "L → R (default)", "R → L"
+            });
+            quizBarDirCombo.setSelectedIndex(quiz.barReverse ? 1 : 0);
+            quizBarDirCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            quizBarDirCombo.setPreferredSize(new Dimension(105, 24));
+            quizBarDirCombo.setToolTipText("Progress-bar tick direction. For Progress Bar V this becomes Bottom→Top (default) vs Top→Bottom.");
+            quizBarDirCombo.addActionListener(e -> {
+                quiz.barReverse = (quizBarDirCombo.getSelectedIndex() == 1);
+                onFormatChanged();
+            });
+
             toolbar7cB.add(timerAppearLbl);
             toolbar7cB.add(colorLbl); toolbar7cB.add(quizColorBtn);
             toolbar7cB.add(textColorLbl); toolbar7cB.add(quizTextColorBtn);
             toolbar7cB.add(fontLbl); toolbar7cB.add(quizFontCombo);
             toolbar7cB.add(labelLbl); toolbar7cB.add(quizLabelField);
+            toolbar7cB.add(digitXLbl);    toolbar7cB.add(quizDigitXSp);
+            toolbar7cB.add(digitYLbl);    toolbar7cB.add(quizDigitYSp);
+            toolbar7cB.add(digitSizeLbl); toolbar7cB.add(quizDigitSizeSp);
+            toolbar7cB.add(quizDigitBoldChk);
+            toolbar7cB.add(quizDigitShadowChk);
+            toolbar7cB.add(barDirLbl);    toolbar7cB.add(quizBarDirCombo);
 
             // ===== Toolbar Row 7c2: Reveal mark (correct-answer indicator) =====
             JPanel toolbar7c2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
@@ -16423,6 +16522,25 @@ public class GifSlideShowApp extends JFrame {
                 }
                 if (quizRevealPadSp != null) {
                     quizRevealPadSp.setValue(Math.max(0, Math.min(200, quiz.revealPadPct)));
+                }
+                if (quizDigitXSp != null) {
+                    quizDigitXSp.setValue(Math.max(-100, Math.min(100, quiz.digitXOffsetPct)));
+                }
+                if (quizDigitYSp != null) {
+                    quizDigitYSp.setValue(Math.max(-100, Math.min(100, quiz.digitYOffsetPct)));
+                }
+                if (quizDigitSizeSp != null) {
+                    int dsp = quiz.digitSizePct <= 0 ? 100 : quiz.digitSizePct;
+                    quizDigitSizeSp.setValue(Math.max(50, Math.min(200, dsp)));
+                }
+                if (quizDigitBoldChk != null) {
+                    quizDigitBoldChk.setSelected(quiz.digitBold);
+                }
+                if (quizDigitShadowChk != null) {
+                    quizDigitShadowChk.setSelected(quiz.digitShadow);
+                }
+                if (quizBarDirCombo != null) {
+                    quizBarDirCombo.setSelectedIndex(quiz.barReverse ? 1 : 0);
                 }
                 updateQuizStatus();
             } finally {

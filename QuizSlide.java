@@ -85,6 +85,27 @@ public class QuizSlide {
     // Optional label drawn above the digit (e.g., "Time:", "⏱ Remaining").
     public String timerLabel = "";
 
+    // ---- Countdown digit fine-tuning (Look toolbar) ----
+    // Offsets are % of the timer's reference size (diameter for Circle/Ring/
+    // Clock, min(barW,barH) for bars). Range −100..100. 0 = default centered.
+    public int     digitXOffsetPct = 0;
+    public int     digitYOffsetPct = 0;
+    // Multiplier on the auto-computed digit font size. 50..200, 100 = default.
+    public int     digitSizePct    = 100;
+    // Bold vs plain digit. Default true reads better against busy backgrounds.
+    public boolean digitBold       = true;
+    // Soft dark drop-shadow behind the digit so it stays readable on light
+    // backgrounds. Default true.
+    public boolean digitShadow     = true;
+
+    // ---- Progress-bar tick direction ----
+    // false (default): horizontal bar fills from the LEFT (drains from the
+    //                  right edge); vertical bar fills from the BOTTOM.
+    // true:            mirrored — horizontal fills from the RIGHT, vertical
+    //                  fills from the TOP. Applies to Rounded/Square/Pill and
+    //                  Segmented shapes.
+    public boolean barReverse      = false;
+
     // ---- Correct-answer reveal style ----
     // Badge shape next to the highlighted option.
     //   "Check" (default), "Star", "Crown", "Trophy", "Heart", "Thumbs Up", "None".
@@ -128,6 +149,12 @@ public class QuizSlide {
         c.timerTextColor = timerTextColor;
         c.timerFont      = timerFont;
         c.timerLabel     = timerLabel;
+        c.digitXOffsetPct = digitXOffsetPct;
+        c.digitYOffsetPct = digitYOffsetPct;
+        c.digitSizePct    = digitSizePct;
+        c.digitBold       = digitBold;
+        c.digitShadow     = digitShadow;
+        c.barReverse      = barReverse;
         c.timerStartMode = timerStartMode;
         c.revealMarkStyle   = revealMarkStyle;
         c.revealMarkSizePct = revealMarkSizePct;
@@ -155,6 +182,12 @@ public class QuizSlide {
         this.timerTextColor    = src.timerTextColor;
         this.timerFont         = src.timerFont;
         this.timerLabel        = src.timerLabel;
+        this.digitXOffsetPct   = src.digitXOffsetPct;
+        this.digitYOffsetPct   = src.digitYOffsetPct;
+        this.digitSizePct      = src.digitSizePct;
+        this.digitBold         = src.digitBold;
+        this.digitShadow       = src.digitShadow;
+        this.barReverse        = src.barReverse;
         this.revealMarkStyle   = src.revealMarkStyle;
         this.revealMarkSizePct = src.revealMarkSizePct;
         this.revealMarkColor   = src.revealMarkColor;
@@ -574,16 +607,28 @@ public class QuizSlide {
             g.setColor(bg);
             g.fillRoundRect(x, y, barW, barH, arc, arc);
 
-            // Filled portion (depleting).
+            // Filled portion (depleting). barReverse mirrors the fill side
+            // so the horizontal bar drains from LEFT (instead of right) and
+            // the vertical bar drains from BOTTOM (instead of top).
             int filled;
             if (horizontal) {
                 filled = (int) (barW * (1.0 - progress));
                 g.setColor(accent);
-                g.fillRoundRect(x, y, Math.max(0, filled), barH, arc, arc);
+                if (quiz.barReverse) {
+                    g.fillRoundRect(x + (barW - Math.max(0, filled)), y,
+                            Math.max(0, filled), barH, arc, arc);
+                } else {
+                    g.fillRoundRect(x, y, Math.max(0, filled), barH, arc, arc);
+                }
             } else {
                 filled = (int) (barH * (1.0 - progress));
                 g.setColor(accent);
-                g.fillRoundRect(x, y + (barH - filled), barW, Math.max(0, filled), arc, arc);
+                if (quiz.barReverse) {
+                    g.fillRoundRect(x, y, barW, Math.max(0, filled), arc, arc);
+                } else {
+                    g.fillRoundRect(x, y + (barH - filled), barW,
+                            Math.max(0, filled), arc, arc);
+                }
             }
 
             // Border.
@@ -613,12 +658,15 @@ public class QuizSlide {
         int gap = Math.max(2, Math.min(barW, barH) / 12);
         int segArc = Math.max(2, Math.min(barW, barH) / 6);
 
+        boolean reverse = quiz.barReverse;
         if (horizontal) {
             int segW = Math.max(2, (barW - gap * (totalSegs - 1)) / totalSegs);
             for (int i = 0; i < totalSegs; i++) {
                 int sx = x + i * (segW + gap);
-                // Deplete from the LEFT so the remaining block sits near the digit.
-                boolean lit = i >= (totalSegs - filledSegs);
+                // Default: deplete from the LEFT (lit blocks on the right).
+                // Reverse: deplete from the RIGHT (lit blocks on the left).
+                boolean lit = reverse ? (i < filledSegs)
+                                      : (i >= (totalSegs - filledSegs));
                 g.setColor(lit ? accent : bg);
                 g.fillRoundRect(sx, y, segW, barH, segArc, segArc);
                 g.setColor(new Color(255, 255, 255, 60));
@@ -628,10 +676,11 @@ public class QuizSlide {
         } else {
             int segH = Math.max(2, (barH - gap * (totalSegs - 1)) / totalSegs);
             for (int i = 0; i < totalSegs; i++) {
-                // Top-down index. Deplete from the TOP so the remaining stack
-                // sits at the bottom — same depletion direction as Rounded.
                 int sy = y + i * (segH + gap);
-                boolean lit = i >= (totalSegs - filledSegs);
+                // Default: deplete from the TOP (lit blocks at the bottom).
+                // Reverse: deplete from the BOTTOM (lit blocks at the top).
+                boolean lit = reverse ? (i < filledSegs)
+                                      : (i >= (totalSegs - filledSegs));
                 g.setColor(lit ? accent : bg);
                 g.fillRoundRect(x, sy, barW, segH, segArc, segArc);
                 g.setColor(new Color(255, 255, 255, 60));
@@ -647,12 +696,41 @@ public class QuizSlide {
         String txt = remainingSec <= 0 ? "0" : String.valueOf(remainingSec);
         String family = (quiz != null && quiz.timerFont != null && !quiz.timerFont.isEmpty())
                 ? quiz.timerFont : "Segoe UI";
-        Font font = new Font(family, Font.BOLD, Math.max(12, (int) (sizeRef * 0.55)));
+
+        // Honor the Look toolbar's digit controls. Clamp defensively so manual
+        // edits to old presets don't blow up the font size.
+        int sizePct  = (quiz != null) ? quiz.digitSizePct    : 100;
+        int xOffPct  = (quiz != null) ? quiz.digitXOffsetPct : 0;
+        int yOffPct  = (quiz != null) ? quiz.digitYOffsetPct : 0;
+        boolean bold = (quiz == null) || quiz.digitBold;
+        boolean shadow = (quiz == null) || quiz.digitShadow;
+        if (sizePct <= 0) sizePct = 100;
+        sizePct = Math.max(50, Math.min(200, sizePct));
+        xOffPct = Math.max(-100, Math.min(100, xOffPct));
+        yOffPct = Math.max(-100, Math.min(100, yOffPct));
+
+        int fontPx = Math.max(12, (int) (sizeRef * 0.55 * sizePct / 100.0));
+        Font font = new Font(family, bold ? Font.BOLD : Font.PLAIN, fontPx);
         g.setFont(font);
         FontMetrics fm = g.getFontMetrics();
         int tw = fm.stringWidth(txt);
-        int tx = cx - tw / 2;
-        int ty = cy + fm.getAscent() / 2 - fm.getDescent() / 2;
+
+        int adjCx = cx + (int) Math.round(sizeRef * xOffPct / 100.0);
+        int adjCy = cy + (int) Math.round(sizeRef * yOffPct / 100.0);
+        int tx = adjCx - tw / 2;
+        int ty = adjCy + fm.getAscent() / 2 - fm.getDescent() / 2;
+
+        // Soft drop shadow first (skipped in red urgency phase — the red glow
+        // already provides plenty of contrast and the shadow would muddy it).
+        if (shadow && !red) {
+            int sOff = Math.max(2, fontPx / 22);
+            Composite oc = g.getComposite();
+            g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.55f));
+            g.setColor(new Color(0, 0, 0));
+            g.drawString(txt, tx + sOff, ty + sOff);
+            g.setComposite(oc);
+        }
+
         if (red) {
             Composite oc = g.getComposite();
             g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.55f));
