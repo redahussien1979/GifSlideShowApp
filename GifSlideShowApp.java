@@ -6908,6 +6908,17 @@ public class GifSlideShowApp extends JFrame {
                 && s.sourceVideoDurationMs > 0 && s.sourceVideoDurationMs > dur) {
             dur = s.sourceVideoDurationMs;
         }
+        // Quiz slides must last at least long enough to play the question
+        // audio AND the full countdown timer. In "AfterQuestion" (default) mode
+        // they run sequentially → questionAudio + timer. In "AtSlideStart" mode
+        // they run in parallel → max(questionAudio, timer).
+        if (isQuizSlide(s)) {
+            long qEndMs  = Math.max(0, s.quiz.questionEndMs);
+            long timerMs = Math.max(0, s.quiz.timerSeconds) * 1000L;
+            long timerStart = "AtSlideStart".equals(s.quiz.timerStartMode) ? 0L : qEndMs;
+            long quizMs = timerStart + timerMs;
+            if (quizMs > dur) dur = (int) Math.min(Integer.MAX_VALUE, quizMs);
+        }
         return dur;
     }
 
