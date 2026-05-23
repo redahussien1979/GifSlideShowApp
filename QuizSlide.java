@@ -49,6 +49,20 @@ public class QuizSlide {
     // be one of the visible options (or both can point to the same item).
     public int hideTextIndex = 0;
 
+    // ---- Hidden-text reveal animation ----
+    // How the hidden text should APPEAR when the timer ends. "None" = pops in
+    // instantly. Other values play a brief one-shot animation that runs from
+    // revealAtMs() to revealAtMs() + hideRevealDurationMs.
+    //   "None", "Fade", "Slide In Top", "Slide In Bottom",
+    //   "Slide In Left", "Slide In Right", "Scale Up", "Bounce",
+    //   "Zoom Out", "Rotate In", "Pop".
+    public String hideRevealAnimation = "Fade";
+    // Animation length in milliseconds (50..3000).
+    public int    hideRevealDurationMs = 700;
+    // Easing curve. Same vocabulary the timer animation uses:
+    //   "Linear", "Ease In", "Ease Out", "Ease In Out", "Bounce".
+    public String hideRevealEasing = "Ease Out";
+
     public String tickPreset = "Stock: Classic Clock";   // or "Custom"
     public File   customTickFile = null;
 
@@ -168,6 +182,9 @@ public class QuizSlide {
         c.enabled = enabled;
         c.correctOptionIndex = correctOptionIndex;
         c.hideTextIndex = hideTextIndex;
+        c.hideRevealAnimation = hideRevealAnimation;
+        c.hideRevealDurationMs = hideRevealDurationMs;
+        c.hideRevealEasing = hideRevealEasing;
         c.timerSeconds = timerSeconds;
         c.redThresholdSeconds = redThresholdSeconds;
         c.tickPreset = tickPreset;
@@ -241,6 +258,9 @@ public class QuizSlide {
         this.digitShow         = src.digitShow;
         this.barReverse        = src.barReverse;
         this.hideTextIndex     = src.hideTextIndex;
+        this.hideRevealAnimation  = src.hideRevealAnimation;
+        this.hideRevealDurationMs = src.hideRevealDurationMs;
+        this.hideRevealEasing     = src.hideRevealEasing;
         this.revealMarkStyle   = src.revealMarkStyle;
         this.revealMarkSizePct = src.revealMarkSizePct;
         this.revealMarkColor   = src.revealMarkColor;
@@ -283,6 +303,33 @@ public class QuizSlide {
         if (target < 0 || target >= textListSize) return false;
         if (textIdx0Based != target) return false;
         return elapsedMs < revealAtMs();
+    }
+
+    /**
+     * True iff the chosen "reveal" text is currently in its appear-animation
+     * window (i.e. the timer just finished and the chosen animation hasn't
+     * completed yet).
+     */
+    public boolean isInRevealAnimWindow(int textIdx0Based, long elapsedMs, int textListSize) {
+        if (!enabled) return false;
+        int target = hideTextIndex - 1;
+        if (target < 0 || target >= textListSize) return false;
+        if (textIdx0Based != target) return false;
+        if (hideRevealAnimation == null || "None".equalsIgnoreCase(hideRevealAnimation)) return false;
+        int dur = Math.max(0, hideRevealDurationMs);
+        if (dur <= 0) return false;
+        long rs = revealAtMs();
+        return elapsedMs >= rs && elapsedMs < rs + dur;
+    }
+
+    /** Progress through the reveal animation, 0.0 (just started) → 1.0 (done). */
+    public double revealAnimProgress(long elapsedMs) {
+        int dur = Math.max(1, hideRevealDurationMs);
+        long rs = revealAtMs();
+        double t = (elapsedMs - rs) / (double) dur;
+        if (t < 0) t = 0;
+        else if (t > 1) t = 1;
+        return t;
     }
 
     // ============================================================
@@ -537,6 +584,11 @@ public class QuizSlide {
             }
         }
         return saved;
+    }
+
+    /** Public alias of {@link #ease(String, double)} for cross-class callers. */
+    public static double easeNamed(String name, double t) {
+        return ease(name, t);
     }
 
     /** Apply a named easing curve to t in [0,1]. */
@@ -931,10 +983,16 @@ public class QuizSlide {
     }
 
     /**
-     * Hourglass — two stacked triangles. The top one drains as time elapses
-     * (sand level falls), and the bottom one fills with the displaced sand.
-     * Sand color = `accent`; glass tint is a fixed translucent gray.
-     * A vertical jet of sand connects the two halves in the neck.
+     * Hourglass — professional game-grade look. Stack from bottom to top:
+     * (1) outer drop shadow, (2) glass bulbs with vertical translucent
+     * gradient + a diagonal highlight streak, (3) sand inside the top bulb
+     * with a sand-color gradient and a slightly wavy top surface, (4) a CONE
+     * pile in the bottom bulb that rises with time (instead of a flat slab),
+     * (5) a wobbling falling stream + free-flying particles + a tiny impact
+     * splash where the stream meets the pile, (6) glass outline with light
+     * top edge + dark inner shadow at the neck, (7) brass top and bottom
+     * caps with bevel highlights, (8) two wooden side posts joining caps.
+     * Caps turn coppery-red and sand uses the urgent accent in the red phase.
      */
     private static void drawHourglass(Graphics2D g, int w, int h, QuizSlide quiz,
                                       int remainingSec, Color accent, Color bg,
@@ -943,15 +1001,33 @@ public class QuizSlide {
         int glassW = Math.max(40, (int) (glassH * 0.62));
         int cx = (int) (w * quiz.timerXPct / 100.0);
         int cy = (int) (h * quiz.timerYPct / 100.0);
+        double prog = Math.max(0.0, Math.min(1.0, progress));
 
-        Color glass = new Color(220, 220, 230, 60);
+        // --- Frame geometry ---
+        int top      = cy - glassH / 2;
+        int bottom   = cy + glassH / 2;
+        int neckHalf = Math.max(3, glassW / 18);
+        int capH     = Math.max(5, glassH / 18);
+        int capOver  = Math.max(4, glassW / 10);
+        int frameW   = glassW + capOver * 2;
+        int postW    = Math.max(3, glassW / 26);
+        int postPad  = postW / 2 + 1;
+        int capTopY  = top - capH;
+        int capBotY  = bottom;
 
         Stroke s0 = g.getStroke();
-        int top    = cy - glassH / 2;
-        int bottom = cy + glassH / 2;
-        int neckHalf = Math.max(3, glassW / 18);
+        Paint  p0 = g.getPaint();
+        Composite oc0 = g.getComposite();
 
-        // Outer frame (two triangles meeting at the neck).
+        // --- 1. Drop shadow under the whole assembly ---
+        g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.35f));
+        g.setColor(Color.BLACK);
+        int shOff = Math.max(3, glassH / 36);
+        g.fillRoundRect(cx - frameW / 2 + shOff, capTopY + shOff,
+                frameW, capBotY - capTopY + capH, capH, capH);
+        g.setComposite(oc0);
+
+        // --- 2. Glass bulbs (triangles) with translucent gradient ---
         Polygon topTri = new Polygon(
                 new int[] { cx - glassW / 2, cx + glassW / 2, cx + neckHalf, cx - neckHalf },
                 new int[] { top,             top,             cy,            cy            }, 4);
@@ -959,67 +1035,186 @@ public class QuizSlide {
                 new int[] { cx - neckHalf, cx + neckHalf, cx + glassW / 2, cx - glassW / 2 },
                 new int[] { cy,            cy,            bottom,          bottom          }, 4);
 
-        // Drop shadow.
-        Composite oc = g.getComposite();
-        g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.35f));
-        g.setColor(Color.BLACK);
-        g.translate(4, 4);
-        g.fillPolygon(topTri); g.fillPolygon(botTri);
-        g.translate(-4, -4);
-        g.setComposite(oc);
-
-        // Empty glass fill.
-        g.setColor(glass);
+        Paint glassPaint = new GradientPaint(
+                cx, top,    new Color(240, 245, 250, 95),
+                cx, bottom, new Color(180, 195, 210, 60));
+        g.setPaint(glassPaint);
         g.fillPolygon(topTri);
         g.fillPolygon(botTri);
 
-        // Top sand level: from full at progress=0 → empty at progress=1.
-        // Sand surface drops linearly with progress. The triangle's WIDTH
-        // narrows toward the bottom, so we clip the sand fill via a sub-
-        // polygon that respects the slope of the glass walls.
-        double prog = Math.max(0.0, Math.min(1.0, progress));
+        // Diagonal highlight streak on the LEFT face of each bulb.
+        Composite oc = g.getComposite();
+        g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.55f));
+        g.setColor(new Color(255, 255, 255, 90));
+        Polygon shineTop = new Polygon(
+                new int[] { cx - glassW / 2 + glassW / 6, cx - glassW / 2 + glassW / 3,
+                            cx - neckHalf / 2 - glassW / 18, cx - neckHalf },
+                new int[] { top + glassH / 22, top + glassH / 22,
+                            cy - glassH / 22, cy - glassH / 22 }, 4);
+        g.fillPolygon(shineTop);
+        Polygon shineBot = new Polygon(
+                new int[] { cx - neckHalf, cx - neckHalf / 2 - glassW / 18,
+                            cx - glassW / 2 + glassW / 3, cx - glassW / 2 + glassW / 6 },
+                new int[] { cy + glassH / 22, cy + glassH / 22,
+                            bottom - glassH / 22, bottom - glassH / 22 }, 4);
+        g.fillPolygon(shineBot);
+        g.setComposite(oc);
+
+        // --- 3. Sand inside the TOP bulb (gradient + wavy top surface) ---
+        Color sandTop = brighten(accent, 245);
+        Color sandBot = darken(accent, 55);
         double sandTopY = top + (cy - top) * prog;
-        // Width of the triangle at height y (linear from glassW at top to 2*neckHalf at cy):
-        // width(y) = glassW + (2*neckHalf - glassW) * ((y - top) / (cy - top))
-        double frac = (cy - top) > 0 ? (sandTopY - top) / (double) (cy - top) : 1.0;
-        int topWHere = (int) Math.round(glassW + (2 * neckHalf - glassW) * frac);
+        double tFrac = (cy - top) > 0 ? (sandTopY - top) / (double) (cy - top) : 1.0;
+        int topWHere = (int) Math.round(glassW + (2 * neckHalf - glassW) * tFrac);
         Polygon topSand = new Polygon(
                 new int[] { cx - topWHere / 2, cx + topWHere / 2, cx + neckHalf, cx - neckHalf },
                 new int[] { (int) sandTopY,    (int) sandTopY,    cy,            cy             }, 4);
-        g.setColor(accent);
+        g.setPaint(new GradientPaint(cx, (float) sandTopY, sandTop,
+                                     cx, cy,               sandBot));
         g.fillPolygon(topSand);
 
-        // Bottom sand level: pile rises from the bottom as time elapses.
-        double sandBotY = bottom - (bottom - cy) * prog;
-        double bfrac = (bottom - cy) > 0 ? (bottom - sandBotY) / (double) (bottom - cy) : 0.0;
-        int botWHere = (int) Math.round(2 * neckHalf + (glassW - 2 * neckHalf) * bfrac);
-        Polygon botSand = new Polygon(
-                new int[] { cx - botWHere / 2, cx + botWHere / 2, cx + glassW / 2, cx - glassW / 2 },
-                new int[] { (int) sandBotY,    (int) sandBotY,    bottom,          bottom           }, 4);
-        g.fillPolygon(botSand);
-
-        // Sand jet in the neck while there's still sand left in the top.
-        if (prog > 0.01 && prog < 0.99) {
-            g.setColor(accent);
-            g.fillRect(cx - 1, cy, 2, Math.max(2, (int) ((sandBotY - cy) * 0.95)));
+        if (topWHere > 8 && prog < 0.99) {
+            g.setColor(darken(accent, 80));
+            g.setStroke(new BasicStroke(Math.max(1.2f, glassW / 50f),
+                    BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            java.awt.geom.Path2D.Double wave = new java.awt.geom.Path2D.Double();
+            int segs = Math.max(4, topWHere / 8);
+            double waveAmp = Math.max(0.8, glassH / 90.0);
+            for (int i = 0; i <= segs; i++) {
+                double t = i / (double) segs;
+                double xx = cx - topWHere / 2.0 + topWHere * t;
+                double yy = sandTopY + Math.sin(t * Math.PI * 3 + prog * 6) * waveAmp;
+                if (i == 0) wave.moveTo(xx, yy); else wave.lineTo(xx, yy);
+            }
+            g.draw(wave);
         }
 
-        // Glass outlines.
-        g.setStroke(new BasicStroke(Math.max(2f, glassW / 24f)));
-        g.setColor(new Color(255, 255, 255, 200));
+        // --- 4. Cone-shaped pile of fallen sand in the BOTTOM bulb ---
+        int bulbH = bottom - cy;
+        int pileH = (int) (bulbH * prog);
+        if (pileH > 0) {
+            int pileBaseY = bottom;
+            int pileApexY = bottom - pileH;
+            Polygon pile = new Polygon(
+                    new int[] { cx - glassW / 2, cx + glassW / 2, cx },
+                    new int[] { pileBaseY,       pileBaseY,       pileApexY }, 3);
+            java.awt.Shape oldClip = g.getClip();
+            g.setClip(botTri);
+            g.setPaint(new GradientPaint(cx, pileApexY, sandTop,
+                                         cx, pileBaseY, sandBot));
+            g.fillPolygon(pile);
+            g.setColor(brighten(accent, 255));
+            g.setStroke(new BasicStroke(Math.max(1.0f, glassW / 60f),
+                    BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g.drawLine(cx, pileApexY + 1, cx, pileBaseY - 1);
+            g.setClip(oldClip);
+        }
+
+        // --- 5. Wobbling falling stream + a few particles + impact splash ---
+        if (prog > 0.01 && prog < 0.99) {
+            int streamTopY = cy + 1;
+            int streamBotY = bottom - pileH - 1;
+            if (streamBotY > streamTopY + 2) {
+                double phase = prog * Math.PI * 12;
+                int segs = Math.max(6, (streamBotY - streamTopY) / 4);
+                java.awt.geom.Path2D.Double stream = new java.awt.geom.Path2D.Double();
+                float streamW = Math.max(1.6f, glassW / 32f);
+                g.setStroke(new BasicStroke(streamW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g.setColor(sandTop);
+                for (int i = 0; i <= segs; i++) {
+                    double t = i / (double) segs;
+                    double sy = streamTopY + (streamBotY - streamTopY) * t;
+                    double sx = cx + Math.sin(t * Math.PI * 4 + phase) * (glassW / 60.0);
+                    if (i == 0) stream.moveTo(sx, sy); else stream.lineTo(sx, sy);
+                }
+                g.draw(stream);
+
+                int dotR = Math.max(1, (int) (glassW / 36f));
+                for (int k = 0; k < 4; k++) {
+                    double t = ((phase / 6.0) + k * 0.25) % 1.0;
+                    double sy = streamTopY + (streamBotY - streamTopY) * t;
+                    double sx = cx + Math.sin(t * Math.PI * 4 + phase) * (glassW / 40.0)
+                            + ((k % 2 == 0) ? -1 : 1) * (glassW / 30.0);
+                    g.fillOval((int) sx - dotR, (int) sy - dotR, dotR * 2, dotR * 2);
+                }
+
+                g.setColor(brighten(accent, 245));
+                g.fillOval(cx - dotR * 2, streamBotY - dotR, dotR * 4, dotR * 2);
+            }
+        }
+
+        // --- 6. Glass outline + dark neck shadow ---
+        g.setStroke(new BasicStroke(Math.max(1.8f, glassW / 30f),
+                BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.setColor(new Color(255, 255, 255, 150));
         g.drawPolygon(topTri);
+        g.setColor(new Color(255, 255, 255, 110));
         g.drawPolygon(botTri);
-        // Top and bottom caps.
-        g.setStroke(new BasicStroke(Math.max(3f, glassW / 14f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-        g.setColor(accent);
-        g.drawLine(cx - glassW / 2 - 4, top,    cx + glassW / 2 + 4, top);
-        g.drawLine(cx - glassW / 2 - 4, bottom, cx + glassW / 2 + 4, bottom);
+        g.setColor(new Color(0, 0, 0, 60));
+        g.setStroke(new BasicStroke(Math.max(1.0f, glassW / 60f)));
+        g.drawLine(cx - neckHalf, cy, cx + neckHalf, cy);
+
+        // --- 7. Brass caps (top + bottom) with bevel ---
+        Color brass1 = red ? new Color(190, 100, 70) : new Color(210, 175, 95);
+        Color brass2 = red ? new Color(110, 50, 40)  : new Color(135, 100, 45);
+        drawHourglassCap(g, cx - frameW / 2, capTopY, frameW, capH, brass1, brass2);
+        drawHourglassCap(g, cx - frameW / 2, capBotY, frameW, capH, brass1, brass2);
+
+        // --- 8. Wooden side posts joining the two caps ---
+        Color woodLight = new Color(120, 80, 50);
+        Color woodDark  = new Color(70, 45, 25);
+        int postLeftX  = cx - frameW / 2 + postPad;
+        int postRightX = cx + frameW / 2 - postPad - postW;
+        int postYTop   = capTopY + capH - 1;
+        int postYBot   = capBotY + 1;
+        g.setPaint(new GradientPaint(0, postYTop, woodLight, 0, postYBot, woodDark));
+        g.fillRoundRect(postLeftX,  postYTop, postW, postYBot - postYTop, postW, postW);
+        g.fillRoundRect(postRightX, postYTop, postW, postYBot - postYTop, postW, postW);
+        g.setColor(new Color(255, 255, 255, 60));
+        g.setStroke(new BasicStroke(Math.max(0.8f, postW / 3f)));
+        g.drawLine(postLeftX + 1,  postYTop + 2, postLeftX + 1,  postYBot - 2);
+        g.drawLine(postRightX + 1, postYTop + 2, postRightX + 1, postYBot - 2);
+
+        g.setComposite(oc0);
+        g.setPaint(p0);
         g.setStroke(s0);
 
-        // Digit hangs to the RIGHT of the glass so it doesn't overlap the sand.
+        // Digit hangs to the RIGHT of the entire frame.
         int digitRef = (int) (glassW * 1.2);
-        drawDigit(g, cx + glassW / 2 + digitRef / 2 + 8, cy, digitRef,
+        drawDigit(g, cx + frameW / 2 + digitRef / 2 + 10, cy, digitRef,
                 remainingSec, textCol, red, quiz);
+    }
+
+    /** Beveled brass cap used by drawHourglass for the top and bottom plates. */
+    private static void drawHourglassCap(Graphics2D g, int x, int y, int w, int h,
+                                         Color light, Color dark) {
+        int r = Math.max(2, h / 2);
+        Composite oc = g.getComposite();
+        g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.45f));
+        g.setColor(Color.BLACK);
+        g.fillRoundRect(x + 2, y + 2, w, h, r, r);
+        g.setComposite(oc);
+
+        g.setPaint(new GradientPaint(x, y, light, x, y + h, dark));
+        g.fillRoundRect(x, y, w, h, r, r);
+        g.setColor(new Color(255, 255, 255, 140));
+        g.setStroke(new BasicStroke(Math.max(1.0f, h / 6f),
+                BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.drawLine(x + r, y + 2, x + w - r, y + 2);
+        g.setColor(new Color(0, 0, 0, 120));
+        g.drawLine(x + r, y + h - 2, x + w - r, y + h - 2);
+        g.setColor(new Color(0, 0, 0, 160));
+        g.setStroke(new BasicStroke(Math.max(1.0f, h / 14f)));
+        g.drawRoundRect(x, y, w, h, r, r);
+    }
+
+    /** Darken a color toward black by `target` (0..255). */
+    private static Color darken(Color c, int target) {
+        if (c == null) return Color.BLACK;
+        int r = (c.getRed()   + target) / 2;
+        int gn = (c.getGreen() + target) / 2;
+        int b = (c.getBlue()  + target) / 2;
+        return new Color(clamp255(r), clamp255(gn), clamp255(b));
     }
 
     /**
