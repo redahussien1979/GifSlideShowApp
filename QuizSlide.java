@@ -115,7 +115,8 @@ public class QuizSlide {
 
     // ---- Countdown digit fine-tuning (Look toolbar) ----
     // Offsets are % of the timer's reference size (diameter for Circle/Ring/
-    // Clock, min(barW,barH) for bars). Range −100..100. 0 = default centered.
+    // Clock, min(barW,barH) for bars). Range −300..300. 0 = default centered;
+    // ±300 lets the digit be pushed clear of the timer shape entirely.
     public int     digitXOffsetPct = 0;
     public int     digitYOffsetPct = 0;
     // Multiplier on the auto-computed digit font size. 50..200, 100 = default.
@@ -125,6 +126,9 @@ public class QuizSlide {
     // Soft dark drop-shadow behind the digit so it stays readable on light
     // backgrounds. Default true.
     public boolean digitShadow     = true;
+    // Whether to draw the countdown number at all. Set false for purely-visual
+    // timers (bar / dots / fuse) where the shape alone communicates the time.
+    public boolean digitShow       = true;
 
     // ---- Progress-bar tick direction ----
     // false (default): horizontal bar fills from the LEFT (drains from the
@@ -187,6 +191,7 @@ public class QuizSlide {
         c.digitSizePct    = digitSizePct;
         c.digitBold       = digitBold;
         c.digitShadow     = digitShadow;
+        c.digitShow       = digitShow;
         c.barReverse      = barReverse;
         c.timerStartMode = timerStartMode;
         c.revealMarkStyle   = revealMarkStyle;
@@ -225,6 +230,7 @@ public class QuizSlide {
         this.digitSizePct      = src.digitSizePct;
         this.digitBold         = src.digitBold;
         this.digitShadow       = src.digitShadow;
+        this.digitShow         = src.digitShow;
         this.barReverse        = src.barReverse;
         this.revealMarkStyle   = src.revealMarkStyle;
         this.revealMarkSizePct = src.revealMarkSizePct;
@@ -1232,6 +1238,7 @@ public class QuizSlide {
     private static void drawDigitText(Graphics2D g, int cx, int cy, int sizeRef,
                                       String txt, Color textCol, boolean red,
                                       QuizSlide quiz) {
+        if (quiz != null && !quiz.digitShow) return;
         String family = (quiz != null && quiz.timerFont != null && !quiz.timerFont.isEmpty())
                 ? quiz.timerFont : "Segoe UI";
         int sizePct  = (quiz != null) ? quiz.digitSizePct    : 100;
@@ -1241,8 +1248,8 @@ public class QuizSlide {
         boolean shadow = (quiz == null) || quiz.digitShadow;
         if (sizePct <= 0) sizePct = 100;
         sizePct = Math.max(50, Math.min(200, sizePct));
-        xOffPct = Math.max(-100, Math.min(100, xOffPct));
-        yOffPct = Math.max(-100, Math.min(100, yOffPct));
+        xOffPct = Math.max(-300, Math.min(300, xOffPct));
+        yOffPct = Math.max(-300, Math.min(300, yOffPct));
 
         int fontPx = Math.max(12, (int) (sizeRef * 0.55 * sizePct / 100.0));
         Font font = new Font(family, bold ? Font.BOLD : Font.PLAIN, fontPx);
@@ -1269,6 +1276,7 @@ public class QuizSlide {
     private static void drawDigit(Graphics2D g, int cx, int cy, int sizeRef,
                                   int remainingSec, Color textCol, boolean red,
                                   QuizSlide quiz) {
+        if (quiz != null && !quiz.digitShow) return;
         String txt = remainingSec <= 0 ? "0" : String.valueOf(remainingSec);
         String family = (quiz != null && quiz.timerFont != null && !quiz.timerFont.isEmpty())
                 ? quiz.timerFont : "Segoe UI";
@@ -1282,8 +1290,8 @@ public class QuizSlide {
         boolean shadow = (quiz == null) || quiz.digitShadow;
         if (sizePct <= 0) sizePct = 100;
         sizePct = Math.max(50, Math.min(200, sizePct));
-        xOffPct = Math.max(-100, Math.min(100, xOffPct));
-        yOffPct = Math.max(-100, Math.min(100, yOffPct));
+        xOffPct = Math.max(-300, Math.min(300, xOffPct));
+        yOffPct = Math.max(-300, Math.min(300, yOffPct));
 
         int fontPx = Math.max(12, (int) (sizeRef * 0.55 * sizePct / 100.0));
         Font font = new Font(family, bold ? Font.BOLD : Font.PLAIN, fontPx);
