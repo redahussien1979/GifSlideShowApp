@@ -412,6 +412,11 @@ public class GifSlideShowApp extends JFrame {
                     ? qs.revealMarkColor : new Color(60, 220, 110)));
             props.setProperty("quiz.revealPadPct",       String.valueOf(qs.revealPadPct));
             props.setProperty("quiz.hideTextIndex",      String.valueOf(qs.hideTextIndex));
+            props.setProperty("quiz.hideRevealAnimation",  qs.hideRevealAnimation != null
+                    ? qs.hideRevealAnimation : "Fade");
+            props.setProperty("quiz.hideRevealDurationMs", String.valueOf(qs.hideRevealDurationMs));
+            props.setProperty("quiz.hideRevealEasing",     qs.hideRevealEasing != null
+                    ? qs.hideRevealEasing : "Ease Out");
             props.setProperty("quiz.timerSeconds",       String.valueOf(qs.timerSeconds));
             props.setProperty("quiz.redThresholdSeconds", String.valueOf(qs.redThresholdSeconds));
             props.setProperty("quiz.timerStartMode",     qs.timerStartMode != null
@@ -646,6 +651,12 @@ public class GifSlideShowApp extends JFrame {
                 String.valueOf(tmpl.revealPadPct)));
         tmpl.hideTextIndex      = Integer.parseInt(props.getProperty("quiz.hideTextIndex",
                 String.valueOf(tmpl.hideTextIndex)));
+        tmpl.hideRevealAnimation  = props.getProperty("quiz.hideRevealAnimation",
+                tmpl.hideRevealAnimation);
+        tmpl.hideRevealDurationMs = Integer.parseInt(props.getProperty(
+                "quiz.hideRevealDurationMs", String.valueOf(tmpl.hideRevealDurationMs)));
+        tmpl.hideRevealEasing     = props.getProperty("quiz.hideRevealEasing",
+                tmpl.hideRevealEasing);
         tmpl.timerSeconds       = Integer.parseInt(props.getProperty("quiz.timerSeconds",
                 String.valueOf(tmpl.timerSeconds)));
         tmpl.redThresholdSeconds = Integer.parseInt(props.getProperty("quiz.redThresholdSeconds",
@@ -10686,16 +10697,99 @@ public class GifSlideShowApp extends JFrame {
      * quiz-aware renderFrame; the flags persist on the SlideTextData instances
      * but are recomputed each frame, so other (non-quiz) callers see a stable
      * default of {@code false}.
+     *
+     * Also drives the reveal animation: while the chosen text is inside its
+     * appear-animation window, we hijack the same transient render fields
+     * the audio-highlight system uses (pulseRenderScale / shakeRenderDyFrac /
+     * audioOtherDxFrac / audioOtherAlpha / audioOtherTiltDeg) so the existing
+     * renderFrame transforms paint the animation for free.
      */
     private static void applyQuizHideMask(List<SlideTextData> texts, QuizSlide quiz, long elapsedMs) {
         if (texts == null) return;
         if (quiz == null || !quiz.enabled) {
-            for (SlideTextData st : texts) st.quizHidden = false;
+            for (SlideTextData st : texts) {
+                st.quizHidden = false;
+                resetQuizRevealAnim(st);
+            }
             return;
         }
         int size = texts.size();
         for (int i = 0; i < size; i++) {
-            texts.get(i).quizHidden = quiz.shouldHideText(i, elapsedMs, size);
+            SlideTextData st = texts.get(i);
+            st.quizHidden = quiz.shouldHideText(i, elapsedMs, size);
+            if (quiz.isInRevealAnimWindow(i, elapsedMs, size)) {
+                double t = quiz.revealAnimProgress(elapsedMs);
+                double eased = QuizSlide.easeNamed(quiz.hideRevealEasing, t);
+                applyRevealAnimFields(st, quiz.hideRevealAnimation, t, eased);
+            } else {
+                resetQuizRevealAnim(st);
+            }
+        }
+    }
+
+    /** Reset the transient render fields applyRevealAnimFields stomps on. */
+    private static void resetQuizRevealAnim(SlideTextData st) {
+        st.pulseRenderScale  = 1.0;
+        st.shakeRenderDyFrac = 0.0;
+        st.audioOtherDxFrac  = 0.0;
+        st.audioOtherAlpha   = 1.0;
+        st.audioOtherTiltDeg = 0.0;
+    }
+
+    /** Map an animation name + per-frame easing to the transient render fields. */
+    private static void applyRevealAnimFields(SlideTextData st, String anim, double t, double eased) {
+        resetQuizRevealAnim(st);
+        if (anim == null) return;
+        double inv = 1.0 - eased;
+        switch (anim) {
+            case "Fade":
+                st.audioOtherAlpha = eased;
+                break;
+            case "Slide In Top":
+                st.audioOtherAlpha   = eased;
+                st.shakeRenderDyFrac = -0.18 * inv;       // starts above, settles to 0
+                break;
+            case "Slide In Bottom":
+                st.audioOtherAlpha   = eased;
+                st.shakeRenderDyFrac = 0.18 * inv;        // starts below, rises into place
+                break;
+            case "Slide In Left":
+                st.audioOtherAlpha  = eased;
+                st.audioOtherDxFrac = -0.30 * inv;        // starts off-screen left
+                break;
+            case "Slide In Right":
+                st.audioOtherAlpha  = eased;
+                st.audioOtherDxFrac = 0.30 * inv;
+                break;
+            case "Scale Up":
+                st.audioOtherAlpha  = eased;
+                st.pulseRenderScale = 0.20 + 0.80 * eased; // grows from 20% → 100%
+                break;
+            case "Zoom Out":
+                st.audioOtherAlpha  = eased;
+                st.pulseRenderScale = 3.0 - 2.0 * eased;   // starts huge, shrinks to 100%
+                break;
+            case "Bounce": {
+                // Bounce easing on scale gives the canonical "drop & settle" feel.
+                double b = QuizSlide.easeNamed("Bounce", t);
+                st.audioOtherAlpha  = Math.min(1.0, t * 2.0);
+                st.pulseRenderScale = 0.4 + 0.6 * b;
+                break;
+            }
+            case "Rotate In":
+                st.audioOtherAlpha   = eased;
+                st.audioOtherTiltDeg = inv * -180.0;       // spins from -180° → 0°
+                st.pulseRenderScale  = 0.5 + 0.5 * eased;
+                break;
+            case "Pop":
+                // Quick overshoot: scale 0 → 1.15 → 1.0
+                st.audioOtherAlpha = Math.min(1.0, t * 3.0);
+                if (t < 0.6) st.pulseRenderScale = 1.15 * (t / 0.6);
+                else        st.pulseRenderScale = 1.15 - 0.15 * ((t - 0.6) / 0.4);
+                break;
+            case "None":
+            default:
+                break;
         }
     }
 
@@ -11254,6 +11348,15 @@ public class GifSlideShowApp extends JFrame {
                 if (karaokeStyle != null && !karaokeStyle.isEmpty()) hl.karaokeStyle = karaokeStyle;
                 if (karaokeColor != null) hl.karaokeColor = karaokeColor;
                 hl.quizHidden = st.quizHidden;
+                // Carry the quiz reveal-anim over from the source so the anim
+                // still plays when the hidden text is ALSO the audio-active row.
+                // The values set by applyQuizHideMask win over the FX defaults
+                // during the reveal window (they're identity values otherwise).
+                if (st.audioOtherAlpha   != 1.0) hl.audioOtherAlpha   = st.audioOtherAlpha;
+                if (st.pulseRenderScale  != 1.0) hl.pulseRenderScale  = st.pulseRenderScale;
+                if (st.shakeRenderDyFrac != 0.0) hl.shakeRenderDyFrac = st.shakeRenderDyFrac;
+                if (st.audioOtherDxFrac  != 0.0) hl.audioOtherDxFrac  = st.audioOtherDxFrac;
+                if (st.audioOtherTiltDeg != 0.0) hl.audioOtherTiltDeg = st.audioOtherTiltDeg;
                 result.add(hl);
             } else {
                 result.add(st);
@@ -12663,6 +12766,10 @@ public class GifSlideShowApp extends JFrame {
         // Reveal-row inline target picker + delayed-reveal-text picker.
         private JSpinner quizRevealTargetSp;
         private JSpinner quizHideTextSp;
+        // Hidden-text reveal-animation controls.
+        private JComboBox<String> quizHideAnimCombo;
+        private JSpinner          quizHideAnimDurSp;
+        private JComboBox<String> quizHideAnimEaseCombo;
         // Animation toolbar controls.
         private JComboBox<String> quizAnimCombo;
         private JSpinner          quizAnimStrengthSp;
@@ -14886,6 +14993,63 @@ public class GifSlideShowApp extends JFrame {
             toolbar7c2.add(revealTargetLbl); toolbar7c2.add(quizRevealTargetSp);
             toolbar7c2.add(hideTextLbl); toolbar7c2.add(quizHideTextSp);
 
+            // ===== Toolbar Row 7c2b: Hidden-text reveal animation =====
+            JPanel toolbar7c2b = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            toolbar7c2b.setBackground(new Color(38, 28, 56));
+            toolbar7c2b.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(80, 60, 130)),
+                    BorderFactory.createEmptyBorder(2, 4, 2, 4)));
+
+            JLabel hideAnimLbl = styledLabel("✨ Appear:");
+            hideAnimLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            hideAnimLbl.setForeground(new Color(190, 160, 240));
+
+            quizHideAnimCombo = new JComboBox<>(new String[] {
+                    "None", "Fade", "Slide In Top", "Slide In Bottom",
+                    "Slide In Left", "Slide In Right",
+                    "Scale Up", "Bounce", "Zoom Out", "Rotate In", "Pop"
+            });
+            quizHideAnimCombo.setSelectedItem(quiz.hideRevealAnimation != null
+                    ? quiz.hideRevealAnimation : "Fade");
+            quizHideAnimCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            quizHideAnimCombo.setPreferredSize(new Dimension(135, 24));
+            quizHideAnimCombo.setToolTipText("Animation that plays when the hidden text appears. Only used when Hide # > 0.");
+            quizHideAnimCombo.addActionListener(e -> {
+                quiz.hideRevealAnimation = (String) quizHideAnimCombo.getSelectedItem();
+                onFormatChanged();
+            });
+
+            JLabel hideDurLbl = styledLabel("ms");
+            quizHideAnimDurSp = new JSpinner(
+                    new SpinnerNumberModel(
+                            Math.max(50, Math.min(3000, quiz.hideRevealDurationMs)),
+                            50, 3000, 50));
+            quizHideAnimDurSp.setPreferredSize(new Dimension(72, 24));
+            quizHideAnimDurSp.setToolTipText("Reveal animation duration in milliseconds (50–3000).");
+            quizHideAnimDurSp.addChangeListener(e -> {
+                quiz.hideRevealDurationMs = ((Number) quizHideAnimDurSp.getValue()).intValue();
+                onFormatChanged();
+            });
+
+            JLabel hideEaseLbl = styledLabel("Ease");
+            quizHideAnimEaseCombo = new JComboBox<>(new String[] {
+                    "Linear", "Ease In", "Ease Out", "Ease In Out", "Bounce"
+            });
+            quizHideAnimEaseCombo.setSelectedItem(quiz.hideRevealEasing != null
+                    ? quiz.hideRevealEasing : "Ease Out");
+            quizHideAnimEaseCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            quizHideAnimEaseCombo.setPreferredSize(new Dimension(105, 24));
+            quizHideAnimEaseCombo.setToolTipText("Easing curve applied to the reveal animation.");
+            quizHideAnimEaseCombo.addActionListener(e -> {
+                quiz.hideRevealEasing = (String) quizHideAnimEaseCombo.getSelectedItem();
+                onFormatChanged();
+            });
+
+            toolbar7c2b.add(hideAnimLbl);
+            toolbar7c2b.add(quizHideAnimCombo);
+            toolbar7c2b.add(hideDurLbl); toolbar7c2b.add(quizHideAnimDurSp);
+            toolbar7c2b.add(hideEaseLbl); toolbar7c2b.add(quizHideAnimEaseCombo);
+
             // ===== Toolbar Row 7c3: Timer animation knobs + custom red/secondary =====
             JPanel toolbar7c3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
             toolbar7c3.setBackground(new Color(38, 28, 56));
@@ -15154,6 +15318,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(toolbar7cB);
             toolbarsPanel.add(toolbar7cB2);
             toolbarsPanel.add(toolbar7c2);
+            toolbarsPanel.add(toolbar7c2b);
             toolbarsPanel.add(toolbar7c3);
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar8);
@@ -16802,6 +16967,18 @@ public class GifSlideShowApp extends JFrame {
                 if (quizHideTextSp != null) {
                     quizHideTextSp.setValue(
                             Math.max(0, Math.min(20, quiz.hideTextIndex)));
+                }
+                if (quizHideAnimCombo != null) {
+                    quizHideAnimCombo.setSelectedItem(quiz.hideRevealAnimation != null
+                            ? quiz.hideRevealAnimation : "Fade");
+                }
+                if (quizHideAnimDurSp != null) {
+                    quizHideAnimDurSp.setValue(
+                            Math.max(50, Math.min(3000, quiz.hideRevealDurationMs)));
+                }
+                if (quizHideAnimEaseCombo != null) {
+                    quizHideAnimEaseCombo.setSelectedItem(quiz.hideRevealEasing != null
+                            ? quiz.hideRevealEasing : "Ease Out");
                 }
                 if (quizDigitSizeSp != null) {
                     int dsp = quiz.digitSizePct <= 0 ? 100 : quiz.digitSizePct;
