@@ -142,7 +142,7 @@ public class GifSlideShowApp extends JFrame {
         dictImportBtn.addActionListener(e -> dictionaryImport());
 
         JButton quizImportBtn = createStyledButton("Quiz Import", new Color(180, 120, 200));
-        quizImportBtn.setToolTipText("Import CSV/TSV of quiz settings: each row = one slide. Headers: QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD, QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO, QUIZ_TIMER_STYLE/X/Y/SIZE/WIDTH/COLOR/TEXT_COLOR/FONT/LABEL/START_MODE, QUIZ_BAR_SHAPE, QUIZ_REVEAL_MARK_STYLE/SIZE/COLOR, QUIZ_REVEAL_PAD, QUIZ_TIMER_ANIM/_STRENGTH/_TRIGGER/_EASING, QUIZ_TIMER_RED_COLOR, QUIZ_TIMER_SECONDARY_COLOR.");
+        quizImportBtn.setToolTipText("Import CSV/TSV of quiz settings: each row = one slide. Headers: QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD, QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO, QUIZ_TIMER_STYLE/X/Y/SIZE/WIDTH/COLOR/TEXT_COLOR/FONT/LABEL/START_MODE, QUIZ_BAR_SHAPE, QUIZ_REVEAL_MARK_STYLE/SIZE/COLOR, QUIZ_REVEAL_PAD, QUIZ_TIMER_ANIM/_STRENGTH/_TRIGGER/_EASING, QUIZ_TIMER_RED_COLOR.");
         quizImportBtn.addActionListener(e -> quizImport());
 
         JButton titleGridBtn = createStyledButton("Title Grid", new Color(60, 160, 200));
@@ -426,8 +426,6 @@ public class GifSlideShowApp extends JFrame {
                     ? qs.timerAnimEasing : "Ease Out");
             if (qs.timerRedColor != null)
                 props.setProperty("quiz.timerRedColor", colorToHex(qs.timerRedColor));
-            if (qs.timerSecondaryColor != null)
-                props.setProperty("quiz.timerSecondaryColor", colorToHex(qs.timerSecondaryColor));
             props.setProperty("quiz.tickPreset",         qs.tickPreset != null ? qs.tickPreset : "Stock: Classic Clock");
             props.setProperty("quiz.dingPreset",         qs.dingPreset != null ? qs.dingPreset : "Stock: Bell");
             if (qs.customTickFile != null)
@@ -655,9 +653,6 @@ public class GifSlideShowApp extends JFrame {
         String redHex  = props.getProperty("quiz.timerRedColor");
         tmpl.timerRedColor       = (redHex != null && !redHex.isEmpty())
                 ? hexToColor(redHex) : null;
-        String secHex  = props.getProperty("quiz.timerSecondaryColor");
-        tmpl.timerSecondaryColor = (secHex != null && !secHex.isEmpty())
-                ? hexToColor(secHex) : null;
         tmpl.tickPreset         = props.getProperty("quiz.tickPreset", tmpl.tickPreset);
         tmpl.dingPreset         = props.getProperty("quiz.dingPreset", tmpl.dingPreset);
         String ctp = props.getProperty("quiz.customTickFile");
@@ -1948,7 +1943,7 @@ public class GifSlideShowApp extends JFrame {
                         + "  QUIZ_TIMER_ANIM_STRENGTH (0..200),\n"
                         + "  QUIZ_TIMER_ANIM_TRIGGER (Red Phase/Always/Each Tick/Never),\n"
                         + "  QUIZ_TIMER_ANIM_EASING (Linear/Ease In/Ease Out/Ease In Out/Bounce),\n"
-                        + "  QUIZ_TIMER_RED_COLOR, QUIZ_TIMER_SECONDARY_COLOR.\n"
+                        + "  QUIZ_TIMER_RED_COLOR.\n"
                         + "  Available QUIZ_TIMER_STYLE values: Number Circle, Progress Bar H,\n"
                         + "  Progress Bar V, Ring Arc, Analog Clock, Hourglass, Flip Clock,\n"
                         + "  Bomb Fuse, Dot Grid.\n"
@@ -2411,14 +2406,6 @@ public class GifSlideShowApp extends JFrame {
             Color c = parseQuizColor(s.trim());
             if (c != null) q.timerRedColor = c;
             else warnings.add("Row " + rowNum + ": QUIZ_TIMER_RED_COLOR '"
-                    + s + "' not recognised. Ignored.");
-        }
-
-        s = quizCellAt(fields, col.get("QUIZ_TIMER_SECONDARY_COLOR"));
-        if (s != null && !s.trim().isEmpty()) {
-            Color c = parseQuizColor(s.trim());
-            if (c != null) q.timerSecondaryColor = c;
-            else warnings.add("Row " + rowNum + ": QUIZ_TIMER_SECONDARY_COLOR '"
                     + s + "' not recognised. Ignored.");
         }
     }
@@ -12643,7 +12630,6 @@ public class GifSlideShowApp extends JFrame {
         private JComboBox<String> quizAnimTriggerCombo;
         private JComboBox<String> quizAnimEasingCombo;
         private JButton           quizRedColorBtn;
-        private JButton           quizSecondaryColorBtn;
         // Audio highlight effect controls
         private final JSpinner audioGapSpinner;
         private final JButton audioHlColorBtn;
@@ -14893,44 +14879,12 @@ public class GifSlideShowApp extends JFrame {
                 }
             });
 
-            JLabel secColorLbl = styledLabel("2nd");
-            quizSecondaryColorBtn = new JButton("■");
-            quizSecondaryColorBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
-            quizSecondaryColorBtn.setPreferredSize(new Dimension(28, 24));
-            quizSecondaryColorBtn.setForeground(quiz.timerSecondaryColor != null
-                    ? quiz.timerSecondaryColor : new Color(180, 180, 200));
-            quizSecondaryColorBtn.setToolTipText(
-                    "Secondary color used by some styles "
-                            + "(Hourglass glass tint, Flip Clock card face, Bomb Fuse cord, Dot Grid unlit dots). "
-                            + "Right-click to reset to the per-style default.");
-            quizSecondaryColorBtn.addActionListener(e -> {
-                Color picked = JColorChooser.showDialog(panel,
-                        "Secondary timer color",
-                        quiz.timerSecondaryColor != null ? quiz.timerSecondaryColor
-                                : new Color(180, 180, 200));
-                if (picked != null) {
-                    quiz.timerSecondaryColor = picked;
-                    quizSecondaryColorBtn.setForeground(picked);
-                    onFormatChanged();
-                }
-            });
-            quizSecondaryColorBtn.addMouseListener(new java.awt.event.MouseAdapter() {
-                @Override public void mousePressed(java.awt.event.MouseEvent e) {
-                    if (SwingUtilities.isRightMouseButton(e)) {
-                        quiz.timerSecondaryColor = null;
-                        quizSecondaryColorBtn.setForeground(new Color(180, 180, 200));
-                        onFormatChanged();
-                    }
-                }
-            });
-
             toolbar7c3.add(animLbl);
             toolbar7c3.add(quizAnimCombo);
             toolbar7c3.add(animStrLbl); toolbar7c3.add(quizAnimStrengthSp);
             toolbar7c3.add(animTrigLbl); toolbar7c3.add(quizAnimTriggerCombo);
             toolbar7c3.add(easeLbl); toolbar7c3.add(quizAnimEasingCombo);
             toolbar7c3.add(redColorLbl); toolbar7c3.add(quizRedColorBtn);
-            toolbar7c3.add(secColorLbl); toolbar7c3.add(quizSecondaryColorBtn);
 
             // ===== Toolbar Row 8: Per-Slide Video Overlay =====
             JPanel toolbar8 = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 3));
@@ -16765,10 +16719,6 @@ public class GifSlideShowApp extends JFrame {
                 if (quizRedColorBtn != null) {
                     quizRedColorBtn.setForeground(quiz.timerRedColor != null
                             ? quiz.timerRedColor : new Color(235, 70, 70));
-                }
-                if (quizSecondaryColorBtn != null) {
-                    quizSecondaryColorBtn.setForeground(quiz.timerSecondaryColor != null
-                            ? quiz.timerSecondaryColor : new Color(180, 180, 200));
                 }
                 updateQuizStatus();
             } finally {

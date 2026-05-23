@@ -86,15 +86,6 @@ public class QuizSlide {
     // Optional label drawn above the digit (e.g., "Time:", "⏱ Remaining").
     public String timerLabel = "";
 
-    // ---- Style-specific secondary accent ----
-    // Per-style meaning (null = sensible auto default derived from primary):
-    //   Hourglass:  unfilled glass tint / drained-sand background.
-    //   Flip Clock: face/card background for the digit cards.
-    //   Bomb Fuse:  fuse path color (the unburnt cord).
-    //   Dot Grid:   unlit dot color.
-    // Ignored by the original 5 styles.
-    public Color timerSecondaryColor = null;
-
     // ---- Custom urgent-phase color ----
     // When the remaining seconds drop into the red threshold, the timer flips
     // to this color (and pulses, depending on animation knobs). null keeps the
@@ -186,7 +177,6 @@ public class QuizSlide {
         c.timerTextColor = timerTextColor;
         c.timerFont      = timerFont;
         c.timerLabel     = timerLabel;
-        c.timerSecondaryColor   = timerSecondaryColor;
         c.timerRedColor         = timerRedColor;
         c.timerAnimation        = timerAnimation;
         c.timerAnimStrengthPct  = timerAnimStrengthPct;
@@ -225,7 +215,6 @@ public class QuizSlide {
         this.timerTextColor    = src.timerTextColor;
         this.timerFont         = src.timerFont;
         this.timerLabel        = src.timerLabel;
-        this.timerSecondaryColor  = src.timerSecondaryColor;
         this.timerRedColor        = src.timerRedColor;
         this.timerAnimation       = src.timerAnimation;
         this.timerAnimStrengthPct = src.timerAnimStrengthPct;
@@ -898,8 +887,8 @@ public class QuizSlide {
     /**
      * Hourglass — two stacked triangles. The top one drains as time elapses
      * (sand level falls), and the bottom one fills with the displaced sand.
-     * Sand color = `accent`; glass tint = `timerSecondaryColor` (auto-derived
-     * when null). A vertical jet of sand connects the two halves in the neck.
+     * Sand color = `accent`; glass tint is a fixed translucent gray.
+     * A vertical jet of sand connects the two halves in the neck.
      */
     private static void drawHourglass(Graphics2D g, int w, int h, QuizSlide quiz,
                                       int remainingSec, Color accent, Color bg,
@@ -909,8 +898,7 @@ public class QuizSlide {
         int cx = (int) (w * quiz.timerXPct / 100.0);
         int cy = (int) (h * quiz.timerYPct / 100.0);
 
-        Color glass = quiz.timerSecondaryColor != null ? quiz.timerSecondaryColor
-                : new Color(220, 220, 230, 60);
+        Color glass = new Color(220, 220, 230, 60);
 
         Stroke s0 = g.getStroke();
         int top    = cy - glassH / 2;
@@ -1009,8 +997,7 @@ public class QuizSlide {
         int totalW = nDigits * cardW + (nDigits - 1) * gap;
         int startX = cx - totalW / 2;
 
-        Color card = quiz.timerSecondaryColor != null ? quiz.timerSecondaryColor
-                : new Color(25, 28, 38, 235);
+        Color card = new Color(25, 28, 38, 235);
         Color split = new Color(0, 0, 0, 200);
 
         // Flip phase — how far the "new" top half has descended into place
@@ -1070,9 +1057,8 @@ public class QuizSlide {
     /**
      * Bomb Fuse — a horizontal sparking fuse that retracts from left to right
      * (or right to left when `barReverse` is true) ending at a cartoon bomb.
-     * `timerColor` is the spark/flame; `timerSecondaryColor` is the unburnt
-     * fuse cord (defaults to a tan rope color). The bomb body is the standard
-     * dark bg accent.
+     * `timerColor` is the spark/flame; the unburnt fuse cord is a fixed
+     * hemp-rope tan. The bomb body is the standard dark bg accent.
      */
     private static void drawBombFuse(Graphics2D g, int w, int h, QuizSlide quiz,
                                      int remainingSec, Color accent, Color bg,
@@ -1083,8 +1069,7 @@ public class QuizSlide {
         int fuseH   = Math.max(20, (int) (h * quiz.timerSizePct / 100.0));
         int bombR   = (int) (fuseH * 1.6);
 
-        Color cord = quiz.timerSecondaryColor != null ? quiz.timerSecondaryColor
-                : new Color(180, 140, 80);  // hemp rope tan
+        Color cord = new Color(180, 140, 80);  // hemp rope tan
         boolean rtl = quiz.barReverse;  // reuse existing tick-direction toggle
 
         // Anchor: bomb sits on whichever end the fuse "ends" at.
@@ -1178,9 +1163,8 @@ public class QuizSlide {
 
     /**
      * Dot Grid — a row of N circles, one per second of the timer. Lit dots
-     * use `accent`; spent dots use `timerSecondaryColor` (or a dim variant of
-     * the accent when null). The most recent dot to be extinguished pulses
-     * down to nothing so the transition isn't jarring.
+     * use `accent`; spent dots use a dim variant of the accent. The most
+     * recent dot to be extinguished cross-fades so the transition isn't jarring.
      */
     private static void drawDotGrid(Graphics2D g, int w, int h, QuizSlide quiz,
                                     int remainingSec, Color accent, Color bg,
@@ -1198,8 +1182,7 @@ public class QuizSlide {
         int gap = (rowW - dotD * total) / Math.max(1, total - 1);
         if (gap < 2) gap = 2;
 
-        Color unlit = quiz.timerSecondaryColor != null ? quiz.timerSecondaryColor
-                : new Color(accent.getRed() / 4, accent.getGreen() / 4, accent.getBlue() / 4, 180);
+        Color unlit = new Color(accent.getRed() / 4, accent.getGreen() / 4, accent.getBlue() / 4, 180);
 
         // Per-second fade: the dot currently being "burnt out" eases from
         // accent → unlit over the second it's spending.
