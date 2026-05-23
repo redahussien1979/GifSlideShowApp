@@ -404,6 +404,7 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty("quiz.digitSizePct",       String.valueOf(qs.digitSizePct));
             props.setProperty("quiz.digitBold",          String.valueOf(qs.digitBold));
             props.setProperty("quiz.digitShadow",        String.valueOf(qs.digitShadow));
+            props.setProperty("quiz.digitShow",          String.valueOf(qs.digitShow));
             props.setProperty("quiz.barReverse",         String.valueOf(qs.barReverse));
             props.setProperty("quiz.revealMarkStyle",    qs.revealMarkStyle != null ? qs.revealMarkStyle : "Check");
             props.setProperty("quiz.revealMarkSizePct",  String.valueOf(qs.revealMarkSizePct));
@@ -629,6 +630,8 @@ public class GifSlideShowApp extends JFrame {
                 String.valueOf(tmpl.digitBold)));
         tmpl.digitShadow        = Boolean.parseBoolean(props.getProperty("quiz.digitShadow",
                 String.valueOf(tmpl.digitShadow)));
+        tmpl.digitShow          = Boolean.parseBoolean(props.getProperty("quiz.digitShow",
+                String.valueOf(tmpl.digitShow)));
         tmpl.barReverse         = Boolean.parseBoolean(props.getProperty("quiz.barReverse",
                 String.valueOf(tmpl.barReverse)));
         tmpl.revealMarkStyle    = props.getProperty("quiz.revealMarkStyle",
@@ -12622,8 +12625,10 @@ public class GifSlideShowApp extends JFrame {
         private JSpinner quizRevealPadSp;
         // Digit fine-tuning + bar direction (Look toolbar).
         private JSpinner quizDigitXSp, quizDigitYSp, quizDigitSizeSp;
-        private JCheckBox quizDigitBoldChk, quizDigitShadowChk;
+        private JCheckBox quizDigitBoldChk, quizDigitShadowChk, quizDigitShowChk;
         private JComboBox<String> quizBarDirCombo;
+        // Reveal-row inline target picker.
+        private JSpinner quizRevealTargetSp;
         // Animation toolbar controls.
         private JComboBox<String> quizAnimCombo;
         private JSpinner          quizAnimStrengthSp;
@@ -14631,14 +14636,24 @@ public class GifSlideShowApp extends JFrame {
             timerAppearLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
             timerAppearLbl.setForeground(new Color(190, 160, 240));
 
-            // ----- Digit nudge + size + bold + shadow + bar direction -----
+            // ----- Digit show + nudge + size + bold + shadow + bar direction -----
+            quizDigitShowChk = new JCheckBox("Show #", quiz.digitShow);
+            quizDigitShowChk.setOpaque(false);
+            quizDigitShowChk.setForeground(new Color(200, 200, 220));
+            quizDigitShowChk.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            quizDigitShowChk.setToolTipText("Show the countdown number on the timer. Uncheck for a purely-visual timer (bar/dots/fuse alone).");
+            quizDigitShowChk.addActionListener(e -> {
+                quiz.digitShow = quizDigitShowChk.isSelected();
+                onFormatChanged();
+            });
+
             JLabel digitXLbl = styledLabel("#X%");
             quizDigitXSp = new JSpinner(
                     new SpinnerNumberModel(
-                            Math.max(-100, Math.min(100, quiz.digitXOffsetPct)),
-                            -100, 100, 1));
-            quizDigitXSp.setPreferredSize(new Dimension(60, 24));
-            quizDigitXSp.setToolTipText("Nudge the countdown digit horizontally (% of timer size, ±100)");
+                            Math.max(-300, Math.min(300, quiz.digitXOffsetPct)),
+                            -300, 300, 5));
+            quizDigitXSp.setPreferredSize(new Dimension(64, 24));
+            quizDigitXSp.setToolTipText("Nudge the countdown digit horizontally (% of timer size, ±300 — past ±100 pushes it clear of the shape)");
             quizDigitXSp.addChangeListener(e -> {
                 quiz.digitXOffsetPct = ((Number) quizDigitXSp.getValue()).intValue();
                 onFormatChanged();
@@ -14647,10 +14662,10 @@ public class GifSlideShowApp extends JFrame {
             JLabel digitYLbl = styledLabel("#Y%");
             quizDigitYSp = new JSpinner(
                     new SpinnerNumberModel(
-                            Math.max(-100, Math.min(100, quiz.digitYOffsetPct)),
-                            -100, 100, 1));
-            quizDigitYSp.setPreferredSize(new Dimension(60, 24));
-            quizDigitYSp.setToolTipText("Nudge the countdown digit vertically (% of timer size, ±100)");
+                            Math.max(-300, Math.min(300, quiz.digitYOffsetPct)),
+                            -300, 300, 5));
+            quizDigitYSp.setPreferredSize(new Dimension(64, 24));
+            quizDigitYSp.setToolTipText("Nudge the countdown digit vertically (% of timer size, ±300 — past ±100 pushes it clear of the shape)");
             quizDigitYSp.addChangeListener(e -> {
                 quiz.digitYOffsetPct = ((Number) quizDigitYSp.getValue()).intValue();
                 onFormatChanged();
@@ -14702,17 +14717,32 @@ public class GifSlideShowApp extends JFrame {
                 onFormatChanged();
             });
 
+            // Line 1: appearance (color / font / label).
             toolbar7cB.add(timerAppearLbl);
             toolbar7cB.add(colorLbl); toolbar7cB.add(quizColorBtn);
             toolbar7cB.add(textColorLbl); toolbar7cB.add(quizTextColorBtn);
             toolbar7cB.add(fontLbl); toolbar7cB.add(quizFontCombo);
             toolbar7cB.add(labelLbl); toolbar7cB.add(quizLabelField);
-            toolbar7cB.add(digitXLbl);    toolbar7cB.add(quizDigitXSp);
-            toolbar7cB.add(digitYLbl);    toolbar7cB.add(quizDigitYSp);
-            toolbar7cB.add(digitSizeLbl); toolbar7cB.add(quizDigitSizeSp);
-            toolbar7cB.add(quizDigitBoldChk);
-            toolbar7cB.add(quizDigitShadowChk);
-            toolbar7cB.add(barDirLbl);    toolbar7cB.add(quizBarDirCombo);
+
+            // ===== Toolbar Row 7c (b2): Digit show / nudge / size / bar tick =====
+            JPanel toolbar7cB2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            toolbar7cB2.setBackground(new Color(38, 28, 56));
+            toolbar7cB2.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(80, 60, 130)),
+                    BorderFactory.createEmptyBorder(2, 4, 2, 4)));
+
+            JLabel digitRowLbl = styledLabel("⏱ #:");
+            digitRowLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            digitRowLbl.setForeground(new Color(190, 160, 240));
+
+            toolbar7cB2.add(digitRowLbl);
+            toolbar7cB2.add(quizDigitShowChk);
+            toolbar7cB2.add(digitXLbl);    toolbar7cB2.add(quizDigitXSp);
+            toolbar7cB2.add(digitYLbl);    toolbar7cB2.add(quizDigitYSp);
+            toolbar7cB2.add(digitSizeLbl); toolbar7cB2.add(quizDigitSizeSp);
+            toolbar7cB2.add(quizDigitBoldChk);
+            toolbar7cB2.add(quizDigitShadowChk);
+            toolbar7cB2.add(barDirLbl);    toolbar7cB2.add(quizBarDirCombo);
 
             // ===== Toolbar Row 7c2: Reveal mark (correct-answer indicator) =====
             JPanel toolbar7c2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
@@ -14781,11 +14811,29 @@ public class GifSlideShowApp extends JFrame {
                 onFormatChanged();
             });
 
+            // Pick which slide-text item gets the reveal badge when the timer
+            // finishes. Mirrors `correctOptionIndex` (1-based). Out-of-range
+            // values are silently ignored by drawReveal so it's safe to set
+            // any value 1..20 even when the slide has fewer texts.
+            JLabel revealTargetLbl = styledLabel("Text #");
+            quizRevealTargetSp = new JSpinner(
+                    new SpinnerNumberModel(
+                            Math.max(1, Math.min(20, quiz.correctOptionIndex)),
+                            1, 20, 1));
+            quizRevealTargetSp.setPreferredSize(new Dimension(56, 24));
+            quizRevealTargetSp.setToolTipText("Which slide-text item to reveal when the timer ends (1, 2, 3, …). 1-based.");
+            quizRevealTargetSp.addChangeListener(e -> {
+                quiz.correctOptionIndex = ((Number) quizRevealTargetSp.getValue()).intValue();
+                updateQuizStatus();
+                onFormatChanged();
+            });
+
             toolbar7c2.add(revealLbl);
             toolbar7c2.add(quizRevealStyleCombo);
             toolbar7c2.add(revealSzLbl); toolbar7c2.add(quizRevealSizeSp);
             toolbar7c2.add(revealColorLbl); toolbar7c2.add(quizRevealColorBtn);
             toolbar7c2.add(revealPadLbl); toolbar7c2.add(quizRevealPadSp);
+            toolbar7c2.add(revealTargetLbl); toolbar7c2.add(quizRevealTargetSp);
 
             // ===== Toolbar Row 7c3: Timer animation knobs + custom red/secondary =====
             JPanel toolbar7c3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
@@ -15053,6 +15101,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(toolbar7d);
             toolbarsPanel.add(toolbar7c);
             toolbarsPanel.add(toolbar7cB);
+            toolbarsPanel.add(toolbar7cB2);
             toolbarsPanel.add(toolbar7c2);
             toolbarsPanel.add(toolbar7c3);
             toolbarsPanel.add(createToolbarSeparator());
@@ -16682,10 +16731,17 @@ public class GifSlideShowApp extends JFrame {
                     quizRevealPadSp.setValue(Math.max(0, Math.min(200, quiz.revealPadPct)));
                 }
                 if (quizDigitXSp != null) {
-                    quizDigitXSp.setValue(Math.max(-100, Math.min(100, quiz.digitXOffsetPct)));
+                    quizDigitXSp.setValue(Math.max(-300, Math.min(300, quiz.digitXOffsetPct)));
                 }
                 if (quizDigitYSp != null) {
-                    quizDigitYSp.setValue(Math.max(-100, Math.min(100, quiz.digitYOffsetPct)));
+                    quizDigitYSp.setValue(Math.max(-300, Math.min(300, quiz.digitYOffsetPct)));
+                }
+                if (quizDigitShowChk != null) {
+                    quizDigitShowChk.setSelected(quiz.digitShow);
+                }
+                if (quizRevealTargetSp != null) {
+                    quizRevealTargetSp.setValue(
+                            Math.max(1, Math.min(20, quiz.correctOptionIndex)));
                 }
                 if (quizDigitSizeSp != null) {
                     int dsp = quiz.digitSizePct <= 0 ? 100 : quiz.digitSizePct;
