@@ -7004,6 +7004,19 @@ public class GifSlideShowApp extends JFrame {
             long timerStart = "AtSlideStart".equals(s.quiz.timerStartMode) ? 0L : qEndMs;
             long quizMs = timerStart + timerMs;
             if (quizMs > dur) dur = (int) Math.min(Integer.MAX_VALUE, quizMs);
+
+            // If a hidden-text audio is configured, the slide must outlast
+            // revealAt + that audio's duration so the surprise audio can
+            // finish playing after the text appears.
+            if (s.quiz.hideTextIndex > 0) {
+                int hi = s.quiz.hideTextIndex - 1;
+                if (hi < s.audioFiles.size() && s.audioFiles.get(hi) != null
+                        && s.audioFiles.get(hi).exists()
+                        && hi < s.audioDurationsMs.size()) {
+                    long hideEnd = s.quiz.revealAtMs() + s.audioDurationsMs.get(hi);
+                    if (hideEnd > dur) dur = (int) Math.min(Integer.MAX_VALUE, hideEnd);
+                }
+            }
         }
         return dur;
     }
@@ -10545,42 +10558,75 @@ public class GifSlideShowApp extends JFrame {
     /**
      * Concatenate all audio files for a slide (audio1, audio2, ...) into a single audio file.
      * Returns null if the slide has no audio files.
+     *
+     * Quiz "delayed-reveal" hook: when the slide is a quiz with hideTextIndex
+     * set AND the chosen hidden text has its own audio, that audio is forced
+     * to start at the reveal moment (timer end) regardless of where it would
+     * land in the normal sequential chain. Other per-text audios chain as
+     * before, skipping the hidden one entirely so it doesn't push them later.
      */
     private static File concatSlideAudios(SlideData s, File tempDir) {
-        java.util.List<File> validAudios = new java.util.ArrayList<>();
-        for (File af : s.audioFiles) {
-            if (af != null && af.exists()) validAudios.add(af);
+        // Parallel lists of valid audios with their original text-slot indices
+        // and per-audio durations (needed to advance the cumulative offset).
+        java.util.List<File>    validAudios = new java.util.ArrayList<>();
+        java.util.List<Integer> validIdx    = new java.util.ArrayList<>();
+        java.util.List<Integer> validDurs   = new java.util.ArrayList<>();
+        for (int i = 0; i < s.audioFiles.size(); i++) {
+            File af = s.audioFiles.get(i);
+            if (af != null && af.exists()) {
+                validAudios.add(af);
+                validIdx.add(i);
+                validDurs.add(i < s.audioDurationsMs.size() ? s.audioDurationsMs.get(i) : 0);
+            }
         }
         if (validAudios.isEmpty()) return null;
-        if (validAudios.size() == 1) return validAudios.get(0);
+
+        // Detect the quiz "hidden text audio" override.
+        int  hideOrigIdx = -1;
+        long hideOffsetMs = 0L;
+        if (isQuizSlide(s) && s.quiz.hideTextIndex > 0) {
+            int hi = s.quiz.hideTextIndex - 1;
+            if (hi < s.audioFiles.size() && s.audioFiles.get(hi) != null
+                    && s.audioFiles.get(hi).exists()) {
+                hideOrigIdx  = hi;
+                hideOffsetMs = s.quiz.revealAtMs();
+            }
+        }
+
+        if (validAudios.size() == 1 && hideOrigIdx < 0) return validAudios.get(0);
+
+        // Compute per-audio start offsets. The hidden-text audio jumps to the
+        // reveal moment and is excluded from the cumulative chain so it
+        // doesn't push subsequent audios later.
+        long[] offsets = new long[validAudios.size()];
+        long cum = 0;
+        boolean firstChained = true;
+        for (int ai = 0; ai < validAudios.size(); ai++) {
+            int origIdx = validIdx.get(ai);
+            if (origIdx == hideOrigIdx) {
+                offsets[ai] = hideOffsetMs;
+            } else {
+                if (!firstChained && s.audioGapMs > 0) cum += s.audioGapMs;
+                offsets[ai] = cum;
+                cum += validDurs.get(ai);
+                firstChained = false;
+            }
+        }
+
+        boolean needsAmix = (hideOrigIdx >= 0) || s.audioGapMs > 0;
         try {
-            // If gap is needed, use filter_complex with adelay+amix instead of concat
-            if (s.audioGapMs > 0) {
+            if (needsAmix) {
                 File outFile = new File(tempDir, "slide_audio_merged_" + System.nanoTime() + ".m4a");
                 java.util.List<String> cmd = new java.util.ArrayList<>();
                 cmd.add("ffmpeg"); cmd.add("-y");
                 for (File af : validAudios) {
                     cmd.add("-i"); cmd.add(af.getAbsolutePath());
                 }
-                // Build filter: delay each audio by cumulative offset including gaps
                 StringBuilder fc = new StringBuilder();
-                long offset = 0;
                 for (int ai = 0; ai < validAudios.size(); ai++) {
-                    if (ai > 0) offset += s.audioGapMs;
-                    fc.append("[").append(ai).append(":a]adelay=").append(offset).append("|").append(offset)
-                            .append("[a").append(ai).append("];");
-                    // Add this audio's duration for next offset
-                    int adur = 0;
-                    for (int si = 0; si < s.audioFiles.size(); si++) {
-                        File af = s.audioFiles.get(si);
-                        if (af != null && af.exists()) {
-                            if (af.equals(validAudios.get(ai))) {
-                                adur = si < s.audioDurationsMs.size() ? s.audioDurationsMs.get(si) : 0;
-                                break;
-                            }
-                        }
-                    }
-                    offset += adur;
+                    fc.append("[").append(ai).append(":a]adelay=")
+                      .append(offsets[ai]).append("|").append(offsets[ai])
+                      .append("[a").append(ai).append("];");
                 }
                 for (int ai = 0; ai < validAudios.size(); ai++) {
                     fc.append("[a").append(ai).append("]");
@@ -10601,7 +10647,7 @@ public class GifSlideShowApp extends JFrame {
                 int exit = proc.waitFor();
                 if (exit == 0 && outFile.exists()) return outFile;
             }
-            // No gap: simple concat
+            // No gap and no reveal override: simple concat.
             File concatList = new File(tempDir, "audio_concat_" + System.nanoTime() + ".txt");
             try (java.io.PrintWriter pw = new java.io.PrintWriter(concatList)) {
                 for (File af : validAudios) {
