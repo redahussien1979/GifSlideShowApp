@@ -142,7 +142,7 @@ public class GifSlideShowApp extends JFrame {
         dictImportBtn.addActionListener(e -> dictionaryImport());
 
         JButton quizImportBtn = createStyledButton("Quiz Import", new Color(180, 120, 200));
-        quizImportBtn.setToolTipText("Import CSV/TSV of quiz settings: each row = one slide. Headers: QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD, QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO, QUIZ_TIMER_STYLE/X/Y/SIZE/WIDTH/COLOR/TEXT_COLOR/FONT/LABEL/START_MODE, QUIZ_BAR_SHAPE, QUIZ_REVEAL_MARK_STYLE/SIZE/COLOR, QUIZ_REVEAL_PAD.");
+        quizImportBtn.setToolTipText("Import CSV/TSV of quiz settings: each row = one slide. Headers: QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD, QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO, QUIZ_TIMER_STYLE/X/Y/SIZE/WIDTH/COLOR/TEXT_COLOR/FONT/LABEL/START_MODE, QUIZ_BAR_SHAPE, QUIZ_REVEAL_MARK_STYLE/SIZE/COLOR, QUIZ_REVEAL_PAD, QUIZ_TIMER_ANIM/_STRENGTH/_TRIGGER/_EASING, QUIZ_TIMER_RED_COLOR, QUIZ_TIMER_SECONDARY_COLOR.");
         quizImportBtn.addActionListener(e -> quizImport());
 
         JButton titleGridBtn = createStyledButton("Title Grid", new Color(60, 160, 200));
@@ -414,6 +414,20 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty("quiz.redThresholdSeconds", String.valueOf(qs.redThresholdSeconds));
             props.setProperty("quiz.timerStartMode",     qs.timerStartMode != null
                     ? qs.timerStartMode : "AfterQuestion");
+            // Animation knobs + custom red/secondary (new fields — older presets
+            // omit these and fall back to defaults on load).
+            props.setProperty("quiz.timerAnimation",     qs.timerAnimation != null
+                    ? qs.timerAnimation : "Pulse");
+            props.setProperty("quiz.timerAnimStrengthPct",
+                    String.valueOf(qs.timerAnimStrengthPct));
+            props.setProperty("quiz.timerAnimTrigger",   qs.timerAnimTrigger != null
+                    ? qs.timerAnimTrigger : "Red Phase");
+            props.setProperty("quiz.timerAnimEasing",    qs.timerAnimEasing != null
+                    ? qs.timerAnimEasing : "Ease Out");
+            if (qs.timerRedColor != null)
+                props.setProperty("quiz.timerRedColor", colorToHex(qs.timerRedColor));
+            if (qs.timerSecondaryColor != null)
+                props.setProperty("quiz.timerSecondaryColor", colorToHex(qs.timerSecondaryColor));
             props.setProperty("quiz.tickPreset",         qs.tickPreset != null ? qs.tickPreset : "Stock: Classic Clock");
             props.setProperty("quiz.dingPreset",         qs.dingPreset != null ? qs.dingPreset : "Stock: Bell");
             if (qs.customTickFile != null)
@@ -633,6 +647,17 @@ public class GifSlideShowApp extends JFrame {
         tmpl.redThresholdSeconds = Integer.parseInt(props.getProperty("quiz.redThresholdSeconds",
                 String.valueOf(tmpl.redThresholdSeconds)));
         tmpl.timerStartMode     = props.getProperty("quiz.timerStartMode", tmpl.timerStartMode);
+        tmpl.timerAnimation       = props.getProperty("quiz.timerAnimation", tmpl.timerAnimation);
+        tmpl.timerAnimStrengthPct = Integer.parseInt(props.getProperty(
+                "quiz.timerAnimStrengthPct", String.valueOf(tmpl.timerAnimStrengthPct)));
+        tmpl.timerAnimTrigger     = props.getProperty("quiz.timerAnimTrigger", tmpl.timerAnimTrigger);
+        tmpl.timerAnimEasing      = props.getProperty("quiz.timerAnimEasing", tmpl.timerAnimEasing);
+        String redHex  = props.getProperty("quiz.timerRedColor");
+        tmpl.timerRedColor       = (redHex != null && !redHex.isEmpty())
+                ? hexToColor(redHex) : null;
+        String secHex  = props.getProperty("quiz.timerSecondaryColor");
+        tmpl.timerSecondaryColor = (secHex != null && !secHex.isEmpty())
+                ? hexToColor(secHex) : null;
         tmpl.tickPreset         = props.getProperty("quiz.tickPreset", tmpl.tickPreset);
         tmpl.dingPreset         = props.getProperty("quiz.dingPreset", tmpl.dingPreset);
         String ctp = props.getProperty("quiz.customTickFile");
@@ -1918,7 +1943,15 @@ public class GifSlideShowApp extends JFrame {
                         + "  QUIZ_TIMER_LABEL, QUIZ_TIMER_START_MODE,\n"
                         + "  QUIZ_REVEAL_MARK_STYLE (Check/Star/Crown/Trophy/Heart/Thumbs Up/None),\n"
                         + "  QUIZ_REVEAL_MARK_SIZE (50..200), QUIZ_REVEAL_MARK_COLOR,\n"
-                        + "  QUIZ_REVEAL_PAD (50..200).\n"
+                        + "  QUIZ_REVEAL_PAD (50..200),\n"
+                        + "  QUIZ_TIMER_ANIM (Pulse/Spin/Bounce/Shake/None),\n"
+                        + "  QUIZ_TIMER_ANIM_STRENGTH (0..200),\n"
+                        + "  QUIZ_TIMER_ANIM_TRIGGER (Red Phase/Always/Each Tick/Never),\n"
+                        + "  QUIZ_TIMER_ANIM_EASING (Linear/Ease In/Ease Out/Ease In Out/Bounce),\n"
+                        + "  QUIZ_TIMER_RED_COLOR, QUIZ_TIMER_SECONDARY_COLOR.\n"
+                        + "  Available QUIZ_TIMER_STYLE values: Number Circle, Progress Bar H,\n"
+                        + "  Progress Bar V, Ring Arc, Analog Clock, Hourglass, Flip Clock,\n"
+                        + "  Bomb Fuse, Dot Grid.\n"
                         + "Empty cell = leave that value unchanged.\n"
                         + "Visual / style fields are taken from the FIRST data row and\n"
                         + "applied to all slides.\n"
@@ -2356,6 +2389,37 @@ public class GifSlideShowApp extends JFrame {
                 warnings.add("Row " + rowNum + ": QUIZ_TIMER_START_MODE '"
                         + s + "' must be AtSlideStart or AfterQuestion. Ignored.");
             }
+        }
+
+        // Animation knobs + new custom colors.
+        s = quizCellAt(fields, col.get("QUIZ_TIMER_ANIM"));
+        if (s != null && !s.trim().isEmpty()) q.timerAnimation = s.trim();
+
+        s = quizCellAt(fields, col.get("QUIZ_TIMER_ANIM_STRENGTH"));
+        if (s != null && !s.trim().isEmpty())
+            q.timerAnimStrengthPct = parseQuizScalePct0(s, q.timerAnimStrengthPct,
+                    "QUIZ_TIMER_ANIM_STRENGTH", rowNum, warnings);
+
+        s = quizCellAt(fields, col.get("QUIZ_TIMER_ANIM_TRIGGER"));
+        if (s != null && !s.trim().isEmpty()) q.timerAnimTrigger = s.trim();
+
+        s = quizCellAt(fields, col.get("QUIZ_TIMER_ANIM_EASING"));
+        if (s != null && !s.trim().isEmpty()) q.timerAnimEasing = s.trim();
+
+        s = quizCellAt(fields, col.get("QUIZ_TIMER_RED_COLOR"));
+        if (s != null && !s.trim().isEmpty()) {
+            Color c = parseQuizColor(s.trim());
+            if (c != null) q.timerRedColor = c;
+            else warnings.add("Row " + rowNum + ": QUIZ_TIMER_RED_COLOR '"
+                    + s + "' not recognised. Ignored.");
+        }
+
+        s = quizCellAt(fields, col.get("QUIZ_TIMER_SECONDARY_COLOR"));
+        if (s != null && !s.trim().isEmpty()) {
+            Color c = parseQuizColor(s.trim());
+            if (c != null) q.timerSecondaryColor = c;
+            else warnings.add("Row " + rowNum + ": QUIZ_TIMER_SECONDARY_COLOR '"
+                    + s + "' not recognised. Ignored.");
         }
     }
 
@@ -12573,6 +12637,13 @@ public class GifSlideShowApp extends JFrame {
         private JSpinner quizDigitXSp, quizDigitYSp, quizDigitSizeSp;
         private JCheckBox quizDigitBoldChk, quizDigitShadowChk;
         private JComboBox<String> quizBarDirCombo;
+        // Animation toolbar controls.
+        private JComboBox<String> quizAnimCombo;
+        private JSpinner          quizAnimStrengthSp;
+        private JComboBox<String> quizAnimTriggerCombo;
+        private JComboBox<String> quizAnimEasingCombo;
+        private JButton           quizRedColorBtn;
+        private JButton           quizSecondaryColorBtn;
         // Audio highlight effect controls
         private final JSpinner audioGapSpinner;
         private final JButton audioHlColorBtn;
@@ -14419,11 +14490,12 @@ public class GifSlideShowApp extends JFrame {
 
             quizStyleCombo = new JComboBox<>(new String[] {
                     "Number Circle", "Progress Bar H", "Progress Bar V",
-                    "Ring Arc", "Analog Clock"
+                    "Ring Arc", "Analog Clock",
+                    "Hourglass", "Flip Clock", "Bomb Fuse", "Dot Grid"
             });
             quizStyleCombo.setSelectedItem(quiz.timerStyle);
             quizStyleCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            quizStyleCombo.setPreferredSize(new Dimension(125, 24));
+            quizStyleCombo.setPreferredSize(new Dimension(135, 24));
             quizStyleCombo.setToolTipText("Visual style of the countdown timer");
             quizStyleCombo.addActionListener(e -> {
                 quiz.timerStyle = (String) quizStyleCombo.getSelectedItem();
@@ -14454,7 +14526,7 @@ public class GifSlideShowApp extends JFrame {
             quizSzSp = new JSpinner(
                     new SpinnerNumberModel(quiz.timerSizePct, 3, 60, 1));
             quizSzSp.setPreferredSize(new Dimension(56, 24));
-            quizSzSp.setToolTipText("Diameter (Circle/Ring), font height (Numeric), or bar thickness");
+            quizSzSp.setToolTipText("Reference size: diameter (Circle/Ring/Clock), bar thickness (Progress Bar), hourglass height, flip-clock card height, fuse thickness, or dot diameter");
             quizSzSp.addChangeListener(e -> {
                 quiz.timerSizePct = ((Number) quizSzSp.getValue()).intValue();
                 onFormatChanged();
@@ -14464,7 +14536,7 @@ public class GifSlideShowApp extends JFrame {
             quizWSp = new JSpinner(
                     new SpinnerNumberModel(quiz.timerWidthPct, 5, 100, 1));
             quizWSp.setPreferredSize(new Dimension(56, 24));
-            quizWSp.setToolTipText("Bar length (% of frame). Used for Progress Bar styles only.");
+            quizWSp.setToolTipText("Length axis: bar length (Progress Bar), fuse length (Bomb Fuse), or dot-row width (Dot Grid). Ignored for circular/clock/hourglass/flip styles.");
             quizWSp.addChangeListener(e -> {
                 quiz.timerWidthPct = ((Number) quizWSp.getValue()).intValue();
                 onFormatChanged();
@@ -14729,6 +14801,137 @@ public class GifSlideShowApp extends JFrame {
             toolbar7c2.add(revealColorLbl); toolbar7c2.add(quizRevealColorBtn);
             toolbar7c2.add(revealPadLbl); toolbar7c2.add(quizRevealPadSp);
 
+            // ===== Toolbar Row 7c3: Timer animation knobs + custom red/secondary =====
+            JPanel toolbar7c3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            toolbar7c3.setBackground(new Color(38, 28, 56));
+            toolbar7c3.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(80, 60, 130)),
+                    BorderFactory.createEmptyBorder(2, 4, 2, 4)));
+
+            JLabel animLbl = styledLabel("🎬 Anim:");
+            animLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            animLbl.setForeground(new Color(190, 160, 240));
+
+            quizAnimCombo = new JComboBox<>(new String[] {
+                    "Pulse", "Spin", "Bounce", "Shake", "None"
+            });
+            quizAnimCombo.setSelectedItem(quiz.timerAnimation != null
+                    ? quiz.timerAnimation : "Pulse");
+            quizAnimCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            quizAnimCombo.setPreferredSize(new Dimension(95, 24));
+            quizAnimCombo.setToolTipText("Animation applied to the timer shape (Pulse / Spin / Bounce / Shake / None)");
+            quizAnimCombo.addActionListener(e -> {
+                quiz.timerAnimation = (String) quizAnimCombo.getSelectedItem();
+                onFormatChanged();
+            });
+
+            JLabel animStrLbl = styledLabel("Str%");
+            quizAnimStrengthSp = new JSpinner(
+                    new SpinnerNumberModel(
+                            Math.max(0, Math.min(200, quiz.timerAnimStrengthPct)),
+                            0, 200, 5));
+            quizAnimStrengthSp.setPreferredSize(new Dimension(60, 24));
+            quizAnimStrengthSp.setToolTipText("Animation strength, 0–200% (0 = off, 100 = default, 200 = exaggerated)");
+            quizAnimStrengthSp.addChangeListener(e -> {
+                quiz.timerAnimStrengthPct = ((Number) quizAnimStrengthSp.getValue()).intValue();
+                onFormatChanged();
+            });
+
+            JLabel animTrigLbl = styledLabel("When");
+            quizAnimTriggerCombo = new JComboBox<>(new String[] {
+                    "Red Phase", "Always", "Each Tick", "Never"
+            });
+            quizAnimTriggerCombo.setSelectedItem(quiz.timerAnimTrigger != null
+                    ? quiz.timerAnimTrigger : "Red Phase");
+            quizAnimTriggerCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            quizAnimTriggerCombo.setPreferredSize(new Dimension(95, 24));
+            quizAnimTriggerCombo.setToolTipText("When the animation fires (Red Phase = urgent only, Each Tick = brief burst per second)");
+            quizAnimTriggerCombo.addActionListener(e -> {
+                quiz.timerAnimTrigger = (String) quizAnimTriggerCombo.getSelectedItem();
+                onFormatChanged();
+            });
+
+            JLabel easeLbl = styledLabel("Ease");
+            quizAnimEasingCombo = new JComboBox<>(new String[] {
+                    "Linear", "Ease In", "Ease Out", "Ease In Out", "Bounce"
+            });
+            quizAnimEasingCombo.setSelectedItem(quiz.timerAnimEasing != null
+                    ? quiz.timerAnimEasing : "Ease Out");
+            quizAnimEasingCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            quizAnimEasingCombo.setPreferredSize(new Dimension(105, 24));
+            quizAnimEasingCombo.setToolTipText("Easing curve applied to the per-second animation amplitude");
+            quizAnimEasingCombo.addActionListener(e -> {
+                quiz.timerAnimEasing = (String) quizAnimEasingCombo.getSelectedItem();
+                onFormatChanged();
+            });
+
+            JLabel redColorLbl = styledLabel("Red");
+            quizRedColorBtn = new JButton("■");
+            quizRedColorBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            quizRedColorBtn.setPreferredSize(new Dimension(28, 24));
+            quizRedColorBtn.setForeground(quiz.timerRedColor != null
+                    ? quiz.timerRedColor : new Color(235, 70, 70));
+            quizRedColorBtn.setToolTipText("Color used in the urgent (red threshold) phase. Right-click to reset to default.");
+            quizRedColorBtn.addActionListener(e -> {
+                Color picked = JColorChooser.showDialog(panel,
+                        "Urgent-phase (red) color",
+                        quiz.timerRedColor != null ? quiz.timerRedColor
+                                : new Color(235, 70, 70));
+                if (picked != null) {
+                    quiz.timerRedColor = picked;
+                    quizRedColorBtn.setForeground(picked);
+                    onFormatChanged();
+                }
+            });
+            quizRedColorBtn.addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override public void mousePressed(java.awt.event.MouseEvent e) {
+                    if (SwingUtilities.isRightMouseButton(e)) {
+                        quiz.timerRedColor = null;
+                        quizRedColorBtn.setForeground(new Color(235, 70, 70));
+                        onFormatChanged();
+                    }
+                }
+            });
+
+            JLabel secColorLbl = styledLabel("2nd");
+            quizSecondaryColorBtn = new JButton("■");
+            quizSecondaryColorBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            quizSecondaryColorBtn.setPreferredSize(new Dimension(28, 24));
+            quizSecondaryColorBtn.setForeground(quiz.timerSecondaryColor != null
+                    ? quiz.timerSecondaryColor : new Color(180, 180, 200));
+            quizSecondaryColorBtn.setToolTipText(
+                    "Secondary color used by some styles "
+                            + "(Hourglass glass tint, Flip Clock card face, Bomb Fuse cord, Dot Grid unlit dots). "
+                            + "Right-click to reset to the per-style default.");
+            quizSecondaryColorBtn.addActionListener(e -> {
+                Color picked = JColorChooser.showDialog(panel,
+                        "Secondary timer color",
+                        quiz.timerSecondaryColor != null ? quiz.timerSecondaryColor
+                                : new Color(180, 180, 200));
+                if (picked != null) {
+                    quiz.timerSecondaryColor = picked;
+                    quizSecondaryColorBtn.setForeground(picked);
+                    onFormatChanged();
+                }
+            });
+            quizSecondaryColorBtn.addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override public void mousePressed(java.awt.event.MouseEvent e) {
+                    if (SwingUtilities.isRightMouseButton(e)) {
+                        quiz.timerSecondaryColor = null;
+                        quizSecondaryColorBtn.setForeground(new Color(180, 180, 200));
+                        onFormatChanged();
+                    }
+                }
+            });
+
+            toolbar7c3.add(animLbl);
+            toolbar7c3.add(quizAnimCombo);
+            toolbar7c3.add(animStrLbl); toolbar7c3.add(quizAnimStrengthSp);
+            toolbar7c3.add(animTrigLbl); toolbar7c3.add(quizAnimTriggerCombo);
+            toolbar7c3.add(easeLbl); toolbar7c3.add(quizAnimEasingCombo);
+            toolbar7c3.add(redColorLbl); toolbar7c3.add(quizRedColorBtn);
+            toolbar7c3.add(secColorLbl); toolbar7c3.add(quizSecondaryColorBtn);
+
             // ===== Toolbar Row 8: Per-Slide Video Overlay =====
             JPanel toolbar8 = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 3));
             toolbar8.setBackground(new Color(42, 32, 22));
@@ -14897,6 +15100,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(toolbar7c);
             toolbarsPanel.add(toolbar7cB);
             toolbarsPanel.add(toolbar7c2);
+            toolbarsPanel.add(toolbar7c3);
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar8);
 
@@ -16541,6 +16745,30 @@ public class GifSlideShowApp extends JFrame {
                 }
                 if (quizBarDirCombo != null) {
                     quizBarDirCombo.setSelectedIndex(quiz.barReverse ? 1 : 0);
+                }
+                if (quizAnimCombo != null) {
+                    quizAnimCombo.setSelectedItem(quiz.timerAnimation != null
+                            ? quiz.timerAnimation : "Pulse");
+                }
+                if (quizAnimStrengthSp != null) {
+                    quizAnimStrengthSp.setValue(
+                            Math.max(0, Math.min(200, quiz.timerAnimStrengthPct)));
+                }
+                if (quizAnimTriggerCombo != null) {
+                    quizAnimTriggerCombo.setSelectedItem(quiz.timerAnimTrigger != null
+                            ? quiz.timerAnimTrigger : "Red Phase");
+                }
+                if (quizAnimEasingCombo != null) {
+                    quizAnimEasingCombo.setSelectedItem(quiz.timerAnimEasing != null
+                            ? quiz.timerAnimEasing : "Ease Out");
+                }
+                if (quizRedColorBtn != null) {
+                    quizRedColorBtn.setForeground(quiz.timerRedColor != null
+                            ? quiz.timerRedColor : new Color(235, 70, 70));
+                }
+                if (quizSecondaryColorBtn != null) {
+                    quizSecondaryColorBtn.setForeground(quiz.timerSecondaryColor != null
+                            ? quiz.timerSecondaryColor : new Color(180, 180, 200));
                 }
                 updateQuizStatus();
             } finally {
