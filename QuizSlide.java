@@ -60,7 +60,8 @@ public class QuizSlide {
 
     // ---- Timer visual style (configured via the toolbar7c row) ----
     // Style: "Number Circle" (default), "Progress Bar H", "Progress Bar V",
-    //        "Ring Arc", "Analog Clock".
+    //        "Ring Arc", "Analog Clock", "Hourglass", "Flip Clock",
+    //        "Bomb Fuse", "Dot Grid".
     public String timerStyle = "Number Circle";
     // Anchor in % of frame size (0..100). Interpreted as the CENTER of the
     // timer for Circle / Ring / Clock, and as the TOP-LEFT for Progress Bars.
@@ -84,6 +85,42 @@ public class QuizSlide {
     public String timerFont = "Segoe UI";
     // Optional label drawn above the digit (e.g., "Time:", "⏱ Remaining").
     public String timerLabel = "";
+
+    // ---- Style-specific secondary accent ----
+    // Per-style meaning (null = sensible auto default derived from primary):
+    //   Hourglass:  unfilled glass tint / drained-sand background.
+    //   Flip Clock: face/card background for the digit cards.
+    //   Bomb Fuse:  fuse path color (the unburnt cord).
+    //   Dot Grid:   unlit dot color.
+    // Ignored by the original 5 styles.
+    public Color timerSecondaryColor = null;
+
+    // ---- Custom urgent-phase color ----
+    // When the remaining seconds drop into the red threshold, the timer flips
+    // to this color (and pulses, depending on animation knobs). null keeps the
+    // legacy fire-engine red.
+    public Color timerRedColor = null;
+
+    // ---- Animation knobs (applies to ALL styles) ----
+    // "Pulse" (default — gentle scale-up at each second tick),
+    // "Spin"  (slow rotation around the timer's visual center),
+    // "Bounce" (vertical bob on each tick),
+    // "Shake" (small jitter — best for the "red panic" trigger),
+    // "None"  (no transform applied).
+    public String timerAnimation = "Pulse";
+    // 0..200 — scales the animation amplitude. 0 = effectively off,
+    // 100 = default, 200 = exaggerated.
+    public int timerAnimStrengthPct = 100;
+    // When to fire the animation:
+    //   "Red Phase" (default) — only during the urgent red countdown.
+    //   "Always"              — entire timer life including frozen pre-roll.
+    //   "Each Tick"           — fires only at second boundaries (everywhere).
+    //   "Never"               — disabled regardless of style.
+    public String timerAnimTrigger = "Red Phase";
+    // Easing curve applied to the per-second 0→1 "since this tick" progress
+    // that drives the animation amplitude.
+    //   "Linear", "Ease In", "Ease Out" (default), "Ease In Out", "Bounce".
+    public String timerAnimEasing = "Ease Out";
 
     // ---- Countdown digit fine-tuning (Look toolbar) ----
     // Offsets are % of the timer's reference size (diameter for Circle/Ring/
@@ -149,6 +186,12 @@ public class QuizSlide {
         c.timerTextColor = timerTextColor;
         c.timerFont      = timerFont;
         c.timerLabel     = timerLabel;
+        c.timerSecondaryColor   = timerSecondaryColor;
+        c.timerRedColor         = timerRedColor;
+        c.timerAnimation        = timerAnimation;
+        c.timerAnimStrengthPct  = timerAnimStrengthPct;
+        c.timerAnimTrigger      = timerAnimTrigger;
+        c.timerAnimEasing       = timerAnimEasing;
         c.digitXOffsetPct = digitXOffsetPct;
         c.digitYOffsetPct = digitYOffsetPct;
         c.digitSizePct    = digitSizePct;
@@ -182,6 +225,12 @@ public class QuizSlide {
         this.timerTextColor    = src.timerTextColor;
         this.timerFont         = src.timerFont;
         this.timerLabel        = src.timerLabel;
+        this.timerSecondaryColor  = src.timerSecondaryColor;
+        this.timerRedColor        = src.timerRedColor;
+        this.timerAnimation       = src.timerAnimation;
+        this.timerAnimStrengthPct = src.timerAnimStrengthPct;
+        this.timerAnimTrigger     = src.timerAnimTrigger;
+        this.timerAnimEasing      = src.timerAnimEasing;
         this.digitXOffsetPct   = src.digitXOffsetPct;
         this.digitYOffsetPct   = src.digitYOffsetPct;
         this.digitSizePct      = src.digitSizePct;
@@ -309,26 +358,18 @@ public class QuizSlide {
         // red wins so the urgency cue is preserved.
         Color userColor = quiz.timerColor != null ? quiz.timerColor
                 : new Color(80, 200, 255);
-        Color accent = red ? new Color(235, 70, 70) : userColor;
+        Color urgent = quiz.timerRedColor != null ? quiz.timerRedColor
+                : new Color(235, 70, 70);
+        Color accent = red ? urgent : userColor;
         Color bg     = new Color(15, 18, 25, 220);
         Color userText = quiz.timerTextColor != null ? quiz.timerTextColor : Color.WHITE;
-        Color textCol = red ? new Color(255, 235, 235) : userText;
+        Color textCol = red ? brighten(urgent, 200) : userText;
         String style = quiz.timerStyle != null ? quiz.timerStyle : "Number Circle";
 
-        // Pulse animation: in the last few "red" seconds, gently scale up at
-        // each tick and ease back to 1.0. Applied as a transform around the
-        // timer's visual center so all styles pulse uniformly.
-        java.awt.geom.AffineTransform savedTx = null;
-        if (red && quiz.timerSeconds > 0) {
-            double secFrac = (progress * quiz.timerSeconds) % 1.0;
-            if (secFrac < 0) secFrac += 1.0;
-            double pulse = 1.0 + 0.10 * (1.0 - secFrac); // 1.10 at tick → 1.0 by next sec
-            double[] cxy = pulseCenter(w, h, quiz);
-            savedTx = g.getTransform();
-            g.translate(cxy[0], cxy[1]);
-            g.scale(pulse, pulse);
-            g.translate(-cxy[0], -cxy[1]);
-        }
+        // Animation transform (Pulse/Spin/Bounce/Shake) is computed once
+        // around the timer's visual center so every style animates uniformly.
+        java.awt.geom.AffineTransform savedTx = applyTimerAnimation(g, w, h, quiz,
+                red, progress);
 
         switch (style) {
             case "Progress Bar H":
@@ -343,6 +384,18 @@ public class QuizSlide {
             case "Analog Clock":
                 drawAnalogClock(g, w, h, quiz, remainingSec, accent, bg, textCol, red, progress);
                 break;
+            case "Hourglass":
+                drawHourglass(g, w, h, quiz, remainingSec, accent, bg, textCol, red, progress);
+                break;
+            case "Flip Clock":
+                drawFlipClock(g, w, h, quiz, remainingSec, accent, bg, textCol, red, progress);
+                break;
+            case "Bomb Fuse":
+                drawBombFuse(g, w, h, quiz, remainingSec, accent, bg, textCol, red, progress);
+                break;
+            case "Dot Grid":
+                drawDotGrid(g, w, h, quiz, remainingSec, accent, bg, textCol, red, progress);
+                break;
             case "Numeric Only":   // legacy alias — fall through to Analog Clock
             case "Number Circle":
             default:
@@ -356,6 +409,132 @@ public class QuizSlide {
         if (savedTx != null) g.setTransform(savedTx);
         drawTimerLabel(g, w, h, quiz, accent);
     }
+
+    /**
+     * Push an animation transform onto `g` based on the user's animation
+     * knobs. Returns the original transform so the caller can restore it,
+     * or null when no animation is in effect.
+     *
+     * Trigger semantics:
+     *   "Never"     — no transform.
+     *   "Red Phase" — only while `red` is true.
+     *   "Always"    — always while the timer is counting.
+     *   "Each Tick" — short burst around each per-second boundary regardless
+     *                 of red phase.
+     */
+    private static java.awt.geom.AffineTransform applyTimerAnimation(
+            Graphics2D g, int w, int h, QuizSlide quiz, boolean red, double progress) {
+        if (quiz == null || quiz.timerSeconds <= 0) return null;
+        String anim = quiz.timerAnimation != null ? quiz.timerAnimation : "Pulse";
+        if ("None".equalsIgnoreCase(anim)) return null;
+
+        String trig = quiz.timerAnimTrigger != null ? quiz.timerAnimTrigger : "Red Phase";
+        boolean active;
+        switch (trig) {
+            case "Never":     active = false; break;
+            case "Always":    active = true;  break;
+            case "Each Tick": active = true;  break;
+            case "Red Phase":
+            default:          active = red;   break;
+        }
+        if (!active) return null;
+
+        // Per-second progress: 0.0 at the moment a second starts, → 1.0 just
+        // before the next second tick.
+        double secFrac = (progress * quiz.timerSeconds) % 1.0;
+        if (secFrac < 0) secFrac += 1.0;
+
+        // For "Each Tick" we want a narrow burst centered on the tick
+        // boundary — collapse the [0,1] cycle into a quick rise+fall.
+        double phase;
+        if ("Each Tick".equalsIgnoreCase(trig)) {
+            // first ~30% of each second carries the burst; rest is rest.
+            phase = secFrac < 0.30 ? (secFrac / 0.30) : 0.0;
+        } else {
+            phase = secFrac;
+        }
+        double eased = ease(quiz.timerAnimEasing, phase);
+
+        // Amplitude scaling: 0..200% maps to 0.0..2.0 of the per-style "unit".
+        int strength = Math.max(0, Math.min(200, quiz.timerAnimStrengthPct));
+        double amp = strength / 100.0;
+        if (amp <= 0.0001) return null;
+
+        double[] cxy = pulseCenter(w, h, quiz);
+        java.awt.geom.AffineTransform saved = g.getTransform();
+
+        switch (anim) {
+            case "Spin": {
+                // Continuous rotation — base spin proceeds with overall progress
+                // so the wheel turns even outside the per-second pulse cycle.
+                double baseTurns = progress * (1.0 + amp); // more strength = faster spin
+                double extra = (1.0 - eased) * 0.25 * amp;  // little kick at tick
+                double angle = 2 * Math.PI * (baseTurns + extra);
+                g.translate(cxy[0], cxy[1]);
+                g.rotate(angle);
+                g.translate(-cxy[0], -cxy[1]);
+                break;
+            }
+            case "Bounce": {
+                // Vertical bob: jumps up at tick, eases back down. 8% of timer
+                // height at amp=1.0.
+                double lift = -h * 0.08 * amp * (1.0 - eased);
+                g.translate(0, lift);
+                break;
+            }
+            case "Shake": {
+                // Small pseudo-random jitter scaled by amplitude. Uses the
+                // continuous progress so successive frames differ.
+                double t = progress * quiz.timerSeconds * 17.0;
+                double dx = Math.sin(t * 3.1) * 6.0 * amp;
+                double dy = Math.cos(t * 4.7) * 6.0 * amp;
+                g.translate(dx, dy);
+                break;
+            }
+            case "Pulse":
+            default: {
+                // Scale-up at tick, ease back to 1.0. 10% peak at amp=1.0.
+                double scale = 1.0 + 0.10 * amp * (1.0 - eased);
+                g.translate(cxy[0], cxy[1]);
+                g.scale(scale, scale);
+                g.translate(-cxy[0], -cxy[1]);
+                break;
+            }
+        }
+        return saved;
+    }
+
+    /** Apply a named easing curve to t in [0,1]. */
+    private static double ease(String name, double t) {
+        if (t < 0) t = 0;
+        else if (t > 1) t = 1;
+        if (name == null) name = "Ease Out";
+        switch (name) {
+            case "Linear":      return t;
+            case "Ease In":     return t * t;
+            case "Ease In Out": return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2.0;
+            case "Bounce": {
+                double n1 = 7.5625, d1 = 2.75;
+                double x = t;
+                if (x < 1 / d1)      return n1 * x * x;
+                else if (x < 2 / d1) return n1 * (x -= 1.5 / d1) * x + 0.75;
+                else if (x < 2.5 / d1) return n1 * (x -= 2.25 / d1) * x + 0.9375;
+                else                  return n1 * (x -= 2.625 / d1) * x + 0.984375;
+            }
+            case "Ease Out":
+            default:            return 1 - (1 - t) * (1 - t);
+        }
+    }
+
+    /** Lighten a base color toward white by `pctOf255` (0..255). */
+    private static Color brighten(Color c, int target) {
+        if (c == null) return Color.WHITE;
+        int r = (c.getRed()   + target) / 2;
+        int gn = (c.getGreen() + target) / 2;
+        int b = (c.getBlue()  + target) / 2;
+        return new Color(clamp255(r), clamp255(gn), clamp255(b));
+    }
+    private static int clamp255(int v) { return v < 0 ? 0 : (v > 255 ? 255 : v); }
 
     /** Visual center used for the pulse-in-red-phase scale transform. */
     private static double[] pulseCenter(int w, int h, QuizSlide quiz) {
@@ -372,6 +551,21 @@ public class QuizSlide {
             double barH = Math.max(50, h * quiz.timerWidthPct / 100.0);
             return new double[] { x + barW / 2.0, y + barH / 2.0 };
         }
+        if ("Bomb Fuse".equals(s)) {
+            // Bomb Fuse anchors at the LEFT of the fuse path; visual mass is
+            // toward the bomb on the right, so the center for animation is
+            // halfway along the fuse length.
+            double fuseLen = Math.max(50, w * quiz.timerWidthPct / 100.0);
+            double fuseH   = Math.max(20, h * quiz.timerSizePct / 100.0);
+            return new double[] { x + fuseLen / 2.0, y + fuseH / 2.0 };
+        }
+        if ("Dot Grid".equals(s)) {
+            // Dot Grid uses (x,y) as the top-left of the row of dots.
+            double rowW = Math.max(50, w * quiz.timerWidthPct / 100.0);
+            double dotR = Math.max(8, h * quiz.timerSizePct / 200.0);
+            return new double[] { x + rowW / 2.0, y + dotR };
+        }
+        // Hourglass / Flip Clock: (x,y) is treated as the visual center.
         return new double[] { x, y };
     }
 
@@ -391,13 +585,24 @@ public class QuizSlide {
         FontMetrics fm = g.getFontMetrics();
         int tw = fm.stringWidth(quiz.timerLabel);
         int tx, ty;
-        if (horizontalBar) {
-            // Bar's anchor (cx,cy) is the top-left; label sits just above.
+        String style = quiz.timerStyle != null ? quiz.timerStyle : "";
+        if (horizontalBar || "Bomb Fuse".equals(style) || "Dot Grid".equals(style)) {
+            // Bar/fuse/dot row anchor (cx,cy) is the top-left; label above.
             tx = cx;
             ty = cy - 6;
-        } else if ("Progress Bar V".equals(quiz.timerStyle)) {
+        } else if ("Progress Bar V".equals(style)) {
             tx = cx;
             ty = cy - 6;
+        } else if ("Flip Clock".equals(style)) {
+            // Flip Clock cards are wider than tall — label hugs the top edge.
+            int cardH = Math.max(40, (int) (h * quiz.timerSizePct / 100.0));
+            tx = cx - tw / 2;
+            ty = cy - cardH / 2 - 6;
+        } else if ("Hourglass".equals(style)) {
+            // Hourglass is taller than wide — label sits above the top cap.
+            int glassH = Math.max(60, (int) (h * quiz.timerSizePct / 100.0));
+            tx = cx - tw / 2;
+            ty = cy - glassH / 2 - 6;
         } else {
             // Circle / Ring / Clock: label centered above the shape.
             tx = cx - tw / 2;
@@ -688,6 +893,424 @@ public class QuizSlide {
                 g.drawRoundRect(x, sy, barW, segH, segArc, segArc);
             }
         }
+    }
+
+    /**
+     * Hourglass — two stacked triangles. The top one drains as time elapses
+     * (sand level falls), and the bottom one fills with the displaced sand.
+     * Sand color = `accent`; glass tint = `timerSecondaryColor` (auto-derived
+     * when null). A vertical jet of sand connects the two halves in the neck.
+     */
+    private static void drawHourglass(Graphics2D g, int w, int h, QuizSlide quiz,
+                                      int remainingSec, Color accent, Color bg,
+                                      Color textCol, boolean red, double progress) {
+        int glassH = Math.max(60, (int) (h * quiz.timerSizePct / 100.0));
+        int glassW = Math.max(40, (int) (glassH * 0.62));
+        int cx = (int) (w * quiz.timerXPct / 100.0);
+        int cy = (int) (h * quiz.timerYPct / 100.0);
+
+        Color glass = quiz.timerSecondaryColor != null ? quiz.timerSecondaryColor
+                : new Color(220, 220, 230, 60);
+
+        Stroke s0 = g.getStroke();
+        int top    = cy - glassH / 2;
+        int bottom = cy + glassH / 2;
+        int neckHalf = Math.max(3, glassW / 18);
+
+        // Outer frame (two triangles meeting at the neck).
+        Polygon topTri = new Polygon(
+                new int[] { cx - glassW / 2, cx + glassW / 2, cx + neckHalf, cx - neckHalf },
+                new int[] { top,             top,             cy,            cy            }, 4);
+        Polygon botTri = new Polygon(
+                new int[] { cx - neckHalf, cx + neckHalf, cx + glassW / 2, cx - glassW / 2 },
+                new int[] { cy,            cy,            bottom,          bottom          }, 4);
+
+        // Drop shadow.
+        Composite oc = g.getComposite();
+        g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.35f));
+        g.setColor(Color.BLACK);
+        g.translate(4, 4);
+        g.fillPolygon(topTri); g.fillPolygon(botTri);
+        g.translate(-4, -4);
+        g.setComposite(oc);
+
+        // Empty glass fill.
+        g.setColor(glass);
+        g.fillPolygon(topTri);
+        g.fillPolygon(botTri);
+
+        // Top sand level: from full at progress=0 → empty at progress=1.
+        // Sand surface drops linearly with progress. The triangle's WIDTH
+        // narrows toward the bottom, so we clip the sand fill via a sub-
+        // polygon that respects the slope of the glass walls.
+        double prog = Math.max(0.0, Math.min(1.0, progress));
+        double sandTopY = top + (cy - top) * prog;
+        // Width of the triangle at height y (linear from glassW at top to 2*neckHalf at cy):
+        // width(y) = glassW + (2*neckHalf - glassW) * ((y - top) / (cy - top))
+        double frac = (cy - top) > 0 ? (sandTopY - top) / (double) (cy - top) : 1.0;
+        int topWHere = (int) Math.round(glassW + (2 * neckHalf - glassW) * frac);
+        Polygon topSand = new Polygon(
+                new int[] { cx - topWHere / 2, cx + topWHere / 2, cx + neckHalf, cx - neckHalf },
+                new int[] { (int) sandTopY,    (int) sandTopY,    cy,            cy             }, 4);
+        g.setColor(accent);
+        g.fillPolygon(topSand);
+
+        // Bottom sand level: pile rises from the bottom as time elapses.
+        double sandBotY = bottom - (bottom - cy) * prog;
+        double bfrac = (bottom - cy) > 0 ? (bottom - sandBotY) / (double) (bottom - cy) : 0.0;
+        int botWHere = (int) Math.round(2 * neckHalf + (glassW - 2 * neckHalf) * bfrac);
+        Polygon botSand = new Polygon(
+                new int[] { cx - botWHere / 2, cx + botWHere / 2, cx + glassW / 2, cx - glassW / 2 },
+                new int[] { (int) sandBotY,    (int) sandBotY,    bottom,          bottom           }, 4);
+        g.fillPolygon(botSand);
+
+        // Sand jet in the neck while there's still sand left in the top.
+        if (prog > 0.01 && prog < 0.99) {
+            g.setColor(accent);
+            g.fillRect(cx - 1, cy, 2, Math.max(2, (int) ((sandBotY - cy) * 0.95)));
+        }
+
+        // Glass outlines.
+        g.setStroke(new BasicStroke(Math.max(2f, glassW / 24f)));
+        g.setColor(new Color(255, 255, 255, 200));
+        g.drawPolygon(topTri);
+        g.drawPolygon(botTri);
+        // Top and bottom caps.
+        g.setStroke(new BasicStroke(Math.max(3f, glassW / 14f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.setColor(accent);
+        g.drawLine(cx - glassW / 2 - 4, top,    cx + glassW / 2 + 4, top);
+        g.drawLine(cx - glassW / 2 - 4, bottom, cx + glassW / 2 + 4, bottom);
+        g.setStroke(s0);
+
+        // Digit hangs to the RIGHT of the glass so it doesn't overlap the sand.
+        int digitRef = (int) (glassW * 1.2);
+        drawDigit(g, cx + glassW / 2 + digitRef / 2 + 8, cy, digitRef,
+                remainingSec, textCol, red, quiz);
+    }
+
+    /**
+     * Flip Clock — a mechanical split-flap card showing the remaining seconds.
+     * For multi-digit numbers we stack two cards side-by-side. A thin black
+     * split line runs across the middle of every card to sell the "flap".
+     * When a second changes, the top half of the new card slides down from
+     * above to give a subtle flip animation cue.
+     */
+    private static void drawFlipClock(Graphics2D g, int w, int h, QuizSlide quiz,
+                                      int remainingSec, Color accent, Color bg,
+                                      Color textCol, boolean red, double progress) {
+        int cardH = Math.max(40, (int) (h * quiz.timerSizePct / 100.0));
+        int cardW = (int) (cardH * 0.72);
+        int cx = (int) (w * quiz.timerXPct / 100.0);
+        int cy = (int) (h * quiz.timerYPct / 100.0);
+
+        String txt = remainingSec <= 0 ? "0" : String.valueOf(remainingSec);
+        int nDigits = txt.length();
+        int gap = Math.max(4, cardW / 10);
+        int totalW = nDigits * cardW + (nDigits - 1) * gap;
+        int startX = cx - totalW / 2;
+
+        Color card = quiz.timerSecondaryColor != null ? quiz.timerSecondaryColor
+                : new Color(25, 28, 38, 235);
+        Color split = new Color(0, 0, 0, 200);
+
+        // Flip phase — how far the "new" top half has descended into place
+        // (0 = just dropped, 1 = fully seated). Drives a subtle scale-Y wiggle.
+        double secFrac = (progress * Math.max(1, quiz.timerSeconds)) % 1.0;
+        if (secFrac < 0) secFrac += 1.0;
+        double flipEased = ease(quiz.timerAnimEasing != null ? quiz.timerAnimEasing : "Ease Out",
+                Math.min(1.0, secFrac * 4.0));  // first quarter of the second carries the flip
+
+        Stroke s0 = g.getStroke();
+        for (int i = 0; i < nDigits; i++) {
+            int x = startX + i * (cardW + gap);
+            int y = cy - cardH / 2;
+
+            // Drop shadow.
+            Composite oc = g.getComposite();
+            g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.45f));
+            g.setColor(Color.BLACK);
+            g.fillRoundRect(x + 4, y + 4, cardW, cardH, cardH / 5, cardH / 5);
+            g.setComposite(oc);
+
+            // Card face.
+            g.setColor(card);
+            g.fillRoundRect(x, y, cardW, cardH, cardH / 5, cardH / 5);
+            // Subtle top-half tint (lighter).
+            g.setColor(new Color(255, 255, 255, 20));
+            g.fillRoundRect(x, y, cardW, cardH / 2, cardH / 5, cardH / 5);
+            // Bottom-half darker.
+            g.setColor(new Color(0, 0, 0, 50));
+            g.fillRoundRect(x, y + cardH / 2, cardW, cardH / 2, cardH / 5, cardH / 5);
+
+            // Split line.
+            g.setColor(split);
+            g.setStroke(new BasicStroke(Math.max(2f, cardH / 32f)));
+            g.drawLine(x + 2, y + cardH / 2, x + cardW - 2, y + cardH / 2);
+
+            // Card border (accent thin frame).
+            g.setStroke(new BasicStroke(Math.max(2f, cardH / 40f)));
+            g.setColor(accent);
+            g.drawRoundRect(x, y, cardW, cardH, cardH / 5, cardH / 5);
+
+            // Digit centered on the card; scaleY for the flip wiggle.
+            String ch = txt.substring(i, i + 1);
+            int digitRef = (int) (cardH * 1.05);
+            java.awt.geom.AffineTransform saved = g.getTransform();
+            double sy = 0.85 + 0.15 * flipEased;
+            g.translate(x + cardW / 2.0, y + cardH / 2.0);
+            g.scale(1.0, sy);
+            g.translate(-(x + cardW / 2.0), -(y + cardH / 2.0));
+            drawDigitText(g, x + cardW / 2, y + cardH / 2, digitRef, ch,
+                    textCol, red, quiz);
+            g.setTransform(saved);
+        }
+        g.setStroke(s0);
+    }
+
+    /**
+     * Bomb Fuse — a horizontal sparking fuse that retracts from left to right
+     * (or right to left when `barReverse` is true) ending at a cartoon bomb.
+     * `timerColor` is the spark/flame; `timerSecondaryColor` is the unburnt
+     * fuse cord (defaults to a tan rope color). The bomb body is the standard
+     * dark bg accent.
+     */
+    private static void drawBombFuse(Graphics2D g, int w, int h, QuizSlide quiz,
+                                     int remainingSec, Color accent, Color bg,
+                                     Color textCol, boolean red, double progress) {
+        int xLeft = (int) (w * quiz.timerXPct / 100.0);
+        int y     = (int) (h * quiz.timerYPct / 100.0);
+        int fuseLen = Math.max(50, (int) (w * quiz.timerWidthPct / 100.0));
+        int fuseH   = Math.max(20, (int) (h * quiz.timerSizePct / 100.0));
+        int bombR   = (int) (fuseH * 1.6);
+
+        Color cord = quiz.timerSecondaryColor != null ? quiz.timerSecondaryColor
+                : new Color(180, 140, 80);  // hemp rope tan
+        boolean rtl = quiz.barReverse;  // reuse existing tick-direction toggle
+
+        // Anchor: bomb sits on whichever end the fuse "ends" at.
+        int bombCx = rtl ? (xLeft + bombR / 2) : (xLeft + fuseLen - bombR / 2);
+        int fuseStartX = rtl ? xLeft + bombR  : xLeft;
+        int fuseEndX   = rtl ? xLeft + fuseLen : xLeft + fuseLen - bombR;
+        int fuseY      = y + fuseH / 2;
+
+        Stroke s0 = g.getStroke();
+
+        // Drop-shadow under the bomb.
+        Composite oc = g.getComposite();
+        g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));
+        g.setColor(Color.BLACK);
+        g.fillOval(bombCx - bombR / 2 + 5, y + fuseH / 2 - bombR / 2 + 5, bombR, bombR);
+        g.setComposite(oc);
+
+        // Bomb body.
+        g.setColor(new Color(30, 30, 35));
+        g.fillOval(bombCx - bombR / 2, y + fuseH / 2 - bombR / 2, bombR, bombR);
+        g.setColor(new Color(255, 255, 255, 60));
+        g.setStroke(new BasicStroke(Math.max(2f, bombR / 28f)));
+        g.drawOval(bombCx - bombR / 2, y + fuseH / 2 - bombR / 2, bombR, bombR);
+        // Highlight glint on the bomb.
+        g.setColor(new Color(255, 255, 255, 110));
+        g.fillOval(bombCx - bombR / 4, y + fuseH / 2 - bombR / 4 - bombR / 12,
+                bombR / 6, bombR / 6);
+
+        // Fuse — wavy line from bomb out to the burn tip.
+        int totalFuse = Math.abs(fuseEndX - fuseStartX);
+        int burnedLen = (int) (totalFuse * progress);
+        int burnedTip = rtl ? (fuseEndX - (totalFuse - burnedLen))
+                            : (fuseStartX + (totalFuse - burnedLen));
+
+        float cordThick = Math.max(3f, fuseH / 4f);
+        g.setStroke(new BasicStroke(cordThick, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+
+        // Unburnt portion (cord) — from bomb out to the spark.
+        java.awt.geom.Path2D.Double path = new java.awt.geom.Path2D.Double();
+        int a = rtl ? fuseEndX : fuseStartX;       // bomb-side end of unburnt cord
+        // wait — unburnt cord runs between bomb attachment and the burn tip.
+        a = rtl ? fuseEndX : fuseStartX;
+        // Actually: unburnt fuse spans from BOMB-attachment to burned-tip.
+        int bombAttachX = rtl ? (bombCx + bombR / 2) : (bombCx - bombR / 2);
+        int u0 = Math.min(bombAttachX, burnedTip);
+        int u1 = Math.max(bombAttachX, burnedTip);
+        path.moveTo(u0, fuseY);
+        int wiggles = Math.max(3, (u1 - u0) / 22);
+        for (int i = 1; i <= wiggles; i++) {
+            double t = i / (double) wiggles;
+            double px = u0 + (u1 - u0) * t;
+            double py = fuseY + Math.sin(t * Math.PI * 4) * (fuseH * 0.18);
+            path.lineTo(px, py);
+        }
+        g.setColor(cord);
+        g.draw(path);
+
+        // Spark / flame at the burning tip — pulses with the same per-second
+        // progress so it looks alive even with no "red" phase. Uses `accent`
+        // (which is already `urgent` during red phase, user color otherwise).
+        double secFrac = (progress * Math.max(1, quiz.timerSeconds)) % 1.0;
+        if (secFrac < 0) secFrac += 1.0;
+        double pulse = 1.0 + 0.25 * Math.sin(secFrac * Math.PI * 2);
+        int sparkR = (int) (fuseH * 0.9 * pulse);
+        // Outer halo.
+        g.setColor(new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 90));
+        g.fillOval(burnedTip - sparkR, fuseY - sparkR, sparkR * 2, sparkR * 2);
+        // Inner core (white-ish hot).
+        Color hot = brighten(accent, 240);
+        g.setColor(hot);
+        g.fillOval(burnedTip - sparkR / 2, fuseY - sparkR / 2, sparkR, sparkR);
+        // A few short sparks shooting outward.
+        g.setStroke(new BasicStroke(Math.max(1.5f, fuseH / 10f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.setColor(accent);
+        for (int k = 0; k < 5; k++) {
+            double ang = secFrac * Math.PI * 2 + k * (Math.PI * 2 / 5);
+            double r1 = sparkR;
+            double r2 = sparkR + fuseH * 0.6;
+            g.drawLine(
+                    (int) (burnedTip + Math.cos(ang) * r1),
+                    (int) (fuseY    + Math.sin(ang) * r1),
+                    (int) (burnedTip + Math.cos(ang) * r2),
+                    (int) (fuseY    + Math.sin(ang) * r2));
+        }
+
+        g.setStroke(s0);
+
+        // Digit centered ON the bomb body so the timer is unmissable.
+        drawDigit(g, bombCx, y + fuseH / 2, bombR, remainingSec, textCol, red, quiz);
+    }
+
+    /**
+     * Dot Grid — a row of N circles, one per second of the timer. Lit dots
+     * use `accent`; spent dots use `timerSecondaryColor` (or a dim variant of
+     * the accent when null). The most recent dot to be extinguished pulses
+     * down to nothing so the transition isn't jarring.
+     */
+    private static void drawDotGrid(Graphics2D g, int w, int h, QuizSlide quiz,
+                                    int remainingSec, Color accent, Color bg,
+                                    Color textCol, boolean red, double progress) {
+        int xLeft = (int) (w * quiz.timerXPct / 100.0);
+        int y     = (int) (h * quiz.timerYPct / 100.0);
+        int rowW  = Math.max(50, (int) (w * quiz.timerWidthPct / 100.0));
+        int dotD  = Math.max(8, (int) (h * quiz.timerSizePct / 100.0));
+
+        int total = Math.max(1, quiz.timerSeconds);
+        // Auto-shrink dot diameter so all of them fit even when the user sets
+        // a wide-but-thick combo. Reserve at least 4 px gap between dots.
+        int maxDotByWidth = Math.max(6, (rowW - (total - 1) * 4) / total);
+        if (dotD > maxDotByWidth) dotD = maxDotByWidth;
+        int gap = (rowW - dotD * total) / Math.max(1, total - 1);
+        if (gap < 2) gap = 2;
+
+        Color unlit = quiz.timerSecondaryColor != null ? quiz.timerSecondaryColor
+                : new Color(accent.getRed() / 4, accent.getGreen() / 4, accent.getBlue() / 4, 180);
+
+        // Per-second fade: the dot currently being "burnt out" eases from
+        // accent → unlit over the second it's spending.
+        double secFrac = (progress * total) % 1.0;
+        if (secFrac < 0) secFrac += 1.0;
+        double fade = ease(quiz.timerAnimEasing != null ? quiz.timerAnimEasing : "Ease Out", secFrac);
+
+        // Number of fully-lit dots LEFT after the current burn-out.
+        int fullyLit = Math.max(0, remainingSec - 1);
+        int burningIdx = quiz.barReverse ? fullyLit : (total - 1 - fullyLit);
+
+        Stroke s0 = g.getStroke();
+        for (int i = 0; i < total; i++) {
+            int dx = xLeft + i * (dotD + gap);
+            // Default: deplete from LEFT (lit dots cluster on the right).
+            // Reverse: deplete from RIGHT.
+            boolean lit;
+            if (quiz.barReverse) lit = (i >= total - fullyLit);
+            else                 lit = (i < fullyLit);
+            boolean burning = (i == burningIdx) && remainingSec > 0;
+
+            // Drop shadow.
+            Composite oc = g.getComposite();
+            g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.4f));
+            g.setColor(Color.BLACK);
+            g.fillOval(dx + 3, y + 3, dotD, dotD);
+            g.setComposite(oc);
+
+            Color fill;
+            if (lit) {
+                fill = accent;
+            } else if (burning) {
+                // Blend accent → unlit by `fade`.
+                fill = blend(accent, unlit, fade);
+            } else {
+                fill = unlit;
+            }
+            g.setColor(fill);
+            g.fillOval(dx, y, dotD, dotD);
+
+            // Outline.
+            g.setColor(new Color(255, 255, 255, 80));
+            g.setStroke(new BasicStroke(Math.max(1.5f, dotD / 18f)));
+            g.drawOval(dx, y, dotD, dotD);
+
+            // Highlight on lit dots only — a tiny gloss spot.
+            if (lit || burning) {
+                g.setColor(new Color(255, 255, 255, lit ? 110 : (int) (110 * (1 - fade))));
+                g.fillOval(dx + dotD / 5, y + dotD / 6, dotD / 4, dotD / 4);
+            }
+        }
+        g.setStroke(s0);
+
+        // Optional center digit — only if a label slot isn't already showing
+        // a number. Place to the RIGHT of the last dot so it doesn't crowd
+        // the grid.
+        int digitRef = dotD * 2;
+        int digitX = xLeft + rowW + digitRef / 2 + 8;
+        drawDigit(g, digitX, y + dotD / 2, digitRef, remainingSec, textCol, red, quiz);
+    }
+
+    /** Linear blend between two RGBA colors (t=0 → a, t=1 → b). */
+    private static Color blend(Color a, Color b, double t) {
+        if (t < 0) t = 0; else if (t > 1) t = 1;
+        int rr = (int) (a.getRed()   + (b.getRed()   - a.getRed())   * t);
+        int gg = (int) (a.getGreen() + (b.getGreen() - a.getGreen()) * t);
+        int bb = (int) (a.getBlue()  + (b.getBlue()  - a.getBlue())  * t);
+        int aa = (int) (a.getAlpha() + (b.getAlpha() - a.getAlpha()) * t);
+        return new Color(clamp255(rr), clamp255(gg), clamp255(bb), clamp255(aa));
+    }
+
+    /**
+     * Variant of `drawDigit` that draws an explicit text string rather than
+     * the seconds-remaining integer. Used by Flip Clock to render each card's
+     * digit independently.
+     */
+    private static void drawDigitText(Graphics2D g, int cx, int cy, int sizeRef,
+                                      String txt, Color textCol, boolean red,
+                                      QuizSlide quiz) {
+        String family = (quiz != null && quiz.timerFont != null && !quiz.timerFont.isEmpty())
+                ? quiz.timerFont : "Segoe UI";
+        int sizePct  = (quiz != null) ? quiz.digitSizePct    : 100;
+        int xOffPct  = (quiz != null) ? quiz.digitXOffsetPct : 0;
+        int yOffPct  = (quiz != null) ? quiz.digitYOffsetPct : 0;
+        boolean bold = (quiz == null) || quiz.digitBold;
+        boolean shadow = (quiz == null) || quiz.digitShadow;
+        if (sizePct <= 0) sizePct = 100;
+        sizePct = Math.max(50, Math.min(200, sizePct));
+        xOffPct = Math.max(-100, Math.min(100, xOffPct));
+        yOffPct = Math.max(-100, Math.min(100, yOffPct));
+
+        int fontPx = Math.max(12, (int) (sizeRef * 0.55 * sizePct / 100.0));
+        Font font = new Font(family, bold ? Font.BOLD : Font.PLAIN, fontPx);
+        g.setFont(font);
+        FontMetrics fm = g.getFontMetrics();
+        int tw = fm.stringWidth(txt);
+        int adjCx = cx + (int) Math.round(sizeRef * xOffPct / 100.0);
+        int adjCy = cy + (int) Math.round(sizeRef * yOffPct / 100.0);
+        int tx = adjCx - tw / 2;
+        int ty = adjCy + fm.getAscent() / 2 - fm.getDescent() / 2;
+
+        if (shadow && !red) {
+            int sOff = Math.max(2, fontPx / 22);
+            Composite oc = g.getComposite();
+            g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.55f));
+            g.setColor(Color.BLACK);
+            g.drawString(txt, tx + sOff, ty + sOff);
+            g.setComposite(oc);
+        }
+        g.setColor(textCol);
+        g.drawString(txt, tx, ty);
     }
 
     private static void drawDigit(Graphics2D g, int cx, int cy, int sizeRef,
