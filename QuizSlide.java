@@ -1163,8 +1163,9 @@ public class QuizSlide {
 
     /**
      * Dot Grid — a row of N circles, one per second of the timer. Lit dots
-     * use `accent`; spent dots use a dim variant of the accent. The most
-     * recent dot to be extinguished cross-fades so the transition isn't jarring.
+     * use `accent`; spent dots use a dim variant of the accent. Dots tick off
+     * cleanly at second boundaries — no per-second fade so all `remainingSec`
+     * dots match colors exactly at any moment.
      */
     private static void drawDotGrid(Graphics2D g, int w, int h, QuizSlide quiz,
                                     int remainingSec, Color accent, Color bg,
@@ -1183,26 +1184,14 @@ public class QuizSlide {
         if (gap < 2) gap = 2;
 
         Color unlit = new Color(accent.getRed() / 4, accent.getGreen() / 4, accent.getBlue() / 4, 180);
-
-        // Per-second fade: the dot currently being "burnt out" eases from
-        // accent → unlit over the second it's spending.
-        double secFrac = (progress * total) % 1.0;
-        if (secFrac < 0) secFrac += 1.0;
-        double fade = ease(quiz.timerAnimEasing != null ? quiz.timerAnimEasing : "Ease Out", secFrac);
-
-        // Number of fully-lit dots LEFT after the current burn-out.
-        int fullyLit = Math.max(0, remainingSec - 1);
-        int burningIdx = quiz.barReverse ? fullyLit : (total - 1 - fullyLit);
+        int spentCount = Math.max(0, Math.min(total, total - remainingSec));
 
         Stroke s0 = g.getStroke();
         for (int i = 0; i < total; i++) {
             int dx = xLeft + i * (dotD + gap);
-            // Default: deplete from LEFT (lit dots cluster on the right).
-            // Reverse: deplete from RIGHT.
-            boolean lit;
-            if (quiz.barReverse) lit = (i >= total - fullyLit);
-            else                 lit = (i < fullyLit);
-            boolean burning = (i == burningIdx) && remainingSec > 0;
+            // Default: deplete from LEFT — lit dots cluster on the RIGHT.
+            // Reverse: deplete from RIGHT — lit dots cluster on the LEFT.
+            boolean lit = quiz.barReverse ? (i < remainingSec) : (i >= spentCount);
 
             // Drop shadow.
             Composite oc = g.getComposite();
@@ -1211,16 +1200,7 @@ public class QuizSlide {
             g.fillOval(dx + 3, y + 3, dotD, dotD);
             g.setComposite(oc);
 
-            Color fill;
-            if (lit) {
-                fill = accent;
-            } else if (burning) {
-                // Blend accent → unlit by `fade`.
-                fill = blend(accent, unlit, fade);
-            } else {
-                fill = unlit;
-            }
-            g.setColor(fill);
+            g.setColor(lit ? accent : unlit);
             g.fillOval(dx, y, dotD, dotD);
 
             // Outline.
@@ -1229,8 +1209,8 @@ public class QuizSlide {
             g.drawOval(dx, y, dotD, dotD);
 
             // Highlight on lit dots only — a tiny gloss spot.
-            if (lit || burning) {
-                g.setColor(new Color(255, 255, 255, lit ? 110 : (int) (110 * (1 - fade))));
+            if (lit) {
+                g.setColor(new Color(255, 255, 255, 110));
                 g.fillOval(dx + dotD / 5, y + dotD / 6, dotD / 4, dotD / 4);
             }
         }
@@ -1242,16 +1222,6 @@ public class QuizSlide {
         int digitRef = dotD * 2;
         int digitX = xLeft + rowW + digitRef / 2 + 8;
         drawDigit(g, digitX, y + dotD / 2, digitRef, remainingSec, textCol, red, quiz);
-    }
-
-    /** Linear blend between two RGBA colors (t=0 → a, t=1 → b). */
-    private static Color blend(Color a, Color b, double t) {
-        if (t < 0) t = 0; else if (t > 1) t = 1;
-        int rr = (int) (a.getRed()   + (b.getRed()   - a.getRed())   * t);
-        int gg = (int) (a.getGreen() + (b.getGreen() - a.getGreen()) * t);
-        int bb = (int) (a.getBlue()  + (b.getBlue()  - a.getBlue())  * t);
-        int aa = (int) (a.getAlpha() + (b.getAlpha() - a.getAlpha()) * t);
-        return new Color(clamp255(rr), clamp255(gg), clamp255(bb), clamp255(aa));
     }
 
     /**
