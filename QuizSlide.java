@@ -42,6 +42,13 @@ public class QuizSlide {
     public int timerSeconds = 10;
     public int redThresholdSeconds = 4;
 
+    // 1-based index of a slide-text item that should remain HIDDEN while the
+    // countdown is running and only appear (without animation) once the timer
+    // reaches zero. 0 = feature disabled. Independent of correctOptionIndex so
+    // the hidden text can be the "answer reveal" and the highlighted text can
+    // be one of the visible options (or both can point to the same item).
+    public int hideTextIndex = 0;
+
     public String tickPreset = "Stock: Classic Clock";   // or "Custom"
     public File   customTickFile = null;
 
@@ -160,6 +167,7 @@ public class QuizSlide {
         QuizSlide c = new QuizSlide();
         c.enabled = enabled;
         c.correctOptionIndex = correctOptionIndex;
+        c.hideTextIndex = hideTextIndex;
         c.timerSeconds = timerSeconds;
         c.redThresholdSeconds = redThresholdSeconds;
         c.tickPreset = tickPreset;
@@ -232,6 +240,7 @@ public class QuizSlide {
         this.digitShadow       = src.digitShadow;
         this.digitShow         = src.digitShow;
         this.barReverse        = src.barReverse;
+        this.hideTextIndex     = src.hideTextIndex;
         this.revealMarkStyle   = src.revealMarkStyle;
         this.revealMarkSizePct = src.revealMarkSizePct;
         this.revealMarkColor   = src.revealMarkColor;
@@ -243,6 +252,37 @@ public class QuizSlide {
         this.dingPreset        = src.dingPreset;
         this.customTickFile    = src.customTickFile;
         this.customDingFile    = src.customDingFile;
+    }
+
+    /**
+     * Reveal-moment elapsed-ms boundary for this quiz: the chosen hidden text
+     * (and the reveal badge) should appear at or after this point in time.
+     * Mirrors the same math used by {@link #applyOverlay}.
+     */
+    public long revealAtMs() {
+        long timerMs    = Math.max(0, timerSeconds) * 1000L;
+        long qEndMs     = Math.max(0, questionEndMs);
+        boolean atStart = "AtSlideStart".equals(timerStartMode);
+        long timerStart = atStart ? 0L : qEndMs;
+        return timerStart + timerMs;
+    }
+
+    /**
+     * True iff this quiz has a configured "hidden until reveal" text index
+     * that points within the supplied slide-text list AND the current frame
+     * is still BEFORE the reveal moment (so the chosen text should be hidden
+     * from the renderer).
+     *
+     * @param textIdx0Based  zero-based slide-text index being considered
+     * @param elapsedMs      elapsed time since slide start
+     * @param textListSize   size of the slide-text list (out-of-range = no hide)
+     */
+    public boolean shouldHideText(int textIdx0Based, long elapsedMs, int textListSize) {
+        if (!enabled) return false;
+        int target = hideTextIndex - 1;
+        if (target < 0 || target >= textListSize) return false;
+        if (textIdx0Based != target) return false;
+        return elapsedMs < revealAtMs();
     }
 
     // ============================================================

@@ -411,6 +411,7 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty("quiz.revealMarkColor",    colorToHex(qs.revealMarkColor != null
                     ? qs.revealMarkColor : new Color(60, 220, 110)));
             props.setProperty("quiz.revealPadPct",       String.valueOf(qs.revealPadPct));
+            props.setProperty("quiz.hideTextIndex",      String.valueOf(qs.hideTextIndex));
             props.setProperty("quiz.timerSeconds",       String.valueOf(qs.timerSeconds));
             props.setProperty("quiz.redThresholdSeconds", String.valueOf(qs.redThresholdSeconds));
             props.setProperty("quiz.timerStartMode",     qs.timerStartMode != null
@@ -643,6 +644,8 @@ public class GifSlideShowApp extends JFrame {
                         : new Color(60, 220, 110))));
         tmpl.revealPadPct       = Integer.parseInt(props.getProperty("quiz.revealPadPct",
                 String.valueOf(tmpl.revealPadPct)));
+        tmpl.hideTextIndex      = Integer.parseInt(props.getProperty("quiz.hideTextIndex",
+                String.valueOf(tmpl.hideTextIndex)));
         tmpl.timerSeconds       = Integer.parseInt(props.getProperty("quiz.timerSeconds",
                 String.valueOf(tmpl.timerSeconds)));
         tmpl.redThresholdSeconds = Integer.parseInt(props.getProperty("quiz.redThresholdSeconds",
@@ -3400,7 +3403,7 @@ public class GifSlideShowApp extends JFrame {
         // ========== SLIDE TEXT OVERLAY(S) ==========
         if (slideTexts != null) {
             for (SlideTextData st : slideTexts) {
-                if (!st.show || st.text == null || st.text.isEmpty()) continue;
+                if (!st.show || st.quizHidden || st.text == null || st.text.isEmpty()) continue;
                 float stScaleFactor = Math.max(targetW, targetH) / 1920.0f;
                 int scaledStSize = Math.max(8, (int) (st.fontSize * stScaleFactor));
                 Font stFont;
@@ -7905,6 +7908,7 @@ public class GifSlideShowApp extends JFrame {
                                     int lastActive = -2;
                                     for (int df = 0; df < dwellFrames[i]; df++) {
                                         long elapsedMs = (long)(df * 1000.0 / fps);
+                                        applyQuizHideMask(s.slideTexts, s.quiz, elapsedMs);
                                         int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
                                         long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
                                         int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
@@ -8280,6 +8284,7 @@ public class GifSlideShowApp extends JFrame {
                                         publish("Rendering slide " + (i + 1) + " (quiz, " + slideFrames + " frames)...");
                                         for (int d = 0; d < slideFrames; d++) {
                                             long elapsedMs = (long)(d * 1000.0 / fps);
+                                            applyQuizHideMask(s.slideTexts, s.quiz, elapsedMs);
                                             BufferedImage frame = renderFrame(
                                                     s.image, s.text, s.fontName, s.fontSize,
                                                     s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -9716,6 +9721,7 @@ public class GifSlideShowApp extends JFrame {
                                     // Multi-audio with animated effects: per-frame with active text highlight
                                     for (int d = 0; d < slideFrames; d++) {
                                         long elapsedMs = (long)(d * 1000.0 / fps);
+                                        applyQuizHideMask(s.slideTexts, s.quiz, elapsedMs);
                                         int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
                                         long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
                                         int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
@@ -9778,6 +9784,7 @@ public class GifSlideShowApp extends JFrame {
                                     // Full render per-frame
                                     for (int d = 0; d < slideFrames; d++) {
                                         long elapsedMs = (long)(d * 1000.0 / fps);
+                                        applyQuizHideMask(s.slideTexts, s.quiz, elapsedMs);
                                         // Apply audio-highlight on the active segment so single-audio
                                         // slides still get Pulse/Shake/Other-* effects animated.
                                         List<SlideTextData> framedTexts = s.slideTexts;
@@ -10673,6 +10680,26 @@ public class GifSlideShowApp extends JFrame {
     }
 
     /**
+     * Flip {@code quizHidden} on every slide text BEFORE renderFrame runs so
+     * the quiz's chosen "delayed reveal text" stays out of the rendered frame
+     * until the countdown ends. Must be paired with a call right before each
+     * quiz-aware renderFrame; the flags persist on the SlideTextData instances
+     * but are recomputed each frame, so other (non-quiz) callers see a stable
+     * default of {@code false}.
+     */
+    private static void applyQuizHideMask(List<SlideTextData> texts, QuizSlide quiz, long elapsedMs) {
+        if (texts == null) return;
+        if (quiz == null || !quiz.enabled) {
+            for (SlideTextData st : texts) st.quizHidden = false;
+            return;
+        }
+        int size = texts.size();
+        for (int i = 0; i < size; i++) {
+            texts.get(i).quizHidden = quiz.shouldHideText(i, elapsedMs, size);
+        }
+    }
+
+    /**
      * Paint a single light-overlay effect (Shimmer / Reveal / Wipe / Glow Trail / Scan)
      * over the given text-block. Caller must already have set the clip to the text
      * glyph shape so the light only paints over the letters.
@@ -11226,6 +11253,7 @@ public class GifSlideShowApp extends JFrame {
                 hl.karaokeWordIndex = karaokeIdx;
                 if (karaokeStyle != null && !karaokeStyle.isEmpty()) hl.karaokeStyle = karaokeStyle;
                 if (karaokeColor != null) hl.karaokeColor = karaokeColor;
+                hl.quizHidden = st.quizHidden;
                 result.add(hl);
             } else {
                 result.add(st);
@@ -11631,6 +11659,11 @@ public class GifSlideShowApp extends JFrame {
         // UL / Clr / Shake / Pulse / Others) keeps its full-text semantics and is
         // not touched by the karaoke layer.
         int karaokeWordIndex = -1;
+        // Per-frame quiz visibility mask. When true (set by applyQuizHideMask
+        // just before renderFrame), the render loop skips this text entirely.
+        // Used by the quiz "delayed reveal text" feature so the picked text
+        // stays invisible until the countdown finishes. Not persisted.
+        boolean quizHidden = false;
         // Per-word effect style chosen on toolbar 7d (None / Box / Background /
         // Underline / Color / Glow / Bold / Scale). "None" means "timings are
         // captured but draw nothing" so the user can A/B with karaoke off.
@@ -12627,8 +12660,9 @@ public class GifSlideShowApp extends JFrame {
         private JSpinner quizDigitXSp, quizDigitYSp, quizDigitSizeSp;
         private JCheckBox quizDigitBoldChk, quizDigitShadowChk, quizDigitShowChk;
         private JComboBox<String> quizBarDirCombo;
-        // Reveal-row inline target picker.
+        // Reveal-row inline target picker + delayed-reveal-text picker.
         private JSpinner quizRevealTargetSp;
+        private JSpinner quizHideTextSp;
         // Animation toolbar controls.
         private JComboBox<String> quizAnimCombo;
         private JSpinner          quizAnimStrengthSp;
@@ -14828,12 +14862,29 @@ public class GifSlideShowApp extends JFrame {
                 onFormatChanged();
             });
 
+            // Pick a slide-text that stays HIDDEN during the countdown and
+            // appears only when the timer ends. 0 disables the feature. The
+            // value is the 1-based index of a slide-text item, independent of
+            // correctOptionIndex so the hidden item can be the "answer".
+            JLabel hideTextLbl = styledLabel("Hide #");
+            quizHideTextSp = new JSpinner(
+                    new SpinnerNumberModel(
+                            Math.max(0, Math.min(20, quiz.hideTextIndex)),
+                            0, 20, 1));
+            quizHideTextSp.setPreferredSize(new Dimension(56, 24));
+            quizHideTextSp.setToolTipText("Hide which slide-text item until the timer ends (0 = none, 1-based). The text appears the instant the countdown reaches zero.");
+            quizHideTextSp.addChangeListener(e -> {
+                quiz.hideTextIndex = ((Number) quizHideTextSp.getValue()).intValue();
+                onFormatChanged();
+            });
+
             toolbar7c2.add(revealLbl);
             toolbar7c2.add(quizRevealStyleCombo);
             toolbar7c2.add(revealSzLbl); toolbar7c2.add(quizRevealSizeSp);
             toolbar7c2.add(revealColorLbl); toolbar7c2.add(quizRevealColorBtn);
             toolbar7c2.add(revealPadLbl); toolbar7c2.add(quizRevealPadSp);
             toolbar7c2.add(revealTargetLbl); toolbar7c2.add(quizRevealTargetSp);
+            toolbar7c2.add(hideTextLbl); toolbar7c2.add(quizHideTextSp);
 
             // ===== Toolbar Row 7c3: Timer animation knobs + custom red/secondary =====
             JPanel toolbar7c3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
@@ -15833,6 +15884,11 @@ public class GifSlideShowApp extends JFrame {
             if (isTitleGridSlide && gridSourceImages != null) {
                 frameImage = composeTitleGridFrame(getPreviewWidth(), getPreviewHeight());
             }
+            // Hide the quiz's "delayed reveal" text in the editor preview so
+            // the user sees the WYSIWYG pre-reveal state. The quiz preview
+            // overlay below draws the timer at full seconds, i.e. elapsed=0,
+            // which is before the reveal moment.
+            applyQuizHideMask(getSlideTextDataList(), quiz, 0L);
             BufferedImage preview = renderFrame(
                     frameImage, textArea.getText(),
                     getSelectedFont(), getFontSize(), getFontStyle(),
@@ -16742,6 +16798,10 @@ public class GifSlideShowApp extends JFrame {
                 if (quizRevealTargetSp != null) {
                     quizRevealTargetSp.setValue(
                             Math.max(1, Math.min(20, quiz.correctOptionIndex)));
+                }
+                if (quizHideTextSp != null) {
+                    quizHideTextSp.setValue(
+                            Math.max(0, Math.min(20, quiz.hideTextIndex)));
                 }
                 if (quizDigitSizeSp != null) {
                     int dsp = quiz.digitSizePct <= 0 ? 100 : quiz.digitSizePct;
