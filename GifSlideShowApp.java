@@ -6469,12 +6469,6 @@ public class GifSlideShowApp extends JFrame {
      * Lines are joined with a single space because wrapTextStatic only breaks at
      * whitespace, so the joined string mirrors what the user reads.
      */
-    /** Draw a per-word karaoke effect tightly fitted to the word's bounding box.
-     *  Independent of the whole-text HL/FX — the existing toolbar-7b controls
-     *  paint first, then this overlay sits on top of just the spoken word.
-     *  @param baselineY pixel y of the text baseline for this line
-     *  @param ascent    font ascent (top of the word = baselineY − ascent)
-     *  @param descent   font descent (bottom of the word = baselineY + descent) */
     // =====================================================================
     // Slide-text BG rendering pipeline (toolbars 4b2 / 4b3 / 4b4)
     // =====================================================================
@@ -6964,6 +6958,12 @@ public class GifSlideShowApp extends JFrame {
         return new Color(r, gn, bl, aa);
     }
 
+    /** Draw a per-word karaoke effect tightly fitted to the word's bounding box.
+     *  Independent of the whole-text HL/FX — the existing toolbar-7b controls
+     *  paint first, then this overlay sits on top of just the spoken word.
+     *  @param baselineY pixel y of the text baseline for this line
+     *  @param ascent    font ascent (top of the word = baselineY − ascent)
+     *  @param descent   font descent (bottom of the word = baselineY + descent) */
     private static void drawKaraokeWordEffect(Graphics2D g, String style, Color color,
                                               int x, int baselineY, int w,
                                               int ascent, int descent,
