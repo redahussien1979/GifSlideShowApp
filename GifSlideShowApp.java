@@ -330,10 +330,30 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(p + "bgColor", colorToHex(t.bgColor));
             props.setProperty(p + "bgPaddingPct", String.valueOf(t.bgPaddingPct));
             props.setProperty(p + "bgRoundPct", String.valueOf(t.bgRoundPct));
-            props.setProperty(p + "bgGradient", String.valueOf(t.bgGradient));
             props.setProperty(p + "bgColor2", colorToHex(t.bgColor2 != null ? t.bgColor2 : new Color(60, 60, 60)));
-            props.setProperty(p + "bgGrainy", String.valueOf(t.bgGrainy));
-            props.setProperty(p + "bgGrainyIntensity", String.valueOf(t.bgGrainyIntensity));
+            props.setProperty(p + "bgFillKind", t.bgFillKind != null ? t.bgFillKind : "Solid");
+            props.setProperty(p + "bgFillAngle", String.valueOf(t.bgFillAngle));
+            props.setProperty(p + "bgFillSpacing", String.valueOf(t.bgFillSpacing));
+            props.setProperty(p + "bgNoiseKind", t.bgNoiseKind != null ? t.bgNoiseKind : "None");
+            props.setProperty(p + "bgNoiseIntensity", String.valueOf(t.bgNoiseIntensity));
+            props.setProperty(p + "bgFrostedBlur", String.valueOf(t.bgFrostedBlur));
+            props.setProperty(p + "bgShape", t.bgShape != null ? t.bgShape : "Rounded");
+            props.setProperty(p + "bgCornerTL", String.valueOf(t.bgCornerTL));
+            props.setProperty(p + "bgCornerTR", String.valueOf(t.bgCornerTR));
+            props.setProperty(p + "bgCornerBL", String.valueOf(t.bgCornerBL));
+            props.setProperty(p + "bgCornerBR", String.valueOf(t.bgCornerBR));
+            props.setProperty(p + "bgBorderStyle", t.bgBorderStyle != null ? t.bgBorderStyle : "None");
+            props.setProperty(p + "bgBorderWidth", String.valueOf(t.bgBorderWidth));
+            props.setProperty(p + "bgBorderColor", colorToHex(t.bgBorderColor != null ? t.bgBorderColor : Color.WHITE));
+            props.setProperty(p + "bgShadow", String.valueOf(t.bgShadow));
+            props.setProperty(p + "bgShadowDx", String.valueOf(t.bgShadowDx));
+            props.setProperty(p + "bgShadowDy", String.valueOf(t.bgShadowDy));
+            props.setProperty(p + "bgShadowBlur", String.valueOf(t.bgShadowBlur));
+            props.setProperty(p + "bgInnerShadow", String.valueOf(t.bgInnerShadow));
+            props.setProperty(p + "bgInnerShadowSize", String.valueOf(t.bgInnerShadowSize));
+            props.setProperty(p + "bgOuterGlow", String.valueOf(t.bgOuterGlow));
+            props.setProperty(p + "bgOuterGlowSize", String.valueOf(t.bgOuterGlowSize));
+            props.setProperty(p + "bgOuterGlowColor", colorToHex(t.bgOuterGlowColor != null ? t.bgOuterGlowColor : new Color(255, 220, 120)));
             props.setProperty(p + "justify", String.valueOf(t.justify));
             props.setProperty(p + "widthPct", String.valueOf(t.widthPct));
             props.setProperty(p + "shiftX", String.valueOf(t.shiftX));
@@ -580,12 +600,39 @@ public class GifSlideShowApp extends JFrame {
                     Integer.parseInt(props.getProperty(p + "lineSpacing", "0")),
                     Integer.parseInt(props.getProperty(p + "opacity", "100"))
             );
-            loaded.bgPaddingPct = Integer.parseInt(props.getProperty(p + "bgPaddingPct", "50"));
-            loaded.bgRoundPct = Integer.parseInt(props.getProperty(p + "bgRoundPct", "10"));
-            loaded.bgGradient = Boolean.parseBoolean(props.getProperty(p + "bgGradient", "false"));
-            loaded.bgColor2 = hexToColor(props.getProperty(p + "bgColor2", "#3C3C3C"));
-            loaded.bgGrainy = Boolean.parseBoolean(props.getProperty(p + "bgGrainy", "false"));
-            loaded.bgGrainyIntensity = Integer.parseInt(props.getProperty(p + "bgGrainyIntensity", "50"));
+            loaded.bgPaddingPct      = Integer.parseInt(props.getProperty(p + "bgPaddingPct", "50"));
+            loaded.bgRoundPct        = Integer.parseInt(props.getProperty(p + "bgRoundPct", "10"));
+            loaded.bgColor2          = hexToColor(props.getProperty(p + "bgColor2", "#3C3C3C"));
+            // bgFillKind defaults to Solid; legacy bgGradient=true upgrades to Linear.
+            String legacyGrad = props.getProperty(p + "bgGradient");
+            loaded.bgFillKind        = props.getProperty(p + "bgFillKind",
+                    "true".equalsIgnoreCase(legacyGrad) ? "Linear" : "Solid");
+            loaded.bgFillAngle       = Integer.parseInt(props.getProperty(p + "bgFillAngle", "90"));
+            loaded.bgFillSpacing     = Integer.parseInt(props.getProperty(p + "bgFillSpacing", "12"));
+            // Legacy bgGrainy=true upgrades to Grain.
+            String legacyGrainy = props.getProperty(p + "bgGrainy");
+            loaded.bgNoiseKind       = props.getProperty(p + "bgNoiseKind",
+                    "true".equalsIgnoreCase(legacyGrainy) ? "Grain" : "None");
+            loaded.bgNoiseIntensity  = Integer.parseInt(props.getProperty(p + "bgNoiseIntensity",
+                    props.getProperty(p + "bgGrainyIntensity", "50")));
+            loaded.bgFrostedBlur     = Integer.parseInt(props.getProperty(p + "bgFrostedBlur", "0"));
+            loaded.bgShape           = props.getProperty(p + "bgShape", "Rounded");
+            loaded.bgCornerTL        = Boolean.parseBoolean(props.getProperty(p + "bgCornerTL", "true"));
+            loaded.bgCornerTR        = Boolean.parseBoolean(props.getProperty(p + "bgCornerTR", "true"));
+            loaded.bgCornerBL        = Boolean.parseBoolean(props.getProperty(p + "bgCornerBL", "true"));
+            loaded.bgCornerBR        = Boolean.parseBoolean(props.getProperty(p + "bgCornerBR", "true"));
+            loaded.bgBorderStyle     = props.getProperty(p + "bgBorderStyle", "None");
+            loaded.bgBorderWidth     = Integer.parseInt(props.getProperty(p + "bgBorderWidth", "2"));
+            loaded.bgBorderColor     = hexToColor(props.getProperty(p + "bgBorderColor", "#FFFFFF"));
+            loaded.bgShadow          = Boolean.parseBoolean(props.getProperty(p + "bgShadow", "false"));
+            loaded.bgShadowDx        = Integer.parseInt(props.getProperty(p + "bgShadowDx", "4"));
+            loaded.bgShadowDy        = Integer.parseInt(props.getProperty(p + "bgShadowDy", "4"));
+            loaded.bgShadowBlur      = Integer.parseInt(props.getProperty(p + "bgShadowBlur", "8"));
+            loaded.bgInnerShadow     = Boolean.parseBoolean(props.getProperty(p + "bgInnerShadow", "false"));
+            loaded.bgInnerShadowSize = Integer.parseInt(props.getProperty(p + "bgInnerShadowSize", "6"));
+            loaded.bgOuterGlow       = Boolean.parseBoolean(props.getProperty(p + "bgOuterGlow", "false"));
+            loaded.bgOuterGlowSize   = Integer.parseInt(props.getProperty(p + "bgOuterGlowSize", "8"));
+            loaded.bgOuterGlowColor  = hexToColor(props.getProperty(p + "bgOuterGlowColor", "#FFDC78"));
             slideTextFormats.add(loaded);
         }
 
@@ -3575,47 +3622,7 @@ public class GifSlideShowApp extends JFrame {
                 }
 
                 if (st.bgOpacity > 0) {
-                    int alpha = (int) (st.bgOpacity / 100.0 * 255);
-                    Color bgc = st.bgColor != null ? st.bgColor : Color.BLACK;
-                    Graphics2D g2st = (Graphics2D) g.create();
-                    g2st.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    // Corner radius scales with bgRoundPct: 0=square, 100=fully rounded
-                    // (arc capped at min(bgW,bgH) so a pill shape collapses cleanly).
-                    int maxArc = Math.max(0, Math.min(bgW, bgH));
-                    int arc = (int) Math.round(maxArc * (st.bgRoundPct / 100.0));
-                    java.awt.Shape bgShape = new java.awt.geom.RoundRectangle2D.Float(
-                            bgX, bgY, bgW, bgH, arc, arc);
-                    if (st.bgGradient && st.bgColor2 != null) {
-                        Color c1 = new Color(bgc.getRed(), bgc.getGreen(), bgc.getBlue(), alpha);
-                        Color c2 = new Color(st.bgColor2.getRed(), st.bgColor2.getGreen(),
-                                st.bgColor2.getBlue(), alpha);
-                        g2st.setPaint(new java.awt.GradientPaint(bgX, bgY, c1, bgX, bgY + bgH, c2));
-                    } else {
-                        g2st.setColor(new Color(bgc.getRed(), bgc.getGreen(), bgc.getBlue(), alpha));
-                    }
-                    g2st.fill(bgShape);
-                    if (st.bgGrainy && st.bgGrainyIntensity > 0) {
-                        java.awt.Shape oldClip = g2st.getClip();
-                        g2st.setClip(bgShape);
-                        // Deterministic per-text grain so static previews look identical
-                        // across redraws. Seed mixes geometry so different texts get
-                        // different grain patterns without animating each frame.
-                        java.util.Random rnd = new java.util.Random(
-                                ((long) bgX << 16) ^ ((long) bgY) ^ ((long) bgW << 8) ^ bgH);
-                        int grainAlphaMax = Math.min(255, (int) Math.round(st.bgGrainyIntensity * 2.0));
-                        // ~0.6 dots per pixel keeps grain dense but not overwhelming.
-                        int dotCount = (int) Math.max(0, bgW * bgH * 0.6);
-                        for (int gi = 0; gi < dotCount; gi++) {
-                            int gx = bgX + rnd.nextInt(Math.max(1, bgW));
-                            int gy = bgY + rnd.nextInt(Math.max(1, bgH));
-                            int gv = rnd.nextInt(256);
-                            int ga = rnd.nextInt(grainAlphaMax + 1);
-                            g2st.setColor(new Color(gv, gv, gv, ga));
-                            g2st.fillRect(gx, gy, 1, 1);
-                        }
-                        g2st.setClip(oldClip);
-                    }
-                    g2st.dispose();
+                    drawSlideTextBackground(g, st, bgX, bgY, bgW, bgH, stScaleFactor);
                 }
 
                 // Use wrap width as fixed reference for LEFT/RIGHT alignment
@@ -6468,6 +6475,495 @@ public class GifSlideShowApp extends JFrame {
      *  @param baselineY pixel y of the text baseline for this line
      *  @param ascent    font ascent (top of the word = baselineY − ascent)
      *  @param descent   font descent (bottom of the word = baselineY + descent) */
+    // =====================================================================
+    // Slide-text BG rendering pipeline (toolbars 4b2 / 4b3 / 4b4)
+    // =====================================================================
+    //
+    // Layered draw order (back → front) so each effect composites naturally:
+    //   1. Outer Glow   (soft halo behind the shape)
+    //   2. Drop Shadow  (blurred dark shape offset by dx/dy)
+    //   3. Fill         (Solid / Linear / Radial / Conic / Stripes / Checker / Dots / Lines)
+    //   4. Frosted sheen (translucent white wash + subtle streaks; over photos this reads
+    //                     as a frosted-glass tint without needing to grab pixels)
+    //   5. Noise overlay (Grain / Paper / TV / Halftone)
+    //   6. Inner Shadow  (dark vignette inside the shape edge — "pressed in")
+    //   7. Border        (Solid / Double / Dashed) — drawn last so it crowns everything
+    //
+    // All steps are clipped to the BG shape so they respect the chosen
+    // Shape combo (Rounded / Pill / Bubble / Tag / Sticker / Hexagon / Parallelogram)
+    // and the asymmetric-corners toggles. The shape itself is built by
+    // {@link #buildSlideTextBgShape}.
+    private static void drawSlideTextBackground(Graphics2D g, SlideTextData st,
+                                                int bgX, int bgY, int bgW, int bgH,
+                                                double stScaleFactor) {
+        int alpha = (int) (st.bgOpacity / 100.0 * 255);
+        Color bgc = st.bgColor != null ? st.bgColor : Color.BLACK;
+        Color bgc2 = st.bgColor2 != null ? st.bgColor2 : new Color(60, 60, 60);
+
+        java.awt.Shape bgShape = buildSlideTextBgShape(st, bgX, bgY, bgW, bgH);
+
+        Graphics2D g2st = (Graphics2D) g.create();
+        g2st.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2st.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+
+        // ---- 1. Outer Glow (renders before everything else) ----
+        if (st.bgOuterGlow && st.bgOuterGlowSize > 0) {
+            Color glowC = st.bgOuterGlowColor != null ? st.bgOuterGlowColor : bgc;
+            int size = st.bgOuterGlowSize;
+            // Concentric strokes that fade out — a poor man's Gaussian halo that
+            // composites correctly without an extra BufferedImage pass.
+            for (int i = size; i >= 1; i--) {
+                float a = (float) (0.35 * (1.0 - (double) i / (size + 1)));
+                g2st.setColor(new Color(glowC.getRed(), glowC.getGreen(), glowC.getBlue(),
+                        Math.max(0, Math.min(255, (int) (a * 255)))));
+                g2st.setStroke(new BasicStroke(i * 2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2st.draw(bgShape);
+            }
+        }
+
+        // ---- 2. Drop Shadow ----
+        if (st.bgShadow) {
+            int dx = st.bgShadowDx;
+            int dy = st.bgShadowDy;
+            int blur = Math.max(0, st.bgShadowBlur);
+            // Translate the shape by (dx,dy), then draw a stack of expanding
+            // strokes around a dark fill to simulate the blur falloff.
+            java.awt.geom.AffineTransform shTx = java.awt.geom.AffineTransform
+                    .getTranslateInstance(dx, dy);
+            java.awt.Shape sh = shTx.createTransformedShape(bgShape);
+            Graphics2D g2sh = (Graphics2D) g2st.create();
+            g2sh.setColor(new Color(0, 0, 0, Math.min(180, alpha)));
+            g2sh.fill(sh);
+            for (int i = 1; i <= blur; i++) {
+                float a = (float) (0.25 * (1.0 - (double) i / (blur + 1)));
+                g2sh.setColor(new Color(0, 0, 0, Math.max(0, Math.min(255, (int) (a * 200)))));
+                g2sh.setStroke(new BasicStroke(i * 2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2sh.draw(sh);
+            }
+            g2sh.dispose();
+        }
+
+        // ---- 3. Fill ----
+        String fill = st.bgFillKind != null ? st.bgFillKind : "Solid";
+        Color c1 = new Color(bgc.getRed(), bgc.getGreen(), bgc.getBlue(), alpha);
+        Color c2 = new Color(bgc2.getRed(), bgc2.getGreen(), bgc2.getBlue(), alpha);
+        switch (fill) {
+            case "Linear": {
+                double rad = Math.toRadians(st.bgFillAngle);
+                // Project gradient onto angle vector across the bbox so 0deg = L→R,
+                // 90deg = T→B, 45deg = diagonal.
+                float cx = bgX + bgW / 2f, cy = bgY + bgH / 2f;
+                float half = (float) (Math.abs(bgW * Math.cos(rad)) + Math.abs(bgH * Math.sin(rad))) / 2f;
+                float gx1 = (float) (cx - Math.cos(rad) * half);
+                float gy1 = (float) (cy - Math.sin(rad) * half);
+                float gx2 = (float) (cx + Math.cos(rad) * half);
+                float gy2 = (float) (cy + Math.sin(rad) * half);
+                g2st.setPaint(new java.awt.GradientPaint(gx1, gy1, c1, gx2, gy2, c2));
+                g2st.fill(bgShape);
+                break;
+            }
+            case "Radial": {
+                float cx = bgX + bgW / 2f, cy = bgY + bgH / 2f;
+                float r = Math.max(1f, Math.max(bgW, bgH) / 2f);
+                g2st.setPaint(new java.awt.RadialGradientPaint(
+                        new java.awt.geom.Point2D.Float(cx, cy), r,
+                        new float[]{0f, 1f}, new Color[]{c1, c2}));
+                g2st.fill(bgShape);
+                break;
+            }
+            case "Conic": {
+                // True conic gradients aren't in Java2D — approximate as a
+                // rainbow-sweep ring of wedge fills around the center. Looks
+                // like a pride-flag conic when bgColor/bgColor2 are warm/cool.
+                g2st.setColor(c1);
+                g2st.fill(bgShape);
+                java.awt.Shape oldClip = g2st.getClip();
+                g2st.setClip(bgShape);
+                float cx = bgX + bgW / 2f, cy = bgY + bgH / 2f;
+                float r = (float) Math.hypot(bgW, bgH);
+                int steps = 60;
+                for (int i = 0; i < steps; i++) {
+                    double a0 = (i / (double) steps) * Math.PI * 2 + Math.toRadians(st.bgFillAngle);
+                    double a1 = ((i + 1) / (double) steps) * Math.PI * 2 + Math.toRadians(st.bgFillAngle);
+                    // Sinusoidal sweep between c1 and c2 (smooth, no banding).
+                    double t = 0.5 - 0.5 * Math.cos((i / (double) steps) * Math.PI * 2);
+                    Color cc = blendColors(c1, c2, (float) t);
+                    java.awt.geom.Path2D wedge = new java.awt.geom.Path2D.Float();
+                    wedge.moveTo(cx, cy);
+                    wedge.lineTo(cx + Math.cos(a0) * r, cy + Math.sin(a0) * r);
+                    wedge.lineTo(cx + Math.cos(a1) * r, cy + Math.sin(a1) * r);
+                    wedge.closePath();
+                    g2st.setColor(cc);
+                    g2st.fill(wedge);
+                }
+                g2st.setClip(oldClip);
+                break;
+            }
+            case "Stripes":
+            case "Lines": {
+                g2st.setColor(c1);
+                g2st.fill(bgShape);
+                java.awt.Shape oldClip = g2st.getClip();
+                g2st.setClip(bgShape);
+                int spacing = Math.max(2, st.bgFillSpacing);
+                int stripeW = "Stripes".equals(fill) ? Math.max(1, spacing / 2) : Math.max(1, spacing / 4);
+                g2st.setColor(c2);
+                double rad = Math.toRadians(st.bgFillAngle);
+                Graphics2D g2p = (Graphics2D) g2st.create();
+                g2p.rotate(rad, bgX + bgW / 2.0, bgY + bgH / 2.0);
+                int span = (int) Math.hypot(bgW, bgH) + spacing;
+                int startX = bgX + bgW / 2 - span;
+                int startY = bgY + bgH / 2 - span;
+                for (int x = startX; x < startX + span * 2; x += spacing) {
+                    g2p.fillRect(x, startY, stripeW, span * 2);
+                }
+                g2p.dispose();
+                g2st.setClip(oldClip);
+                break;
+            }
+            case "Checker": {
+                g2st.setColor(c1);
+                g2st.fill(bgShape);
+                java.awt.Shape oldClip = g2st.getClip();
+                g2st.setClip(bgShape);
+                int sp = Math.max(2, st.bgFillSpacing);
+                g2st.setColor(c2);
+                int yy = bgY;
+                int row = 0;
+                while (yy < bgY + bgH) {
+                    int xx = bgX + ((row & 1) == 0 ? 0 : sp);
+                    while (xx < bgX + bgW) {
+                        g2st.fillRect(xx, yy, sp, sp);
+                        xx += sp * 2;
+                    }
+                    yy += sp;
+                    row++;
+                }
+                g2st.setClip(oldClip);
+                break;
+            }
+            case "Dots": {
+                g2st.setColor(c1);
+                g2st.fill(bgShape);
+                java.awt.Shape oldClip = g2st.getClip();
+                g2st.setClip(bgShape);
+                int sp = Math.max(3, st.bgFillSpacing);
+                int dot = Math.max(1, sp / 3);
+                g2st.setColor(c2);
+                for (int yy = bgY + sp / 2; yy < bgY + bgH; yy += sp) {
+                    for (int xx = bgX + sp / 2; xx < bgX + bgW; xx += sp) {
+                        g2st.fillOval(xx - dot / 2, yy - dot / 2, dot, dot);
+                    }
+                }
+                g2st.setClip(oldClip);
+                break;
+            }
+            case "Solid":
+            default:
+                g2st.setColor(c1);
+                g2st.fill(bgShape);
+                break;
+        }
+
+        // ---- 4. Frosted sheen ----
+        if (st.bgFrostedBlur > 0) {
+            java.awt.Shape oldClip = g2st.getClip();
+            g2st.setClip(bgShape);
+            int intensity = Math.min(30, st.bgFrostedBlur);
+            // Translucent white wash gives the BG a "frozen" tint over photos.
+            int washAlpha = Math.min(120, (int) (intensity / 30.0 * 80));
+            g2st.setColor(new Color(255, 255, 255, washAlpha));
+            g2st.fill(bgShape);
+            // Subtle horizontal streaks evoke the smear of light through frosted glass.
+            int streakStep = Math.max(2, 6 - intensity / 6);
+            for (int yy = bgY; yy < bgY + bgH; yy += streakStep) {
+                int aS = ((yy / streakStep) & 1) == 0 ? 14 : 6;
+                g2st.setColor(new Color(255, 255, 255, aS));
+                g2st.fillRect(bgX, yy, bgW, 1);
+            }
+            g2st.setClip(oldClip);
+        }
+
+        // ---- 5. Noise / texture overlay ----
+        String noise = st.bgNoiseKind != null ? st.bgNoiseKind : "None";
+        if (!"None".equals(noise) && st.bgNoiseIntensity > 0) {
+            java.awt.Shape oldClip = g2st.getClip();
+            g2st.setClip(bgShape);
+            drawNoiseOverlay(g2st, noise, st.bgNoiseIntensity, bgX, bgY, bgW, bgH);
+            g2st.setClip(oldClip);
+        }
+
+        // ---- 6. Inner shadow ----
+        if (st.bgInnerShadow && st.bgInnerShadowSize > 0) {
+            java.awt.Shape oldClip = g2st.getClip();
+            g2st.setClip(bgShape);
+            int size = st.bgInnerShadowSize;
+            // Stroke from the inside: increasingly dark strokes hug the edge.
+            for (int i = size; i >= 1; i--) {
+                float a = (float) (0.5 * (1.0 - (double) i / (size + 1)));
+                g2st.setColor(new Color(0, 0, 0, Math.max(0, Math.min(255, (int) (a * 220)))));
+                g2st.setStroke(new BasicStroke(i * 2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2st.draw(bgShape);
+            }
+            g2st.setClip(oldClip);
+        }
+
+        // ---- 7. Border ----
+        String border = st.bgBorderStyle != null ? st.bgBorderStyle : "None";
+        if (!"None".equals(border) && st.bgBorderWidth > 0) {
+            Color bc = st.bgBorderColor != null ? st.bgBorderColor : Color.WHITE;
+            g2st.setColor(bc);
+            float w = Math.max(1, st.bgBorderWidth);
+            switch (border) {
+                case "Dashed":
+                    g2st.setStroke(new BasicStroke(w, BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND,
+                            10f, new float[]{w * 3f, w * 2f}, 0f));
+                    g2st.draw(bgShape);
+                    break;
+                case "Double":
+                    g2st.setStroke(new BasicStroke(w));
+                    g2st.draw(bgShape);
+                    // Inset second line — shrink the shape by ~2w.
+                    java.awt.Shape inner = insetShape(bgShape, w * 2f);
+                    if (inner != null) g2st.draw(inner);
+                    break;
+                case "Solid":
+                default:
+                    g2st.setStroke(new BasicStroke(w));
+                    g2st.draw(bgShape);
+                    break;
+            }
+        }
+
+        // Sticker shape gets a fat white outline by convention; if the user
+        // already picked a Border that wins, but plain Sticker with None still
+        // needs the sticker-style outline so it reads as a sticker.
+        if ("Sticker".equals(st.bgShape) && ("None".equals(border) || border == null)) {
+            float w = (float) Math.max(3, 4 * stScaleFactor);
+            g2st.setColor(Color.WHITE);
+            g2st.setStroke(new BasicStroke(w, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g2st.draw(bgShape);
+        }
+
+        g2st.dispose();
+    }
+
+    /** Build the BG shape from {@link SlideTextData#bgShape} and the four
+     *  asymmetric-corner flags. The Rounded path honors the per-corner toggles
+     *  (an "off" corner becomes square). Other shapes use bgRoundPct as a
+     *  general softness hint where applicable. */
+    private static java.awt.Shape buildSlideTextBgShape(SlideTextData st,
+                                                        int bgX, int bgY, int bgW, int bgH) {
+        String shape = st.bgShape != null ? st.bgShape : "Rounded";
+        int maxArc = Math.max(0, Math.min(bgW, bgH));
+        int arc = (int) Math.round(maxArc * (st.bgRoundPct / 100.0));
+        switch (shape) {
+            case "Pill": {
+                int rr = Math.min(bgW, bgH);
+                return new java.awt.geom.RoundRectangle2D.Float(bgX, bgY, bgW, bgH, rr, rr);
+            }
+            case "Bubble": {
+                // Rounded rect + triangular tail at the bottom-left so it reads as a speech bubble.
+                java.awt.geom.Path2D p = new java.awt.geom.Path2D.Float();
+                int a = Math.max(arc, Math.min(bgW, bgH) / 6);
+                p.append(new java.awt.geom.RoundRectangle2D.Float(bgX, bgY, bgW, bgH, a, a), false);
+                int tailH = Math.max(6, bgH / 4);
+                int tailW = Math.max(8, bgW / 8);
+                int tx = bgX + Math.max(a, bgW / 5);
+                int ty = bgY + bgH - 2;
+                java.awt.geom.Path2D tail = new java.awt.geom.Path2D.Float();
+                tail.moveTo(tx, ty);
+                tail.lineTo(tx + tailW, ty);
+                tail.lineTo(tx - tailW / 2.0, ty + tailH);
+                tail.closePath();
+                p.append(tail, false);
+                return p;
+            }
+            case "Tag": {
+                // Notched-corner ribbon: rectangle with a triangular bite on the right side.
+                int notch = Math.max(8, bgH / 2);
+                java.awt.geom.Path2D p = new java.awt.geom.Path2D.Float();
+                p.moveTo(bgX, bgY);
+                p.lineTo(bgX + bgW - notch, bgY);
+                p.lineTo(bgX + bgW, bgY + bgH / 2.0);
+                p.lineTo(bgX + bgW - notch, bgY + bgH);
+                p.lineTo(bgX, bgY + bgH);
+                p.closePath();
+                return p;
+            }
+            case "Sticker": {
+                // Heavily rounded — the Sticker outline (white border) is drawn separately.
+                int rr = Math.max(8, Math.min(bgW, bgH) / 3);
+                return new java.awt.geom.RoundRectangle2D.Float(bgX - 2, bgY - 2, bgW + 4, bgH + 4, rr, rr);
+            }
+            case "Hexagon": {
+                double cx = bgX + bgW / 2.0, cy = bgY + bgH / 2.0;
+                double rx = bgW / 2.0, ry = bgH / 2.0;
+                java.awt.geom.Path2D p = new java.awt.geom.Path2D.Float();
+                for (int i = 0; i < 6; i++) {
+                    double ang = Math.toRadians(60 * i + 30);
+                    double x = cx + Math.cos(ang) * rx;
+                    double y = cy + Math.sin(ang) * ry;
+                    if (i == 0) p.moveTo(x, y); else p.lineTo(x, y);
+                }
+                p.closePath();
+                return p;
+            }
+            case "Parallelogram": {
+                int skew = Math.max(6, bgH / 3);
+                java.awt.geom.Path2D p = new java.awt.geom.Path2D.Float();
+                p.moveTo(bgX + skew, bgY);
+                p.lineTo(bgX + bgW, bgY);
+                p.lineTo(bgX + bgW - skew, bgY + bgH);
+                p.lineTo(bgX, bgY + bgH);
+                p.closePath();
+                return p;
+            }
+            case "Rounded":
+            default:
+                return buildAsymmetricRoundedRect(bgX, bgY, bgW, bgH, arc,
+                        st.bgCornerTL, st.bgCornerTR, st.bgCornerBR, st.bgCornerBL);
+        }
+    }
+
+    /** Rounded rect where each corner is independently round (radius=arc) or
+     *  square. Drawn as a Path2D so it composites identically to RoundRectangle2D
+     *  when all four corners are on. */
+    private static java.awt.Shape buildAsymmetricRoundedRect(int x, int y, int w, int h, int arc,
+                                                             boolean tl, boolean tr, boolean br, boolean bl) {
+        int r = Math.max(0, Math.min(arc, Math.min(w, h) / 2));
+        java.awt.geom.Path2D p = new java.awt.geom.Path2D.Float();
+        // Start at top-left, after the TL corner.
+        p.moveTo(x + (tl ? r : 0), y);
+        p.lineTo(x + w - (tr ? r : 0), y);
+        if (tr) p.quadTo(x + w, y, x + w, y + r); else p.lineTo(x + w, y);
+        p.lineTo(x + w, y + h - (br ? r : 0));
+        if (br) p.quadTo(x + w, y + h, x + w - r, y + h); else p.lineTo(x + w, y + h);
+        p.lineTo(x + (bl ? r : 0), y + h);
+        if (bl) p.quadTo(x, y + h, x, y + h - r); else p.lineTo(x, y + h);
+        p.lineTo(x, y + (tl ? r : 0));
+        if (tl) p.quadTo(x, y, x + r, y);
+        p.closePath();
+        return p;
+    }
+
+    /** Shrink a shape by `inset` pixels on every side. Uses Area + stroke
+     *  subtraction so the result follows curves smoothly. Returns null when
+     *  the inset collapses the shape. */
+    private static java.awt.Shape insetShape(java.awt.Shape s, float inset) {
+        if (inset <= 0) return s;
+        java.awt.Rectangle b = s.getBounds();
+        if (b.width <= inset * 2 || b.height <= inset * 2) return null;
+        // For Path2D shapes we just rebuild a shrunken bounding shape;
+        // the visual result of "double border" is acceptable as a uniform inset.
+        if (s instanceof java.awt.geom.RoundRectangle2D) {
+            java.awt.geom.RoundRectangle2D r = (java.awt.geom.RoundRectangle2D) s;
+            double arc = Math.max(0, r.getArcWidth() - inset * 2);
+            return new java.awt.geom.RoundRectangle2D.Double(
+                    r.getX() + inset, r.getY() + inset,
+                    r.getWidth() - inset * 2, r.getHeight() - inset * 2, arc, arc);
+        }
+        // Generic fallback: scale around the center.
+        double sx = (b.width - inset * 2) / (double) b.width;
+        double sy = (b.height - inset * 2) / (double) b.height;
+        java.awt.geom.AffineTransform tx = new java.awt.geom.AffineTransform();
+        tx.translate(b.getCenterX(), b.getCenterY());
+        tx.scale(sx, sy);
+        tx.translate(-b.getCenterX(), -b.getCenterY());
+        return tx.createTransformedShape(s);
+    }
+
+    /** Draw a texture overlay matching the chosen noise kind. Each kind uses a
+     *  deterministic per-shape seed so static previews look identical across
+     *  redraws. Caller is responsible for clipping to the BG shape. */
+    private static void drawNoiseOverlay(Graphics2D g, String kind, int intensity,
+                                         int x, int y, int w, int h) {
+        long seed = ((long) x << 16) ^ ((long) y) ^ ((long) w << 8) ^ h ^ kind.hashCode();
+        java.util.Random rnd = new java.util.Random(seed);
+        int alphaMax = Math.min(255, intensity * 2);
+        switch (kind) {
+            case "Grain": {
+                // Random monochrome pixels — classic film grain.
+                int dots = (int) (w * h * 0.6);
+                for (int i = 0; i < dots; i++) {
+                    int gx = x + rnd.nextInt(Math.max(1, w));
+                    int gy = y + rnd.nextInt(Math.max(1, h));
+                    int gv = rnd.nextInt(256);
+                    int ga = rnd.nextInt(alphaMax + 1);
+                    g.setColor(new Color(gv, gv, gv, ga));
+                    g.fillRect(gx, gy, 1, 1);
+                }
+                break;
+            }
+            case "Paper": {
+                // Tinted speckles + occasional fiber strokes: looks like rough paper.
+                int dots = (int) (w * h * 0.3);
+                for (int i = 0; i < dots; i++) {
+                    int gx = x + rnd.nextInt(Math.max(1, w));
+                    int gy = y + rnd.nextInt(Math.max(1, h));
+                    int v = 200 + rnd.nextInt(56);
+                    int a = rnd.nextInt(alphaMax / 2 + 1);
+                    g.setColor(new Color(v, v - 10, v - 30, a));
+                    g.fillRect(gx, gy, 1, 1);
+                }
+                int fibers = Math.max(4, intensity / 2);
+                g.setStroke(new BasicStroke(1f));
+                for (int i = 0; i < fibers; i++) {
+                    int fx = x + rnd.nextInt(Math.max(1, w));
+                    int fy = y + rnd.nextInt(Math.max(1, h));
+                    int len = 4 + rnd.nextInt(10);
+                    int dxF = rnd.nextInt(7) - 3;
+                    int dyF = rnd.nextInt(7) - 3;
+                    g.setColor(new Color(120, 110, 90, Math.min(180, alphaMax)));
+                    g.drawLine(fx, fy, fx + dxF * len / 4, fy + dyF * len / 4);
+                }
+                break;
+            }
+            case "TV": {
+                // Horizontal scanlines + sparse white static.
+                for (int yy = y; yy < y + h; yy += 2) {
+                    g.setColor(new Color(0, 0, 0, Math.min(120, intensity)));
+                    g.fillRect(x, yy, w, 1);
+                }
+                int specks = (int) (w * h * 0.05);
+                for (int i = 0; i < specks; i++) {
+                    int gx = x + rnd.nextInt(Math.max(1, w));
+                    int gy = y + rnd.nextInt(Math.max(1, h));
+                    int a = rnd.nextInt(alphaMax + 1);
+                    g.setColor(new Color(255, 255, 255, a));
+                    g.fillRect(gx, gy, 1, 1);
+                }
+                break;
+            }
+            case "Halftone": {
+                // Regular grid of dots whose size pulses with random jitter.
+                int sp = Math.max(3, 12 - intensity / 12);
+                int baseR = Math.max(1, sp / 3);
+                for (int yy = y; yy < y + h; yy += sp) {
+                    for (int xx = x; xx < x + w; xx += sp) {
+                        int rad = Math.max(1, baseR + rnd.nextInt(2));
+                        int a = Math.min(220, intensity + rnd.nextInt(40));
+                        g.setColor(new Color(0, 0, 0, a));
+                        g.fillOval(xx, yy, rad, rad);
+                    }
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    /** Linear color blend (alpha included) — used by the conic-gradient sweep. */
+    private static Color blendColors(Color a, Color b, float t) {
+        t = Math.max(0f, Math.min(1f, t));
+        int r = (int) (a.getRed()   + (b.getRed()   - a.getRed())   * t);
+        int gn = (int) (a.getGreen() + (b.getGreen() - a.getGreen()) * t);
+        int bl = (int) (a.getBlue()  + (b.getBlue()  - a.getBlue())  * t);
+        int aa = (int) (a.getAlpha() + (b.getAlpha() - a.getAlpha()) * t);
+        return new Color(r, gn, bl, aa);
+    }
+
     private static void drawKaraokeWordEffect(Graphics2D g, String style, Color color,
                                               int x, int baselineY, int w,
                                               int ascent, int descent,
@@ -11442,14 +11938,9 @@ public class GifSlideShowApp extends JFrame {
                 hl.karaokeWordIndex = karaokeIdx;
                 if (karaokeStyle != null && !karaokeStyle.isEmpty()) hl.karaokeStyle = karaokeStyle;
                 if (karaokeColor != null) hl.karaokeColor = karaokeColor;
-                // Carry through the toolbar 4b2 BG style so the HL/effects render
+                // Carry through the toolbar 4b2/3/4 BG style so the HL/effects render
                 // pass draws the same backdrop as the saved item.
-                hl.bgPaddingPct = st.bgPaddingPct;
-                hl.bgRoundPct = st.bgRoundPct;
-                hl.bgGradient = st.bgGradient;
-                hl.bgColor2 = st.bgColor2;
-                hl.bgGrainy = st.bgGrainy;
-                hl.bgGrainyIntensity = st.bgGrainyIntensity;
+                SlideTextData.copyBgStyle(st, hl);
                 hl.quizHidden = st.quizHidden;
                 // Carry the quiz reveal-anim over from the source so the anim
                 // still plays when the hidden text is ALSO the audio-active row.
@@ -11878,16 +12369,83 @@ public class GifSlideShowApp extends JFrame {
         // Independent of the audio-HL color so users can mix the two.
         Color karaokeColor = new Color(255, 220, 0, 220);
 
-        // ===== BG style (toolbar 4b2) =====
+        // ===== BG style (toolbars 4b2 / 4b3 / 4b4) =====
         // Defaults are mutable (not final) so they can persist via SlideTextData without
         // touching the long chain of overloaded constructors. Tight=50 reproduces the
         // pre-feature padding (6px,4px). Round=10 reproduces the pre-feature arc.
         int bgPaddingPct = 50;       // 0..100 (0=very tight, 50=normal, 100=very loose)
         int bgRoundPct = 10;         // 0..100 (0=square corners, 100=fully rounded)
-        boolean bgGradient = false;
         Color bgColor2 = new Color(60, 60, 60);
-        boolean bgGrainy = false;
-        int bgGrainyIntensity = 50;  // 0..100
+
+        // --- Fill paint (Solid / Linear / Radial / Conic / Stripes / Checker / Dots / Lines) ---
+        String bgFillKind = "Solid";
+        int bgFillAngle = 90;        // degrees: 0=left→right, 90=top→bottom, 45=diagonal
+        int bgFillSpacing = 12;      // pattern spacing in px (for Stripes/Checker/Dots/Lines)
+
+        // --- Noise / texture overlay ---
+        String bgNoiseKind = "None"; // None / Grain / Paper / TV / Halftone
+        int bgNoiseIntensity = 50;   // 0..100
+        int bgFrostedBlur = 0;       // 0=off, 1..30 = frosted-glass sheen strength
+
+        // --- Shape ---
+        String bgShape = "Rounded";  // Rounded / Pill / Bubble / Tag / Sticker / Hexagon / Parallelogram
+        boolean bgCornerTL = true;
+        boolean bgCornerTR = true;
+        boolean bgCornerBL = true;
+        boolean bgCornerBR = true;
+
+        // --- Border ---
+        String bgBorderStyle = "None"; // None / Solid / Double / Dashed
+        int bgBorderWidth = 2;
+        Color bgBorderColor = Color.WHITE;
+
+        // --- Drop shadow ---
+        boolean bgShadow = false;
+        int bgShadowDx = 4;
+        int bgShadowDy = 4;
+        int bgShadowBlur = 8;
+
+        // --- Inner shadow ---
+        boolean bgInnerShadow = false;
+        int bgInnerShadowSize = 6;
+
+        // --- Outer glow ---
+        boolean bgOuterGlow = false;
+        int bgOuterGlowSize = 8;
+        Color bgOuterGlowColor = null; // null = derived from bgColor
+
+        /** Copy the toolbar-4b2/3/4 BG-style block from src to dst. Keeps every
+         *  Fill / Shape / Border / Shadow / Glow / Noise field in sync without
+         *  per-callsite churn. Used when broadcasting master-slide formatting
+         *  and when cloning SlideTextData for the HL render pass. */
+        static void copyBgStyle(SlideTextData src, SlideTextData dst) {
+            dst.bgPaddingPct      = src.bgPaddingPct;
+            dst.bgRoundPct        = src.bgRoundPct;
+            dst.bgColor2          = src.bgColor2;
+            dst.bgFillKind        = src.bgFillKind;
+            dst.bgFillAngle       = src.bgFillAngle;
+            dst.bgFillSpacing     = src.bgFillSpacing;
+            dst.bgNoiseKind       = src.bgNoiseKind;
+            dst.bgNoiseIntensity  = src.bgNoiseIntensity;
+            dst.bgFrostedBlur     = src.bgFrostedBlur;
+            dst.bgShape           = src.bgShape;
+            dst.bgCornerTL        = src.bgCornerTL;
+            dst.bgCornerTR        = src.bgCornerTR;
+            dst.bgCornerBL        = src.bgCornerBL;
+            dst.bgCornerBR        = src.bgCornerBR;
+            dst.bgBorderStyle     = src.bgBorderStyle;
+            dst.bgBorderWidth     = src.bgBorderWidth;
+            dst.bgBorderColor     = src.bgBorderColor;
+            dst.bgShadow          = src.bgShadow;
+            dst.bgShadowDx        = src.bgShadowDx;
+            dst.bgShadowDy        = src.bgShadowDy;
+            dst.bgShadowBlur      = src.bgShadowBlur;
+            dst.bgInnerShadow     = src.bgInnerShadow;
+            dst.bgInnerShadowSize = src.bgInnerShadowSize;
+            dst.bgOuterGlow       = src.bgOuterGlow;
+            dst.bgOuterGlowSize   = src.bgOuterGlowSize;
+            dst.bgOuterGlowColor  = src.bgOuterGlowColor;
+        }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
                       int fontStyle, Color color, int x, int y, int bgOpacity,
@@ -12747,14 +13305,39 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner slideTextXSpinner;
         private final JSpinner slideTextYSpinner;
         private final JSpinner slideTextBgSpinner;
-        // ===== BG style controls (toolbar 4b2) =====
-        private final JSpinner slideTextBgTightSpinner;     // 0..100, padding around text (0=tight, 50=normal, 100=loose)
-        private final JSpinner slideTextBgRoundSpinner;     // 0..100, corner radius (0=square, 100=fully rounded)
-        private final JCheckBox slideTextBgGradientCheck;
+        // ===== BG style controls (toolbars 4b2 / 4b3 / 4b4) =====
+        // 4b2 — Fill core
+        private final JSpinner slideTextBgTightSpinner;     // 0..100, padding around text
+        private final JSpinner slideTextBgRoundSpinner;     // 0..100, corner radius
+        private final JComboBox<String> slideTextBgFillCombo;  // Solid / Linear / Radial / Conic / Stripes / Checker / Dots / Lines
         private final JButton slideTextBgColor2Btn;
         private Color slideTextBgColor2 = new Color(60, 60, 60);
-        private final JCheckBox slideTextBgGrainyCheck;
-        private final JSpinner slideTextBgGrainySpinner;    // 0..100, grain intensity
+        private final JSpinner slideTextBgFillAngleSpinner;
+        private final JSpinner slideTextBgFillSpacingSpinner;
+        // 4b3 — Shape & border
+        private final JComboBox<String> slideTextBgShapeCombo;
+        private final JToggleButton slideTextBgCornerTLBtn;
+        private final JToggleButton slideTextBgCornerTRBtn;
+        private final JToggleButton slideTextBgCornerBLBtn;
+        private final JToggleButton slideTextBgCornerBRBtn;
+        private final JComboBox<String> slideTextBgBorderCombo; // None / Solid / Double / Dashed
+        private final JSpinner slideTextBgBorderWidthSpinner;
+        private final JButton slideTextBgBorderColorBtn;
+        private Color slideTextBgBorderColor = Color.WHITE;
+        // 4b4 — Texture & effects
+        private final JComboBox<String> slideTextBgNoiseCombo;  // None / Grain / Paper / TV / Halftone
+        private final JSpinner slideTextBgNoiseSpinner;
+        private final JSpinner slideTextBgFrostedSpinner;       // 0=off, 1..30
+        private final JCheckBox slideTextBgShadowCheck;
+        private final JSpinner slideTextBgShadowDxSpinner;
+        private final JSpinner slideTextBgShadowDySpinner;
+        private final JSpinner slideTextBgShadowBlurSpinner;
+        private final JCheckBox slideTextBgInnerShadowCheck;
+        private final JSpinner slideTextBgInnerShadowSpinner;
+        private final JCheckBox slideTextBgGlowCheck;
+        private final JSpinner slideTextBgGlowSpinner;
+        private final JButton slideTextBgGlowColorBtn;
+        private Color slideTextBgGlowColor = new Color(255, 220, 120);
         private final JCheckBox slideTextJustifyCheck;
         private final JSpinner slideTextWidthSpinner;
         private final JSpinner slideTextShiftXSpinner;
@@ -13313,6 +13896,10 @@ public class GifSlideShowApp extends JFrame {
             toolbar4b.setBackground(new Color(50, 95, 60));
             JPanel toolbar4b2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
             toolbar4b2.setBackground(new Color(50, 95, 60));
+            JPanel toolbar4b3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
+            toolbar4b3.setBackground(new Color(50, 95, 60));
+            JPanel toolbar4b4 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
+            toolbar4b4.setBackground(new Color(50, 95, 60));
             JPanel toolbar4c = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
             toolbar4c.setBackground(new Color(50, 95, 60));
             JPanel toolbar4d = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
@@ -13629,7 +14216,16 @@ public class GifSlideShowApp extends JFrame {
             toolbar4b.add(styledLabel("Shift:"));
             toolbar4b.add(slideTextShiftXSpinner);
 
-            // ===== Toolbar 4b2: BG controls (opacity, color, tight, round, gradient, grainy) =====
+            // ===== Toolbar 4b2: BG Fill (opacity / color / padding / round / fill paint) =====
+            final Color bgRowFg = new Color(140, 210, 160);
+            final Color bgRowBg = new Color(50, 95, 60);
+            final java.util.function.BiFunction<String, Color, JLabel> mkLbl = (txt, fg) -> {
+                JLabel L = styledLabel(txt);
+                L.setFont(new Font("Segoe UI", Font.BOLD, 11));
+                L.setForeground(fg);
+                return L;
+            };
+
             slideTextBgTightSpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 5));
             slideTextBgTightSpinner.setPreferredSize(new Dimension(50, 24));
             slideTextBgTightSpinner.setToolTipText("BG padding around text (0=very tight, 50=normal, 100=loose)");
@@ -13640,22 +14236,23 @@ public class GifSlideShowApp extends JFrame {
             slideTextBgRoundSpinner.setToolTipText("BG corner radius (0=square, 100=fully rounded)");
             slideTextBgRoundSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
-            slideTextBgGradientCheck = new JCheckBox("Gradient", false);
-            slideTextBgGradientCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            slideTextBgGradientCheck.setForeground(Color.LIGHT_GRAY);
-            slideTextBgGradientCheck.setBackground(new Color(50, 95, 60));
-            slideTextBgGradientCheck.setFocusPainted(false);
-            slideTextBgGradientCheck.setToolTipText("BG fades from BG Color (top) to 2nd color (bottom)");
-            slideTextBgGradientCheck.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+            slideTextBgFillCombo = new JComboBox<>(new String[] {
+                    "Solid", "Linear", "Radial", "Conic", "Stripes", "Checker", "Dots", "Lines"
+            });
+            slideTextBgFillCombo.setPreferredSize(new Dimension(85, 24));
+            slideTextBgFillCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextBgFillCombo.setToolTipText(
+                    "Fill style — Solid; Linear/Radial/Conic gradients between BG and 2nd color; Stripes/Checker/Dots/Lines patterns");
+            slideTextBgFillCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
             slideTextBgColor2Btn = new JButton("■");
             slideTextBgColor2Btn.setForeground(slideTextBgColor2);
             slideTextBgColor2Btn.setFont(new Font("Segoe UI", Font.PLAIN, 18));
             slideTextBgColor2Btn.setPreferredSize(new Dimension(36, 24));
             slideTextBgColor2Btn.setFocusPainted(false);
-            slideTextBgColor2Btn.setToolTipText("Gradient 2nd color");
+            slideTextBgColor2Btn.setToolTipText("Fill 2nd color (gradients / patterns)");
             slideTextBgColor2Btn.addActionListener(e -> {
-                Color c = JColorChooser.showDialog(panel, "BG Gradient 2nd Color", slideTextBgColor2);
+                Color c = JColorChooser.showDialog(panel, "BG Fill 2nd Color", slideTextBgColor2);
                 if (c != null) {
                     slideTextBgColor2 = c;
                     slideTextBgColor2Btn.setForeground(c);
@@ -13663,44 +14260,195 @@ public class GifSlideShowApp extends JFrame {
                 }
             });
 
-            slideTextBgGrainyCheck = new JCheckBox("Grainy", false);
-            slideTextBgGrainyCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            slideTextBgGrainyCheck.setForeground(Color.LIGHT_GRAY);
-            slideTextBgGrainyCheck.setBackground(new Color(50, 95, 60));
-            slideTextBgGrainyCheck.setFocusPainted(false);
-            slideTextBgGrainyCheck.setToolTipText("Add film-grain noise overlay to the BG");
-            slideTextBgGrainyCheck.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+            slideTextBgFillAngleSpinner = new JSpinner(new SpinnerNumberModel(90, 0, 360, 15));
+            slideTextBgFillAngleSpinner.setPreferredSize(new Dimension(55, 24));
+            slideTextBgFillAngleSpinner.setToolTipText("Gradient angle (deg) — 0=L→R, 90=T→B, 45=diagonal. Also rotates Stripes/Lines.");
+            slideTextBgFillAngleSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
-            slideTextBgGrainySpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 5));
-            slideTextBgGrainySpinner.setPreferredSize(new Dimension(50, 24));
-            slideTextBgGrainySpinner.setToolTipText("Grain intensity (0=none, 100=heavy)");
-            slideTextBgGrainySpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+            slideTextBgFillSpacingSpinner = new JSpinner(new SpinnerNumberModel(12, 2, 80, 1));
+            slideTextBgFillSpacingSpinner.setPreferredSize(new Dimension(50, 24));
+            slideTextBgFillSpacingSpinner.setToolTipText("Pattern spacing in px (Stripes/Checker/Dots/Lines)");
+            slideTextBgFillSpacingSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
-            JLabel tc4b2BgLbl = styledLabel("      ▨ BG%:");
-            tc4b2BgLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            tc4b2BgLbl.setForeground(new Color(140, 210, 160));
-            JLabel tc4b2TightLbl = styledLabel("Tight:");
-            tc4b2TightLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            tc4b2TightLbl.setForeground(new Color(140, 210, 160));
-            JLabel tc4b2RoundLbl = styledLabel("Round:");
-            tc4b2RoundLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            tc4b2RoundLbl.setForeground(new Color(140, 210, 160));
-            JLabel tc4b2GrainLbl = styledLabel("Int:");
-            tc4b2GrainLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            tc4b2GrainLbl.setForeground(new Color(140, 210, 160));
-
-            toolbar4b2.add(tc4b2BgLbl);
+            toolbar4b2.add(mkLbl.apply("      ▨ BG%:", bgRowFg));
             toolbar4b2.add(slideTextBgSpinner);
             toolbar4b2.add(slideTextBgColorBtn);
-            toolbar4b2.add(tc4b2TightLbl);
+            toolbar4b2.add(mkLbl.apply("Tight:", bgRowFg));
             toolbar4b2.add(slideTextBgTightSpinner);
-            toolbar4b2.add(tc4b2RoundLbl);
+            toolbar4b2.add(mkLbl.apply("Round:", bgRowFg));
             toolbar4b2.add(slideTextBgRoundSpinner);
-            toolbar4b2.add(slideTextBgGradientCheck);
+            toolbar4b2.add(mkLbl.apply("Fill:", bgRowFg));
+            toolbar4b2.add(slideTextBgFillCombo);
             toolbar4b2.add(slideTextBgColor2Btn);
-            toolbar4b2.add(slideTextBgGrainyCheck);
-            toolbar4b2.add(tc4b2GrainLbl);
-            toolbar4b2.add(slideTextBgGrainySpinner);
+            toolbar4b2.add(mkLbl.apply("Angle:", bgRowFg));
+            toolbar4b2.add(slideTextBgFillAngleSpinner);
+            toolbar4b2.add(mkLbl.apply("Gap:", bgRowFg));
+            toolbar4b2.add(slideTextBgFillSpacingSpinner);
+
+            // ===== Toolbar 4b3: Shape & Border =====
+            slideTextBgShapeCombo = new JComboBox<>(new String[] {
+                    "Rounded", "Pill", "Bubble", "Tag", "Sticker", "Hexagon", "Parallelogram"
+            });
+            slideTextBgShapeCombo.setPreferredSize(new Dimension(110, 24));
+            slideTextBgShapeCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextBgShapeCombo.setToolTipText(
+                    "BG shape — Rounded (use Round/corners), Pill, Speech Bubble (with tail), Tag (notched), Sticker (white outline + tilt), Hexagon, Parallelogram");
+            slideTextBgShapeCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            java.awt.event.ActionListener cornerListener = e -> { if (!isLoadingSlideText) onFormatChanged(); };
+            java.util.function.Function<String, JToggleButton> mkCorner = label -> {
+                JToggleButton b = new JToggleButton(label, true);
+                b.setFont(new Font("Segoe UI", Font.BOLD, 10));
+                b.setPreferredSize(new Dimension(34, 24));
+                b.setFocusPainted(false);
+                b.setMargin(new Insets(0, 0, 0, 0));
+                b.setToolTipText("Round the " + label + " corner (toggle off for a square corner)");
+                b.addActionListener(cornerListener);
+                return b;
+            };
+            slideTextBgCornerTLBtn = mkCorner.apply("TL");
+            slideTextBgCornerTRBtn = mkCorner.apply("TR");
+            slideTextBgCornerBLBtn = mkCorner.apply("BL");
+            slideTextBgCornerBRBtn = mkCorner.apply("BR");
+
+            slideTextBgBorderCombo = new JComboBox<>(new String[] { "None", "Solid", "Double", "Dashed" });
+            slideTextBgBorderCombo.setPreferredSize(new Dimension(80, 24));
+            slideTextBgBorderCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextBgBorderCombo.setToolTipText("Border style around the BG shape");
+            slideTextBgBorderCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextBgBorderWidthSpinner = new JSpinner(new SpinnerNumberModel(2, 1, 30, 1));
+            slideTextBgBorderWidthSpinner.setPreferredSize(new Dimension(50, 24));
+            slideTextBgBorderWidthSpinner.setToolTipText("Border thickness in px");
+            slideTextBgBorderWidthSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextBgBorderColorBtn = new JButton("■");
+            slideTextBgBorderColorBtn.setForeground(slideTextBgBorderColor);
+            slideTextBgBorderColorBtn.setFont(new Font("Segoe UI", Font.PLAIN, 18));
+            slideTextBgBorderColorBtn.setPreferredSize(new Dimension(36, 24));
+            slideTextBgBorderColorBtn.setFocusPainted(false);
+            slideTextBgBorderColorBtn.setToolTipText("Border color");
+            slideTextBgBorderColorBtn.addActionListener(e -> {
+                Color c = JColorChooser.showDialog(panel, "Border Color", slideTextBgBorderColor);
+                if (c != null) {
+                    slideTextBgBorderColor = c;
+                    slideTextBgBorderColorBtn.setForeground(c);
+                    onFormatChanged();
+                }
+            });
+
+            toolbar4b3.add(mkLbl.apply("      ⬢ Shape:", bgRowFg));
+            toolbar4b3.add(slideTextBgShapeCombo);
+            toolbar4b3.add(mkLbl.apply("Corners:", bgRowFg));
+            toolbar4b3.add(slideTextBgCornerTLBtn);
+            toolbar4b3.add(slideTextBgCornerTRBtn);
+            toolbar4b3.add(slideTextBgCornerBLBtn);
+            toolbar4b3.add(slideTextBgCornerBRBtn);
+            toolbar4b3.add(mkLbl.apply("Border:", bgRowFg));
+            toolbar4b3.add(slideTextBgBorderCombo);
+            toolbar4b3.add(mkLbl.apply("W:", bgRowFg));
+            toolbar4b3.add(slideTextBgBorderWidthSpinner);
+            toolbar4b3.add(slideTextBgBorderColorBtn);
+
+            // ===== Toolbar 4b4: Texture & Effects =====
+            slideTextBgNoiseCombo = new JComboBox<>(new String[] { "None", "Grain", "Paper", "TV", "Halftone" });
+            slideTextBgNoiseCombo.setPreferredSize(new Dimension(85, 24));
+            slideTextBgNoiseCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextBgNoiseCombo.setToolTipText("Texture overlay — Grain (film), Paper (fibers), TV (scanlines+static), Halftone (dot pattern)");
+            slideTextBgNoiseCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextBgNoiseSpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 5));
+            slideTextBgNoiseSpinner.setPreferredSize(new Dimension(50, 24));
+            slideTextBgNoiseSpinner.setToolTipText("Texture intensity (0=none, 100=heavy)");
+            slideTextBgNoiseSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextBgFrostedSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 30, 1));
+            slideTextBgFrostedSpinner.setPreferredSize(new Dimension(50, 24));
+            slideTextBgFrostedSpinner.setToolTipText("Frosted-glass sheen (0=off, 30=heavy) — looks great over photos");
+            slideTextBgFrostedSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextBgShadowCheck = new JCheckBox("Shadow", false);
+            slideTextBgShadowCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextBgShadowCheck.setForeground(Color.LIGHT_GRAY);
+            slideTextBgShadowCheck.setBackground(bgRowBg);
+            slideTextBgShadowCheck.setFocusPainted(false);
+            slideTextBgShadowCheck.setToolTipText("Drop shadow under the BG (lifts it off the slide)");
+            slideTextBgShadowCheck.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextBgShadowDxSpinner = new JSpinner(new SpinnerNumberModel(4, -40, 40, 1));
+            slideTextBgShadowDxSpinner.setPreferredSize(new Dimension(48, 24));
+            slideTextBgShadowDxSpinner.setToolTipText("Shadow X offset (px)");
+            slideTextBgShadowDxSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextBgShadowDySpinner = new JSpinner(new SpinnerNumberModel(4, -40, 40, 1));
+            slideTextBgShadowDySpinner.setPreferredSize(new Dimension(48, 24));
+            slideTextBgShadowDySpinner.setToolTipText("Shadow Y offset (px)");
+            slideTextBgShadowDySpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextBgShadowBlurSpinner = new JSpinner(new SpinnerNumberModel(8, 0, 60, 1));
+            slideTextBgShadowBlurSpinner.setPreferredSize(new Dimension(48, 24));
+            slideTextBgShadowBlurSpinner.setToolTipText("Shadow blur radius (px)");
+            slideTextBgShadowBlurSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextBgInnerShadowCheck = new JCheckBox("Inner", false);
+            slideTextBgInnerShadowCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextBgInnerShadowCheck.setForeground(Color.LIGHT_GRAY);
+            slideTextBgInnerShadowCheck.setBackground(bgRowBg);
+            slideTextBgInnerShadowCheck.setFocusPainted(false);
+            slideTextBgInnerShadowCheck.setToolTipText("Inner shadow / inset glow (BG looks pressed-in)");
+            slideTextBgInnerShadowCheck.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextBgInnerShadowSpinner = new JSpinner(new SpinnerNumberModel(6, 1, 40, 1));
+            slideTextBgInnerShadowSpinner.setPreferredSize(new Dimension(48, 24));
+            slideTextBgInnerShadowSpinner.setToolTipText("Inner shadow size (px)");
+            slideTextBgInnerShadowSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextBgGlowCheck = new JCheckBox("Glow", false);
+            slideTextBgGlowCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextBgGlowCheck.setForeground(Color.LIGHT_GRAY);
+            slideTextBgGlowCheck.setBackground(bgRowBg);
+            slideTextBgGlowCheck.setFocusPainted(false);
+            slideTextBgGlowCheck.setToolTipText("Outer glow — soft halo behind the BG");
+            slideTextBgGlowCheck.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextBgGlowSpinner = new JSpinner(new SpinnerNumberModel(8, 1, 60, 1));
+            slideTextBgGlowSpinner.setPreferredSize(new Dimension(48, 24));
+            slideTextBgGlowSpinner.setToolTipText("Outer glow radius (px)");
+            slideTextBgGlowSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextBgGlowColorBtn = new JButton("■");
+            slideTextBgGlowColorBtn.setForeground(slideTextBgGlowColor);
+            slideTextBgGlowColorBtn.setFont(new Font("Segoe UI", Font.PLAIN, 18));
+            slideTextBgGlowColorBtn.setPreferredSize(new Dimension(36, 24));
+            slideTextBgGlowColorBtn.setFocusPainted(false);
+            slideTextBgGlowColorBtn.setToolTipText("Outer glow color");
+            slideTextBgGlowColorBtn.addActionListener(e -> {
+                Color c = JColorChooser.showDialog(panel, "Outer Glow Color", slideTextBgGlowColor);
+                if (c != null) {
+                    slideTextBgGlowColor = c;
+                    slideTextBgGlowColorBtn.setForeground(c);
+                    onFormatChanged();
+                }
+            });
+
+            toolbar4b4.add(mkLbl.apply("      ✨ Noise:", bgRowFg));
+            toolbar4b4.add(slideTextBgNoiseCombo);
+            toolbar4b4.add(mkLbl.apply("Int:", bgRowFg));
+            toolbar4b4.add(slideTextBgNoiseSpinner);
+            toolbar4b4.add(mkLbl.apply("Frost:", bgRowFg));
+            toolbar4b4.add(slideTextBgFrostedSpinner);
+            toolbar4b4.add(slideTextBgShadowCheck);
+            toolbar4b4.add(mkLbl.apply("dx:", bgRowFg));
+            toolbar4b4.add(slideTextBgShadowDxSpinner);
+            toolbar4b4.add(mkLbl.apply("dy:", bgRowFg));
+            toolbar4b4.add(slideTextBgShadowDySpinner);
+            toolbar4b4.add(mkLbl.apply("blur:", bgRowFg));
+            toolbar4b4.add(slideTextBgShadowBlurSpinner);
+            toolbar4b4.add(slideTextBgInnerShadowCheck);
+            toolbar4b4.add(slideTextBgInnerShadowSpinner);
+            toolbar4b4.add(slideTextBgGlowCheck);
+            toolbar4b4.add(slideTextBgGlowSpinner);
+            toolbar4b4.add(slideTextBgGlowColorBtn);
 
             slideTextAlignCombo = new JComboBox<>(new String[]{"Center", "Left", "Right"});
             slideTextAlignCombo.setPreferredSize(new Dimension(75, 24));
@@ -15492,6 +16240,8 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(toolbar4a);
             toolbarsPanel.add(toolbar4b);
             toolbarsPanel.add(toolbar4b2);
+            toolbarsPanel.add(toolbar4b3);
+            toolbarsPanel.add(toolbar4b4);
             toolbarsPanel.add(toolbar4c);
             toolbarsPanel.add(toolbar4c2);
             toolbarsPanel.add(toolbar4f);
@@ -15600,10 +16350,30 @@ public class GifSlideShowApp extends JFrame {
                     (int) slideTextOpacitySpinner.getValue());
             newItem.bgPaddingPct = (int) slideTextBgTightSpinner.getValue();
             newItem.bgRoundPct = (int) slideTextBgRoundSpinner.getValue();
-            newItem.bgGradient = slideTextBgGradientCheck.isSelected();
             newItem.bgColor2 = slideTextBgColor2;
-            newItem.bgGrainy = slideTextBgGrainyCheck.isSelected();
-            newItem.bgGrainyIntensity = (int) slideTextBgGrainySpinner.getValue();
+            newItem.bgFillKind = (String) slideTextBgFillCombo.getSelectedItem();
+            newItem.bgFillAngle = (int) slideTextBgFillAngleSpinner.getValue();
+            newItem.bgFillSpacing = (int) slideTextBgFillSpacingSpinner.getValue();
+            newItem.bgNoiseKind = (String) slideTextBgNoiseCombo.getSelectedItem();
+            newItem.bgNoiseIntensity = (int) slideTextBgNoiseSpinner.getValue();
+            newItem.bgFrostedBlur = (int) slideTextBgFrostedSpinner.getValue();
+            newItem.bgShape = (String) slideTextBgShapeCombo.getSelectedItem();
+            newItem.bgCornerTL = slideTextBgCornerTLBtn.isSelected();
+            newItem.bgCornerTR = slideTextBgCornerTRBtn.isSelected();
+            newItem.bgCornerBL = slideTextBgCornerBLBtn.isSelected();
+            newItem.bgCornerBR = slideTextBgCornerBRBtn.isSelected();
+            newItem.bgBorderStyle = (String) slideTextBgBorderCombo.getSelectedItem();
+            newItem.bgBorderWidth = (int) slideTextBgBorderWidthSpinner.getValue();
+            newItem.bgBorderColor = slideTextBgBorderColor;
+            newItem.bgShadow = slideTextBgShadowCheck.isSelected();
+            newItem.bgShadowDx = (int) slideTextBgShadowDxSpinner.getValue();
+            newItem.bgShadowDy = (int) slideTextBgShadowDySpinner.getValue();
+            newItem.bgShadowBlur = (int) slideTextBgShadowBlurSpinner.getValue();
+            newItem.bgInnerShadow = slideTextBgInnerShadowCheck.isSelected();
+            newItem.bgInnerShadowSize = (int) slideTextBgInnerShadowSpinner.getValue();
+            newItem.bgOuterGlow = slideTextBgGlowCheck.isSelected();
+            newItem.bgOuterGlowSize = (int) slideTextBgGlowSpinner.getValue();
+            newItem.bgOuterGlowColor = slideTextBgGlowColor;
             slideTextItems.set(currentSlideTextIndex, newItem);
         }
 
@@ -15627,11 +16397,33 @@ public class GifSlideShowApp extends JFrame {
                 slideTextBgColorBtn.setForeground(item.bgColor);
                 slideTextBgTightSpinner.setValue(item.bgPaddingPct);
                 slideTextBgRoundSpinner.setValue(item.bgRoundPct);
-                slideTextBgGradientCheck.setSelected(item.bgGradient);
                 slideTextBgColor2 = item.bgColor2 != null ? item.bgColor2 : new Color(60, 60, 60);
                 slideTextBgColor2Btn.setForeground(slideTextBgColor2);
-                slideTextBgGrainyCheck.setSelected(item.bgGrainy);
-                slideTextBgGrainySpinner.setValue(item.bgGrainyIntensity);
+                slideTextBgFillCombo.setSelectedItem(item.bgFillKind != null ? item.bgFillKind : "Solid");
+                slideTextBgFillAngleSpinner.setValue(item.bgFillAngle);
+                slideTextBgFillSpacingSpinner.setValue(item.bgFillSpacing);
+                slideTextBgNoiseCombo.setSelectedItem(item.bgNoiseKind != null ? item.bgNoiseKind : "None");
+                slideTextBgNoiseSpinner.setValue(item.bgNoiseIntensity);
+                slideTextBgFrostedSpinner.setValue(item.bgFrostedBlur);
+                slideTextBgShapeCombo.setSelectedItem(item.bgShape != null ? item.bgShape : "Rounded");
+                slideTextBgCornerTLBtn.setSelected(item.bgCornerTL);
+                slideTextBgCornerTRBtn.setSelected(item.bgCornerTR);
+                slideTextBgCornerBLBtn.setSelected(item.bgCornerBL);
+                slideTextBgCornerBRBtn.setSelected(item.bgCornerBR);
+                slideTextBgBorderCombo.setSelectedItem(item.bgBorderStyle != null ? item.bgBorderStyle : "None");
+                slideTextBgBorderWidthSpinner.setValue(item.bgBorderWidth);
+                slideTextBgBorderColor = item.bgBorderColor != null ? item.bgBorderColor : Color.WHITE;
+                slideTextBgBorderColorBtn.setForeground(slideTextBgBorderColor);
+                slideTextBgShadowCheck.setSelected(item.bgShadow);
+                slideTextBgShadowDxSpinner.setValue(item.bgShadowDx);
+                slideTextBgShadowDySpinner.setValue(item.bgShadowDy);
+                slideTextBgShadowBlurSpinner.setValue(item.bgShadowBlur);
+                slideTextBgInnerShadowCheck.setSelected(item.bgInnerShadow);
+                slideTextBgInnerShadowSpinner.setValue(item.bgInnerShadowSize);
+                slideTextBgGlowCheck.setSelected(item.bgOuterGlow);
+                slideTextBgGlowSpinner.setValue(item.bgOuterGlowSize);
+                slideTextBgGlowColor = item.bgOuterGlowColor != null ? item.bgOuterGlowColor : new Color(255, 220, 120);
+                slideTextBgGlowColorBtn.setForeground(slideTextBgGlowColor);
                 slideTextJustifyCheck.setSelected(item.justify);
                 slideTextWidthSpinner.setValue(item.widthPct);
                 slideTextShiftXSpinner.setValue(item.shiftX);
@@ -15722,12 +16514,7 @@ public class GifSlideShowApp extends JFrame {
                         bText, iText, cText, fmt.colorTextColor, existing.xLeftAligned, fmt.odometer, fmt.odometerSpeed, fmt.odometerRoll, fmt.odometerLand,
                         fmt.animEnabled, fmt.animPath, fmt.animDurationMs, fmt.animStartMs, fmt.animEasing,
                         fmt.tiltDegrees, fmt.letterSpacing, fmt.lineSpacing, fmt.opacity);
-                applied.bgPaddingPct = fmt.bgPaddingPct;
-                applied.bgRoundPct = fmt.bgRoundPct;
-                applied.bgGradient = fmt.bgGradient;
-                applied.bgColor2 = fmt.bgColor2;
-                applied.bgGrainy = fmt.bgGrainy;
-                applied.bgGrainyIntensity = fmt.bgGrainyIntensity;
+                SlideTextData.copyBgStyle(fmt, applied);
                 slideTextItems.set(i, applied);
             }
             // For extra items beyond what the source has, apply formatting
@@ -15753,12 +16540,7 @@ public class GifSlideShowApp extends JFrame {
                             bText, iText, cText, lastFmt.colorTextColor, existing.xLeftAligned, false, 50, 3, "Sequential",
                             lastFmt.animEnabled, lastFmt.animPath, lastFmt.animDurationMs, lastFmt.animStartMs, lastFmt.animEasing,
                             lastFmt.tiltDegrees, lastFmt.letterSpacing, lastFmt.lineSpacing, lastFmt.opacity);
-                    applied.bgPaddingPct = lastFmt.bgPaddingPct;
-                    applied.bgRoundPct = lastFmt.bgRoundPct;
-                    applied.bgGradient = lastFmt.bgGradient;
-                    applied.bgColor2 = lastFmt.bgColor2;
-                    applied.bgGrainy = lastFmt.bgGrainy;
-                    applied.bgGrainyIntensity = lastFmt.bgGrainyIntensity;
+                    SlideTextData.copyBgStyle(lastFmt, applied);
                     slideTextItems.set(i, applied);
                 }
             }
