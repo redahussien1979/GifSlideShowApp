@@ -328,6 +328,12 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(p + "y", String.valueOf(t.y));
             props.setProperty(p + "bgOpacity", String.valueOf(t.bgOpacity));
             props.setProperty(p + "bgColor", colorToHex(t.bgColor));
+            props.setProperty(p + "bgPaddingPct", String.valueOf(t.bgPaddingPct));
+            props.setProperty(p + "bgRoundPct", String.valueOf(t.bgRoundPct));
+            props.setProperty(p + "bgGradient", String.valueOf(t.bgGradient));
+            props.setProperty(p + "bgColor2", colorToHex(t.bgColor2 != null ? t.bgColor2 : new Color(60, 60, 60)));
+            props.setProperty(p + "bgGrainy", String.valueOf(t.bgGrainy));
+            props.setProperty(p + "bgGrainyIntensity", String.valueOf(t.bgGrainyIntensity));
             props.setProperty(p + "justify", String.valueOf(t.justify));
             props.setProperty(p + "widthPct", String.valueOf(t.widthPct));
             props.setProperty(p + "shiftX", String.valueOf(t.shiftX));
@@ -536,7 +542,7 @@ public class GifSlideShowApp extends JFrame {
         List<SlideTextData> slideTextFormats = new ArrayList<>();
         for (int i = 0; i < slideTextCount; i++) {
             String p = "slideText." + i + ".";
-            slideTextFormats.add(new SlideTextData(
+            SlideTextData loaded = new SlideTextData(
                     Boolean.parseBoolean(props.getProperty(p + "show", "false")),
                     "",  // text content not saved in presets
                     props.getProperty(p + "fontName", loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI"),
@@ -573,7 +579,14 @@ public class GifSlideShowApp extends JFrame {
                     Integer.parseInt(props.getProperty(p + "letterSpacing", "0")),
                     Integer.parseInt(props.getProperty(p + "lineSpacing", "0")),
                     Integer.parseInt(props.getProperty(p + "opacity", "100"))
-            ));
+            );
+            loaded.bgPaddingPct = Integer.parseInt(props.getProperty(p + "bgPaddingPct", "50"));
+            loaded.bgRoundPct = Integer.parseInt(props.getProperty(p + "bgRoundPct", "10"));
+            loaded.bgGradient = Boolean.parseBoolean(props.getProperty(p + "bgGradient", "false"));
+            loaded.bgColor2 = hexToColor(props.getProperty(p + "bgColor2", "#3C3C3C"));
+            loaded.bgGrainy = Boolean.parseBoolean(props.getProperty(p + "bgGrainy", "false"));
+            loaded.bgGrainyIntensity = Integer.parseInt(props.getProperty(p + "bgGrainyIntensity", "50"));
+            slideTextFormats.add(loaded);
         }
 
         // Per-text audio highlight settings (parallel to slideTextFormats).
@@ -3480,8 +3493,11 @@ public class GifSlideShowApp extends JFrame {
                     }
                 }
 
-                int stPadX = (int) (6 * stScaleFactor);
-                int stPadY = (int) (4 * stScaleFactor);
+                // BG padding scales with bgPaddingPct: 50=baseline (6px,4px),
+                // 0=very tight (~1px,1px), 100=loose (~16px,12px).
+                double stBgPadScale = Math.max(0.05, st.bgPaddingPct / 50.0);
+                int stPadX = (int) Math.max(1, 6 * stScaleFactor * stBgPadScale);
+                int stPadY = (int) Math.max(1, 4 * stScaleFactor * stBgPadScale);
 
                 int bgX = stCenterX - stMaxLineWidth / 2 - stPadX;
                 int bgY = stCenterY - totalTextHeight / 2 - stPadY;
@@ -3563,9 +3579,42 @@ public class GifSlideShowApp extends JFrame {
                     Color bgc = st.bgColor != null ? st.bgColor : Color.BLACK;
                     Graphics2D g2st = (Graphics2D) g.create();
                     g2st.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    g2st.setColor(new Color(bgc.getRed(), bgc.getGreen(), bgc.getBlue(), alpha));
-                    int arc = (int) (10 * stScaleFactor);
-                    g2st.fillRoundRect(bgX, bgY, bgW, bgH, arc, arc);
+                    // Corner radius scales with bgRoundPct: 0=square, 100=fully rounded
+                    // (arc capped at min(bgW,bgH) so a pill shape collapses cleanly).
+                    int maxArc = Math.max(0, Math.min(bgW, bgH));
+                    int arc = (int) Math.round(maxArc * (st.bgRoundPct / 100.0));
+                    java.awt.Shape bgShape = new java.awt.geom.RoundRectangle2D.Float(
+                            bgX, bgY, bgW, bgH, arc, arc);
+                    if (st.bgGradient && st.bgColor2 != null) {
+                        Color c1 = new Color(bgc.getRed(), bgc.getGreen(), bgc.getBlue(), alpha);
+                        Color c2 = new Color(st.bgColor2.getRed(), st.bgColor2.getGreen(),
+                                st.bgColor2.getBlue(), alpha);
+                        g2st.setPaint(new java.awt.GradientPaint(bgX, bgY, c1, bgX, bgY + bgH, c2));
+                    } else {
+                        g2st.setColor(new Color(bgc.getRed(), bgc.getGreen(), bgc.getBlue(), alpha));
+                    }
+                    g2st.fill(bgShape);
+                    if (st.bgGrainy && st.bgGrainyIntensity > 0) {
+                        java.awt.Shape oldClip = g2st.getClip();
+                        g2st.setClip(bgShape);
+                        // Deterministic per-text grain so static previews look identical
+                        // across redraws. Seed mixes geometry so different texts get
+                        // different grain patterns without animating each frame.
+                        java.util.Random rnd = new java.util.Random(
+                                ((long) bgX << 16) ^ ((long) bgY) ^ ((long) bgW << 8) ^ bgH);
+                        int grainAlphaMax = Math.min(255, (int) Math.round(st.bgGrainyIntensity * 2.0));
+                        // ~0.6 dots per pixel keeps grain dense but not overwhelming.
+                        int dotCount = (int) Math.max(0, bgW * bgH * 0.6);
+                        for (int gi = 0; gi < dotCount; gi++) {
+                            int gx = bgX + rnd.nextInt(Math.max(1, bgW));
+                            int gy = bgY + rnd.nextInt(Math.max(1, bgH));
+                            int gv = rnd.nextInt(256);
+                            int ga = rnd.nextInt(grainAlphaMax + 1);
+                            g2st.setColor(new Color(gv, gv, gv, ga));
+                            g2st.fillRect(gx, gy, 1, 1);
+                        }
+                        g2st.setClip(oldClip);
+                    }
                     g2st.dispose();
                 }
 
@@ -11393,6 +11442,14 @@ public class GifSlideShowApp extends JFrame {
                 hl.karaokeWordIndex = karaokeIdx;
                 if (karaokeStyle != null && !karaokeStyle.isEmpty()) hl.karaokeStyle = karaokeStyle;
                 if (karaokeColor != null) hl.karaokeColor = karaokeColor;
+                // Carry through the toolbar 4b2 BG style so the HL/effects render
+                // pass draws the same backdrop as the saved item.
+                hl.bgPaddingPct = st.bgPaddingPct;
+                hl.bgRoundPct = st.bgRoundPct;
+                hl.bgGradient = st.bgGradient;
+                hl.bgColor2 = st.bgColor2;
+                hl.bgGrainy = st.bgGrainy;
+                hl.bgGrainyIntensity = st.bgGrainyIntensity;
                 hl.quizHidden = st.quizHidden;
                 // Carry the quiz reveal-anim over from the source so the anim
                 // still plays when the hidden text is ALSO the audio-active row.
@@ -11820,6 +11877,17 @@ public class GifSlideShowApp extends JFrame {
         // Color used by the karaoke post-pass (border / fill / recolor / glow).
         // Independent of the audio-HL color so users can mix the two.
         Color karaokeColor = new Color(255, 220, 0, 220);
+
+        // ===== BG style (toolbar 4b2) =====
+        // Defaults are mutable (not final) so they can persist via SlideTextData without
+        // touching the long chain of overloaded constructors. Tight=50 reproduces the
+        // pre-feature padding (6px,4px). Round=10 reproduces the pre-feature arc.
+        int bgPaddingPct = 50;       // 0..100 (0=very tight, 50=normal, 100=very loose)
+        int bgRoundPct = 10;         // 0..100 (0=square corners, 100=fully rounded)
+        boolean bgGradient = false;
+        Color bgColor2 = new Color(60, 60, 60);
+        boolean bgGrainy = false;
+        int bgGrainyIntensity = 50;  // 0..100
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
                       int fontStyle, Color color, int x, int y, int bgOpacity,
@@ -12679,6 +12747,14 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner slideTextXSpinner;
         private final JSpinner slideTextYSpinner;
         private final JSpinner slideTextBgSpinner;
+        // ===== BG style controls (toolbar 4b2) =====
+        private final JSpinner slideTextBgTightSpinner;     // 0..100, padding around text (0=tight, 50=normal, 100=loose)
+        private final JSpinner slideTextBgRoundSpinner;     // 0..100, corner radius (0=square, 100=fully rounded)
+        private final JCheckBox slideTextBgGradientCheck;
+        private final JButton slideTextBgColor2Btn;
+        private Color slideTextBgColor2 = new Color(60, 60, 60);
+        private final JCheckBox slideTextBgGrainyCheck;
+        private final JSpinner slideTextBgGrainySpinner;    // 0..100, grain intensity
         private final JCheckBox slideTextJustifyCheck;
         private final JSpinner slideTextWidthSpinner;
         private final JSpinner slideTextShiftXSpinner;
@@ -13235,6 +13311,8 @@ public class GifSlideShowApp extends JFrame {
             toolbar4a.setBackground(new Color(50, 95, 60));
             JPanel toolbar4b = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
             toolbar4b.setBackground(new Color(50, 95, 60));
+            JPanel toolbar4b2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
+            toolbar4b2.setBackground(new Color(50, 95, 60));
             JPanel toolbar4c = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
             toolbar4c.setBackground(new Color(50, 95, 60));
             JPanel toolbar4d = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
@@ -13545,14 +13623,84 @@ public class GifSlideShowApp extends JFrame {
             toolbar4b.add(slideTextXSpinner);
             toolbar4b.add(styledLabel("Y%:"));
             toolbar4b.add(slideTextYSpinner);
-            toolbar4b.add(styledLabel("BG%:"));
-            toolbar4b.add(slideTextBgSpinner);
-            toolbar4b.add(slideTextBgColorBtn);
             toolbar4b.add(slideTextJustifyCheck);
             toolbar4b.add(styledLabel("W%:"));
             toolbar4b.add(slideTextWidthSpinner);
             toolbar4b.add(styledLabel("Shift:"));
             toolbar4b.add(slideTextShiftXSpinner);
+
+            // ===== Toolbar 4b2: BG controls (opacity, color, tight, round, gradient, grainy) =====
+            slideTextBgTightSpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 5));
+            slideTextBgTightSpinner.setPreferredSize(new Dimension(50, 24));
+            slideTextBgTightSpinner.setToolTipText("BG padding around text (0=very tight, 50=normal, 100=loose)");
+            slideTextBgTightSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextBgRoundSpinner = new JSpinner(new SpinnerNumberModel(10, 0, 100, 5));
+            slideTextBgRoundSpinner.setPreferredSize(new Dimension(50, 24));
+            slideTextBgRoundSpinner.setToolTipText("BG corner radius (0=square, 100=fully rounded)");
+            slideTextBgRoundSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextBgGradientCheck = new JCheckBox("Gradient", false);
+            slideTextBgGradientCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextBgGradientCheck.setForeground(Color.LIGHT_GRAY);
+            slideTextBgGradientCheck.setBackground(new Color(50, 95, 60));
+            slideTextBgGradientCheck.setFocusPainted(false);
+            slideTextBgGradientCheck.setToolTipText("BG fades from BG Color (top) to 2nd color (bottom)");
+            slideTextBgGradientCheck.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextBgColor2Btn = new JButton("■");
+            slideTextBgColor2Btn.setForeground(slideTextBgColor2);
+            slideTextBgColor2Btn.setFont(new Font("Segoe UI", Font.PLAIN, 18));
+            slideTextBgColor2Btn.setPreferredSize(new Dimension(36, 24));
+            slideTextBgColor2Btn.setFocusPainted(false);
+            slideTextBgColor2Btn.setToolTipText("Gradient 2nd color");
+            slideTextBgColor2Btn.addActionListener(e -> {
+                Color c = JColorChooser.showDialog(panel, "BG Gradient 2nd Color", slideTextBgColor2);
+                if (c != null) {
+                    slideTextBgColor2 = c;
+                    slideTextBgColor2Btn.setForeground(c);
+                    onFormatChanged();
+                }
+            });
+
+            slideTextBgGrainyCheck = new JCheckBox("Grainy", false);
+            slideTextBgGrainyCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextBgGrainyCheck.setForeground(Color.LIGHT_GRAY);
+            slideTextBgGrainyCheck.setBackground(new Color(50, 95, 60));
+            slideTextBgGrainyCheck.setFocusPainted(false);
+            slideTextBgGrainyCheck.setToolTipText("Add film-grain noise overlay to the BG");
+            slideTextBgGrainyCheck.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextBgGrainySpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 5));
+            slideTextBgGrainySpinner.setPreferredSize(new Dimension(50, 24));
+            slideTextBgGrainySpinner.setToolTipText("Grain intensity (0=none, 100=heavy)");
+            slideTextBgGrainySpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            JLabel tc4b2BgLbl = styledLabel("      ▨ BG%:");
+            tc4b2BgLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4b2BgLbl.setForeground(new Color(140, 210, 160));
+            JLabel tc4b2TightLbl = styledLabel("Tight:");
+            tc4b2TightLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4b2TightLbl.setForeground(new Color(140, 210, 160));
+            JLabel tc4b2RoundLbl = styledLabel("Round:");
+            tc4b2RoundLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4b2RoundLbl.setForeground(new Color(140, 210, 160));
+            JLabel tc4b2GrainLbl = styledLabel("Int:");
+            tc4b2GrainLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4b2GrainLbl.setForeground(new Color(140, 210, 160));
+
+            toolbar4b2.add(tc4b2BgLbl);
+            toolbar4b2.add(slideTextBgSpinner);
+            toolbar4b2.add(slideTextBgColorBtn);
+            toolbar4b2.add(tc4b2TightLbl);
+            toolbar4b2.add(slideTextBgTightSpinner);
+            toolbar4b2.add(tc4b2RoundLbl);
+            toolbar4b2.add(slideTextBgRoundSpinner);
+            toolbar4b2.add(slideTextBgGradientCheck);
+            toolbar4b2.add(slideTextBgColor2Btn);
+            toolbar4b2.add(slideTextBgGrainyCheck);
+            toolbar4b2.add(tc4b2GrainLbl);
+            toolbar4b2.add(slideTextBgGrainySpinner);
 
             slideTextAlignCombo = new JComboBox<>(new String[]{"Center", "Left", "Right"});
             slideTextAlignCombo.setPreferredSize(new Dimension(75, 24));
@@ -15343,6 +15491,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar4a);
             toolbarsPanel.add(toolbar4b);
+            toolbarsPanel.add(toolbar4b2);
             toolbarsPanel.add(toolbar4c);
             toolbarsPanel.add(toolbar4c2);
             toolbarsPanel.add(toolbar4f);
@@ -15420,7 +15569,7 @@ public class GifSlideShowApp extends JFrame {
             double animStartSec = ((Number) slideTextAnimStartSpinner.getValue()).doubleValue();
             int animDurMs = (int) Math.round(animDurSec * 1000.0);
             int animStartMs = (int) Math.round(animStartSec * 1000.0);
-            slideTextItems.set(currentSlideTextIndex, new SlideTextData(
+            SlideTextData newItem = new SlideTextData(
                     slideTextCheckBox.isSelected(), slideTextArea.getText(),
                     (String) slideTextFontCombo.getSelectedItem(), (int) slideTextSizeSpinner.getValue(),
                     fontStyle, slideTextColor,
@@ -15448,7 +15597,14 @@ public class GifSlideShowApp extends JFrame {
                     (int) slideTextTiltSpinner.getValue(),
                     (int) slideTextLetterSpacingSpinner.getValue(),
                     (int) slideTextLineSpacingSpinner.getValue(),
-                    (int) slideTextOpacitySpinner.getValue()));
+                    (int) slideTextOpacitySpinner.getValue());
+            newItem.bgPaddingPct = (int) slideTextBgTightSpinner.getValue();
+            newItem.bgRoundPct = (int) slideTextBgRoundSpinner.getValue();
+            newItem.bgGradient = slideTextBgGradientCheck.isSelected();
+            newItem.bgColor2 = slideTextBgColor2;
+            newItem.bgGrainy = slideTextBgGrainyCheck.isSelected();
+            newItem.bgGrainyIntensity = (int) slideTextBgGrainySpinner.getValue();
+            slideTextItems.set(currentSlideTextIndex, newItem);
         }
 
         private void loadSlideTextFromItem(int index) {
@@ -15469,6 +15625,13 @@ public class GifSlideShowApp extends JFrame {
                 slideTextBgSpinner.setValue(item.bgOpacity);
                 slideTextBgColor = item.bgColor;
                 slideTextBgColorBtn.setForeground(item.bgColor);
+                slideTextBgTightSpinner.setValue(item.bgPaddingPct);
+                slideTextBgRoundSpinner.setValue(item.bgRoundPct);
+                slideTextBgGradientCheck.setSelected(item.bgGradient);
+                slideTextBgColor2 = item.bgColor2 != null ? item.bgColor2 : new Color(60, 60, 60);
+                slideTextBgColor2Btn.setForeground(slideTextBgColor2);
+                slideTextBgGrainyCheck.setSelected(item.bgGrainy);
+                slideTextBgGrainySpinner.setValue(item.bgGrainyIntensity);
                 slideTextJustifyCheck.setSelected(item.justify);
                 slideTextWidthSpinner.setValue(item.widthPct);
                 slideTextShiftXSpinner.setValue(item.shiftX);
@@ -15550,7 +15713,7 @@ public class GifSlideShowApp extends JFrame {
                 String bText = (existingText != null && !existingText.isEmpty()) ? existing.boldText : fmt.boldText;
                 String iText = (existingText != null && !existingText.isEmpty()) ? existing.italicText : fmt.italicText;
                 String cText = (existingText != null && !existingText.isEmpty()) ? existing.colorText : fmt.colorText;
-                slideTextItems.set(i, new SlideTextData(show, existingText, fmt.fontName, fmt.fontSize,
+                SlideTextData applied = new SlideTextData(show, existingText, fmt.fontName, fmt.fontSize,
                         fmt.fontStyle, fmt.color, fmt.x, fmt.y, fmt.bgOpacity,
                         fmt.bgColor, fmt.justify, fmt.widthPct, fmt.shiftX, fmt.alignment,
                         fmt.textEffect, fmt.textEffectIntensity,
@@ -15558,7 +15721,14 @@ public class GifSlideShowApp extends JFrame {
                         fmt.highlightTightness, fmt.underlineStyle, ulText,
                         bText, iText, cText, fmt.colorTextColor, existing.xLeftAligned, fmt.odometer, fmt.odometerSpeed, fmt.odometerRoll, fmt.odometerLand,
                         fmt.animEnabled, fmt.animPath, fmt.animDurationMs, fmt.animStartMs, fmt.animEasing,
-                        fmt.tiltDegrees, fmt.letterSpacing, fmt.lineSpacing, fmt.opacity));
+                        fmt.tiltDegrees, fmt.letterSpacing, fmt.lineSpacing, fmt.opacity);
+                applied.bgPaddingPct = fmt.bgPaddingPct;
+                applied.bgRoundPct = fmt.bgRoundPct;
+                applied.bgGradient = fmt.bgGradient;
+                applied.bgColor2 = fmt.bgColor2;
+                applied.bgGrainy = fmt.bgGrainy;
+                applied.bgGrainyIntensity = fmt.bgGrainyIntensity;
+                slideTextItems.set(i, applied);
             }
             // For extra items beyond what the source has, apply formatting
             // from the last source item so they get consistent styling.
@@ -15574,7 +15744,7 @@ public class GifSlideShowApp extends JFrame {
                     String bText = (existingText != null && !existingText.isEmpty()) ? existing.boldText : lastFmt.boldText;
                     String iText = (existingText != null && !existingText.isEmpty()) ? existing.italicText : lastFmt.italicText;
                     String cText = (existingText != null && !existingText.isEmpty()) ? existing.colorText : lastFmt.colorText;
-                    slideTextItems.set(i, new SlideTextData(show, existingText, lastFmt.fontName, lastFmt.fontSize,
+                    SlideTextData applied = new SlideTextData(show, existingText, lastFmt.fontName, lastFmt.fontSize,
                             lastFmt.fontStyle, lastFmt.color, lastFmt.x, lastFmt.y, lastFmt.bgOpacity,
                             lastFmt.bgColor, lastFmt.justify, lastFmt.widthPct, lastFmt.shiftX, lastFmt.alignment,
                             "None", 50,
@@ -15582,7 +15752,14 @@ public class GifSlideShowApp extends JFrame {
                             lastFmt.highlightTightness, lastFmt.underlineStyle, ulText,
                             bText, iText, cText, lastFmt.colorTextColor, existing.xLeftAligned, false, 50, 3, "Sequential",
                             lastFmt.animEnabled, lastFmt.animPath, lastFmt.animDurationMs, lastFmt.animStartMs, lastFmt.animEasing,
-                            lastFmt.tiltDegrees, lastFmt.letterSpacing, lastFmt.lineSpacing, lastFmt.opacity));
+                            lastFmt.tiltDegrees, lastFmt.letterSpacing, lastFmt.lineSpacing, lastFmt.opacity);
+                    applied.bgPaddingPct = lastFmt.bgPaddingPct;
+                    applied.bgRoundPct = lastFmt.bgRoundPct;
+                    applied.bgGradient = lastFmt.bgGradient;
+                    applied.bgColor2 = lastFmt.bgColor2;
+                    applied.bgGrainy = lastFmt.bgGrainy;
+                    applied.bgGrainyIntensity = lastFmt.bgGrainyIntensity;
+                    slideTextItems.set(i, applied);
                 }
             }
             if (currentSlideTextIndex >= slideTextItems.size()) {
