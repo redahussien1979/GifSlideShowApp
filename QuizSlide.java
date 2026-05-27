@@ -1584,17 +1584,54 @@ public class QuizSlide {
             int xPct     = readIntField(std, "x");
             int yPct     = readIntField(std, "y");
             int fSizeRef = readIntField(std, "fontSize");
+            int shiftXPct    = readIntFieldOr(std, "shiftX", 0);
+            boolean xLeftAlg = readBoolFieldOr(std, "xLeftAligned", false);
+            int fontStyle    = readIntFieldOr(std, "fontStyle", Font.PLAIN);
+            String fontName  = (String) readFieldOr(std, "fontName", "Segoe UI");
             String text  = (String) readField(std, "text");
             if (text == null || text.isEmpty()) text = "Option " + optionIdx1Based;
 
             // The slide-text coordinates are percentages of frame dimensions.
+            // Mirror GifSlideShowApp's text-render positioning: x/y locate the
+            // text-block CENTER, then shiftX adds a horizontal offset (% of
+            // width). xLeftAligned re-anchors x to the text's left/right edge.
             int px = (int) (w * xPct / 100.0);
             int py = (int) (h * yPct / 100.0);
+            px += (int) (w * shiftXPct / 100.0);
             float scale = Math.max(w, h) / 1920.0f;
             int fontPx = Math.max(18, (int) (fSizeRef * scale));
 
-            int tw = (int) (text.length() * fontPx * 0.55) + fontPx / 3;
+            // Measure the real text width with FontMetrics so the highlight
+            // hugs the glyphs instead of relying on a character-count guess
+            // (which drifts on short/long options and wide-glyph fonts).
+            Font measureFont;
+            try {
+                measureFont = new Font(fontName, fontStyle, fontPx);
+            } catch (Exception ignore) {
+                measureFont = g.getFont().deriveFont((float) fontPx);
+            }
+            FontMetrics fm = g.getFontMetrics(measureFont);
+            int firstLineW = fm.stringWidth(text.split("\n", 2)[0]);
+            int tw = Math.max(firstLineW, fontPx / 2) + fontPx / 3;
             int th = (int) (fontPx * 1.15);
+
+            if (xLeftAlg) {
+                boolean isRTL = false;
+                for (int ci = 0; ci < text.length(); ci++) {
+                    int dir = Character.getDirectionality(text.charAt(ci));
+                    if (dir == Character.DIRECTIONALITY_RIGHT_TO_LEFT
+                            || dir == Character.DIRECTIONALITY_RIGHT_TO_LEFT_ARABIC) {
+                        isRTL = true;
+                        break;
+                    }
+                }
+                if (isRTL) {
+                    px = w - (int) (w * xPct / 100.0) - firstLineW / 2
+                            + (int) (w * shiftXPct / 100.0);
+                } else {
+                    px += firstLineW / 2;
+                }
+            }
 
             int bx = px - tw / 2;
             int by = py - th / 2;
@@ -1807,6 +1844,25 @@ public class QuizSlide {
         java.lang.reflect.Field f = o.getClass().getDeclaredField(name);
         f.setAccessible(true);
         return f.get(o);
+    }
+
+    private static int readIntFieldOr(Object o, String name, int dflt) {
+        try { return readIntField(o, name); } catch (Exception e) { return dflt; }
+    }
+
+    private static boolean readBoolFieldOr(Object o, String name, boolean dflt) {
+        try {
+            java.lang.reflect.Field f = o.getClass().getDeclaredField(name);
+            f.setAccessible(true);
+            return f.getBoolean(o);
+        } catch (Exception e) { return dflt; }
+    }
+
+    private static Object readFieldOr(Object o, String name, Object dflt) {
+        try {
+            Object v = readField(o, name);
+            return v == null ? dflt : v;
+        } catch (Exception e) { return dflt; }
     }
 
     // ============================================================
