@@ -60,6 +60,11 @@ public class QuizSlide {
         public String effects = "Glow";       // comma-separated; same vocab as toolbar7b
         public Color  hlColor = new Color(255, 200, 50, 160);
         public int    glowSize = 7;
+        // When true, the cue is also played a second time the moment the
+        // reveal phase begins (elapsedMs == revealAtMs). The same text effect
+        // re-fires for the duration. Useful for "read the correct option
+        // aloud right after the timer ends" workflows.
+        public boolean playAfterReveal = false;
 
         public QuizCue copy() {
             QuizCue c = new QuizCue();
@@ -70,6 +75,7 @@ public class QuizSlide {
             c.effects          = effects;
             c.hlColor          = hlColor;
             c.glowSize         = glowSize;
+            c.playAfterReveal  = playAfterReveal;
             return c;
         }
     }
@@ -117,6 +123,12 @@ public class QuizSlide {
 
     public File questionAudioFile = null;
     public int  questionAudioDurationMs = 0;
+
+    // When false, the question audio is skipped entirely: no validation,
+    // no contribution to the combined audio, questionEndMs forced to 0
+    // (so the timer starts at slide-start in both timer modes). Use this
+    // when you want the special / per-text cues to BE the slide narration.
+    public boolean useQuestionAudio = true;
 
     // Generated combined audio (question + tick*N + ding); attached to slide.
     public File generatedAudioFile = null;
@@ -239,6 +251,7 @@ public class QuizSlide {
         c.customDingFile = customDingFile;
         c.questionAudioFile = questionAudioFile;
         c.questionAudioDurationMs = questionAudioDurationMs;
+        c.useQuestionAudio = useQuestionAudio;
         c.generatedAudioFile = generatedAudioFile;
         c.generatedAudioDurationMs = generatedAudioDurationMs;
         c.questionEndMs = questionEndMs;
@@ -289,10 +302,16 @@ public class QuizSlide {
      */
     public QuizCue activeCueForTextIndex(int textIdx0Based, long elapsedMs) {
         if (cues == null || cues.isEmpty()) return null;
+        long revealAt = revealAtMs();
         for (QuizCue c : cues) {
             if (c == null || c.audioFile == null || c.durationMs <= 0) continue;
             if (c.targetTextIndex - 1 != textIdx0Based) continue;
             if (elapsedMs >= c.startMs && elapsedMs < c.startMs + c.durationMs) {
+                return c;
+            }
+            if (c.playAfterReveal
+                    && elapsedMs >= revealAt
+                    && elapsedMs < revealAt + c.durationMs) {
                 return c;
             }
         }
@@ -305,10 +324,16 @@ public class QuizSlide {
      */
     public QuizCue activeTextCueAt(long elapsedMs) {
         if (cues == null || cues.isEmpty()) return null;
+        long revealAt = revealAtMs();
         for (QuizCue c : cues) {
             if (c == null || c.audioFile == null || c.durationMs <= 0) continue;
             if (c.targetTextIndex <= 0) continue;
             if (elapsedMs >= c.startMs && elapsedMs < c.startMs + c.durationMs) {
+                return c;
+            }
+            if (c.playAfterReveal
+                    && elapsedMs >= revealAt
+                    && elapsedMs < revealAt + c.durationMs) {
                 return c;
             }
         }
@@ -2109,9 +2134,13 @@ public class QuizSlide {
         gc.gridwidth = 1;
         row++;
 
-        // Question audio.
+        // Question audio (optional via checkbox).
+        JCheckBox useQuestionCheck = new JCheckBox(
+                "Use question audio", quiz.useQuestionAudio);
+        useQuestionCheck.setToolTipText("Uncheck to skip the question narration "
+                + "entirely — the timeline cues / special audio become the slide audio.");
         gc.gridx = 0; gc.gridy = row;
-        form.add(new JLabel("Question audio (required):"), gc);
+        form.add(useQuestionCheck, gc);
         JLabel qAudioLabel = new JLabel(quiz.questionAudioFile != null
                 ? quiz.questionAudioFile.getName() : "(no file selected)");
         qAudioLabel.setForeground(quiz.questionAudioFile != null
@@ -2128,6 +2157,14 @@ public class QuizSlide {
                             : ""));
                 qAudioLabel.setForeground(new Color(120, 200, 255));
             }
+        });
+        // Grey out the file picker when "Use question audio" is unchecked.
+        qAudioBtn.setEnabled(quiz.useQuestionAudio);
+        qAudioLabel.setEnabled(quiz.useQuestionAudio);
+        useQuestionCheck.addActionListener(e -> {
+            boolean on = useQuestionCheck.isSelected();
+            qAudioBtn.setEnabled(on);
+            qAudioLabel.setEnabled(on);
         });
         gc.gridx = 1; form.add(qAudioBtn, gc);
         gc.gridx = 2; form.add(qAudioLabel, gc);
@@ -2230,12 +2267,15 @@ public class QuizSlide {
             quiz.redThresholdSeconds = (Integer) redSpinner.getValue();
             quiz.timerStartMode      = atStartRadio.isSelected()
                     ? "AtSlideStart" : "AfterQuestion";
+            quiz.useQuestionAudio    = useQuestionCheck.isSelected();
 
             if (quiz.enabled) {
-                if (quiz.questionAudioFile == null
-                        || !quiz.questionAudioFile.exists()) {
+                if (quiz.useQuestionAudio
+                        && (quiz.questionAudioFile == null
+                            || !quiz.questionAudioFile.exists())) {
                     JOptionPane.showMessageDialog(dialog,
-                            "Please choose a question-audio file.",
+                            "Please choose a question-audio file, "
+                            + "or uncheck \"Use question audio\".",
                             "Missing question audio",
                             JOptionPane.WARNING_MESSAGE);
                     return;
@@ -2244,7 +2284,8 @@ public class QuizSlide {
                     File built = generateCombinedAudio(quiz);
                     quiz.generatedAudioFile = built;
                     quiz.generatedAudioDurationMs = probeDurationMs(built);
-                    quiz.questionEndMs = quiz.questionAudioDurationMs;
+                    quiz.questionEndMs = quiz.useQuestionAudio
+                            ? quiz.questionAudioDurationMs : 0;
                     onAttach.attach(built, quiz.generatedAudioDurationMs);
                 } catch (Exception ex) {
                     JOptionPane.showMessageDialog(dialog,
@@ -2328,6 +2369,7 @@ public class QuizSlide {
         gc.gridx = 3; rows.add(headerLabel("Effects"), gc);
         gc.gridx = 4; rows.add(headerLabel("Color"), gc);
         gc.gridx = 5; rows.add(headerLabel("Glow"), gc);
+        gc.gridx = 6; rows.add(headerLabel("Replay"), gc);
         r++;
 
         // Build N+1 row widgets: one per text item + one for the special audio.
@@ -2478,12 +2520,22 @@ public class QuizSlide {
             glowSp.addChangeListener(e ->
                     ui.cue.glowSize = (Integer) glowSp.getValue());
             gc.gridx = 5; rows.add(glowSp, gc);
+
+            JCheckBox afterRevealBox = new JCheckBox(
+                    "After reveal too", ui.cue.playAfterReveal);
+            afterRevealBox.setToolTipText("Also play this cue (and re-fire its "
+                    + "text effect) the moment the timer ends.");
+            afterRevealBox.addActionListener(e ->
+                    ui.cue.playAfterReveal = afterRevealBox.isSelected());
+            gc.gridx = 6; rows.add(afterRevealBox, gc);
         } else {
             // Special cue: greyed-out placeholders for clarity.
             JLabel dash1 = small("—"); JLabel dash2 = small("—"); JLabel dash3 = small("—");
+            JLabel dash4 = small("—");
             gc.gridx = 3; rows.add(dash1, gc);
             gc.gridx = 4; rows.add(dash2, gc);
             gc.gridx = 5; rows.add(dash3, gc);
+            gc.gridx = 6; rows.add(dash4, gc);
         }
         return ui;
     }
@@ -2744,7 +2796,27 @@ public class QuizSlide {
         baseOut.deleteOnExit();
         File out = baseOut;
 
-        if ("AtSlideStart".equals(quiz.timerStartMode)) {
+        boolean hasQuestion = quiz.useQuestionAudio
+                && quiz.questionAudioFile != null
+                && quiz.questionAudioFile.exists();
+
+        if (!hasQuestion) {
+            // No question narration: base track is just tick-loop → ding so the
+            // timer/ding still play. Cues / special audio (mixed in below) become
+            // the slide narration.
+            runFfmpeg(new String[] {
+                    "ffmpeg", "-y",
+                    "-i", tickLoop.getAbsolutePath(),
+                    "-i", dingSrc.getAbsolutePath(),
+                    "-filter_complex",
+                    "[0:a]aformat=sample_rates=44100:channel_layouts=stereo[a0];"
+                  + "[1:a]aformat=sample_rates=44100:channel_layouts=stereo[a1];"
+                  + "[a0][a1]concat=n=2:v=0:a=1[out]",
+                    "-map", "[out]",
+                    "-ac", "2", "-ar", "44100",
+                    out.getAbsolutePath()
+            });
+        } else if ("AtSlideStart".equals(quiz.timerStartMode)) {
             // Mix mode: question + tick play together from t=0 with the
             // question dominant (weight 1.0) and tick BARELY audible
             // (volume ~0.08, ~-22dB) so the narration is clearly heard
@@ -2787,8 +2859,10 @@ public class QuizSlide {
 
         // Step 3: mix any configured timeline cues into the base track. Each
         // cue is delayed by its startMs so it lands at the right slide-relative
-        // moment; amix duration=longest pads the output if a cue ends after
-        // the base, which automatically extends the slide's totalAudioDuration.
+        // moment; cues marked "playAfterReveal" are emitted a SECOND time at
+        // the reveal moment (questionEnd + timerSeconds). amix duration=longest
+        // pads the output if a cue ends after the base, which automatically
+        // extends the slide's totalAudioDuration to cover everything.
         List<QuizCue> activeCues = new ArrayList<>();
         if (quiz.cues != null) {
             for (QuizCue c : quiz.cues) {
@@ -2798,30 +2872,46 @@ public class QuizSlide {
                 }
             }
         }
-        if (!activeCues.isEmpty()) {
+        // Build the flat list of (file, delayMs) plays we need to mix. Each
+        // cue contributes one entry; playAfterReveal cues contribute two.
+        int qEndForBuildMs = hasQuestion ? quiz.questionAudioDurationMs : 0;
+        long timerForBuildMs = Math.max(0, quiz.timerSeconds) * 1000L;
+        boolean atStartForBuild = "AtSlideStart".equals(quiz.timerStartMode);
+        long revealAtForBuildMs = (atStartForBuild ? 0L : qEndForBuildMs) + timerForBuildMs;
+
+        List<File>    playFiles  = new ArrayList<>();
+        List<Integer> playDelays = new ArrayList<>();
+        for (QuizCue c : activeCues) {
+            playFiles.add(c.audioFile);
+            playDelays.add(Math.max(0, c.startMs));
+            if (c.playAfterReveal) {
+                playFiles.add(c.audioFile);
+                playDelays.add((int) Math.max(0, revealAtForBuildMs));
+            }
+        }
+        if (!playFiles.isEmpty()) {
             File mixed = File.createTempFile("quizslide-combined-", ".wav");
             mixed.deleteOnExit();
             List<String> cmd = new ArrayList<>();
             cmd.add("ffmpeg"); cmd.add("-y");
             cmd.add("-i"); cmd.add(baseOut.getAbsolutePath());
-            for (QuizCue c : activeCues) {
-                cmd.add("-i"); cmd.add(c.audioFile.getAbsolutePath());
+            for (File f : playFiles) {
+                cmd.add("-i"); cmd.add(f.getAbsolutePath());
             }
             StringBuilder fc = new StringBuilder();
             fc.append("[0:a]aformat=sample_rates=44100:channel_layouts=stereo[base];");
-            for (int i = 0; i < activeCues.size(); i++) {
-                QuizCue c = activeCues.get(i);
-                int delay = Math.max(0, c.startMs);
+            for (int i = 0; i < playFiles.size(); i++) {
+                int delay = playDelays.get(i);
                 fc.append('[').append(i + 1).append(":a]")
                   .append("aformat=sample_rates=44100:channel_layouts=stereo,")
                   .append("adelay=").append(delay).append('|').append(delay)
                   .append("[c").append(i).append("];");
             }
             fc.append("[base]");
-            for (int i = 0; i < activeCues.size(); i++) {
+            for (int i = 0; i < playFiles.size(); i++) {
                 fc.append("[c").append(i).append("]");
             }
-            fc.append("amix=inputs=").append(activeCues.size() + 1)
+            fc.append("amix=inputs=").append(playFiles.size() + 1)
               .append(":duration=longest:normalize=0[out]");
             cmd.add("-filter_complex"); cmd.add(fc.toString());
             cmd.add("-map"); cmd.add("[out]");
