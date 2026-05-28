@@ -1606,16 +1606,26 @@ public class QuizSlide {
             // Measure the real text width with FontMetrics so the highlight
             // hugs the glyphs instead of relying on a character-count guess
             // (which drifts on short/long options and wide-glyph fonts).
-            Font measureFont;
-            try {
-                measureFont = new Font(fontName, fontStyle, fontPx);
-            } catch (Exception ignore) {
-                measureFont = g.getFont().deriveFont((float) fontPx);
+            // Prefer the renderer's own loaded-font cache (custom TTFs like
+            // DancingScript/Montserrat aren't visible to `new Font(name,...)`
+            // — it silently falls back to Dialog, which under-measures).
+            Font measureFont = lookupLoadedFont(fontName, fontStyle, fontPx);
+            if (measureFont == null) {
+                try {
+                    measureFont = new Font(fontName, fontStyle, fontPx);
+                } catch (Exception ignore) {
+                    measureFont = g.getFont().deriveFont((float) fontPx);
+                }
             }
             FontMetrics fm = g.getFontMetrics(measureFont);
-            int firstLineW = fm.stringWidth(text.split("\n", 2)[0]);
-            int tw = Math.max(firstLineW, fontPx / 2) + fontPx / 3;
-            int th = (int) (fontPx * 1.15);
+            String[] lines = text.split("\n");
+            int widestLineW = 0;
+            for (String ln : lines) {
+                widestLineW = Math.max(widestLineW, fm.stringWidth(ln));
+            }
+            int firstLineW = widestLineW;
+            int tw = Math.max(widestLineW, fontPx / 2) + fontPx / 3;
+            int th = (int) (fontPx * 1.15 * Math.max(1, lines.length));
 
             if (xLeftAlg) {
                 boolean isRTL = false;
@@ -1878,6 +1888,25 @@ public class QuizSlide {
             Object v = readField(o, name);
             return v == null ? dflt : v;
         } catch (Exception e) { return dflt; }
+    }
+
+    // Reflectively read GifSlideShowApp.loadedFonts so the reveal can measure
+    // with the same custom TTFs the renderer uses. Returns null when the map
+    // or the requested name isn't present (caller falls back to new Font()).
+    private static Font lookupLoadedFont(String name, int style, float sizePx) {
+        if (name == null) return null;
+        try {
+            Class<?> cls = Class.forName("GifSlideShowApp");
+            java.lang.reflect.Field f = cls.getDeclaredField("loadedFonts");
+            f.setAccessible(true);
+            Object m = f.get(null);
+            if (!(m instanceof Map)) return null;
+            Object base = ((Map<?, ?>) m).get(name);
+            if (base instanceof Font) {
+                return ((Font) base).deriveFont(style, sizePx);
+            }
+        } catch (Throwable ignore) { /* fall through */ }
+        return null;
     }
 
     // ============================================================
