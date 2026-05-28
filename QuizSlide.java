@@ -65,6 +65,13 @@ public class QuizSlide {
         // re-fires for the duration. Useful for "read the correct option
         // aloud right after the timer ends" workflows.
         public boolean playAfterReveal = false;
+        // Optional play-order rank. When >= 1, the cue's effective start time
+        // is computed by chaining the durations of cues with a smaller rank
+        // (so rank=1 plays first at t=0, rank=2 starts when rank=1 finishes,
+        // and so on). When 0, the manual {@link #startMs} value is used as-is.
+        // Lets users say "play these in order" without computing offsets by
+        // hand. See {@link QuizSlide#effectiveStartMs}.
+        public int    rank = 0;
 
         public QuizCue copy() {
             QuizCue c = new QuizCue();
@@ -76,6 +83,7 @@ public class QuizSlide {
             c.hlColor          = hlColor;
             c.glowSize         = glowSize;
             c.playAfterReveal  = playAfterReveal;
+            c.rank             = rank;
             return c;
         }
     }
@@ -317,7 +325,8 @@ public class QuizSlide {
         for (QuizCue c : cues) {
             if (c == null || c.audioFile == null || c.durationMs <= 0) continue;
             if (c.targetTextIndex - 1 != textIdx0Based) continue;
-            if (elapsedMs >= c.startMs && elapsedMs < c.startMs + c.durationMs) {
+            int start = effectiveStartMs(c);
+            if (elapsedMs >= start && elapsedMs < start + c.durationMs) {
                 return c;
             }
             if (c.playAfterReveal
@@ -339,7 +348,8 @@ public class QuizSlide {
         for (QuizCue c : cues) {
             if (c == null || c.audioFile == null || c.durationMs <= 0) continue;
             if (c.targetTextIndex <= 0) continue;
-            if (elapsedMs >= c.startMs && elapsedMs < c.startMs + c.durationMs) {
+            int start = effectiveStartMs(c);
+            if (elapsedMs >= start && elapsedMs < start + c.durationMs) {
                 return c;
             }
             if (c.playAfterReveal
@@ -352,6 +362,34 @@ public class QuizSlide {
     }
 
     /**
+     * Resolve a cue's effective start time (slide-relative ms). When the cue
+     * has {@code rank >= 1} it plays in rank order — its start is the sum of
+     * durations of every cue with a smaller positive rank. When {@code rank
+     * == 0} the cue uses its manually-set {@link QuizCue#startMs}. Lets users
+     * say "play these in order" without computing offsets by hand.
+     */
+    public int effectiveStartMs(QuizCue cue) {
+        if (cue == null) return 0;
+        if (cue.rank <= 0) return Math.max(0, cue.startMs);
+        if (cues == null) return 0;
+        int acc = 0;
+        for (QuizCue other : cues) {
+            if (other == null || other.audioFile == null || other.durationMs <= 0) continue;
+            if (other == cue) continue;
+            if (other.rank <= 0) continue;
+            if (other.rank < cue.rank) {
+                acc += other.durationMs;
+            } else if (other.rank == cue.rank) {
+                // Tie-breaker: target index (lower wins, special=0 last).
+                int tThis  = cue.targetTextIndex   <= 0 ? Integer.MAX_VALUE : cue.targetTextIndex;
+                int tOther = other.targetTextIndex <= 0 ? Integer.MAX_VALUE : other.targetTextIndex;
+                if (tOther < tThis) acc += other.durationMs;
+            }
+        }
+        return acc;
+    }
+
+    /**
      * Highest end-ms (startMs + durationMs) across all cues — used by the
      * combined-audio builder to pad the output WAV out to the latest cue end
      * so the slide's totalAudioDurationMs covers the whole timeline.
@@ -361,7 +399,7 @@ public class QuizSlide {
         int end = 0;
         for (QuizCue c : cues) {
             if (c == null || c.audioFile == null || c.durationMs <= 0) continue;
-            end = Math.max(end, c.startMs + c.durationMs);
+            end = Math.max(end, effectiveStartMs(c) + c.durationMs);
         }
         return end;
     }
@@ -428,7 +466,7 @@ public class QuizSlide {
                 for (QuizCue c : cues) {
                     if (c == null || c.audioFile == null || c.durationMs <= 0) continue;
                     if (c.targetTextIndex == timerStartCueIndex) {
-                        return (long) c.startMs + c.durationMs;
+                        return (long) effectiveStartMs(c) + c.durationMs;
                     }
                 }
             }
@@ -459,7 +497,7 @@ public class QuizSlide {
             for (QuizCue c : cues) {
                 if (c == null || c.audioFile == null || c.durationMs <= 0) continue;
                 if (c.playAfterReveal) continue;
-                end = Math.max(end, (long) c.startMs + c.durationMs);
+                end = Math.max(end, (long) effectiveStartMs(c) + c.durationMs);
             }
         }
         return end;
@@ -2465,10 +2503,11 @@ public class QuizSlide {
         rows.add(headerLabel("Target"), gc);
         gc.gridx = 1; rows.add(headerLabel("Audio file"), gc);
         gc.gridx = 2; rows.add(headerLabel("Start (s)"), gc);
-        gc.gridx = 3; rows.add(headerLabel("Effects"), gc);
-        gc.gridx = 4; rows.add(headerLabel("Color"), gc);
-        gc.gridx = 5; rows.add(headerLabel("Glow"), gc);
-        gc.gridx = 6; rows.add(headerLabel("Replay"), gc);
+        gc.gridx = 3; rows.add(headerLabel("Rank"), gc);
+        gc.gridx = 4; rows.add(headerLabel("Effects"), gc);
+        gc.gridx = 5; rows.add(headerLabel("Color"), gc);
+        gc.gridx = 6; rows.add(headerLabel("Glow"), gc);
+        gc.gridx = 7; rows.add(headerLabel("Replay"), gc);
         r++;
 
         // Build N+1 row widgets: one per text item + one for the special audio.
@@ -2481,6 +2520,13 @@ public class QuizSlide {
             QuizCue existing = findCueForTarget(quiz, target);
             uiRows[i] = buildTimelineRow(dlg, rows, gc, r++, target, existing);
         }
+
+        // Footer hint explaining the Rank column.
+        gc.gridx = 0; gc.gridy = r++; gc.gridwidth = 8;
+        rows.add(small("Tip: Rank ≥ 1 means \"play in order\" — the cue's "
+                + "start is chained from earlier-ranked cues' lengths; the "
+                + "Start (s) field is ignored. Rank 0 uses Start (s) as-is."), gc);
+        gc.gridwidth = 1;
 
         dlg.add(new JScrollPane(rows), BorderLayout.CENTER);
 
@@ -2495,6 +2541,7 @@ public class QuizSlide {
                 if (ui == null || ui.cue.audioFile == null) continue;
                 ui.cue.startMs = (int) Math.round(
                         ((Number) ui.startSpin.getValue()).doubleValue() * 1000.0);
+                ui.cue.rank = (Integer) ui.rankSpin.getValue();
                 rebuilt.add(ui.cue);
             }
             quiz.cues = rebuilt;
@@ -2529,6 +2576,7 @@ public class QuizSlide {
     private static class TimelineRow {
         QuizCue cue;
         JSpinner startSpin;
+        JSpinner rankSpin;
     }
 
     private static TimelineRow buildTimelineRow(JDialog parent, JPanel rows,
@@ -2585,7 +2633,28 @@ public class QuizSlide {
                 ui.cue.startMs / 1000.0, 0.0, 3600.0, 0.1));
         ((JSpinner.NumberEditor) ui.startSpin.getEditor())
                 .getTextField().setColumns(5);
+        ui.startSpin.setToolTipText("Absolute start in seconds. Ignored "
+                + "when Rank is ≥ 1 (rank-based scheduling takes over).");
         gc.gridx = 2; rows.add(ui.startSpin, gc);
+
+        // Rank: when >= 1, the cue plays in rank order — its start is the
+        // sum of earlier-ranked cues' durations, so the user doesn't have
+        // to compute offsets manually. 0 = "use Start (s)" instead.
+        ui.rankSpin = new JSpinner(new SpinnerNumberModel(
+                Math.max(0, ui.cue.rank), 0, 99, 1));
+        ((JSpinner.NumberEditor) ui.rankSpin.getEditor())
+                .getTextField().setColumns(3);
+        ui.rankSpin.setToolTipText("0 = use Start (s) as-is. 1, 2, 3… = "
+                + "play in that order; each ranked cue starts right after "
+                + "the previous one finishes (durations chained automatically).");
+        // Visual cue: dim the Start spinner when rank takes precedence.
+        ui.startSpin.setEnabled(ui.cue.rank <= 0);
+        ui.rankSpin.addChangeListener(e -> {
+            int rk = (Integer) ui.rankSpin.getValue();
+            ui.cue.rank = rk;
+            ui.startSpin.setEnabled(rk <= 0);
+        });
+        gc.gridx = 3; rows.add(ui.rankSpin, gc);
 
         // Effects: only for text-targeting cues; special audio has no text effect.
         if (target1Based >= 1) {
@@ -2597,7 +2666,7 @@ public class QuizSlide {
                     fxBtn.setText(fxLabel(picked));
                 }
             });
-            gc.gridx = 3; rows.add(fxBtn, gc);
+            gc.gridx = 4; rows.add(fxBtn, gc);
 
             JButton colorBtn = new JButton("       ");
             colorBtn.setBackground(ui.cue.hlColor);
@@ -2610,7 +2679,7 @@ public class QuizSlide {
                     colorBtn.setBackground(picked);
                 }
             });
-            gc.gridx = 4; rows.add(colorBtn, gc);
+            gc.gridx = 5; rows.add(colorBtn, gc);
 
             JSpinner glowSp = new JSpinner(new SpinnerNumberModel(
                     Math.max(1, ui.cue.glowSize), 1, 40, 1));
@@ -2618,7 +2687,7 @@ public class QuizSlide {
                     .getTextField().setColumns(3);
             glowSp.addChangeListener(e ->
                     ui.cue.glowSize = (Integer) glowSp.getValue());
-            gc.gridx = 5; rows.add(glowSp, gc);
+            gc.gridx = 6; rows.add(glowSp, gc);
 
             JCheckBox afterRevealBox = new JCheckBox(
                     "After reveal too", ui.cue.playAfterReveal);
@@ -2626,15 +2695,15 @@ public class QuizSlide {
                     + "text effect) the moment the timer ends.");
             afterRevealBox.addActionListener(e ->
                     ui.cue.playAfterReveal = afterRevealBox.isSelected());
-            gc.gridx = 6; rows.add(afterRevealBox, gc);
+            gc.gridx = 7; rows.add(afterRevealBox, gc);
         } else {
             // Special cue: greyed-out placeholders for clarity.
             JLabel dash1 = small("—"); JLabel dash2 = small("—"); JLabel dash3 = small("—");
             JLabel dash4 = small("—");
-            gc.gridx = 3; rows.add(dash1, gc);
-            gc.gridx = 4; rows.add(dash2, gc);
-            gc.gridx = 5; rows.add(dash3, gc);
-            gc.gridx = 6; rows.add(dash4, gc);
+            gc.gridx = 4; rows.add(dash1, gc);
+            gc.gridx = 5; rows.add(dash2, gc);
+            gc.gridx = 6; rows.add(dash3, gc);
+            gc.gridx = 7; rows.add(dash4, gc);
         }
         return ui;
     }
@@ -2897,7 +2966,7 @@ public class QuizSlide {
                 for (QuizCue c : quiz.cues) {
                     if (c == null || c.audioFile == null || c.durationMs <= 0) continue;
                     if (c.targetTextIndex == quiz.timerStartCueIndex) {
-                        timerStart = (long) c.startMs + c.durationMs;
+                        timerStart = (long) quiz.effectiveStartMs(c) + c.durationMs;
                         break;
                     }
                 }
@@ -2912,7 +2981,8 @@ public class QuizSlide {
             for (QuizCue c : quiz.cues) {
                 if (c == null || c.audioFile == null || c.durationMs <= 0) continue;
                 if (c.playAfterReveal) continue;
-                lastNonReplayEnd = Math.max(lastNonReplayEnd, (long) c.startMs + c.durationMs);
+                lastNonReplayEnd = Math.max(lastNonReplayEnd,
+                        (long) quiz.effectiveStartMs(c) + c.durationMs);
             }
         }
         long visualReveal = Math.max(naturalReveal, lastNonReplayEnd);
@@ -2959,7 +3029,7 @@ public class QuizSlide {
                 if (c == null || c.audioFile == null || !c.audioFile.exists()
                         || c.durationMs <= 0) continue;
                 files.add(c.audioFile);
-                delays.add((long) Math.max(0, c.startMs));
+                delays.add((long) Math.max(0, quiz.effectiveStartMs(c)));
                 vols.add(1.0);
                 if (c.playAfterReveal) {
                     files.add(c.audioFile);
