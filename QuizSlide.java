@@ -36,6 +36,52 @@ import java.util.Map;
  */
 public class QuizSlide {
 
+    // ============================================================
+    //  QUIZ AUDIO CUE
+    // ============================================================
+    /**
+     * Per-text (or text-less) audio cue for a quiz slide.
+     *
+     *  - The audio is mixed into the combined slide audio at the chosen
+     *    {@code startMs} offset (absolute, from slide start).
+     *  - When {@code targetTextIndex >= 1}, the cue's effects + highlight
+     *    color are applied to slide-text item #{@code targetTextIndex}
+     *    (1-based) while the cue is playing — re-using the existing
+     *    audio-highlight pipeline (Glow / Enlarge / Bold / Underline /
+     *    Color / Shake / Pulse / Others:*).
+     *  - When {@code targetTextIndex == 0}, the cue is a "special" text-less
+     *    audio: it plays at {@code startMs} but no text effect is applied.
+     */
+    public static class QuizCue {
+        public File   audioFile = null;
+        public int    durationMs = 0;
+        public int    startMs = 0;
+        public int    targetTextIndex = 0;   // 1-based; 0 = special / no text
+        public String effects = "Glow";       // comma-separated; same vocab as toolbar7b
+        public Color  hlColor = new Color(255, 200, 50, 160);
+        public int    glowSize = 7;
+
+        public QuizCue copy() {
+            QuizCue c = new QuizCue();
+            c.audioFile        = audioFile;
+            c.durationMs       = durationMs;
+            c.startMs          = startMs;
+            c.targetTextIndex  = targetTextIndex;
+            c.effects          = effects;
+            c.hlColor          = hlColor;
+            c.glowSize         = glowSize;
+            return c;
+        }
+    }
+
+    /**
+     * All cues configured via the "Audio timeline" sub-dialog. Mixed into the
+     * combined slide audio at build time; consulted at render time so the
+     * existing audio-highlight pipeline applies the cue's effects to the
+     * target text while the cue is playing.
+     */
+    public List<QuizCue> cues = new ArrayList<>();
+
     // ===== Per-slide settings =====
     public boolean enabled = false;
     public int correctOptionIndex = 1;        // 1-based; refers to slide-text item index
@@ -223,7 +269,65 @@ public class QuizSlide {
         c.revealMarkSizePct = revealMarkSizePct;
         c.revealMarkColor   = revealMarkColor;
         c.revealPadPct      = revealPadPct;
+        if (cues != null) {
+            c.cues = new ArrayList<>(cues.size());
+            for (QuizCue q : cues) {
+                if (q != null) c.cues.add(q.copy());
+            }
+        }
         return c;
+    }
+
+    // ============================================================
+    //  QUIZ CUE HELPERS (consulted at render time)
+    // ============================================================
+
+    /**
+     * Returns the cue (if any) that targets slide-text index {@code textIdx0Based}
+     * and is currently inside its [startMs, startMs+durationMs) window. Used by
+     * the renderer to decide which cue's color / effects / glow to apply.
+     */
+    public QuizCue activeCueForTextIndex(int textIdx0Based, long elapsedMs) {
+        if (cues == null || cues.isEmpty()) return null;
+        for (QuizCue c : cues) {
+            if (c == null || c.audioFile == null || c.durationMs <= 0) continue;
+            if (c.targetTextIndex - 1 != textIdx0Based) continue;
+            if (elapsedMs >= c.startMs && elapsedMs < c.startMs + c.durationMs) {
+                return c;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns the first text-targeting cue currently active at {@code elapsedMs},
+     * or null. "Text-targeting" = targetTextIndex >= 1 (excludes special cues).
+     */
+    public QuizCue activeTextCueAt(long elapsedMs) {
+        if (cues == null || cues.isEmpty()) return null;
+        for (QuizCue c : cues) {
+            if (c == null || c.audioFile == null || c.durationMs <= 0) continue;
+            if (c.targetTextIndex <= 0) continue;
+            if (elapsedMs >= c.startMs && elapsedMs < c.startMs + c.durationMs) {
+                return c;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Highest end-ms (startMs + durationMs) across all cues — used by the
+     * combined-audio builder to pad the output WAV out to the latest cue end
+     * so the slide's totalAudioDurationMs covers the whole timeline.
+     */
+    public int cuesEndMs() {
+        if (cues == null || cues.isEmpty()) return 0;
+        int end = 0;
+        for (QuizCue c : cues) {
+            if (c == null || c.audioFile == null || c.durationMs <= 0) continue;
+            end = Math.max(end, c.startMs + c.durationMs);
+        }
+        return end;
     }
 
     /**
@@ -2087,9 +2191,29 @@ public class QuizSlide {
         gc.gridx = 2; form.add(dingLabel, gc);
         row++;
 
+        // ---- Audio timeline (per-text cues + special) ----
+        gc.gridx = 0; gc.gridy = row;
+        form.add(new JLabel("Audio timeline:"), gc);
+        JButton timelineBtn = new JButton("Open audio timeline…");
+        JLabel timelineLabel = new JLabel(cueSummary(quiz));
+        timelineLabel.setForeground(new Color(120, 200, 255));
+        timelineBtn.addActionListener(e -> {
+            openTimelineDialog(dialog, quiz, textItemCount);
+            timelineLabel.setText(cueSummary(quiz));
+        });
+        gc.gridx = 1; form.add(timelineBtn, gc);
+        gc.gridx = 2; form.add(timelineLabel, gc);
+        row++;
+
+        gc.gridx = 0; gc.gridy = row; gc.gridwidth = 3;
+        form.add(small("Optional: per-option audios trigger text effects, "
+                + "plus one text-less \"special\" audio."), gc);
+        gc.gridwidth = 1;
+        row++;
+
         gc.gridx = 0; gc.gridy = row; gc.gridwidth = 3;
         form.add(small("Saving will build the slide audio: "
-                + "question → ticks → ding, and attach it to slide audio (Text 1)."), gc);
+                + "question → ticks → ding (+ timeline cues mixed in), and attach it to slide audio (Text 1)."), gc);
         gc.gridwidth = 1;
 
         dialog.add(form, BorderLayout.CENTER);
@@ -2145,6 +2269,284 @@ public class QuizSlide {
         l.setFont(l.getFont().deriveFont(Font.ITALIC, 11f));
         l.setForeground(new Color(140, 145, 160));
         return l;
+    }
+
+    // ============================================================
+    //  AUDIO TIMELINE SUB-DIALOG
+    // ============================================================
+
+    private static final String[] FX_NAMES = {
+            "Glow", "Enlarge", "Bold", "Underline", "Color", "Shake", "Pulse"
+    };
+
+    /** Build a one-line summary of the configured cues for the main dialog label. */
+    private static String cueSummary(QuizSlide quiz) {
+        if (quiz == null || quiz.cues == null) return "(none)";
+        int text = 0, special = 0;
+        for (QuizCue c : quiz.cues) {
+            if (c == null || c.audioFile == null) continue;
+            if (c.targetTextIndex >= 1) text++;
+            else special++;
+        }
+        if (text == 0 && special == 0) return "(none)";
+        StringBuilder sb = new StringBuilder();
+        if (text > 0) sb.append(text).append(text == 1 ? " text cue" : " text cues");
+        if (special > 0) {
+            if (sb.length() > 0) sb.append(" + ");
+            sb.append(special).append(" special");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Modal sub-dialog for editing the slide's audio cues:
+     *   - one row per text item (target=#1..#N)
+     *   - one row for the "special" text-less audio (target=0)
+     *
+     * Each row: Browse audio / file label / Start (s) / Effects… / Color / Glow.
+     * Save commits the edits into {@code quiz.cues}; Cancel discards.
+     */
+    private static void openTimelineDialog(Window parent, QuizSlide quiz, int textItemCount) {
+        JDialog dlg = new JDialog(parent, "Quiz Audio Timeline",
+                Dialog.ModalityType.APPLICATION_MODAL);
+        dlg.setLayout(new BorderLayout(8, 8));
+
+        JPanel rows = new JPanel(new GridBagLayout());
+        rows.setBorder(BorderFactory.createEmptyBorder(12, 14, 8, 14));
+        GridBagConstraints gc = new GridBagConstraints();
+        gc.insets = new Insets(3, 4, 3, 6);
+        gc.anchor = GridBagConstraints.WEST;
+        gc.fill   = GridBagConstraints.HORIZONTAL;
+
+        int r = 0;
+
+        // Header.
+        gc.gridx = 0; gc.gridy = r;
+        rows.add(headerLabel("Target"), gc);
+        gc.gridx = 1; rows.add(headerLabel("Audio file"), gc);
+        gc.gridx = 2; rows.add(headerLabel("Start (s)"), gc);
+        gc.gridx = 3; rows.add(headerLabel("Effects"), gc);
+        gc.gridx = 4; rows.add(headerLabel("Color"), gc);
+        gc.gridx = 5; rows.add(headerLabel("Glow"), gc);
+        r++;
+
+        // Build N+1 row widgets: one per text item + one for the special audio.
+        int rowCount = Math.max(1, textItemCount) + 1;
+        TimelineRow[] uiRows = new TimelineRow[rowCount];
+
+        for (int i = 0; i < rowCount; i++) {
+            boolean special = (i == rowCount - 1);
+            int target = special ? 0 : (i + 1);   // 1-based text index, or 0
+            QuizCue existing = findCueForTarget(quiz, target);
+            uiRows[i] = buildTimelineRow(dlg, rows, gc, r++, target, existing);
+        }
+
+        dlg.add(new JScrollPane(rows), BorderLayout.CENTER);
+
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 8));
+        JButton cancel = new JButton("Cancel");
+        JButton save   = new JButton("Save");
+        cancel.addActionListener(e -> dlg.dispose());
+        save.addActionListener(e -> {
+            // Rebuild quiz.cues from the row widgets. Drop rows that have no file.
+            List<QuizCue> rebuilt = new ArrayList<>();
+            for (TimelineRow ui : uiRows) {
+                if (ui == null || ui.cue.audioFile == null) continue;
+                ui.cue.startMs = (int) Math.round(
+                        ((Number) ui.startSpin.getValue()).doubleValue() * 1000.0);
+                rebuilt.add(ui.cue);
+            }
+            quiz.cues = rebuilt;
+            dlg.dispose();
+        });
+        buttons.add(cancel);
+        buttons.add(save);
+        dlg.add(buttons, BorderLayout.SOUTH);
+
+        dlg.pack();
+        dlg.setSize(Math.max(720, dlg.getWidth()), Math.min(560, Math.max(280, dlg.getHeight())));
+        dlg.setLocationRelativeTo(parent);
+        dlg.setVisible(true);
+    }
+
+    private static JLabel headerLabel(String t) {
+        JLabel l = new JLabel(t);
+        l.setFont(l.getFont().deriveFont(Font.BOLD));
+        l.setForeground(new Color(190, 195, 210));
+        return l;
+    }
+
+    private static QuizCue findCueForTarget(QuizSlide quiz, int target1Based) {
+        if (quiz == null || quiz.cues == null) return null;
+        for (QuizCue c : quiz.cues) {
+            if (c != null && c.targetTextIndex == target1Based) return c;
+        }
+        return null;
+    }
+
+    /** Holds the widgets and the mutated cue for one row of the timeline editor. */
+    private static class TimelineRow {
+        QuizCue cue;
+        JSpinner startSpin;
+    }
+
+    private static TimelineRow buildTimelineRow(JDialog parent, JPanel rows,
+                                                GridBagConstraints gc, int r,
+                                                int target1Based, QuizCue existing) {
+        final TimelineRow ui = new TimelineRow();
+        ui.cue = existing != null ? existing.copy() : new QuizCue();
+        ui.cue.targetTextIndex = target1Based;
+
+        String label = target1Based == 0
+                ? "Special (no text)"
+                : "Text #" + target1Based;
+
+        gc.gridx = 0; gc.gridy = r;
+        rows.add(new JLabel(label), gc);
+
+        JButton browse = new JButton("Browse…");
+        JLabel fileLabel = new JLabel(ui.cue.audioFile != null
+                ? ui.cue.audioFile.getName()
+                + (ui.cue.durationMs > 0
+                        ? "  (" + (ui.cue.durationMs / 1000.0) + "s)" : "")
+                : "(none)");
+        fileLabel.setForeground(ui.cue.audioFile != null
+                ? new Color(120, 200, 255) : Color.GRAY);
+        browse.addActionListener(e -> {
+            File f = pickAudio(parent);
+            if (f != null) {
+                ui.cue.audioFile  = f;
+                ui.cue.durationMs = probeDurationMs(f);
+                fileLabel.setText(f.getName()
+                        + (ui.cue.durationMs > 0
+                                ? "  (" + (ui.cue.durationMs / 1000.0) + "s)" : ""));
+                fileLabel.setForeground(new Color(120, 200, 255));
+            }
+        });
+        JPanel fileCell = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        fileCell.setOpaque(false);
+        fileCell.add(browse);
+        fileCell.add(fileLabel);
+        // "Clear" button so users can remove a cue without deleting the row.
+        JButton clear = new JButton("✕");
+        clear.setMargin(new Insets(0, 4, 0, 4));
+        clear.setToolTipText("Remove this cue");
+        clear.addActionListener(e -> {
+            ui.cue.audioFile  = null;
+            ui.cue.durationMs = 0;
+            fileLabel.setText("(none)");
+            fileLabel.setForeground(Color.GRAY);
+        });
+        fileCell.add(clear);
+        gc.gridx = 1; rows.add(fileCell, gc);
+
+        ui.startSpin = new JSpinner(new SpinnerNumberModel(
+                ui.cue.startMs / 1000.0, 0.0, 3600.0, 0.1));
+        ((JSpinner.NumberEditor) ui.startSpin.getEditor())
+                .getTextField().setColumns(5);
+        gc.gridx = 2; rows.add(ui.startSpin, gc);
+
+        // Effects: only for text-targeting cues; special audio has no text effect.
+        if (target1Based >= 1) {
+            JButton fxBtn = new JButton(fxLabel(ui.cue.effects));
+            fxBtn.addActionListener(e -> {
+                String picked = pickEffects(parent, ui.cue.effects);
+                if (picked != null) {
+                    ui.cue.effects = picked;
+                    fxBtn.setText(fxLabel(picked));
+                }
+            });
+            gc.gridx = 3; rows.add(fxBtn, gc);
+
+            JButton colorBtn = new JButton("       ");
+            colorBtn.setBackground(ui.cue.hlColor);
+            colorBtn.setOpaque(true);
+            colorBtn.addActionListener(e -> {
+                Color picked = JColorChooser.showDialog(parent,
+                        "Highlight color", ui.cue.hlColor);
+                if (picked != null) {
+                    ui.cue.hlColor = picked;
+                    colorBtn.setBackground(picked);
+                }
+            });
+            gc.gridx = 4; rows.add(colorBtn, gc);
+
+            JSpinner glowSp = new JSpinner(new SpinnerNumberModel(
+                    Math.max(1, ui.cue.glowSize), 1, 40, 1));
+            ((JSpinner.NumberEditor) glowSp.getEditor())
+                    .getTextField().setColumns(3);
+            glowSp.addChangeListener(e ->
+                    ui.cue.glowSize = (Integer) glowSp.getValue());
+            gc.gridx = 5; rows.add(glowSp, gc);
+        } else {
+            // Special cue: greyed-out placeholders for clarity.
+            JLabel dash1 = small("—"); JLabel dash2 = small("—"); JLabel dash3 = small("—");
+            gc.gridx = 3; rows.add(dash1, gc);
+            gc.gridx = 4; rows.add(dash2, gc);
+            gc.gridx = 5; rows.add(dash3, gc);
+        }
+        return ui;
+    }
+
+    private static String fxLabel(String csv) {
+        if (csv == null || csv.isEmpty()) return "Glow ▾";
+        String trimmed = csv.length() > 28 ? csv.substring(0, 25) + "…" : csv;
+        return trimmed + " ▾";
+    }
+
+    /** Modal checkbox popup that returns the new comma-separated effects string. */
+    private static String pickEffects(Window parent, String current) {
+        JDialog d = new JDialog(parent, "Cue effects",
+                Dialog.ModalityType.APPLICATION_MODAL);
+        d.setLayout(new BorderLayout(6, 6));
+
+        JPanel grid = new JPanel(new GridLayout(0, 2, 4, 2));
+        grid.setBorder(BorderFactory.createEmptyBorder(10, 14, 10, 14));
+
+        java.util.Set<String> have = new java.util.HashSet<>();
+        if (current != null) {
+            for (String t : current.split(",")) {
+                String tt = t.trim();
+                if (!tt.isEmpty()) have.add(tt);
+            }
+        }
+        JCheckBox noneBox = new JCheckBox("None (no effect)", have.contains("None"));
+        grid.add(noneBox);
+        grid.add(new JLabel());
+        JCheckBox[] boxes = new JCheckBox[FX_NAMES.length];
+        for (int i = 0; i < FX_NAMES.length; i++) {
+            boxes[i] = new JCheckBox(FX_NAMES[i], have.contains(FX_NAMES[i]));
+            grid.add(boxes[i]);
+        }
+        d.add(grid, BorderLayout.CENTER);
+
+        final String[] result = {null};
+        JPanel btns = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 6));
+        JButton ok = new JButton("OK");
+        JButton ca = new JButton("Cancel");
+        ok.addActionListener(e -> {
+            if (noneBox.isSelected()) {
+                result[0] = "None";
+            } else {
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < boxes.length; i++) {
+                    if (boxes[i].isSelected()) {
+                        if (sb.length() > 0) sb.append(',');
+                        sb.append(FX_NAMES[i]);
+                    }
+                }
+                result[0] = sb.length() == 0 ? "None" : sb.toString();
+            }
+            d.dispose();
+        });
+        ca.addActionListener(e -> d.dispose());
+        btns.add(ca); btns.add(ok);
+        d.add(btns, BorderLayout.SOUTH);
+
+        d.pack();
+        d.setLocationRelativeTo(parent);
+        d.setVisible(true);
+        return result[0];
     }
 
     private static File pickAudio(Window parent) {
@@ -2338,8 +2740,9 @@ public class QuizSlide {
                 tickLoop.getAbsolutePath()
         });
 
-        File out = File.createTempFile("quizslide-combined-", ".wav");
-        out.deleteOnExit();
+        File baseOut = File.createTempFile("quizslide-base-", ".wav");
+        baseOut.deleteOnExit();
+        File out = baseOut;
 
         if ("AtSlideStart".equals(quiz.timerStartMode)) {
             // Mix mode: question + tick play together from t=0 with the
@@ -2380,6 +2783,53 @@ public class QuizSlide {
                     "-ac", "2", "-ar", "44100",
                     out.getAbsolutePath()
             });
+        }
+
+        // Step 3: mix any configured timeline cues into the base track. Each
+        // cue is delayed by its startMs so it lands at the right slide-relative
+        // moment; amix duration=longest pads the output if a cue ends after
+        // the base, which automatically extends the slide's totalAudioDuration.
+        List<QuizCue> activeCues = new ArrayList<>();
+        if (quiz.cues != null) {
+            for (QuizCue c : quiz.cues) {
+                if (c != null && c.audioFile != null && c.audioFile.exists()
+                        && c.durationMs > 0) {
+                    activeCues.add(c);
+                }
+            }
+        }
+        if (!activeCues.isEmpty()) {
+            File mixed = File.createTempFile("quizslide-combined-", ".wav");
+            mixed.deleteOnExit();
+            List<String> cmd = new ArrayList<>();
+            cmd.add("ffmpeg"); cmd.add("-y");
+            cmd.add("-i"); cmd.add(baseOut.getAbsolutePath());
+            for (QuizCue c : activeCues) {
+                cmd.add("-i"); cmd.add(c.audioFile.getAbsolutePath());
+            }
+            StringBuilder fc = new StringBuilder();
+            fc.append("[0:a]aformat=sample_rates=44100:channel_layouts=stereo[base];");
+            for (int i = 0; i < activeCues.size(); i++) {
+                QuizCue c = activeCues.get(i);
+                int delay = Math.max(0, c.startMs);
+                fc.append('[').append(i + 1).append(":a]")
+                  .append("aformat=sample_rates=44100:channel_layouts=stereo,")
+                  .append("adelay=").append(delay).append('|').append(delay)
+                  .append("[c").append(i).append("];");
+            }
+            fc.append("[base]");
+            for (int i = 0; i < activeCues.size(); i++) {
+                fc.append("[c").append(i).append("]");
+            }
+            fc.append("amix=inputs=").append(activeCues.size() + 1)
+              .append(":duration=longest:normalize=0[out]");
+            cmd.add("-filter_complex"); cmd.add(fc.toString());
+            cmd.add("-map"); cmd.add("[out]");
+            cmd.add("-ac"); cmd.add("2");
+            cmd.add("-ar"); cmd.add("44100");
+            cmd.add(mixed.getAbsolutePath());
+            runFfmpeg(cmd.toArray(new String[0]));
+            out = mixed;
         }
         return out;
     }

@@ -7514,6 +7514,12 @@ public class GifSlideShowApp extends JFrame {
             slides.get(slides.size() - 1).audioWordTimings = row.getSlideAudioWordTimingsList();
             slides.get(slides.size() - 1).audioKaraokeStyle = row.getSlideAudioKaraokeStyleList();
             slides.get(slides.size() - 1).audioKaraokeColor = row.getSlideAudioKaraokeColorList();
+            // Quiz timeline cues: overlay each cue's color / FX / glow onto the
+            // parallel audio-HL lists at its target text index, so the existing
+            // hlColorAt / hlEffectsAt / hlGlowSizeAt lookups return the cue's
+            // settings whenever getActiveAudioTextIndex returns that index (which
+            // — see the modified version — is exactly the cue's active window).
+            applyQuizCueOverlay(slides.get(slides.size() - 1));
         }
         if (slides.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Add at least one slide.", "No Slides", JOptionPane.WARNING_MESSAGE);
@@ -11275,6 +11281,36 @@ public class GifSlideShowApp extends JFrame {
         return s != null && s.quiz != null && s.quiz.enabled;
     }
 
+    /**
+     * For each configured quiz timeline cue, write the cue's highlight color,
+     * effects and glow size into the slide's parallel audio-HL lists at the
+     * cue's target text index. The existing render-side lookups
+     * ({@link #hlColorAt}, {@link #hlEffectsAt}, {@link #hlGlowSizeAt}) then
+     * return the cue's values whenever {@link #getActiveAudioTextIndex}
+     * reports that target as active — which only happens during the cue's
+     * own playback window (see the quiz branch added at the top of those
+     * methods). Special cues (targetTextIndex==0) are skipped — they don't
+     * trigger a text effect.
+     */
+    private static void applyQuizCueOverlay(SlideData s) {
+        if (!isQuizSlide(s) || s.quiz.cues == null || s.quiz.cues.isEmpty()) return;
+        int n = s.slideTexts != null ? s.slideTexts.size() : 0;
+        // Make sure the lists are big enough to set() at the cue's index. The
+        // standard SlideRow path sizes them to slideTexts.size() so this is a
+        // safety net for any caller that passed a shorter list.
+        while (s.audioHlColor.size()   < n) s.audioHlColor.add(DEFAULT_AUDIO_HL_COLOR);
+        while (s.audioHlEffects.size() < n) s.audioHlEffects.add(DEFAULT_AUDIO_HL_EFFECTS);
+        while (s.audioGlowSize.size()  < n) s.audioGlowSize.add(DEFAULT_AUDIO_GLOW_SIZE);
+        for (QuizSlide.QuizCue c : s.quiz.cues) {
+            if (c == null || c.audioFile == null || c.durationMs <= 0) continue;
+            int t = c.targetTextIndex - 1;
+            if (t < 0 || t >= n) continue;
+            if (c.hlColor != null) s.audioHlColor.set(t, c.hlColor);
+            s.audioHlEffects.set(t, c.effects != null ? c.effects : DEFAULT_AUDIO_HL_EFFECTS);
+            s.audioGlowSize.set(t, c.glowSize > 0 ? c.glowSize : DEFAULT_AUDIO_GLOW_SIZE);
+        }
+    }
+
     /** Paint the quiz countdown / reveal overlay onto a frame in place. No-op when not a quiz. */
     private static void paintQuizOverlay(BufferedImage frame, SlideData s, long elapsedMs) {
         if (frame == null || !isQuizSlide(s)) return;
@@ -11981,6 +12017,13 @@ public class GifSlideShowApp extends JFrame {
      * Returns -1 if no audio is active at that time.
      */
     private static int getActiveAudioTextIndex(SlideData s, long elapsedMs) {
+        // Quiz timeline cues take priority over the regular audio walk: while
+        // a text-targeting cue is playing, the cue's target text is "active"
+        // so the existing highlight pipeline applies the cue's effects to it.
+        if (isQuizSlide(s)) {
+            QuizSlide.QuizCue c = s.quiz.activeTextCueAt(elapsedMs);
+            if (c != null) return c.targetTextIndex - 1;
+        }
         if (s.audioDurationsMs == null || s.audioDurationsMs.isEmpty()) return -1;
         long cumulative = 0;
         int audioIdx = 0;
@@ -12008,6 +12051,13 @@ public class GifSlideShowApp extends JFrame {
      * instead of only at slide start.
      */
     private static long getActiveSegmentStartMs(SlideData s, long elapsedMs) {
+        // Mirror getActiveAudioTextIndex: when a quiz cue is the source of
+        // the active highlight, its startMs IS the segment start so one-shot
+        // FX re-fire from the cue's first frame, not from slide start.
+        if (isQuizSlide(s)) {
+            QuizSlide.QuizCue c = s.quiz.activeTextCueAt(elapsedMs);
+            if (c != null) return c.startMs;
+        }
         if (s.audioDurationsMs == null || s.audioDurationsMs.isEmpty()) return 0;
         long cumulative = 0;
         int audioIdx = 0;
