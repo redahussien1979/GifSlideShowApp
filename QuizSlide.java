@@ -1587,6 +1587,8 @@ public class QuizSlide {
             int shiftXPct    = readIntFieldOr(std, "shiftX", 0);
             boolean xLeftAlg = readBoolFieldOr(std, "xLeftAligned", false);
             int fontStyle    = readIntFieldOr(std, "fontStyle", Font.PLAIN);
+            int alignment    = readIntFieldOr(std, "alignment", SwingConstants.CENTER);
+            int widthPct     = readIntFieldOr(std, "widthPct", 0);
             String fontName  = (String) readFieldOr(std, "fontName", "Segoe UI");
             String text  = (String) readField(std, "text");
             if (text == null || text.isEmpty()) text = "Option " + optionIdx1Based;
@@ -1630,6 +1632,19 @@ public class QuizSlide {
                             + (int) (w * shiftXPct / 100.0);
                 } else {
                     px += firstLineW / 2;
+                }
+            } else {
+                // LEFT/RIGHT alignment positions the line inside a wrap-width
+                // box centered on (x,y). When that box is wider than the line
+                // (the common case for option text), the rendered glyphs sit
+                // off-center, so the reveal has to slide the same way.
+                int alignWidth = (widthPct > 0 && widthPct < 100)
+                        ? (int) (w * widthPct / 100.0)
+                        : w;
+                if (alignment == SwingConstants.LEFT) {
+                    px += (firstLineW - alignWidth) / 2;
+                } else if (alignment == SwingConstants.RIGHT) {
+                    px += (alignWidth - firstLineW) / 2;
                 }
             }
 
