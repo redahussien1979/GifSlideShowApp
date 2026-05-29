@@ -7539,15 +7539,14 @@ public class GifSlideShowApp extends JFrame {
                 && s.sourceVideoDurationMs > 0 && s.sourceVideoDurationMs > dur) {
             dur = s.sourceVideoDurationMs;
         }
-        // Quiz slides must last at least long enough to play the question
-        // audio AND the full countdown timer. In "AfterQuestion" (default) mode
-        // they run sequentially → questionAudio + timer. In "AtSlideStart" mode
-        // they run in parallel → max(questionAudio, timer).
+        // Quiz slides must last at least long enough for the timer to
+        // complete its countdown AND for any non-replay audio (question,
+        // cues) to finish reading. revealAtMs() already returns the later
+        // of (timerStart + timerSeconds) and lastNonReplayAudioEndMs,
+        // and timerStartMs() handles every timer-start mode including
+        // "AfterCue", so this single value covers them all.
         if (isQuizSlide(s)) {
-            long qEndMs  = Math.max(0, s.quiz.questionEndMs);
-            long timerMs = Math.max(0, s.quiz.timerSeconds) * 1000L;
-            long timerStart = "AtSlideStart".equals(s.quiz.timerStartMode) ? 0L : qEndMs;
-            long quizMs = timerStart + timerMs;
+            long quizMs = s.quiz.revealAtMs();
             if (quizMs > dur) dur = (int) Math.min(Integer.MAX_VALUE, quizMs);
 
             // If a hidden-text audio is configured, the slide must outlast
@@ -8854,6 +8853,25 @@ public class GifSlideShowApp extends JFrame {
                                         for (int d = 0; d < slideFrames; d++) {
                                             long elapsedMs = (long)(d * 1000.0 / fps);
                                             applyQuizHideMask(s.slideTexts, s.quiz, elapsedMs);
+                                            // Apply the audio-highlight pipeline so any active quiz cue
+                                            // (or regular per-text audio) baked into the slide actually
+                                            // fires its text effect on this frame — otherwise the MP4
+                                            // export would emit raw text with no FX.
+                                            int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
+                                            long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
+                                            int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
+                                            List<SlideTextData> hlTexts = (activeIdx >= 0)
+                                                    ? applyActiveTextHighlight(
+                                                            s.slideTexts, activeIdx,
+                                                            quizHlColorAt(s, activeIdx, elapsedMs),
+                                                            quizHlEffectsAt(s, activeIdx, elapsedMs),
+                                                            segFrame,
+                                                            quizHlGlowSizeAt(s, activeIdx, elapsedMs),
+                                                            wordTimingsAt(s.audioWordTimings, activeIdx),
+                                                            elapsedMs - segStartMs,
+                                                            karaokeStyleAt(s.audioKaraokeStyle, activeIdx),
+                                                            karaokeColorAt(s.audioKaraokeColor, activeIdx))
+                                                    : s.slideTexts;
                                             BufferedImage frame = renderFrame(
                                                     s.image, s.text, s.fontName, s.fontSize,
                                                     s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -8862,7 +8880,7 @@ public class GifSlideShowApp extends JFrame {
                                                     s.slideNumberX, s.slideNumberY,
                                                     s.slideNumberSize, s.slideNumberColor,
                     s.slideNumberStyle, s.slideNumberEffect,
-                                                    s.slideTexts,
+                                                    hlTexts,
                                                     s.fxRoundCorners, s.fxCornerRadius,
                                                     s.fxVignette, s.fxSepia, s.fxGrain,
                                                     s.fxWaterRipple, s.fxGlitch, s.fxShake,
@@ -12057,7 +12075,7 @@ public class GifSlideShowApp extends JFrame {
         // FX re-fire from the cue's first frame, not from slide start.
         if (isQuizSlide(s)) {
             QuizSlide.QuizCue c = s.quiz.activeTextCueAt(elapsedMs);
-            if (c != null) return c.startMs;
+            if (c != null) return s.quiz.effectiveStartMs(c);
         }
         if (s.audioDurationsMs == null || s.audioDurationsMs.isEmpty()) return 0;
         long cumulative = 0;
