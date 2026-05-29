@@ -451,6 +451,35 @@ public class QuizSlide {
         this.dingPreset        = src.dingPreset;
         this.customTickFile    = src.customTickFile;
         this.customDingFile    = src.customDingFile;
+        // Per-cue VISUALS only (effects / hl color / glow / rank / replay
+        // flag) — matched by targetTextIndex. The audio file, duration and
+        // manual startMs stay per-slide so each slide keeps its own
+        // recording. When the source has a cue for a target this slide
+        // doesn't, we create a visual-only entry (no audioFile) so the
+        // styling stays in sync; cues this slide has that the source
+        // doesn't are left untouched.
+        if (src.cues != null) {
+            if (this.cues == null) this.cues = new ArrayList<>();
+            for (QuizCue srcCue : src.cues) {
+                if (srcCue == null) continue;
+                QuizCue dest = null;
+                for (QuizCue c : this.cues) {
+                    if (c != null && c.targetTextIndex == srcCue.targetTextIndex) {
+                        dest = c; break;
+                    }
+                }
+                if (dest == null) {
+                    dest = new QuizCue();
+                    dest.targetTextIndex = srcCue.targetTextIndex;
+                    this.cues.add(dest);
+                }
+                dest.effects         = srcCue.effects;
+                dest.hlColor         = srcCue.hlColor;
+                dest.glowSize        = srcCue.glowSize;
+                dest.rank            = srcCue.rank;
+                dest.playAfterReveal = srcCue.playAfterReveal;
+            }
+        }
     }
 
     /**
