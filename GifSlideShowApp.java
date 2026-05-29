@@ -9093,8 +9093,10 @@ public class GifSlideShowApp extends JFrame {
                                             long elapsedMs = (long)(d * 1000.0 / fps);
                                             // Apply audio-highlight effects on the active text segment
                                             // (works for single-audio too — activeIdx is the lone segment).
+                                            // Quiz slides ALWAYS take this path so any active cue's
+                                            // effect (resolved time-aware via quizHl*At) fires here.
                                             List<SlideTextData> framedTexts = s.slideTexts;
-                                            if (hasAudioHlAnim) {
+                                            if (hasAudioHlAnim || isQuizSlide(s)) {
                                                 int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
                                                 if (activeIdx >= 0) {
                                                     long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
@@ -10373,9 +10375,13 @@ public class GifSlideShowApp extends JFrame {
                                         long elapsedMs = (long)(d * 1000.0 / fps);
                                         applyQuizHideMask(s.slideTexts, s.quiz, elapsedMs);
                                         // Apply audio-highlight on the active segment so single-audio
-                                        // slides still get Pulse/Shake/Other-* effects animated.
+                                        // slides still get Pulse/Shake/Other-* effects animated. We
+                                        // always run the pipeline for quiz slides too — quiz cues
+                                        // (Glow/Bold/Color/Shake/etc.) are time-resolved by the
+                                        // quizHl*At wrappers and only fire during the cue window, so
+                                        // running this unconditionally is safe and required.
                                         List<SlideTextData> framedTexts = s.slideTexts;
-                                        if (hasAudioHlAnim) {
+                                        if (hasAudioHlAnim || isQuizSlide(s)) {
                                             int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
                                             if (activeIdx >= 0) {
                                                 long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
