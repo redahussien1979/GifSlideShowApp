@@ -6234,8 +6234,16 @@ public class GifSlideShowApp extends JFrame {
                     pg.drawImage(pic.image, picX, picY, picW, picH, null);
                     pg.dispose();
                 }
-                // Audio effect animation
-                if (pic.audioEffect != null && !pic.audioEffect.equals("None") && animFrameIndex >= 0) {
+                // Audio effect animation. When audioActiveIdx >= 0, only fire
+                // the effect while that specific audio segment is playing
+                // (read from the export-loop thread-local). When -1, animate
+                // regardless (static preview or no audio assigned).
+                int _activeAudio = activeAudioSegmentIdx.get();
+                boolean _effectOn = pic.audioActiveIdx < 0
+                        || _activeAudio < 0
+                        || _activeAudio == pic.audioActiveIdx;
+                if (pic.audioEffect != null && !pic.audioEffect.equals("None")
+                        && animFrameIndex >= 0 && _effectOn) {
                     int ex = picX, ey = picY, ew = picW, eh = picH;
                     if ("Circle".equals(pic.shape)) {
                         int diameter = Math.min(picW, picH);
@@ -8575,6 +8583,7 @@ public class GifSlideShowApp extends JFrame {
                                         long elapsedMs = (long)(df * 1000.0 / fps);
                                         applyQuizHideMask(s.slideTexts, s.quiz, elapsedMs);
                                         int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
+                                        activeAudioSegmentIdx.set(activeIdx);
                                         long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
                                         int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
                                         String frameName = String.format("frame_%05d.png", f);
@@ -8951,6 +8960,7 @@ public class GifSlideShowApp extends JFrame {
                                             long elapsedMs = (long)(d * 1000.0 / fps);
                                             applyQuizHideMask(s.slideTexts, s.quiz, elapsedMs);
                                             int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
+                                        activeAudioSegmentIdx.set(activeIdx);
                                             long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
                                             int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
                                             List<SlideTextData> hlTexts = (activeIdx >= 0)
@@ -9021,6 +9031,7 @@ public class GifSlideShowApp extends JFrame {
                                         for (int d = 0; d < slideFrames; d++) {
                                             long elapsedMs = (long)(d * 1000.0 / fps);
                                             int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
+                                        activeAudioSegmentIdx.set(activeIdx);
                                             long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
                                             int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
                                             List<SlideTextData> hlTexts = applyActiveTextHighlight(
@@ -9193,6 +9204,7 @@ public class GifSlideShowApp extends JFrame {
                                             List<SlideTextData> framedTexts = s.slideTexts;
                                             if (hasAudioHlAnim || isQuizSlide(s)) {
                                                 int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
+                                        activeAudioSegmentIdx.set(activeIdx);
                                                 if (activeIdx >= 0) {
                                                     long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
                                                     int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
@@ -10407,6 +10419,7 @@ public class GifSlideShowApp extends JFrame {
                                         long elapsedMs = (long)(d * 1000.0 / fps);
                                         applyQuizHideMask(s.slideTexts, s.quiz, elapsedMs);
                                         int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
+                                        activeAudioSegmentIdx.set(activeIdx);
                                         long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
                                         int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
                                         List<SlideTextData> hlTexts = applyActiveTextHighlight(
@@ -10477,6 +10490,7 @@ public class GifSlideShowApp extends JFrame {
                                         List<SlideTextData> framedTexts = s.slideTexts;
                                         if (hasAudioHlAnim || isQuizSlide(s)) {
                                             int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
+                                        activeAudioSegmentIdx.set(activeIdx);
                                             if (activeIdx >= 0) {
                                                 long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
                                                 int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
@@ -11346,6 +11360,11 @@ public class GifSlideShowApp extends JFrame {
     private static final String DEFAULT_AUDIO_HL_EFFECTS = "Glow";
     private static final Color  DEFAULT_AUDIO_HL_COLOR   = new Color(255, 200, 50, 160);
     private static final int    DEFAULT_AUDIO_GLOW_SIZE  = 7;
+    // Set by the export loop before every renderFrame call so the renderer can
+    // decide whether a bulk-grid image's audio-triggered effect should fire.
+    // -1 = no audio active / static preview. Thread-local because GIF/MP4
+    // exports run on a background thread that never overlaps the EDT preview.
+    static final ThreadLocal<Integer> activeAudioSegmentIdx = ThreadLocal.withInitial(() -> -1);
 
     private static String hlEffectsAt(List<String> list, int idx) {
         if (list == null || idx < 0 || idx >= list.size()) return DEFAULT_AUDIO_HL_EFFECTS;
@@ -12305,6 +12324,7 @@ public class GifSlideShowApp extends JFrame {
             if (audioHl) {
                 long elapsedMs = (long) (f * 1000.0 / fps);
                 int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
+                                        activeAudioSegmentIdx.set(activeIdx);
                 if (activeIdx >= 0) {
                     long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
                     int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
@@ -12824,23 +12844,35 @@ public class GifSlideShowApp extends JFrame {
         // follows aspect ratio). When > 0, the image is fit (aspect-preserved)
         // inside a widthPct × boxHeightPct box so bulk-grid cells never overflow.
         final int boxHeightPct;
+        // Index into the slide's audioFiles list at which this image's audio
+        // appears. -1 means "always animate the effect"; when >= 0 the effect
+        // only shows while that audio segment is active (activeIdx matches).
+        final int audioActiveIdx;
 
         SlidePictureData(boolean show, BufferedImage image, File imageFile,
                          int x, int y, int widthPct, String shape, int cornerRadius) {
-            this(show, image, imageFile, x, y, widthPct, shape, cornerRadius, null, -1, "None", 0);
+            this(show, image, imageFile, x, y, widthPct, shape, cornerRadius, null, -1, "None", 0, -1);
         }
 
         SlidePictureData(boolean show, BufferedImage image, File imageFile,
                          int x, int y, int widthPct, String shape, int cornerRadius,
                          File audioFile, int audioDurationMs, String audioEffect) {
             this(show, image, imageFile, x, y, widthPct, shape, cornerRadius,
-                    audioFile, audioDurationMs, audioEffect, 0);
+                    audioFile, audioDurationMs, audioEffect, 0, -1);
         }
 
         SlidePictureData(boolean show, BufferedImage image, File imageFile,
                          int x, int y, int widthPct, String shape, int cornerRadius,
                          File audioFile, int audioDurationMs, String audioEffect,
                          int boxHeightPct) {
+            this(show, image, imageFile, x, y, widthPct, shape, cornerRadius,
+                    audioFile, audioDurationMs, audioEffect, boxHeightPct, -1);
+        }
+
+        SlidePictureData(boolean show, BufferedImage image, File imageFile,
+                         int x, int y, int widthPct, String shape, int cornerRadius,
+                         File audioFile, int audioDurationMs, String audioEffect,
+                         int boxHeightPct, int audioActiveIdx) {
             this.show = show;
             this.image = image;
             this.imageFile = imageFile;
@@ -12853,6 +12885,7 @@ public class GifSlideShowApp extends JFrame {
             this.audioDurationMs = audioDurationMs;
             this.audioEffect = audioEffect != null ? audioEffect : "None";
             this.boxHeightPct = boxHeightPct;
+            this.audioActiveIdx = audioActiveIdx;
         }
     }
 
@@ -17294,6 +17327,16 @@ public class GifSlideShowApp extends JFrame {
             int widthPct = Math.max(1, (int) (cellW * 0.96));
             int heightPct = Math.max(1, (int) (cellH * 0.96));
 
+            // Compute where bulk audio starts in the full audioFiles list so
+            // each image's effect fires only while its own audio segment plays.
+            int textAudioCount = 0;
+            {
+                int maxIdx = -1;
+                for (int k : slideAudioFiles.keySet()) if (k > maxIdx) maxIdx = k;
+                textAudioCount = maxIdx + 1; // 0 when no text audio
+            }
+            int bulkAudioSlot = textAudioCount; // index of first bulk audio in full list
+
             for (int i = 0; i < n; i++) {
                 SlidePictureData src = bulkGridItems.get(i);
                 int c = i % cols;
@@ -17301,9 +17344,16 @@ public class GifSlideShowApp extends JFrame {
                 if (r >= rows) break;
                 int cx = (int) Math.round((c + 0.5) * cellW);
                 int cy = (int) Math.round((r + 0.5) * cellH);
+                // audioActiveIdx: the slot in the full audioFiles list for this
+                // image. -1 if it has no audio (always-on effect, if any).
+                int audioActiveIdx = -1;
+                if (src.audioFile != null && src.audioFile.exists() && src.audioDurationMs > 0) {
+                    audioActiveIdx = bulkAudioSlot;
+                    bulkAudioSlot++;
+                }
                 out.add(new SlidePictureData(true, src.image, src.imageFile, cx, cy, widthPct,
                         src.shape, src.cornerRadius, src.audioFile, src.audioDurationMs,
-                        src.audioEffect, heightPct));
+                        src.audioEffect, heightPct, audioActiveIdx));
             }
             return out;
         }
@@ -17868,10 +17918,19 @@ public class GifSlideShowApp extends JFrame {
         java.util.List<File> getSlideAudioFilesList() {
             int maxIdx = -1;
             for (int k : slideAudioFiles.keySet()) if (k > maxIdx) maxIdx = k;
-            if (maxIdx < 0) return new java.util.ArrayList<>();
             java.util.List<File> result = new java.util.ArrayList<>();
             for (int i = 0; i <= maxIdx; i++) {
                 result.add(slideAudioFiles.get(i));
+            }
+            // Append audio files from bulk-grid images (each plays in sequence).
+            if (bulkGridShowCheck != null && bulkGridShowCheck.isSelected()) {
+                saveBulkItemToList();
+                for (SlidePictureData pic : bulkGridItems) {
+                    if (pic.audioFile != null && pic.audioFile.exists()
+                            && pic.audioDurationMs > 0) {
+                        result.add(pic.audioFile);
+                    }
+                }
             }
             return result;
         }
@@ -17879,11 +17938,19 @@ public class GifSlideShowApp extends JFrame {
         java.util.List<Integer> getSlideAudioDurationsMsList() {
             int maxIdx = -1;
             for (int k : slideAudioDurationsMs.keySet()) if (k > maxIdx) maxIdx = k;
-            if (maxIdx < 0) return new java.util.ArrayList<>();
             java.util.List<Integer> result = new java.util.ArrayList<>();
             for (int i = 0; i <= maxIdx; i++) {
                 Integer d = slideAudioDurationsMs.get(i);
                 result.add(d != null ? d : 0);
+            }
+            // Append durations from bulk-grid images, parallel to audio files.
+            if (bulkGridShowCheck != null && bulkGridShowCheck.isSelected()) {
+                for (SlidePictureData pic : bulkGridItems) {
+                    if (pic.audioFile != null && pic.audioFile.exists()
+                            && pic.audioDurationMs > 0) {
+                        result.add(pic.audioDurationMs);
+                    }
+                }
             }
             return result;
         }
