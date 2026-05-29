@@ -6189,9 +6189,21 @@ public class GifSlideShowApp extends JFrame {
         if (slidePictures != null) {
             for (SlidePictureData pic : slidePictures) {
                 if (!pic.show || pic.image == null) continue;
-                int picW = Math.max(1, (int) (targetW * pic.widthPct / 100.0));
                 double aspect = (double) pic.image.getHeight() / pic.image.getWidth();
-                int picH = Math.max(1, (int) (picW * aspect));
+                int picW, picH;
+                if (pic.boxHeightPct > 0) {
+                    // Fit the image (aspect-preserved) inside a width × height box
+                    // so grid cells never overflow into their neighbours.
+                    int boxW = Math.max(1, (int) (targetW * pic.widthPct / 100.0));
+                    int boxH = Math.max(1, (int) (targetH * pic.boxHeightPct / 100.0));
+                    double scale = Math.min((double) boxW / pic.image.getWidth(),
+                            (double) boxH / pic.image.getHeight());
+                    picW = Math.max(1, (int) (pic.image.getWidth() * scale));
+                    picH = Math.max(1, (int) (pic.image.getHeight() * scale));
+                } else {
+                    picW = Math.max(1, (int) (targetW * pic.widthPct / 100.0));
+                    picH = Math.max(1, (int) (picW * aspect));
+                }
                 int picX = (int) (targetW * pic.x / 100.0) - picW / 2;
                 int picY = (int) (targetH * pic.y / 100.0) - picH / 2;
 
@@ -12808,15 +12820,27 @@ public class GifSlideShowApp extends JFrame {
         final File audioFile;       // audio tied to this picture (bulk grid)
         final int audioDurationMs;  // duration of audioFile in ms, -1 = unknown
         final String audioEffect;   // "None", "Glow", "Scale Pulse", "Bounce"
+        // Max height as % of frame height. 0 = legacy width-only sizing (height
+        // follows aspect ratio). When > 0, the image is fit (aspect-preserved)
+        // inside a widthPct × boxHeightPct box so bulk-grid cells never overflow.
+        final int boxHeightPct;
 
         SlidePictureData(boolean show, BufferedImage image, File imageFile,
                          int x, int y, int widthPct, String shape, int cornerRadius) {
-            this(show, image, imageFile, x, y, widthPct, shape, cornerRadius, null, -1, "None");
+            this(show, image, imageFile, x, y, widthPct, shape, cornerRadius, null, -1, "None", 0);
         }
 
         SlidePictureData(boolean show, BufferedImage image, File imageFile,
                          int x, int y, int widthPct, String shape, int cornerRadius,
                          File audioFile, int audioDurationMs, String audioEffect) {
+            this(show, image, imageFile, x, y, widthPct, shape, cornerRadius,
+                    audioFile, audioDurationMs, audioEffect, 0);
+        }
+
+        SlidePictureData(boolean show, BufferedImage image, File imageFile,
+                         int x, int y, int widthPct, String shape, int cornerRadius,
+                         File audioFile, int audioDurationMs, String audioEffect,
+                         int boxHeightPct) {
             this.show = show;
             this.image = image;
             this.imageFile = imageFile;
@@ -12828,6 +12852,7 @@ public class GifSlideShowApp extends JFrame {
             this.audioFile = audioFile;
             this.audioDurationMs = audioDurationMs;
             this.audioEffect = audioEffect != null ? audioEffect : "None";
+            this.boxHeightPct = boxHeightPct;
         }
     }
 
@@ -17262,7 +17287,12 @@ public class GifSlideShowApp extends JFrame {
 
             double cellW = 100.0 / cols;
             double cellH = 100.0 / rows;
+            // Each image is fit (aspect-preserved) inside its cell box. The 0.96
+            // factor leaves a small gutter between cells. Passing both widthPct
+            // and boxHeightPct means a tall image is bounded by the cell height
+            // and a wide one by the cell width — neither overflows its neighbour.
             int widthPct = Math.max(1, (int) (cellW * 0.96));
+            int heightPct = Math.max(1, (int) (cellH * 0.96));
 
             for (int i = 0; i < n; i++) {
                 SlidePictureData src = bulkGridItems.get(i);
@@ -17272,7 +17302,8 @@ public class GifSlideShowApp extends JFrame {
                 int cx = (int) Math.round((c + 0.5) * cellW);
                 int cy = (int) Math.round((r + 0.5) * cellH);
                 out.add(new SlidePictureData(true, src.image, src.imageFile, cx, cy, widthPct,
-                        src.shape, src.cornerRadius, src.audioFile, src.audioDurationMs, src.audioEffect));
+                        src.shape, src.cornerRadius, src.audioFile, src.audioDurationMs,
+                        src.audioEffect, heightPct));
             }
             return out;
         }
