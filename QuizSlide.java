@@ -1032,7 +1032,7 @@ public class QuizSlide {
             int x2 = cx + (int) (tickOuter * Math.cos(ang));
             int y2 = cy + (int) (tickOuter * Math.sin(ang));
             g.setStroke(new BasicStroke(major ? Math.max(2, diameter / 50f)
-                                              : Math.max(1, diameter / 90f)));
+                    : Math.max(1, diameter / 90f)));
             g.setColor(major ? Color.WHITE : new Color(255, 255, 255, 110));
             g.drawLine(x1, y1, x2, y2);
         }
@@ -1188,7 +1188,7 @@ public class QuizSlide {
                 // Default: deplete from the LEFT (lit blocks on the right).
                 // Reverse: deplete from the RIGHT (lit blocks on the left).
                 boolean lit = reverse ? (i < filledSegs)
-                                      : (i >= (totalSegs - filledSegs));
+                        : (i >= (totalSegs - filledSegs));
                 g.setColor(lit ? accent : bg);
                 g.fillRoundRect(sx, y, segW, barH, segArc, segArc);
                 g.setColor(new Color(255, 255, 255, 60));
@@ -1202,7 +1202,7 @@ public class QuizSlide {
                 // Default: deplete from the TOP (lit blocks at the bottom).
                 // Reverse: deplete from the BOTTOM (lit blocks at the top).
                 boolean lit = reverse ? (i < filledSegs)
-                                      : (i >= (totalSegs - filledSegs));
+                        : (i >= (totalSegs - filledSegs));
                 g.setColor(lit ? accent : bg);
                 g.fillRoundRect(x, sy, barW, segH, segArc, segArc);
                 g.setColor(new Color(255, 255, 255, 60));
@@ -1278,15 +1278,15 @@ public class QuizSlide {
         g.setColor(new Color(255, 255, 255, 90));
         Polygon shineTop = new Polygon(
                 new int[] { cx - glassW / 2 + glassW / 6, cx - glassW / 2 + glassW / 3,
-                            cx - neckHalf / 2 - glassW / 18, cx - neckHalf },
+                        cx - neckHalf / 2 - glassW / 18, cx - neckHalf },
                 new int[] { top + glassH / 22, top + glassH / 22,
-                            cy - glassH / 22, cy - glassH / 22 }, 4);
+                        cy - glassH / 22, cy - glassH / 22 }, 4);
         g.fillPolygon(shineTop);
         Polygon shineBot = new Polygon(
                 new int[] { cx - neckHalf, cx - neckHalf / 2 - glassW / 18,
-                            cx - glassW / 2 + glassW / 3, cx - glassW / 2 + glassW / 6 },
+                        cx - glassW / 2 + glassW / 3, cx - glassW / 2 + glassW / 6 },
                 new int[] { cy + glassH / 22, cy + glassH / 22,
-                            bottom - glassH / 22, bottom - glassH / 22 }, 4);
+                        bottom - glassH / 22, bottom - glassH / 22 }, 4);
         g.fillPolygon(shineBot);
         g.setComposite(oc);
 
@@ -1300,7 +1300,7 @@ public class QuizSlide {
                 new int[] { cx - topWHere / 2, cx + topWHere / 2, cx + neckHalf, cx - neckHalf },
                 new int[] { (int) sandTopY,    (int) sandTopY,    cy,            cy             }, 4);
         g.setPaint(new GradientPaint(cx, (float) sandTopY, sandTop,
-                                     cx, cy,               sandBot));
+                cx, cy,               sandBot));
         g.fillPolygon(topSand);
 
         if (topWHere > 8 && prog < 0.99) {
@@ -1331,7 +1331,7 @@ public class QuizSlide {
             java.awt.Shape oldClip = g.getClip();
             g.setClip(botTri);
             g.setPaint(new GradientPaint(cx, pileApexY, sandTop,
-                                         cx, pileBaseY, sandBot));
+                    cx, pileBaseY, sandBot));
             g.fillPolygon(pile);
             g.setColor(brighten(accent, 255));
             g.setStroke(new BasicStroke(Math.max(1.0f, glassW / 60f),
@@ -1573,7 +1573,7 @@ public class QuizSlide {
         int totalFuse = Math.abs(fuseEndX - fuseStartX);
         int burnedLen = (int) (totalFuse * progress);
         int burnedTip = rtl ? (fuseEndX - (totalFuse - burnedLen))
-                            : (fuseStartX + (totalFuse - burnedLen));
+                : (fuseStartX + (totalFuse - burnedLen));
 
         float cordThick = Math.max(3f, fuseH / 4f);
         g.setStroke(new BasicStroke(cordThick, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
@@ -1956,7 +1956,7 @@ public class QuizSlide {
         int half = badge / 2;
         // Filled disc backdrop (skipped for "Heart" — the heart silhouette is the badge).
         boolean discBackdrop = !"Heart".equalsIgnoreCase(style)
-                            && !"Star".equalsIgnoreCase(style);
+                && !"Star".equalsIgnoreCase(style);
         if (discBackdrop) {
             g.setColor(fill);
             g.fillOval(cx - half, cy - half, badge, badge);
@@ -2006,7 +2006,7 @@ public class QuizSlide {
             double ang = Math.toRadians(-90 + i * 36);
             double rad = (i % 2 == 0) ? r : r * 0.45;
             p.addPoint(cx + (int) (rad * Math.cos(ang)),
-                       cy + (int) (rad * Math.sin(ang)));
+                    cy + (int) (rad * Math.sin(ang)));
         }
         g.setColor(fill);
         g.fillPolygon(p);
@@ -2283,8 +2283,8 @@ public class QuizSlide {
                 quiz.questionAudioDurationMs = probeDurationMs(f);
                 qAudioLabel.setText(f.getName()
                         + (quiz.questionAudioDurationMs > 0
-                            ? "  (" + (quiz.questionAudioDurationMs / 1000.0) + "s)"
-                            : ""));
+                        ? "  (" + (quiz.questionAudioDurationMs / 1000.0) + "s)"
+                        : ""));
                 qAudioLabel.setForeground(new Color(120, 200, 255));
             }
         });
@@ -2409,10 +2409,10 @@ public class QuizSlide {
             if (quiz.enabled) {
                 if (quiz.useQuestionAudio
                         && (quiz.questionAudioFile == null
-                            || !quiz.questionAudioFile.exists())) {
+                        || !quiz.questionAudioFile.exists())) {
                     JOptionPane.showMessageDialog(dialog,
                             "Please choose a question-audio file, "
-                            + "or uncheck \"Use question audio\".",
+                                    + "or uncheck \"Use question audio\".",
                             "Missing question audio",
                             JOptionPane.WARNING_MESSAGE);
                     return;
@@ -2597,7 +2597,7 @@ public class QuizSlide {
         JLabel fileLabel = new JLabel(ui.cue.audioFile != null
                 ? ui.cue.audioFile.getName()
                 + (ui.cue.durationMs > 0
-                        ? "  (" + (ui.cue.durationMs / 1000.0) + "s)" : "")
+                ? "  (" + (ui.cue.durationMs / 1000.0) + "s)" : "")
                 : "(none)");
         fileLabel.setForeground(ui.cue.audioFile != null
                 ? new Color(120, 200, 255) : Color.GRAY);
@@ -2608,7 +2608,7 @@ public class QuizSlide {
                 ui.cue.durationMs = probeDurationMs(f);
                 fileLabel.setText(f.getName()
                         + (ui.cue.durationMs > 0
-                                ? "  (" + (ui.cue.durationMs / 1000.0) + "s)" : ""));
+                        ? "  (" + (ui.cue.durationMs / 1000.0) + "s)" : ""));
                 fileLabel.setForeground(new Color(120, 200, 255));
             }
         });
@@ -3051,16 +3051,16 @@ public class QuizSlide {
             long delay = delays.get(i);
             double vol = vols.get(i);
             fc.append('[').append(i).append(":a]")
-              .append("aformat=sample_rates=44100:channel_layouts=stereo,")
-              .append("volume=").append(vol).append(',')
-              .append("adelay=").append(delay).append('|').append(delay)
-              .append("[a").append(i).append("];");
+                    .append("aformat=sample_rates=44100:channel_layouts=stereo,")
+                    .append("volume=").append(vol).append(',')
+                    .append("adelay=").append(delay).append('|').append(delay)
+                    .append("[a").append(i).append("];");
         }
         for (int i = 0; i < files.size(); i++) {
             fc.append("[a").append(i).append("]");
         }
         fc.append("amix=inputs=").append(files.size())
-          .append(":duration=longest:normalize=0[out]");
+                .append(":duration=longest:normalize=0[out]");
         cmd.add("-filter_complex"); cmd.add(fc.toString());
         cmd.add("-map"); cmd.add("[out]");
         cmd.add("-ac"); cmd.add("2");
