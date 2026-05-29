@@ -16851,6 +16851,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(toolbar4e);
             toolbarsPanel.add(toolbar4g1);
             toolbarsPanel.add(toolbar4g2);
+            toolbarsPanel.add(toolbar4g3);
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar5a);
             toolbarsPanel.add(toolbar5b);
@@ -17503,12 +17504,17 @@ public class GifSlideShowApp extends JFrame {
 
             double cellW = 100.0 / cols;
             double cellH = 100.0 / rows;
-            // Each image is fit (aspect-preserved) inside its cell box. The 0.96
-            // factor leaves a small gutter between cells. Passing both widthPct
-            // and boxHeightPct means a tall image is bounded by the cell height
-            // and a wide one by the cell width — neither overflows its neighbour.
-            int widthPct = Math.max(1, (int) (cellW * 0.96));
-            int heightPct = Math.max(1, (int) (cellH * 0.96));
+            // Each image is fit (aspect-preserved) inside its cell box. The gap
+            // spinner controls the gutter between cells as a % of cell size.
+            int gapPct = (int) bulkGapSpinner.getValue();          // 0-50
+            double gutter = gapPct / 100.0;
+            int widthPct  = Math.max(1, (int)(cellW * (1.0 - gutter)));
+            int heightPct = Math.max(1, (int)(cellH * (1.0 - gutter)));
+            int cornerRadius = (int) bulkCornerSpinner.getValue();
+            int borderWidth  = (int) bulkBorderSpinner.getValue();
+            Color borderColor = bulkBorderColor;
+            int opacity = (int) bulkOpacitySpinner.getValue();
+            String fitMode = (String) bulkFitCombo.getSelectedItem();
 
             // Compute where bulk audio starts in the full audioFiles list so
             // each image's effect fires only while its own audio segment plays.
@@ -17535,8 +17541,9 @@ public class GifSlideShowApp extends JFrame {
                     bulkAudioSlot++;
                 }
                 out.add(new SlidePictureData(true, src.image, src.imageFile, cx, cy, widthPct,
-                        src.shape, src.cornerRadius, src.audioFile, src.audioDurationMs,
-                        src.audioEffect, heightPct, audioActiveIdx));
+                        src.shape, cornerRadius, src.audioFile, src.audioDurationMs,
+                        src.audioEffect, heightPct, audioActiveIdx,
+                        borderWidth, borderColor, opacity, fitMode != null ? fitMode : "Fit"));
             }
             return out;
         }
