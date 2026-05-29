@@ -465,6 +465,24 @@ public class GifSlideShowApp extends JFrame {
                 props.setProperty("quiz.customTickFile", qs.customTickFile.getAbsolutePath());
             if (qs.customDingFile != null)
                 props.setProperty("quiz.customDingFile", qs.customDingFile.getAbsolutePath());
+            // Per-cue VISUALS only — effects / hl color / glow / rank /
+            // replay flag, keyed by targetTextIndex. Audio file and start
+            // time stay per-slide and are intentionally not persisted in
+            // the preset (matches copyVisualSettingsFrom).
+            int cueCount = qs.cues != null ? qs.cues.size() : 0;
+            props.setProperty("quiz.cueCount", String.valueOf(cueCount));
+            for (int ci = 0; ci < cueCount; ci++) {
+                QuizSlide.QuizCue c = qs.cues.get(ci);
+                if (c == null) continue;
+                String cp = "quiz.cue" + ci + ".";
+                props.setProperty(cp + "targetTextIndex", String.valueOf(c.targetTextIndex));
+                props.setProperty(cp + "effects",         c.effects != null ? c.effects : DEFAULT_AUDIO_HL_EFFECTS);
+                props.setProperty(cp + "hlColor",         colorToHex(c.hlColor != null
+                        ? c.hlColor : new Color(255, 200, 50, 160)));
+                props.setProperty(cp + "glowSize",        String.valueOf(c.glowSize));
+                props.setProperty(cp + "rank",            String.valueOf(c.rank));
+                props.setProperty(cp + "playAfterReveal", String.valueOf(c.playAfterReveal));
+            }
         }
 
         File file = new File(PRESETS_DIR, name + ".preset");
@@ -736,6 +754,23 @@ public class GifSlideShowApp extends JFrame {
         if (ctp != null && !ctp.isEmpty()) tmpl.customTickFile = new File(ctp);
         String cdp = props.getProperty("quiz.customDingFile");
         if (cdp != null && !cdp.isEmpty()) tmpl.customDingFile = new File(cdp);
+        // Per-cue VISUALS — see save side. copyVisualSettingsFrom merges
+        // these into each row's existing cue list by targetTextIndex, so
+        // each slide keeps its own audio recording.
+        int cueCount = Integer.parseInt(props.getProperty("quiz.cueCount", "0"));
+        tmpl.cues = new ArrayList<>();
+        for (int ci = 0; ci < cueCount; ci++) {
+            String cp = "quiz.cue" + ci + ".";
+            if (props.getProperty(cp + "targetTextIndex") == null) continue;
+            QuizSlide.QuizCue c = new QuizSlide.QuizCue();
+            c.targetTextIndex = Integer.parseInt(props.getProperty(cp + "targetTextIndex", "0"));
+            c.effects         = props.getProperty(cp + "effects", "Glow");
+            c.hlColor         = hexToColor(props.getProperty(cp + "hlColor", "#FFC832A0"));
+            c.glowSize        = Integer.parseInt(props.getProperty(cp + "glowSize", "7"));
+            c.rank            = Integer.parseInt(props.getProperty(cp + "rank", "0"));
+            c.playAfterReveal = Boolean.parseBoolean(props.getProperty(cp + "playAfterReveal", "false"));
+            tmpl.cues.add(c);
+        }
 
         // Apply to all non-title-grid slides
         isSyncingFormat = true;
