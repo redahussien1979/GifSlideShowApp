@@ -6234,14 +6234,15 @@ public class GifSlideShowApp extends JFrame {
                     pg.drawImage(pic.image, picX, picY, picW, picH, null);
                     pg.dispose();
                 }
-                // Audio effect animation. When audioActiveIdx >= 0, only fire
-                // the effect while that specific audio segment is playing
-                // (read from the export-loop thread-local). When -1, animate
-                // regardless (static preview or no audio assigned).
+                // Audio effect animation. When this image has its own audio
+                // (audioActiveIdx >= 0), the effect fires ONLY while that exact
+                // audio segment is playing — read from the export-loop
+                // thread-local. When the image has no audio (-1), the effect
+                // animates continuously (legacy single-picture behaviour).
                 int _activeAudio = activeAudioSegmentIdx.get();
-                boolean _effectOn = pic.audioActiveIdx < 0
-                        || _activeAudio < 0
-                        || _activeAudio == pic.audioActiveIdx;
+                boolean _effectOn = (pic.audioActiveIdx < 0)
+                        ? true
+                        : (_activeAudio == pic.audioActiveIdx);
                 if (pic.audioEffect != null && !pic.audioEffect.equals("None")
                         && animFrameIndex >= 0 && _effectOn) {
                     int ex = picX, ey = picY, ew = picW, eh = picH;
@@ -6252,13 +6253,16 @@ public class GifSlideShowApp extends JFrame {
                         ew = diameter; eh = diameter;
                     }
                     double phase = (animFrameIndex % 30) / 30.0; // 0..1 cycle
+                    float rcScaleE = Math.max(targetW, targetH) / 1920.0f;
                     Graphics2D eg = (Graphics2D) g.create();
                     eg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    eg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
                     if ("Glow".equals(pic.audioEffect)) {
-                        float alpha = (float)(0.4 + 0.4 * Math.sin(phase * 2 * Math.PI));
-                        int glowSize = Math.max(4, (int)(Math.min(ew, eh) * 0.05));
+                        // Pronounced pulsing halo around the active image.
+                        float alpha = (float)(0.55 + 0.45 * Math.sin(phase * 2 * Math.PI));
+                        int glowSize = Math.max(8, (int)(Math.min(ew, eh) * 0.10));
                         for (int gi = glowSize; gi >= 1; gi--) {
-                            eg.setColor(new Color(1f, 0.8f, 0.2f, alpha * (1f - (float)gi / glowSize)));
+                            eg.setColor(new Color(1f, 0.82f, 0.2f, alpha * (1f - (float)gi / glowSize)));
                             eg.setStroke(new java.awt.BasicStroke(gi * 2));
                             if ("Circle".equals(pic.shape)) {
                                 eg.drawOval(ex - gi, ey - gi, ew + gi * 2, eh + gi * 2);
@@ -6268,21 +6272,40 @@ public class GifSlideShowApp extends JFrame {
                             }
                         }
                     } else if ("Scale Pulse".equals(pic.audioEffect)) {
-                        // already rendered; draw a breathing border
-                        float scale = (float)(1.0 + 0.04 * Math.sin(phase * 2 * Math.PI));
-                        int bw = (int)(ew * scale); int bh = (int)(eh * scale);
-                        int bx = ex - (bw - ew) / 2; int by = ey - (bh - eh) / 2;
-                        eg.setColor(new Color(0.2f, 0.9f, 1f, 0.6f));
-                        eg.setStroke(new java.awt.BasicStroke(3));
-                        if ("Circle".equals(pic.shape)) eg.drawOval(bx, by, bw, bh);
-                        else eg.drawRoundRect(bx, by, bw, bh, Math.max(0, pic.cornerRadius), Math.max(0, pic.cornerRadius));
+                        // Actually re-draw the image larger so it visibly pulses,
+                        // clipped to its shape, plus a bright breathing border.
+                        float scale = (float)(1.0 + 0.10 * Math.sin(phase * 2 * Math.PI));
+                        if (scale > 1.0f) {
+                            int bw = (int)(ew * scale); int bh = (int)(eh * scale);
+                            int bx = ex - (bw - ew) / 2; int by = ey - (bh - eh) / 2;
+                            Graphics2D sg = (Graphics2D) eg.create();
+                            if ("Circle".equals(pic.shape)) {
+                                int d2 = Math.min(bw, bh);
+                                sg.setClip(new java.awt.geom.Ellipse2D.Double(bx, by, d2, d2));
+                            } else if (pic.cornerRadius > 0) {
+                                int rad = Math.max(1, (int)(pic.cornerRadius * Math.max(rcScaleE, 0.5f)));
+                                sg.setClip(new RoundRectangle2D.Double(bx, by, bw, bh, rad * 2, rad * 2));
+                            }
+                            sg.drawImage(pic.image, bx, by, bw, bh, null);
+                            sg.dispose();
+                            eg.setColor(new Color(0.2f, 0.9f, 1f, 0.8f));
+                            eg.setStroke(new java.awt.BasicStroke(Math.max(3, ew / 80)));
+                            if ("Circle".equals(pic.shape)) eg.drawOval(bx, by, bw, bh);
+                            else eg.drawRoundRect(bx, by, bw, bh, Math.max(0, pic.cornerRadius), Math.max(0, pic.cornerRadius));
+                        }
                     } else if ("Bounce".equals(pic.audioEffect)) {
+                        // Actually lift the image up and down so it bounces.
                         double bounce = Math.abs(Math.sin(phase * Math.PI));
-                        int lift = (int)(eh * 0.03 * bounce);
-                        eg.setColor(new Color(1f, 0.4f, 0.8f, 0.7f));
-                        eg.setStroke(new java.awt.BasicStroke(2));
-                        if ("Circle".equals(pic.shape)) eg.drawOval(ex, ey - lift, ew, eh);
-                        else eg.drawRoundRect(ex, ey - lift, ew, eh, Math.max(0, pic.cornerRadius), Math.max(0, pic.cornerRadius));
+                        int lift = (int)(eh * 0.10 * bounce);
+                        Graphics2D bg2 = (Graphics2D) eg.create();
+                        if ("Circle".equals(pic.shape)) {
+                            bg2.setClip(new java.awt.geom.Ellipse2D.Double(ex, ey - lift, ew, eh));
+                        } else if (pic.cornerRadius > 0) {
+                            int rad = Math.max(1, (int)(pic.cornerRadius * Math.max(rcScaleE, 0.5f)));
+                            bg2.setClip(new RoundRectangle2D.Double(ex, ey - lift, ew, eh, rad * 2, rad * 2));
+                        }
+                        bg2.drawImage(pic.image, ex, ey - lift, ew, eh, null);
+                        bg2.dispose();
                     }
                     eg.dispose();
                 }
@@ -8568,7 +8591,7 @@ public class GifSlideShowApp extends JFrame {
                                     if (af != null && af.exists() && adur > 0) validAudioCount++;
                                 }
                                 boolean hasMultiAudio = validAudioCount >= 2;
-                                boolean hasAudioAnim = anyAudioHlAnimates(s.audioHlEffects) || anyKaraokeTimings(s.audioWordTimings);
+                                boolean hasAudioAnim = anyAudioHlAnimates(s.audioHlEffects) || anyKaraokeTimings(s.audioWordTimings) || anyBulkPicAudioEffect(s.slidePictures);
                                 boolean needsAnimatedFx = hasAudioAnim || isQuizSlide(s);
 
                                 if (hasMultiAudio || isQuizSlide(s) || hasAudioAnim) {
@@ -8704,7 +8727,7 @@ public class GifSlideShowApp extends JFrame {
                             for (SlideData s : slides) {
                                 boolean hasAnim = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxRaised > 0 || (s.fxOther > 0 && !"None".equals(s.fxOtherKind));
                                 // Audio-highlight Pulse/Shake also need per-frame rendering.
-                                if (!hasAnim && (anyAudioHlAnimates(s.audioHlEffects) || anyKaraokeTimings(s.audioWordTimings))) {
+                                if (!hasAnim && (anyAudioHlAnimates(s.audioHlEffects) || anyKaraokeTimings(s.audioWordTimings) || anyBulkPicAudioEffect(s.slidePictures))) {
                                     hasAnim = true;
                                 }
                                 if (!hasAnim && s.slideTexts != null) {
@@ -9003,7 +9026,7 @@ public class GifSlideShowApp extends JFrame {
                                     boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxRaised > 0 || (s.fxOther > 0 && !"None".equals(s.fxOtherKind));
                                     // Audio-highlight Pulse/Shake animate per-frame too.
                                     boolean hasAudioHlAnim = anyAudioHlAnimates(s.audioHlEffects) || anyKaraokeTimings(s.audioWordTimings);
-                                    boolean hasAnimatedText = hasAudioHlAnim;
+                                    boolean hasAnimatedText = hasAudioHlAnim || anyBulkPicAudioEffect(s.slidePictures);
                                     if (!hasAnimatedText && s.slideTexts != null) {
                                         for (SlideTextData stx : s.slideTexts) {
                                             if (stx.show && stx.odometer) { hasAnimatedText = true; break; }
@@ -9195,6 +9218,9 @@ public class GifSlideShowApp extends JFrame {
                                         publish("Rendering slide " + (i + 1) + " with " + slideFrames + " animated frames...");
                                         for (int d = 0; d < slideFrames; d++) {
                                             long elapsedMs = (long)(d * 1000.0 / fps);
+                                            // Keep the bulk-picture audio-effect gate in sync every frame,
+                                            // even when there's no text highlight on this slide.
+                                            activeAudioSegmentIdx.set(getActiveAudioTextIndex(s, elapsedMs));
                                             // Apply audio-highlight effects on the active text segment
                                             // (works for single-audio too — activeIdx is the lone segment).
                                             // Quiz slides always take this path so quiz cue effects (whose
@@ -9204,7 +9230,6 @@ public class GifSlideShowApp extends JFrame {
                                             List<SlideTextData> framedTexts = s.slideTexts;
                                             if (hasAudioHlAnim || isQuizSlide(s)) {
                                                 int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
-                                        activeAudioSegmentIdx.set(activeIdx);
                                                 if (activeIdx >= 0) {
                                                     long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
                                                     int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
@@ -10182,7 +10207,7 @@ public class GifSlideShowApp extends JFrame {
                             boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxRaised > 0 || (s.fxOther > 0 && !"None".equals(s.fxOtherKind));
                             // Audio-highlight Pulse/Shake animate per-frame too.
                             boolean hasAudioHlAnim = anyAudioHlAnimates(s.audioHlEffects) || anyKaraokeTimings(s.audioWordTimings);
-                            boolean hasAnimatedText = hasAudioHlAnim;
+                            boolean hasAnimatedText = hasAudioHlAnim || anyBulkPicAudioEffect(s.slidePictures);
                             if (!hasAnimatedText && s.slideTexts != null) {
                                 for (SlideTextData stx : s.slideTexts) {
                                     if (stx.show && stx.odometer) { hasAnimatedText = true; break; }
@@ -10482,6 +10507,9 @@ public class GifSlideShowApp extends JFrame {
                                     for (int d = 0; d < slideFrames; d++) {
                                         long elapsedMs = (long)(d * 1000.0 / fps);
                                         applyQuizHideMask(s.slideTexts, s.quiz, elapsedMs);
+                                        // Keep the bulk-picture audio-effect gate in sync every frame,
+                                        // even when there's no text highlight on this slide.
+                                        activeAudioSegmentIdx.set(getActiveAudioTextIndex(s, elapsedMs));
                                         // Apply audio-highlight on the active segment so single-audio
                                         // slides still get Pulse/Shake/Other-* effects animated. Quiz
                                         // slides always take this path so quiz cue effects (baked into
@@ -10490,7 +10518,6 @@ public class GifSlideShowApp extends JFrame {
                                         List<SlideTextData> framedTexts = s.slideTexts;
                                         if (hasAudioHlAnim || isQuizSlide(s)) {
                                             int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
-                                        activeAudioSegmentIdx.set(activeIdx);
                                             if (activeIdx >= 0) {
                                                 long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
                                                 int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
@@ -11387,6 +11414,20 @@ public class GifSlideShowApp extends JFrame {
      *  animated and force the per-frame export path. The static highlight styles
      *  (Glow / Enlarge / Bold / Underline / Color / None) are constant within a
      *  segment and stay on the cheaper one-frame-per-segment path. */
+    /** True iff any shown bulk-grid picture has an audio-triggered visual
+     *  effect (Glow / Scale Pulse / Bounce). Forces the per-frame export path
+     *  so the effect actually animates instead of being frozen to one frame. */
+    private static boolean anyBulkPicAudioEffect(List<SlidePictureData> pics) {
+        if (pics == null) return false;
+        for (SlidePictureData p : pics) {
+            if (p != null && p.show && p.audioEffect != null
+                    && !p.audioEffect.equals("None")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static boolean anyAudioHlAnimates(List<String> list) {
         if (list == null) return false;
         for (String fx : list) {
@@ -12238,6 +12279,7 @@ public class GifSlideShowApp extends JFrame {
      * a single looped PNG or a rendered PNG sequence at the output frame rate.
      */
     private static boolean hasAnimatedDecoration(SlideData s) {
+        if (anyBulkPicAudioEffect(s.slidePictures)) return true;
         if (s.slideTexts != null) {
             for (SlideTextData stx : s.slideTexts) {
                 if (!stx.show) continue;
@@ -12321,10 +12363,11 @@ public class GifSlideShowApp extends JFrame {
         }
         for (int f = 0; f < slideFrames; f++) {
             List<SlideTextData> framedTexts = s.slideTexts;
+            // Keep the bulk-picture audio-effect gate in sync every frame.
+            activeAudioSegmentIdx.set(getActiveAudioTextIndex(s, (long) (f * 1000.0 / fps)));
             if (audioHl) {
                 long elapsedMs = (long) (f * 1000.0 / fps);
                 int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
-                                        activeAudioSegmentIdx.set(activeIdx);
                 if (activeIdx >= 0) {
                     long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
                     int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
