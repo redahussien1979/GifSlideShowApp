@@ -6222,6 +6222,50 @@ public class GifSlideShowApp extends JFrame {
                     pg.drawImage(pic.image, picX, picY, picW, picH, null);
                     pg.dispose();
                 }
+                // Audio effect animation
+                if (pic.audioEffect != null && !pic.audioEffect.equals("None") && animFrameIndex >= 0) {
+                    int ex = picX, ey = picY, ew = picW, eh = picH;
+                    if ("Circle".equals(pic.shape)) {
+                        int diameter = Math.min(picW, picH);
+                        ex = (int)(targetW * pic.x / 100.0) - diameter / 2;
+                        ey = (int)(targetH * pic.y / 100.0) - diameter / 2;
+                        ew = diameter; eh = diameter;
+                    }
+                    double phase = (animFrameIndex % 30) / 30.0; // 0..1 cycle
+                    Graphics2D eg = (Graphics2D) g.create();
+                    eg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    if ("Glow".equals(pic.audioEffect)) {
+                        float alpha = (float)(0.4 + 0.4 * Math.sin(phase * 2 * Math.PI));
+                        int glowSize = Math.max(4, (int)(Math.min(ew, eh) * 0.05));
+                        for (int gi = glowSize; gi >= 1; gi--) {
+                            eg.setColor(new Color(1f, 0.8f, 0.2f, alpha * (1f - (float)gi / glowSize)));
+                            eg.setStroke(new java.awt.BasicStroke(gi * 2));
+                            if ("Circle".equals(pic.shape)) {
+                                eg.drawOval(ex - gi, ey - gi, ew + gi * 2, eh + gi * 2);
+                            } else {
+                                int r = pic.cornerRadius > 0 ? pic.cornerRadius : 0;
+                                eg.drawRoundRect(ex - gi, ey - gi, ew + gi * 2, eh + gi * 2, r + gi, r + gi);
+                            }
+                        }
+                    } else if ("Scale Pulse".equals(pic.audioEffect)) {
+                        // already rendered; draw a breathing border
+                        float scale = (float)(1.0 + 0.04 * Math.sin(phase * 2 * Math.PI));
+                        int bw = (int)(ew * scale); int bh = (int)(eh * scale);
+                        int bx = ex - (bw - ew) / 2; int by = ey - (bh - eh) / 2;
+                        eg.setColor(new Color(0.2f, 0.9f, 1f, 0.6f));
+                        eg.setStroke(new java.awt.BasicStroke(3));
+                        if ("Circle".equals(pic.shape)) eg.drawOval(bx, by, bw, bh);
+                        else eg.drawRoundRect(bx, by, bw, bh, Math.max(0, pic.cornerRadius), Math.max(0, pic.cornerRadius));
+                    } else if ("Bounce".equals(pic.audioEffect)) {
+                        double bounce = Math.abs(Math.sin(phase * Math.PI));
+                        int lift = (int)(eh * 0.03 * bounce);
+                        eg.setColor(new Color(1f, 0.4f, 0.8f, 0.7f));
+                        eg.setStroke(new java.awt.BasicStroke(2));
+                        if ("Circle".equals(pic.shape)) eg.drawOval(ex, ey - lift, ew, eh);
+                        else eg.drawRoundRect(ex, ey - lift, ew, eh, Math.max(0, pic.cornerRadius), Math.max(0, pic.cornerRadius));
+                    }
+                    eg.dispose();
+                }
             }
         }
 
@@ -12761,9 +12805,18 @@ public class GifSlideShowApp extends JFrame {
         final int widthPct; // picture width as % of frame width
         final String shape; // "Rectangle" or "Circle"
         final int cornerRadius; // corner radius for Rectangle (0 = sharp)
+        final File audioFile;       // audio tied to this picture (bulk grid)
+        final int audioDurationMs;  // duration of audioFile in ms, -1 = unknown
+        final String audioEffect;   // "None", "Glow", "Scale Pulse", "Bounce"
 
         SlidePictureData(boolean show, BufferedImage image, File imageFile,
                          int x, int y, int widthPct, String shape, int cornerRadius) {
+            this(show, image, imageFile, x, y, widthPct, shape, cornerRadius, null, -1, "None");
+        }
+
+        SlidePictureData(boolean show, BufferedImage image, File imageFile,
+                         int x, int y, int widthPct, String shape, int cornerRadius,
+                         File audioFile, int audioDurationMs, String audioEffect) {
             this.show = show;
             this.image = image;
             this.imageFile = imageFile;
@@ -12772,6 +12825,9 @@ public class GifSlideShowApp extends JFrame {
             this.widthPct = widthPct;
             this.shape = shape != null ? shape : "Rectangle";
             this.cornerRadius = cornerRadius;
+            this.audioFile = audioFile;
+            this.audioDurationMs = audioDurationMs;
+            this.audioEffect = audioEffect != null ? audioEffect : "None";
         }
     }
 
@@ -13625,6 +13681,22 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner slidePicWidthSpinner;
         private final JComboBox<String> slidePicShapeCombo;
         private final JSpinner slidePicCornerSpinner;
+
+        // Bulk image grid (toolbar4g)
+        private final List<SlidePictureData> bulkGridItems = new ArrayList<>();
+        private int currentBulkIndex = 0;
+        private boolean isLoadingBulkItem = false;
+        private final JCheckBox bulkGridShowCheck;
+        private final JLabel bulkCountLabel;
+        private final JComboBox<String> bulkLayoutCombo;
+        private final JComboBox<String> bulkItemSelector;
+        private final JLabel bulkItemPreviewLabel;
+        private BufferedImage bulkItemLoadedImage;
+        private File bulkItemLoadedFile;
+        private File bulkItemAudioFile;
+        private int bulkItemAudioDurationMs = -1;
+        private final JLabel bulkAudioLabel;
+        private final JComboBox<String> bulkEffectCombo;
 
         private File slideVideoOverlayFile;
         private int slideVideoOverlayDurationMs = -1;
@@ -15011,6 +15083,186 @@ public class GifSlideShowApp extends JFrame {
             toolbar4e.add(styledLabel("Radius:"));
             toolbar4e.add(slidePicCornerSpinner);
 
+            // ===== Toolbar Row 4g: Bulk Image Grid =====
+            JPanel toolbar4g1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
+            toolbar4g1.setBackground(new Color(40, 70, 90));
+            JPanel toolbar4g2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
+            toolbar4g2.setBackground(new Color(35, 60, 80));
+
+            // initialise fields in the constructor context
+            bulkGridShowCheck = new JCheckBox("Bulk Grid", false);
+            bulkGridShowCheck.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            bulkGridShowCheck.setForeground(new Color(100, 220, 180));
+            bulkGridShowCheck.setBackground(new Color(44, 47, 51));
+            bulkGridShowCheck.setFocusPainted(false);
+            bulkGridShowCheck.addActionListener(e -> { if (!isLoadingBulkItem) onFormatChanged(); });
+
+            bulkCountLabel = new JLabel("0 images");
+            bulkCountLabel.setForeground(Color.LIGHT_GRAY);
+            bulkCountLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+
+            bulkLayoutCombo = new JComboBox<>(new String[]{
+                    "1×N (Stack)", "2×1", "3×1", "4×1", "2×2", "3×2", "4×2", "1×2", "1×3"});
+            bulkLayoutCombo.setPreferredSize(new Dimension(90, 24));
+            bulkLayoutCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            bulkLayoutCombo.setToolTipText("Grid layout: columns × rows");
+            bulkLayoutCombo.addActionListener(e -> { if (!isLoadingBulkItem) onFormatChanged(); });
+
+            JButton bulkUploadBtn = new JButton("Upload Images");
+            bulkUploadBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            bulkUploadBtn.setPreferredSize(new Dimension(105, 24));
+            bulkUploadBtn.setFocusPainted(false);
+            bulkUploadBtn.setToolTipText("Upload multiple images for bulk grid (multi-select)");
+            bulkUploadBtn.addActionListener(e -> {
+                JFileChooser fc = new JFileChooser();
+                fc.setMultiSelectionEnabled(true);
+                fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                        "Images", "jpg", "jpeg", "png", "gif", "bmp", "webp", "avif", "heif", "heic"));
+                if (fc.showOpenDialog(panel) == JFileChooser.APPROVE_OPTION) {
+                    File[] files = fc.getSelectedFiles();
+                    if (files != null && files.length > 0) {
+                        bulkGridItems.clear();
+                        for (File f : files) {
+                            try {
+                                BufferedImage img = loadImageFile(f);
+                                if (img != null) {
+                                    bulkGridItems.add(new SlidePictureData(true, img, f, 50, 50, 20, "Rectangle", 0, null, -1, "None"));
+                                }
+                            } catch (Exception ex) {
+                                // skip unreadable files
+                            }
+                        }
+                        currentBulkIndex = 0;
+                        isLoadingBulkItem = true;
+                        try { rebuildBulkItemSelector(); } finally { isLoadingBulkItem = false; }
+                        if (!bulkGridItems.isEmpty()) {
+                            loadBulkItemFromList(0);
+                            bulkGridShowCheck.setSelected(true);
+                        }
+                        updateBulkCountLabel();
+                        onFormatChanged();
+                    }
+                }
+            });
+
+            JButton bulkClearAllBtn = new JButton("Clear All");
+            bulkClearAllBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            bulkClearAllBtn.setPreferredSize(new Dimension(72, 24));
+            bulkClearAllBtn.setFocusPainted(false);
+            bulkClearAllBtn.setToolTipText("Remove all bulk grid images");
+            bulkClearAllBtn.addActionListener(e -> {
+                bulkGridItems.clear();
+                currentBulkIndex = 0;
+                isLoadingBulkItem = true;
+                try { rebuildBulkItemSelector(); } finally { isLoadingBulkItem = false; }
+                bulkGridShowCheck.setSelected(false);
+                updateBulkCountLabel();
+                clearBulkItemUI();
+                onFormatChanged();
+            });
+
+            // Row 1
+            toolbar4g1.add(styledLabel("🖼 Bulk:"));
+            toolbar4g1.add(bulkGridShowCheck);
+            toolbar4g1.add(bulkUploadBtn);
+            toolbar4g1.add(bulkCountLabel);
+            toolbar4g1.add(styledLabel("Layout:"));
+            toolbar4g1.add(bulkLayoutCombo);
+            toolbar4g1.add(bulkClearAllBtn);
+
+            // --- Per-item controls (row 2) ---
+            bulkItemSelector = new JComboBox<>(new String[]{"(none)"});
+            bulkItemSelector.setPreferredSize(new Dimension(75, 24));
+            bulkItemSelector.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            bulkItemSelector.setToolTipText("Select a bulk image to assign audio / effect");
+            bulkItemSelector.addActionListener(e -> {
+                if (isLoadingBulkItem) return;
+                int idx = bulkItemSelector.getSelectedIndex();
+                if (idx >= 0 && idx < bulkGridItems.size()) {
+                    saveBulkItemToList();
+                    currentBulkIndex = idx;
+                    loadBulkItemFromList(currentBulkIndex);
+                }
+            });
+
+            bulkItemPreviewLabel = new JLabel("No image");
+            bulkItemPreviewLabel.setPreferredSize(new Dimension(48, 36));
+            bulkItemPreviewLabel.setBorder(BorderFactory.createLineBorder(new Color(70, 120, 140)));
+            bulkItemPreviewLabel.setHorizontalAlignment(SwingConstants.CENTER);
+            bulkItemPreviewLabel.setForeground(Color.GRAY);
+            bulkItemPreviewLabel.setFont(new Font("Segoe UI", Font.PLAIN, 9));
+
+            JButton bulkItemClearBtn = new JButton("✕");
+            bulkItemClearBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            bulkItemClearBtn.setPreferredSize(new Dimension(28, 24));
+            bulkItemClearBtn.setFocusPainted(false);
+            bulkItemClearBtn.setToolTipText("Remove this image from the bulk grid");
+            bulkItemClearBtn.addActionListener(e -> {
+                if (bulkGridItems.isEmpty()) return;
+                bulkGridItems.remove(currentBulkIndex);
+                if (currentBulkIndex >= bulkGridItems.size()) currentBulkIndex = Math.max(0, bulkGridItems.size() - 1);
+                isLoadingBulkItem = true;
+                try { rebuildBulkItemSelector(); } finally { isLoadingBulkItem = false; }
+                updateBulkCountLabel();
+                if (!bulkGridItems.isEmpty()) loadBulkItemFromList(currentBulkIndex); else clearBulkItemUI();
+                if (bulkGridItems.isEmpty()) bulkGridShowCheck.setSelected(false);
+                onFormatChanged();
+            });
+
+            bulkAudioLabel = new JLabel("No audio");
+            bulkAudioLabel.setForeground(Color.LIGHT_GRAY);
+            bulkAudioLabel.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+            bulkAudioLabel.setPreferredSize(new Dimension(120, 24));
+
+            JButton bulkAudioBtn = new JButton("🔊 Audio");
+            bulkAudioBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            bulkAudioBtn.setPreferredSize(new Dimension(80, 24));
+            bulkAudioBtn.setFocusPainted(false);
+            bulkAudioBtn.setToolTipText("Assign an audio file to this image (plays when slide shows)");
+            bulkAudioBtn.addActionListener(e -> {
+                JFileChooser fc = new JFileChooser();
+                fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                        "Audio", "mp3", "wav", "ogg", "aac", "m4a", "flac"));
+                if (fc.showOpenDialog(panel) == JFileChooser.APPROVE_OPTION) {
+                    bulkItemAudioFile = fc.getSelectedFile();
+                    bulkItemAudioDurationMs = probeAudioDurationMs(bulkItemAudioFile);
+                    bulkAudioLabel.setText(bulkItemAudioFile.getName());
+                    saveBulkItemToList();
+                    onFormatChanged();
+                }
+            });
+
+            JButton bulkAudioClearBtn = new JButton("✕");
+            bulkAudioClearBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            bulkAudioClearBtn.setPreferredSize(new Dimension(28, 24));
+            bulkAudioClearBtn.setFocusPainted(false);
+            bulkAudioClearBtn.setToolTipText("Remove audio from this image");
+            bulkAudioClearBtn.addActionListener(e -> {
+                bulkItemAudioFile = null;
+                bulkItemAudioDurationMs = -1;
+                bulkAudioLabel.setText("No audio");
+                saveBulkItemToList();
+                onFormatChanged();
+            });
+
+            bulkEffectCombo = new JComboBox<>(new String[]{"None", "Glow", "Scale Pulse", "Bounce"});
+            bulkEffectCombo.setPreferredSize(new Dimension(90, 24));
+            bulkEffectCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            bulkEffectCombo.setToolTipText("Visual effect shown on this image when its audio plays");
+            bulkEffectCombo.addActionListener(e -> {
+                if (!isLoadingBulkItem) { saveBulkItemToList(); onFormatChanged(); }
+            });
+
+            toolbar4g2.add(styledLabel("Item:"));
+            toolbar4g2.add(bulkItemSelector);
+            toolbar4g2.add(bulkItemPreviewLabel);
+            toolbar4g2.add(bulkItemClearBtn);
+            toolbar4g2.add(bulkAudioBtn);
+            toolbar4g2.add(bulkAudioClearBtn);
+            toolbar4g2.add(bulkAudioLabel);
+            toolbar4g2.add(styledLabel("FX:"));
+            toolbar4g2.add(bulkEffectCombo);
+
             // ===== Toolbar Row 5: Image Effects (3 rows) =====
             JPanel toolbar5a = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
             toolbar5a.setBackground(new Color(110, 75, 45));
@@ -16356,6 +16608,8 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(toolbar4f);
             toolbarsPanel.add(toolbar4d);
             toolbarsPanel.add(toolbar4e);
+            toolbarsPanel.add(toolbar4g1);
+            toolbarsPanel.add(toolbar4g2);
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar5a);
             toolbarsPanel.add(toolbar5b);
@@ -16911,9 +17165,125 @@ public class GifSlideShowApp extends JFrame {
             }
         }
 
+        private void updateBulkCountLabel() {
+            bulkCountLabel.setText(bulkGridItems.size() + (bulkGridItems.size() == 1 ? " image" : " images"));
+        }
+
+        private void clearBulkItemUI() {
+            isLoadingBulkItem = true;
+            try {
+                bulkItemLoadedImage = null;
+                bulkItemLoadedFile = null;
+                bulkItemAudioFile = null;
+                bulkItemAudioDurationMs = -1;
+                bulkItemPreviewLabel.setIcon(null);
+                bulkItemPreviewLabel.setText("No image");
+                bulkAudioLabel.setText("No audio");
+                bulkEffectCombo.setSelectedIndex(0);
+            } finally {
+                isLoadingBulkItem = false;
+            }
+        }
+
+        private void saveBulkItemToList() {
+            if (currentBulkIndex < 0 || currentBulkIndex >= bulkGridItems.size()) return;
+            SlidePictureData old = bulkGridItems.get(currentBulkIndex);
+            bulkGridItems.set(currentBulkIndex, new SlidePictureData(
+                    true, bulkItemLoadedImage, bulkItemLoadedFile,
+                    old.x, old.y, old.widthPct, old.shape, old.cornerRadius,
+                    bulkItemAudioFile, bulkItemAudioDurationMs,
+                    (String) bulkEffectCombo.getSelectedItem()));
+        }
+
+        private void loadBulkItemFromList(int index) {
+            if (index < 0 || index >= bulkGridItems.size()) return;
+            isLoadingBulkItem = true;
+            try {
+                SlidePictureData item = bulkGridItems.get(index);
+                bulkItemLoadedImage = item.image;
+                bulkItemLoadedFile = item.imageFile;
+                bulkItemAudioFile = item.audioFile;
+                bulkItemAudioDurationMs = item.audioDurationMs;
+                updateBulkItemPreview();
+                bulkAudioLabel.setText(item.audioFile != null ? item.audioFile.getName() : "No audio");
+                String fx = item.audioEffect != null ? item.audioEffect : "None";
+                bulkEffectCombo.setSelectedItem(fx);
+            } finally {
+                isLoadingBulkItem = false;
+            }
+        }
+
+        private void rebuildBulkItemSelector() {
+            bulkItemSelector.removeAllItems();
+            if (bulkGridItems.isEmpty()) {
+                bulkItemSelector.addItem("(none)");
+            } else {
+                for (int i = 0; i < bulkGridItems.size(); i++) {
+                    bulkItemSelector.addItem("Img " + (i + 1));
+                }
+            }
+        }
+
+        private void updateBulkItemPreview() {
+            if (bulkItemLoadedImage != null) {
+                int pw = bulkItemPreviewLabel.getPreferredSize().width;
+                int ph = bulkItemPreviewLabel.getPreferredSize().height;
+                double sc = Math.min((double) pw / bulkItemLoadedImage.getWidth(),
+                        (double) ph / bulkItemLoadedImage.getHeight());
+                Image scaled = bulkItemLoadedImage.getScaledInstance(
+                        Math.max(1, (int) (bulkItemLoadedImage.getWidth() * sc)),
+                        Math.max(1, (int) (bulkItemLoadedImage.getHeight() * sc)),
+                        Image.SCALE_SMOOTH);
+                bulkItemPreviewLabel.setIcon(new ImageIcon(scaled));
+                bulkItemPreviewLabel.setText(null);
+            } else {
+                bulkItemPreviewLabel.setIcon(null);
+                bulkItemPreviewLabel.setText("No image");
+            }
+        }
+
+        private List<SlidePictureData> computeBulkGridPositions() {
+            List<SlidePictureData> out = new ArrayList<>();
+            if (bulkGridItems.isEmpty()) return out;
+            String layout = (String) bulkLayoutCombo.getSelectedItem();
+            int n = bulkGridItems.size();
+            int cols, rows;
+            if (layout == null || layout.startsWith("1×N")) {
+                cols = 1; rows = n;
+            } else if (layout.equals("2×1")) { cols = 2; rows = 1;
+            } else if (layout.equals("3×1")) { cols = 3; rows = 1;
+            } else if (layout.equals("4×1")) { cols = 4; rows = 1;
+            } else if (layout.equals("2×2")) { cols = 2; rows = 2;
+            } else if (layout.equals("3×2")) { cols = 3; rows = 2;
+            } else if (layout.equals("4×2")) { cols = 4; rows = 2;
+            } else if (layout.equals("1×2")) { cols = 1; rows = 2;
+            } else if (layout.equals("1×3")) { cols = 1; rows = 3;
+            } else { cols = (int) Math.ceil(Math.sqrt(n)); rows = (int) Math.ceil((double) n / cols); }
+
+            double cellW = 100.0 / cols;
+            double cellH = 100.0 / rows;
+            int widthPct = Math.max(1, (int) (cellW * 0.96));
+
+            for (int i = 0; i < n; i++) {
+                SlidePictureData src = bulkGridItems.get(i);
+                int c = i % cols;
+                int r = i / cols;
+                if (r >= rows) break;
+                int cx = (int) Math.round((c + 0.5) * cellW);
+                int cy = (int) Math.round((r + 0.5) * cellH);
+                out.add(new SlidePictureData(true, src.image, src.imageFile, cx, cy, widthPct,
+                        src.shape, src.cornerRadius, src.audioFile, src.audioDurationMs, src.audioEffect));
+            }
+            return out;
+        }
+
         List<SlidePictureData> getSlidePictureDataList() {
             saveCurrentSlidePictureToItem();
-            return new ArrayList<>(slidePictureItems);
+            List<SlidePictureData> result = new ArrayList<>(slidePictureItems);
+            if (bulkGridShowCheck != null && bulkGridShowCheck.isSelected() && !bulkGridItems.isEmpty()) {
+                result.addAll(computeBulkGridPositions());
+            }
+            return result;
         }
 
         List<SlidePictureData> getSlidePictureFormats() {
