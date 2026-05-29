@@ -7514,12 +7514,6 @@ public class GifSlideShowApp extends JFrame {
             slides.get(slides.size() - 1).audioWordTimings = row.getSlideAudioWordTimingsList();
             slides.get(slides.size() - 1).audioKaraokeStyle = row.getSlideAudioKaraokeStyleList();
             slides.get(slides.size() - 1).audioKaraokeColor = row.getSlideAudioKaraokeColorList();
-            // Quiz timeline cues: overlay each cue's color / FX / glow onto the
-            // parallel audio-HL lists at its target text index, so the existing
-            // hlColorAt / hlEffectsAt / hlGlowSizeAt lookups return the cue's
-            // settings whenever getActiveAudioTextIndex returns that index (which
-            // — see the modified version — is exactly the cue's active window).
-            applyQuizCueOverlay(slides.get(slides.size() - 1));
         }
         if (slides.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Add at least one slide.", "No Slides", JOptionPane.WARNING_MESSAGE);
@@ -8493,10 +8487,10 @@ public class GifSlideShowApp extends JFrame {
                                         if (needsAnimatedFx) {
                                             List<SlideTextData> hlTexts = applyActiveTextHighlight(
                                                     s.slideTexts, activeIdx,
-                                                    hlColorAt(s.audioHlColor, activeIdx),
-                                                    hlEffectsAt(s.audioHlEffects, activeIdx),
+                                                    quizHlColorAt(s, activeIdx, elapsedMs),
+                                                    quizHlEffectsAt(s, activeIdx, elapsedMs),
                                                     segFrame,
-                                                    hlGlowSizeAt(s.audioGlowSize, activeIdx),
+                                                    quizHlGlowSizeAt(s, activeIdx, elapsedMs),
                                                     wordTimingsAt(s.audioWordTimings, activeIdx),
                                                     elapsedMs - segStartMs,
                                                     karaokeStyleAt(s.audioKaraokeStyle, activeIdx),
@@ -8528,10 +8522,10 @@ public class GifSlideShowApp extends JFrame {
                                             } else {
                                                 List<SlideTextData> hlTexts = applyActiveTextHighlight(
                                                         s.slideTexts, activeIdx,
-                                                        hlColorAt(s.audioHlColor, activeIdx),
-                                                        hlEffectsAt(s.audioHlEffects, activeIdx),
+                                                        quizHlColorAt(s, activeIdx, elapsedMs),
+                                                        quizHlEffectsAt(s, activeIdx, elapsedMs),
                                                         -1,
-                                                        hlGlowSizeAt(s.audioGlowSize, activeIdx));
+                                                        quizHlGlowSizeAt(s, activeIdx, elapsedMs));
                                                 frame = renderFrame(
                                                         s.image, s.text, s.fontName, s.fontSize,
                                                         s.fontStyle, s.fontColor, s.alignment, s.showPin,
@@ -8920,10 +8914,10 @@ public class GifSlideShowApp extends JFrame {
                                             int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
                                             List<SlideTextData> hlTexts = applyActiveTextHighlight(
                                                     s.slideTexts, activeIdx,
-                                                    hlColorAt(s.audioHlColor, activeIdx),
-                                                    hlEffectsAt(s.audioHlEffects, activeIdx),
+                                                    quizHlColorAt(s, activeIdx, elapsedMs),
+                                                    quizHlEffectsAt(s, activeIdx, elapsedMs),
                                                     segFrame,
-                                                    hlGlowSizeAt(s.audioGlowSize, activeIdx),
+                                                    quizHlGlowSizeAt(s, activeIdx, elapsedMs),
                                                     wordTimingsAt(s.audioWordTimings, activeIdx),
                                                     elapsedMs - segStartMs,
                                                     karaokeStyleAt(s.audioKaraokeStyle, activeIdx),
@@ -9089,10 +9083,10 @@ public class GifSlideShowApp extends JFrame {
                                                     int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
                                                     framedTexts = applyActiveTextHighlight(
                                                             s.slideTexts, activeIdx,
-                                                            hlColorAt(s.audioHlColor, activeIdx),
-                                                            hlEffectsAt(s.audioHlEffects, activeIdx),
+                                                            quizHlColorAt(s, activeIdx, elapsedMs),
+                                                            quizHlEffectsAt(s, activeIdx, elapsedMs),
                                                             segFrame,
-                                                            hlGlowSizeAt(s.audioGlowSize, activeIdx),
+                                                            quizHlGlowSizeAt(s, activeIdx, elapsedMs),
                                                             wordTimingsAt(s.audioWordTimings, activeIdx),
                                                             elapsedMs - segStartMs,
                                                             karaokeStyleAt(s.audioKaraokeStyle, activeIdx),
@@ -10302,10 +10296,10 @@ public class GifSlideShowApp extends JFrame {
                                         int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
                                         List<SlideTextData> hlTexts = applyActiveTextHighlight(
                                                 s.slideTexts, activeIdx,
-                                                hlColorAt(s.audioHlColor, activeIdx),
-                                                hlEffectsAt(s.audioHlEffects, activeIdx),
+                                                quizHlColorAt(s, activeIdx, elapsedMs),
+                                                quizHlEffectsAt(s, activeIdx, elapsedMs),
                                                 segFrame,
-                                                hlGlowSizeAt(s.audioGlowSize, activeIdx),
+                                                quizHlGlowSizeAt(s, activeIdx, elapsedMs),
                                                 wordTimingsAt(s.audioWordTimings, activeIdx),
                                                 elapsedMs - segStartMs,
                                                 karaokeStyleAt(s.audioKaraokeStyle, activeIdx),
@@ -10370,10 +10364,10 @@ public class GifSlideShowApp extends JFrame {
                                                 int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
                                                 framedTexts = applyActiveTextHighlight(
                                                         s.slideTexts, activeIdx,
-                                                        hlColorAt(s.audioHlColor, activeIdx),
-                                                        hlEffectsAt(s.audioHlEffects, activeIdx),
+                                                        quizHlColorAt(s, activeIdx, elapsedMs),
+                                                        quizHlEffectsAt(s, activeIdx, elapsedMs),
                                                         segFrame,
-                                                        hlGlowSizeAt(s.audioGlowSize, activeIdx),
+                                                        quizHlGlowSizeAt(s, activeIdx, elapsedMs),
                                                         wordTimingsAt(s.audioWordTimings, activeIdx),
                                                         elapsedMs - segStartMs,
                                                         karaokeStyleAt(s.audioKaraokeStyle, activeIdx),
@@ -11276,39 +11270,46 @@ public class GifSlideShowApp extends JFrame {
         return false;
     }
 
+    /**
+     * Time-aware wrappers around {@link #hlEffectsAt} / {@link #hlColorAt} /
+     * {@link #hlGlowSizeAt} that prefer a quiz cue's settings when one is
+     * currently playing AND its target text matches {@code activeIdx}.
+     * Falls through to the regular per-text-row values otherwise, so non-
+     * quiz slides (and quiz slides outside a cue window) behave exactly as
+     * before. Replaces the previous static-overlay approach which leaked
+     * cue effects into the surrounding combined-audio segment.
+     */
+    private static String quizHlEffectsAt(SlideData s, int activeIdx, long elapsedMs) {
+        if (isQuizSlide(s)) {
+            QuizSlide.QuizCue c = s.quiz.activeTextCueAt(elapsedMs);
+            if (c != null && c.targetTextIndex - 1 == activeIdx) {
+                return c.effects != null ? c.effects : DEFAULT_AUDIO_HL_EFFECTS;
+            }
+        }
+        return hlEffectsAt(s.audioHlEffects, activeIdx);
+    }
+    private static Color quizHlColorAt(SlideData s, int activeIdx, long elapsedMs) {
+        if (isQuizSlide(s)) {
+            QuizSlide.QuizCue c = s.quiz.activeTextCueAt(elapsedMs);
+            if (c != null && c.targetTextIndex - 1 == activeIdx && c.hlColor != null) {
+                return c.hlColor;
+            }
+        }
+        return hlColorAt(s.audioHlColor, activeIdx);
+    }
+    private static int quizHlGlowSizeAt(SlideData s, int activeIdx, long elapsedMs) {
+        if (isQuizSlide(s)) {
+            QuizSlide.QuizCue c = s.quiz.activeTextCueAt(elapsedMs);
+            if (c != null && c.targetTextIndex - 1 == activeIdx && c.glowSize > 0) {
+                return c.glowSize;
+            }
+        }
+        return hlGlowSizeAt(s.audioGlowSize, activeIdx);
+    }
+
     /** True when the slide carries an enabled quiz (timer + reveal). */
     private static boolean isQuizSlide(SlideData s) {
         return s != null && s.quiz != null && s.quiz.enabled;
-    }
-
-    /**
-     * For each configured quiz timeline cue, write the cue's highlight color,
-     * effects and glow size into the slide's parallel audio-HL lists at the
-     * cue's target text index. The existing render-side lookups
-     * ({@link #hlColorAt}, {@link #hlEffectsAt}, {@link #hlGlowSizeAt}) then
-     * return the cue's values whenever {@link #getActiveAudioTextIndex}
-     * reports that target as active — which only happens during the cue's
-     * own playback window (see the quiz branch added at the top of those
-     * methods). Special cues (targetTextIndex==0) are skipped — they don't
-     * trigger a text effect.
-     */
-    private static void applyQuizCueOverlay(SlideData s) {
-        if (!isQuizSlide(s) || s.quiz.cues == null || s.quiz.cues.isEmpty()) return;
-        int n = s.slideTexts != null ? s.slideTexts.size() : 0;
-        // Make sure the lists are big enough to set() at the cue's index. The
-        // standard SlideRow path sizes them to slideTexts.size() so this is a
-        // safety net for any caller that passed a shorter list.
-        while (s.audioHlColor.size()   < n) s.audioHlColor.add(DEFAULT_AUDIO_HL_COLOR);
-        while (s.audioHlEffects.size() < n) s.audioHlEffects.add(DEFAULT_AUDIO_HL_EFFECTS);
-        while (s.audioGlowSize.size()  < n) s.audioGlowSize.add(DEFAULT_AUDIO_GLOW_SIZE);
-        for (QuizSlide.QuizCue c : s.quiz.cues) {
-            if (c == null || c.audioFile == null || c.durationMs <= 0) continue;
-            int t = c.targetTextIndex - 1;
-            if (t < 0 || t >= n) continue;
-            if (c.hlColor != null) s.audioHlColor.set(t, c.hlColor);
-            s.audioHlEffects.set(t, c.effects != null ? c.effects : DEFAULT_AUDIO_HL_EFFECTS);
-            s.audioGlowSize.set(t, c.glowSize > 0 ? c.glowSize : DEFAULT_AUDIO_GLOW_SIZE);
-        }
     }
 
     /** Paint the quiz countdown / reveal overlay onto a frame in place. No-op when not a quiz. */
@@ -12195,10 +12196,10 @@ public class GifSlideShowApp extends JFrame {
                     int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
                     framedTexts = applyActiveTextHighlight(
                             s.slideTexts, activeIdx,
-                            hlColorAt(s.audioHlColor, activeIdx),
-                            hlEffectsAt(s.audioHlEffects, activeIdx),
+                            quizHlColorAt(s, activeIdx, elapsedMs),
+                            quizHlEffectsAt(s, activeIdx, elapsedMs),
                             segFrame,
-                            hlGlowSizeAt(s.audioGlowSize, activeIdx),
+                            quizHlGlowSizeAt(s, activeIdx, elapsedMs),
                             wordTimingsAt(s.audioWordTimings, activeIdx),
                             elapsedMs - segStartMs,
                             karaokeStyleAt(s.audioKaraokeStyle, activeIdx),
