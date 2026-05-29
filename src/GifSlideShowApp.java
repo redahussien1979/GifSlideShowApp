@@ -6191,29 +6191,48 @@ public class GifSlideShowApp extends JFrame {
                 if (!pic.show || pic.image == null) continue;
                 double aspect = (double) pic.image.getHeight() / pic.image.getWidth();
                 int picW, picH;
+                int boxW, boxH;
                 if (pic.boxHeightPct > 0) {
-                    // Fit the image (aspect-preserved) inside a width × height box
-                    // so grid cells never overflow into their neighbours.
-                    int boxW = Math.max(1, (int) (targetW * pic.widthPct / 100.0));
-                    int boxH = Math.max(1, (int) (targetH * pic.boxHeightPct / 100.0));
-                    double scale = Math.min((double) boxW / pic.image.getWidth(),
-                            (double) boxH / pic.image.getHeight());
+                    // Fit or Fill the image inside a width × height box so grid
+                    // cells never overflow into their neighbours.
+                    boxW = Math.max(1, (int) (targetW * pic.widthPct / 100.0));
+                    boxH = Math.max(1, (int) (targetH * pic.boxHeightPct / 100.0));
+                    double scale;
+                    if ("Fill".equals(pic.fitMode)) {
+                        scale = Math.max((double) boxW / pic.image.getWidth(),
+                                (double) boxH / pic.image.getHeight());
+                    } else {
+                        scale = Math.min((double) boxW / pic.image.getWidth(),
+                                (double) boxH / pic.image.getHeight());
+                    }
                     picW = Math.max(1, (int) (pic.image.getWidth() * scale));
                     picH = Math.max(1, (int) (pic.image.getHeight() * scale));
                 } else {
                     picW = Math.max(1, (int) (targetW * pic.widthPct / 100.0));
                     picH = Math.max(1, (int) (picW * aspect));
+                    boxW = picW;
+                    boxH = picH;
                 }
                 int picX = (int) (targetW * pic.x / 100.0) - picW / 2;
                 int picY = (int) (targetH * pic.y / 100.0) - picH / 2;
+                // For Fill mode we clip to the box, not the full scaled image
+                int clipX = (int) (targetW * pic.x / 100.0) - boxW / 2;
+                int clipY = (int) (targetH * pic.y / 100.0) - boxH / 2;
+
+                // Prepare composite for opacity < 100
+                AlphaComposite picComposite = null;
+                if (pic.opacity < 100) {
+                    picComposite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, pic.opacity / 100.0f);
+                }
 
                 if ("Circle".equals(pic.shape)) {
-                    int diameter = Math.min(picW, picH);
+                    int diameter = Math.min(boxW, boxH);
                     int cx = (int) (targetW * pic.x / 100.0) - diameter / 2;
                     int cy = (int) (targetH * pic.y / 100.0) - diameter / 2;
                     Graphics2D pg = (Graphics2D) g.create();
                     pg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     pg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                    if (picComposite != null) pg.setComposite(picComposite);
                     pg.setClip(new java.awt.geom.Ellipse2D.Double(cx, cy, diameter, diameter));
                     // Cover-crop the image to fill the circle
                     double coverScale = Math.max((double) diameter / pic.image.getWidth(),
@@ -6222,17 +6241,53 @@ public class GifSlideShowApp extends JFrame {
                     int drawH = (int) (pic.image.getHeight() * coverScale);
                     pg.drawImage(pic.image, cx + (diameter - drawW) / 2, cy + (diameter - drawH) / 2, drawW, drawH, null);
                     pg.dispose();
+                    // Border
+                    if (pic.borderWidth > 0) {
+                        Graphics2D bg2 = (Graphics2D) g.create();
+                        bg2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                        bg2.setColor(pic.borderColor != null ? pic.borderColor : Color.WHITE);
+                        bg2.setStroke(new java.awt.BasicStroke(pic.borderWidth));
+                        bg2.drawOval(cx, cy, diameter, diameter);
+                        bg2.dispose();
+                    }
                 } else {
                     Graphics2D pg = (Graphics2D) g.create();
                     pg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     pg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-                    if (pic.cornerRadius > 0) {
-                        float rcScale = Math.max(targetW, targetH) / 1920.0f;
+                    if (picComposite != null) pg.setComposite(picComposite);
+                    float rcScale = Math.max(targetW, targetH) / 1920.0f;
+                    if ("Fill".equals(pic.fitMode) && pic.boxHeightPct > 0) {
+                        // Clip to the cell box so the over-scaled image doesn't bleed out
+                        if (pic.cornerRadius > 0) {
+                            int radius = Math.max(1, (int) (pic.cornerRadius * Math.max(rcScale, 0.5f)));
+                            pg.setClip(new RoundRectangle2D.Double(clipX, clipY, boxW, boxH, radius * 2, radius * 2));
+                        } else {
+                            pg.setClip(new java.awt.Rectangle(clipX, clipY, boxW, boxH));
+                        }
+                    } else if (pic.cornerRadius > 0) {
                         int radius = Math.max(1, (int) (pic.cornerRadius * Math.max(rcScale, 0.5f)));
                         pg.setClip(new RoundRectangle2D.Double(picX, picY, picW, picH, radius * 2, radius * 2));
                     }
                     pg.drawImage(pic.image, picX, picY, picW, picH, null);
                     pg.dispose();
+                    // Border
+                    if (pic.borderWidth > 0) {
+                        Graphics2D bg2 = (Graphics2D) g.create();
+                        bg2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                        bg2.setColor(pic.borderColor != null ? pic.borderColor : Color.WHITE);
+                        bg2.setStroke(new java.awt.BasicStroke(pic.borderWidth));
+                        int bx = "Fill".equals(pic.fitMode) && pic.boxHeightPct > 0 ? clipX : picX;
+                        int by = "Fill".equals(pic.fitMode) && pic.boxHeightPct > 0 ? clipY : picY;
+                        int bw = "Fill".equals(pic.fitMode) && pic.boxHeightPct > 0 ? boxW : picW;
+                        int bh = "Fill".equals(pic.fitMode) && pic.boxHeightPct > 0 ? boxH : picH;
+                        if (pic.cornerRadius > 0) {
+                            int radius = Math.max(1, (int) (pic.cornerRadius * Math.max(rcScale, 0.5f)));
+                            bg2.drawRoundRect(bx, by, bw, bh, radius * 2, radius * 2);
+                        } else {
+                            bg2.drawRect(bx, by, bw, bh);
+                        }
+                        bg2.dispose();
+                    }
                 }
                 // Audio effect animation. When this image has its own audio
                 // (audioActiveIdx >= 0), the effect fires ONLY while that exact
@@ -12891,17 +12946,21 @@ public class GifSlideShowApp extends JFrame {
         // appears. -1 means "always animate the effect"; when >= 0 the effect
         // only shows while that audio segment is active (activeIdx matches).
         final int audioActiveIdx;
+        final int borderWidth;   // stroke width in px around each image (0 = none)
+        final Color borderColor; // border colour (null → Color.WHITE)
+        final int opacity;       // 0-100, 100 = fully opaque
+        final String fitMode;    // "Fit" (letterbox) or "Fill" (cover-crop)
 
         SlidePictureData(boolean show, BufferedImage image, File imageFile,
                          int x, int y, int widthPct, String shape, int cornerRadius) {
-            this(show, image, imageFile, x, y, widthPct, shape, cornerRadius, null, -1, "None", 0, -1);
+            this(show, image, imageFile, x, y, widthPct, shape, cornerRadius, null, -1, "None", 0, -1, 0, null, 100, "Fit");
         }
 
         SlidePictureData(boolean show, BufferedImage image, File imageFile,
                          int x, int y, int widthPct, String shape, int cornerRadius,
                          File audioFile, int audioDurationMs, String audioEffect) {
             this(show, image, imageFile, x, y, widthPct, shape, cornerRadius,
-                    audioFile, audioDurationMs, audioEffect, 0, -1);
+                    audioFile, audioDurationMs, audioEffect, 0, -1, 0, null, 100, "Fit");
         }
 
         SlidePictureData(boolean show, BufferedImage image, File imageFile,
@@ -12909,13 +12968,22 @@ public class GifSlideShowApp extends JFrame {
                          File audioFile, int audioDurationMs, String audioEffect,
                          int boxHeightPct) {
             this(show, image, imageFile, x, y, widthPct, shape, cornerRadius,
-                    audioFile, audioDurationMs, audioEffect, boxHeightPct, -1);
+                    audioFile, audioDurationMs, audioEffect, boxHeightPct, -1, 0, null, 100, "Fit");
         }
 
         SlidePictureData(boolean show, BufferedImage image, File imageFile,
                          int x, int y, int widthPct, String shape, int cornerRadius,
                          File audioFile, int audioDurationMs, String audioEffect,
                          int boxHeightPct, int audioActiveIdx) {
+            this(show, image, imageFile, x, y, widthPct, shape, cornerRadius,
+                    audioFile, audioDurationMs, audioEffect, boxHeightPct, audioActiveIdx, 0, null, 100, "Fit");
+        }
+
+        SlidePictureData(boolean show, BufferedImage image, File imageFile,
+                         int x, int y, int widthPct, String shape, int cornerRadius,
+                         File audioFile, int audioDurationMs, String audioEffect,
+                         int boxHeightPct, int audioActiveIdx,
+                         int borderWidth, Color borderColor, int opacity, String fitMode) {
             this.show = show;
             this.image = image;
             this.imageFile = imageFile;
@@ -12929,6 +12997,10 @@ public class GifSlideShowApp extends JFrame {
             this.audioEffect = audioEffect != null ? audioEffect : "None";
             this.boxHeightPct = boxHeightPct;
             this.audioActiveIdx = audioActiveIdx;
+            this.borderWidth = borderWidth;
+            this.borderColor = borderColor;
+            this.opacity = opacity;
+            this.fitMode = fitMode != null ? fitMode : "Fit";
         }
     }
 
@@ -13798,6 +13870,13 @@ public class GifSlideShowApp extends JFrame {
         private int bulkItemAudioDurationMs = -1;
         private final JLabel bulkAudioLabel;
         private final JComboBox<String> bulkEffectCombo;
+        private final JSpinner bulkGapSpinner;
+        private final JSpinner bulkCornerSpinner;
+        private final JSpinner bulkBorderSpinner;
+        private Color bulkBorderColor = Color.WHITE;
+        private final JButton bulkBorderColorBtn;
+        private final JComboBox<String> bulkFitCombo;
+        private final JSpinner bulkOpacitySpinner;
 
         private File slideVideoOverlayFile;
         private int slideVideoOverlayDurationMs = -1;
@@ -15363,6 +15442,67 @@ public class GifSlideShowApp extends JFrame {
             toolbar4g2.add(bulkAudioLabel);
             toolbar4g2.add(styledLabel("FX:"));
             toolbar4g2.add(bulkEffectCombo);
+
+            // ===== Toolbar Row 4g3: Bulk Grid Style Controls =====
+            JPanel toolbar4g3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
+            toolbar4g3.setBackground(new Color(30, 55, 75));
+
+            bulkGapSpinner = new JSpinner(new SpinnerNumberModel(4, 0, 50, 1));
+            bulkGapSpinner.setPreferredSize(new Dimension(45, 24));
+            bulkGapSpinner.setToolTipText("Gap between images as % of cell size");
+            bulkGapSpinner.addChangeListener(e -> { if (!isLoadingBulkItem) onFormatChanged(); });
+
+            bulkCornerSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 200, 5));
+            bulkCornerSpinner.setPreferredSize(new Dimension(50, 24));
+            bulkCornerSpinner.setToolTipText("Corner radius (pixels)");
+            bulkCornerSpinner.addChangeListener(e -> { if (!isLoadingBulkItem) onFormatChanged(); });
+
+            bulkBorderSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 30, 1));
+            bulkBorderSpinner.setPreferredSize(new Dimension(45, 24));
+            bulkBorderSpinner.setToolTipText("Border thickness (pixels)");
+            bulkBorderSpinner.addChangeListener(e -> { if (!isLoadingBulkItem) onFormatChanged(); });
+
+            bulkBorderColorBtn = new JButton("■ Color");
+            bulkBorderColorBtn.setPreferredSize(new Dimension(70, 24));
+            bulkBorderColorBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            bulkBorderColorBtn.setFocusPainted(false);
+            bulkBorderColorBtn.setBackground(bulkBorderColor);
+            bulkBorderColorBtn.setForeground(Color.BLACK);
+            bulkBorderColorBtn.addActionListener(e -> {
+                Color chosen = JColorChooser.showDialog(bulkBorderColorBtn, "Border Color", bulkBorderColor);
+                if (chosen != null) {
+                    bulkBorderColor = chosen;
+                    bulkBorderColorBtn.setBackground(bulkBorderColor);
+                    bulkBorderColorBtn.repaint();
+                    if (!isLoadingBulkItem) onFormatChanged();
+                }
+            });
+
+            bulkFitCombo = new JComboBox<>(new String[]{"Fit", "Fill"});
+            bulkFitCombo.setPreferredSize(new Dimension(60, 24));
+            bulkFitCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            bulkFitCombo.setToolTipText("'Fit' = letterbox, 'Fill' = crop to fill cell");
+            bulkFitCombo.addActionListener(e -> { if (!isLoadingBulkItem) onFormatChanged(); });
+
+            bulkOpacitySpinner = new JSpinner(new SpinnerNumberModel(100, 10, 100, 5));
+            bulkOpacitySpinner.setPreferredSize(new Dimension(50, 24));
+            bulkOpacitySpinner.setToolTipText("Image opacity %");
+            bulkOpacitySpinner.addChangeListener(e -> { if (!isLoadingBulkItem) onFormatChanged(); });
+
+            JLabel styleHeaderLbl = styledLabel("🎨 Style:");
+            styleHeaderLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            toolbar4g3.add(styleHeaderLbl);
+            toolbar4g3.add(styledLabel("Gap %:"));
+            toolbar4g3.add(bulkGapSpinner);
+            toolbar4g3.add(styledLabel("Corner:"));
+            toolbar4g3.add(bulkCornerSpinner);
+            toolbar4g3.add(styledLabel("Border px:"));
+            toolbar4g3.add(bulkBorderSpinner);
+            toolbar4g3.add(bulkBorderColorBtn);
+            toolbar4g3.add(styledLabel("Fit:"));
+            toolbar4g3.add(bulkFitCombo);
+            toolbar4g3.add(styledLabel("Opacity%:"));
+            toolbar4g3.add(bulkOpacitySpinner);
 
             // ===== Toolbar Row 5: Image Effects (3 rows) =====
             JPanel toolbar5a = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
