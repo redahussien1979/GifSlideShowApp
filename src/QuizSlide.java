@@ -451,6 +451,34 @@ public class QuizSlide {
         this.dingPreset        = src.dingPreset;
         this.customTickFile    = src.customTickFile;
         this.customDingFile    = src.customDingFile;
+
+        // Merge per-cue VISUAL settings keyed by targetTextIndex. The
+        // destination cue's audioFile / durationMs / startMs are preserved so
+        // each slide keeps its own recording — only effects / color / glow /
+        // rank / playAfterReveal propagate from the master.
+        if (src.cues != null) {
+            if (this.cues == null) this.cues = new ArrayList<>();
+            for (QuizCue srcCue : src.cues) {
+                if (srcCue == null) continue;
+                QuizCue dstCue = null;
+                for (QuizCue c : this.cues) {
+                    if (c != null && c.targetTextIndex == srcCue.targetTextIndex) {
+                        dstCue = c;
+                        break;
+                    }
+                }
+                if (dstCue == null) {
+                    dstCue = new QuizCue();
+                    dstCue.targetTextIndex = srcCue.targetTextIndex;
+                    this.cues.add(dstCue);
+                }
+                dstCue.effects         = srcCue.effects;
+                dstCue.hlColor         = srcCue.hlColor;
+                dstCue.glowSize        = srcCue.glowSize;
+                dstCue.rank            = srcCue.rank;
+                dstCue.playAfterReveal = srcCue.playAfterReveal;
+            }
+        }
     }
 
     /**

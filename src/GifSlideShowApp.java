@@ -142,7 +142,7 @@ public class GifSlideShowApp extends JFrame {
         dictImportBtn.addActionListener(e -> dictionaryImport());
 
         JButton quizImportBtn = createStyledButton("Quiz Import", new Color(180, 120, 200));
-        quizImportBtn.setToolTipText("Import CSV/TSV of quiz settings: each row = one slide. Headers: QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD, QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO, QUIZ_TIMER_STYLE/X/Y/SIZE/WIDTH/COLOR/TEXT_COLOR/FONT/LABEL/START_MODE, QUIZ_BAR_SHAPE, QUIZ_REVEAL_MARK_STYLE/SIZE/COLOR, QUIZ_REVEAL_PAD, QUIZ_TIMER_ANIM/_STRENGTH/_TRIGGER/_EASING, QUIZ_TIMER_RED_COLOR.");
+        quizImportBtn.setToolTipText("Import CSV/TSV of quiz settings: each row = one slide. Headers: QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD, QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO, QUIZ_TIMER_STYLE/X/Y/SIZE/WIDTH/COLOR/TEXT_COLOR/FONT/LABEL/START_MODE, QUIZ_BAR_SHAPE, QUIZ_REVEAL_MARK_STYLE/SIZE/COLOR, QUIZ_REVEAL_PAD, QUIZ_TIMER_ANIM/_STRENGTH/_TRIGGER/_EASING, QUIZ_TIMER_RED_COLOR, QUIZ_CUE1_AUDIO..QUIZ_CUEn_AUDIO, QUIZ_CUE_SPECIAL_AUDIO.");
         quizImportBtn.addActionListener(e -> quizImport());
 
         JButton titleGridBtn = createStyledButton("Title Grid", new Color(60, 160, 200));
@@ -2056,6 +2056,14 @@ public class GifSlideShowApp extends JFrame {
                         + "  QUIZ_TIMER_ANIM_TRIGGER (Red Phase/Always/Each Tick/Never),\n"
                         + "  QUIZ_TIMER_ANIM_EASING (Linear/Ease In/Ease Out/Ease In Out/Bounce),\n"
                         + "  QUIZ_TIMER_RED_COLOR.\n"
+                        + "  Per-cue audio (Quiz Audio Timeline):\n"
+                        + "    QUIZ_CUE1_AUDIO, QUIZ_CUE2_AUDIO, … QUIZ_CUEn_AUDIO\n"
+                        + "      -> audio file for the cue targeting Text #n,\n"
+                        + "    QUIZ_CUE_SPECIAL_AUDIO (or QUIZ_CUE0_AUDIO)\n"
+                        + "      -> the no-text \"Special\" cue.\n"
+                        + "    Rank / Effects / Color / Glow / Replay propagate\n"
+                        + "    from the FIRST data row's cues (set them on the\n"
+                        + "    first slide's Audio Timeline before importing).\n"
                         + "  Available QUIZ_TIMER_STYLE values: Number Circle, Progress Bar H,\n"
                         + "  Progress Bar V, Ring Arc, Analog Clock, Hourglass, Flip Clock,\n"
                         + "  Bomb Fuse, Dot Grid.\n"
@@ -2162,12 +2170,20 @@ public class GifSlideShowApp extends JFrame {
         Map<String, Integer> col = new HashMap<>();
         // textColByIndex: 1-based TEXTn -> CSV column index
         Map<Integer, Integer> textColByIndex = new TreeMap<>();
+        // cueAudioColByTarget: targetTextIndex (0=Special, 1..n=Text#n)
+        // -> CSV column index for QUIZ_CUEn_AUDIO / QUIZ_CUE_SPECIAL_AUDIO.
+        Map<Integer, Integer> cueAudioColByTarget = new TreeMap<>();
         int hlColIndex = -1;
         for (int i = 0; i < headerFields.size(); i++) {
             String h = headerFields.get(i).trim().toUpperCase(Locale.ROOT);
             // Accept both "QUIZ_X" and "QUIZ.X" header conventions.
             if (h.startsWith("QUIZ.")) h = "QUIZ_" + h.substring(5);
-            if (h.startsWith("QUIZ_")) {
+            if (h.equals("QUIZ_CUE_SPECIAL_AUDIO") || h.equals("QUIZ_CUE0_AUDIO")) {
+                cueAudioColByTarget.put(0, i);
+            } else if (h.matches("QUIZ_CUE\\d+_AUDIO")) {
+                int n = Integer.parseInt(h.substring(8, h.length() - "_AUDIO".length()));
+                if (n >= 1) cueAudioColByTarget.put(n, i);
+            } else if (h.startsWith("QUIZ_")) {
                 col.put(h, i);
             } else if (h.equals("HL")) {
                 hlColIndex = i;
@@ -2176,7 +2192,7 @@ public class GifSlideShowApp extends JFrame {
                 if (n >= 1) textColByIndex.put(n, i);
             }
         }
-        if (col.isEmpty() && textColByIndex.isEmpty() && hlColIndex < 0) {
+        if (col.isEmpty() && textColByIndex.isEmpty() && cueAudioColByTarget.isEmpty() && hlColIndex < 0) {
             JOptionPane.showMessageDialog(this,
                     "No recognised columns in header row.\n"
                             + "Use TEXT1..TEXTn for slide texts, HL for highlight text,\n"
@@ -2293,11 +2309,54 @@ public class GifSlideShowApp extends JFrame {
                 }
             }
 
+            // QUIZ_CUEn_AUDIO / QUIZ_CUE_SPECIAL_AUDIO: per-text cue audio.
+            // Empty cell = leave that cue unchanged. A path sets the audio
+            // on the slide's existing cue for that target (creating one if
+            // none exists). Cue visuals (rank/effects/color/glow/replay)
+            // come from the first row's cues via copyVisualSettingsFrom.
+            for (Map.Entry<Integer, Integer> ce : cueAudioColByTarget.entrySet()) {
+                int target = ce.getKey();
+                int colIdx = ce.getValue();
+                if (colIdx >= fields.size()) continue;
+                String cell = fields.get(colIdx);
+                if (cell == null || cell.trim().isEmpty()) continue;
+                File af = resolveQuizPath(cell.trim(), importSourceDir);
+                if (!af.exists()) {
+                    warnings.add("Row " + (r + 1)
+                            + ": cue audio not found for "
+                            + (target == 0 ? "Special" : "Text #" + target)
+                            + ": '" + cell + "'.");
+                    continue;
+                }
+                int dur = probeAudioDurationMs(af);
+                if (dur <= 0) {
+                    warnings.add("Row " + (r + 1)
+                            + ": could not probe duration of '" + af.getName() + "'.");
+                }
+                if (q.cues == null) q.cues = new ArrayList<>();
+                QuizSlide.QuizCue cue = null;
+                for (QuizSlide.QuizCue c : q.cues) {
+                    if (c != null && c.targetTextIndex == target) { cue = c; break; }
+                }
+                if (cue == null) {
+                    cue = new QuizSlide.QuizCue();
+                    cue.targetTextIndex = target;
+                    q.cues.add(cue);
+                }
+                cue.audioFile  = af;
+                cue.durationMs = Math.max(0, dur);
+            }
+
             // Shared visual fields read from FIRST data row only, then
-            // broadcast to every slide further down.
+            // broadcast to every slide further down. For rows after the
+            // first, apply the master's visuals (including per-cue rank /
+            // effects / color / glow / replay) BEFORE building the combined
+            // audio so the rank-chained ordering uses the right values.
             if (!visualsApplied) {
                 applyQuizVisualFields(q, fields, col, r + 1, warnings);
                 visualsApplied = true;
+            } else if (slideIdx > 0) {
+                q.copyVisualSettingsFrom(targetSlides.get(0).getQuiz());
             }
 
             // If quiz is enabled and we have a question audio, build the
