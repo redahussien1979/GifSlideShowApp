@@ -2359,17 +2359,36 @@ public class GifSlideShowApp extends JFrame {
                 q.copyVisualSettingsFrom(targetSlides.get(0).getQuiz());
             }
 
-            // If quiz is enabled and we have a question audio, build the
-            // combined audio (question + tick × N + ding) and attach it as
+            // If quiz is enabled, build the combined audio (question +
+            // tick × N + ding + timeline cues mixed in) and attach it as
             // the slide's audio — same path the Quiz dialog Save uses.
-            if (q.enabled && q.questionAudioFile != null && q.questionAudioFile.exists()
-                    && q.questionAudioDurationMs > 0) {
+            // Build when EITHER question audio OR any per-text cue audio
+            // is present, so rows that only supply QUIZ_CUEn_AUDIO still
+            // get a slide audio attached.
+            boolean hasQuestion = q.questionAudioFile != null
+                    && q.questionAudioFile.exists()
+                    && q.questionAudioDurationMs > 0;
+            boolean hasCueAudio = false;
+            if (q.cues != null) {
+                for (QuizSlide.QuizCue c : q.cues) {
+                    if (c != null && c.audioFile != null && c.audioFile.exists()
+                            && c.durationMs > 0) {
+                        hasCueAudio = true;
+                        break;
+                    }
+                }
+            }
+            if (q.enabled && (hasQuestion || hasCueAudio)) {
+                // Without a question audio file we must turn off the
+                // useQuestionAudio flag so timer-start math and the audio
+                // mixer both skip the question-audio leg cleanly.
+                if (!hasQuestion) q.useQuestionAudio = false;
                 try {
                     File built = QuizSlide.generateCombinedAudio(q);
                     int dur = probeAudioDurationMs(built);
                     q.generatedAudioFile = built;
                     q.generatedAudioDurationMs = dur;
-                    q.questionEndMs = q.questionAudioDurationMs;
+                    q.questionEndMs = hasQuestion ? q.questionAudioDurationMs : 0;
                     slide.setSlideAudio(0, built, dur);
                     audioBuilt++;
                 } catch (Exception ex) {
