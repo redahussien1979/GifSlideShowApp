@@ -6298,8 +6298,8 @@ public class GifSlideShowApp extends JFrame {
                 boolean _effectOn = (pic.audioActiveIdx < 0)
                         ? true
                         : (_activeAudio == pic.audioActiveIdx);
-                if (pic.audioEffect != null && !pic.audioEffect.equals("None")
-                        && animFrameIndex >= 0 && _effectOn) {
+                String _fx = pic.audioEffect != null ? pic.audioEffect : "";
+                if (!_fx.isEmpty() && !_fx.equals("None") && animFrameIndex >= 0 && _effectOn) {
                     int ex = picX, ey = picY, ew = picW, eh = picH;
                     if ("Circle".equals(pic.shape)) {
                         int diameter = Math.min(picW, picH);
@@ -6307,114 +6307,121 @@ public class GifSlideShowApp extends JFrame {
                         ey = (int)(targetH * pic.y / 100.0) - diameter / 2;
                         ew = diameter; eh = diameter;
                     }
-                    double phase = (animFrameIndex % 30) / 30.0; // 0..1 cycle
+                    double phase = (animFrameIndex % 30) / 30.0;
                     float rcScaleE = Math.max(targetW, targetH) / 1920.0f;
                     Graphics2D eg = (Graphics2D) g.create();
                     eg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     eg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-                    if ("Glow".equals(pic.audioEffect)) {
-                        // Soft, subtle breathing halo (toned down — no harsh flash).
-                        float alpha = (float)(0.12 + 0.14 * (0.5 - 0.5 * Math.cos(phase * 2 * Math.PI)));
-                        int glowSize = Math.max(4, (int)(Math.min(ew, eh) * 0.045));
-                        for (int gi = glowSize; gi >= 1; gi--) {
-                            float a = alpha * (1f - (float) gi / glowSize);
-                            eg.setColor(new Color(1f, 0.88f, 0.45f, Math.max(0f, a)));
-                            eg.setStroke(new java.awt.BasicStroke(gi * 2));
-                            if ("Circle".equals(pic.shape)) {
-                                eg.drawOval(ex - gi, ey - gi, ew + gi * 2, eh + gi * 2);
-                            } else {
-                                int r = pic.cornerRadius > 0 ? pic.cornerRadius : 0;
-                                eg.drawRoundRect(ex - gi, ey - gi, ew + gi * 2, eh + gi * 2, r + gi, r + gi);
-                            }
-                        }
-                    } else if ("Scale Pulse".equals(pic.audioEffect)) {
-                        // Smooth gentle "breathing" zoom (Google Photos style).
-                        float scale = (float)(1.0 + 0.05 * (0.5 - 0.5 * Math.cos(phase * 2 * Math.PI)));
-                        if (scale > 1.0f) {
-                            int bw = (int)(ew * scale); int bh = (int)(eh * scale);
-                            int bx = ex - (bw - ew) / 2; int by = ey - (bh - eh) / 2;
-                            Graphics2D sg = (Graphics2D) eg.create();
-                            clipPicShape(sg, pic, bx, by, bw, bh, rcScaleE);
-                            sg.drawImage(pic.image, bx, by, bw, bh, null);
-                            sg.dispose();
-                        }
-                    } else if ("Pop".equals(pic.audioEffect)) {
-                        // Snappy Instagram-like double-tap pop: quick spring up, settle.
+
+                    // ── Image-redraw effects (first match wins — only one can redraw) ──
+                    if (_fx.contains("Scale Pulse")) {
+                        // Gentle breathing zoom (Google Photos style).
+                        float scale = (float)(1.0 + 0.06 * (0.5 - 0.5 * Math.cos(phase * 2 * Math.PI)));
+                        int bw = (int)(ew * scale), bh = (int)(eh * scale);
+                        int bx = ex - (bw - ew) / 2, by = ey - (bh - eh) / 2;
+                        Graphics2D sg = (Graphics2D) eg.create();
+                        clipPicShape(sg, pic, bx, by, bw, bh, rcScaleE);
+                        sg.drawImage(pic.image, bx, by, bw, bh, null);
+                        sg.dispose();
+                    } else if (_fx.contains("Pop")) {
+                        // Snappy Instagram spring pop.
                         double t2 = (animFrameIndex % 30) / 30.0;
                         double s = (t2 < 0.5) ? Math.sin(t2 / 0.5 * Math.PI) : 0.0;
                         float scale = (float)(1.0 + 0.18 * s);
                         if (scale > 1.001f) {
-                            int bw = (int)(ew * scale); int bh = (int)(eh * scale);
-                            int bx = ex - (bw - ew) / 2; int by = ey - (bh - eh) / 2;
+                            int bw = (int)(ew * scale), bh = (int)(eh * scale);
+                            int bx = ex - (bw - ew) / 2, by = ey - (bh - eh) / 2;
                             Graphics2D sg = (Graphics2D) eg.create();
                             clipPicShape(sg, pic, bx, by, bw, bh, rcScaleE);
                             sg.drawImage(pic.image, bx, by, bw, bh, null);
                             sg.dispose();
                         }
-                    } else if ("Heartbeat".equals(pic.audioEffect)) {
-                        // Two quick beats then rest — like a "like" heart pulse.
+                    } else if (_fx.contains("Heartbeat")) {
+                        // Smooth double-beat: lub-DUB, rest. ~1.2s cycle @30fps (36 frames).
                         double t2 = (animFrameIndex % 36) / 36.0;
-                        double beat;
-                        if (t2 < 0.15) beat = Math.sin(t2 / 0.15 * Math.PI);
-                        else if (t2 < 0.32) beat = 0.6 * Math.sin((t2 - 0.17) / 0.15 * Math.PI);
-                        else beat = 0.0;
-                        beat = Math.max(0.0, beat);
-                        float scale = (float)(1.0 + 0.13 * beat);
+                        double beat = 0.0;
+                        if (t2 < 0.13)                  beat = Math.sin(t2 / 0.13 * Math.PI);
+                        else if (t2 >= 0.20 && t2 < 0.33) beat = 0.75 * Math.sin((t2 - 0.20) / 0.13 * Math.PI);
+                        float scale = (float)(1.0 + 0.12 * Math.max(0.0, beat));
                         if (scale > 1.001f) {
-                            int bw = (int)(ew * scale); int bh = (int)(eh * scale);
-                            int bx = ex - (bw - ew) / 2; int by = ey - (bh - eh) / 2;
+                            int bw = (int)(ew * scale), bh = (int)(eh * scale);
+                            int bx = ex - (bw - ew) / 2, by = ey - (bh - eh) / 2;
                             Graphics2D sg = (Graphics2D) eg.create();
                             clipPicShape(sg, pic, bx, by, bw, bh, rcScaleE);
                             sg.drawImage(pic.image, bx, by, bw, bh, null);
                             sg.dispose();
                         }
-                    } else if ("Ken Burns".equals(pic.audioEffect)) {
-                        // Slow cinematic zoom + pan (Apple TV / Google Photos slideshow).
-                        double t2 = (animFrameIndex % 150) / 150.0; // ~5s cycle @30fps
-                        double zoom = 1.10 + 0.10 * (0.5 - 0.5 * Math.cos(t2 * 2 * Math.PI));
-                        double panX = Math.sin(t2 * 2 * Math.PI) * ew * 0.03;
-                        double panY = Math.cos(t2 * 2 * Math.PI) * eh * 0.03;
-                        int zw = (int)(ew * zoom), zh = (int)(eh * zoom);
-                        int zx = ex - (zw - ew) / 2 + (int) panX;
-                        int zy = ey - (zh - eh) / 2 + (int) panY;
-                        Graphics2D kg = (Graphics2D) eg.create();
-                        clipPicShape(kg, pic, ex, ey, ew, eh, rcScaleE);
-                        kg.drawImage(pic.image, zx, zy, zw, zh, null);
-                        kg.dispose();
-                    } else if ("Shine".equals(pic.audioEffect)) {
-                        // Diagonal light sweep (iOS App Store / shimmer skeleton).
+                    } else if (_fx.contains("Bounce")) {
+                        double bounce = Math.abs(Math.sin(phase * Math.PI));
+                        int lift = (int)(eh * 0.08 * bounce);
+                        Graphics2D bg2 = (Graphics2D) eg.create();
+                        clipPicShape(bg2, pic, ex, ey - lift, ew, eh, rcScaleE);
+                        bg2.drawImage(pic.image, ex, ey - lift, ew, eh, null);
+                        bg2.dispose();
+                    }
+
+                    // ── Overlay effects (all selected ones fire independently) ──
+                    if (_fx.contains("Glow")) {
+                        // Soft breathing halo — warm amber.
+                        float alpha = (float)(0.15 + 0.20 * (0.5 - 0.5 * Math.cos(phase * 2 * Math.PI)));
+                        int glowSize = Math.max(5, (int)(Math.min(ew, eh) * 0.055));
+                        for (int gi = glowSize; gi >= 1; gi--) {
+                            float a = alpha * (1f - (float) gi / glowSize);
+                            eg.setColor(new Color(1f, 0.85f, 0.3f, Math.max(0f, a)));
+                            eg.setStroke(new java.awt.BasicStroke(gi * 2));
+                            int r = pic.cornerRadius > 0 ? pic.cornerRadius : 0;
+                            if ("Circle".equals(pic.shape))
+                                eg.drawOval(ex - gi, ey - gi, ew + gi * 2, eh + gi * 2);
+                            else
+                                eg.drawRoundRect(ex - gi, ey - gi, ew + gi * 2, eh + gi * 2, r + gi, r + gi);
+                        }
+                    }
+                    if (_fx.contains("Shine")) {
+                        // Narrow diagonal specular sweep — clearly visible white glint.
                         Graphics2D shg = (Graphics2D) eg.create();
                         clipPicShape(shg, pic, ex, ey, ew, eh, rcScaleE);
-                        float prog = (animFrameIndex % 48) / 48f;
-                        float center = ex - ew * 0.3f + prog * (ew * 1.6f);
-                        float band = Math.max(2f, ew * 0.45f);
-                        float p0x = center - band / 2f;
-                        float p1x = center + band / 2f;
-                        if (p1x - p0x < 1f) p1x = p0x + 1f;
+                        float prog = (animFrameIndex % 50) / 50f;
+                        // narrow band: 20% of width
+                        float band = Math.max(4f, ew * 0.20f);
+                        float center = ex - band + prog * (ew + band * 2f);
+                        float p0 = center - band / 2f, p1 = center + band / 2f;
+                        if (p1 - p0 < 2f) p1 = p0 + 2f;
                         java.awt.LinearGradientPaint lgp = new java.awt.LinearGradientPaint(
-                                new java.awt.geom.Point2D.Float(p0x, ey),
-                                new java.awt.geom.Point2D.Float(p1x, ey + eh),
-                                new float[]{0f, 0.5f, 1f},
+                                new java.awt.geom.Point2D.Float(p0, ey),
+                                new java.awt.geom.Point2D.Float(p1, ey + eh),
+                                new float[]{0f, 0.35f, 0.65f, 1f},
                                 new Color[]{
-                                        new Color(1f, 1f, 1f, 0f),
-                                        new Color(1f, 1f, 1f, 0.4f),
-                                        new Color(1f, 1f, 1f, 0f)});
+                                    new Color(1f, 1f, 1f, 0f),
+                                    new Color(1f, 1f, 1f, 0.72f),
+                                    new Color(1f, 1f, 1f, 0.72f),
+                                    new Color(1f, 1f, 1f, 0f)});
                         shg.setPaint(lgp);
                         shg.fillRect(ex, ey, ew, eh);
                         shg.dispose();
-                    } else if ("Bounce".equals(pic.audioEffect)) {
-                        // Actually lift the image up and down so it bounces.
-                        double bounce = Math.abs(Math.sin(phase * Math.PI));
-                        int lift = (int)(eh * 0.10 * bounce);
-                        Graphics2D bg2 = (Graphics2D) eg.create();
-                        if ("Circle".equals(pic.shape)) {
-                            bg2.setClip(new java.awt.geom.Ellipse2D.Double(ex, ey - lift, ew, eh));
-                        } else if (pic.cornerRadius > 0) {
-                            int rad = Math.max(1, (int)(pic.cornerRadius * Math.max(rcScaleE, 0.5f)));
-                            bg2.setClip(new RoundRectangle2D.Double(ex, ey - lift, ew, eh, rad * 2, rad * 2));
+                    }
+                    if (_fx.contains("Color Scan")) {
+                        // Cyan scan line sweeping top→bottom, with bright glow trail.
+                        double t2 = (animFrameIndex % 45) / 45.0;
+                        int scanY = ey + (int)(t2 * eh);
+                        Graphics2D sg = (Graphics2D) eg.create();
+                        clipPicShape(sg, pic, ex, ey, ew, eh, rcScaleE);
+                        // Semi-transparent tinted overlay above the scan line
+                        if (scanY > ey) {
+                            sg.setColor(new Color(0, 200, 255, 22));
+                            sg.fillRect(ex, ey, ew, scanY - ey);
                         }
-                        bg2.drawImage(pic.image, ex, ey - lift, ew, eh, null);
-                        bg2.dispose();
+                        // Bright scan line with soft glow above it
+                        int lineGlow = Math.max(3, ew / 80);
+                        for (int li = lineGlow; li >= 1; li--) {
+                            float la = 0.6f * (1f - (float) li / lineGlow);
+                            sg.setColor(new Color(0f, 0.85f, 1f, la));
+                            sg.setStroke(new java.awt.BasicStroke(li * 2 + 1));
+                            sg.drawLine(ex, scanY - li, ex + ew, scanY - li);
+                        }
+                        sg.setColor(new Color(0, 230, 255, 230));
+                        sg.setStroke(new java.awt.BasicStroke(2.5f));
+                        sg.drawLine(ex, scanY, ex + ew, scanY);
+                        sg.dispose();
                     }
                     eg.dispose();
                 }
@@ -11544,7 +11551,7 @@ public class GifSlideShowApp extends JFrame {
         if (pics == null) return false;
         for (SlidePictureData p : pics) {
             if (p != null && p.show && p.audioEffect != null
-                    && !p.audioEffect.equals("None")) {
+                    && !p.audioEffect.isEmpty() && !p.audioEffect.equals("None")) {
                 return true;
             }
         }
@@ -13937,7 +13944,13 @@ public class GifSlideShowApp extends JFrame {
         private File bulkItemAudioFile;
         private int bulkItemAudioDurationMs = -1;
         private final JLabel bulkAudioLabel;
-        private final JComboBox<String> bulkEffectCombo;
+        private final JToggleButton bulkFxGlow;
+        private final JToggleButton bulkFxPulse;
+        private final JToggleButton bulkFxPop;
+        private final JToggleButton bulkFxHeartbeat;
+        private final JToggleButton bulkFxColorScan;
+        private final JToggleButton bulkFxShine;
+        private final JToggleButton bulkFxBounce;
         private final JSpinner bulkGapSpinner;
         private final JSpinner bulkCornerSpinner;
         private final JSpinner bulkBorderSpinner;
@@ -15500,15 +15513,16 @@ public class GifSlideShowApp extends JFrame {
                 onFormatChanged();
             });
 
-            bulkEffectCombo = new JComboBox<>(new String[]{
-                    "None", "Glow", "Scale Pulse", "Pop", "Heartbeat",
-                    "Ken Burns", "Shine", "Bounce"});
-            bulkEffectCombo.setPreferredSize(new Dimension(90, 24));
-            bulkEffectCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            bulkEffectCombo.setToolTipText("Visual effect shown on this image when its audio plays");
-            bulkEffectCombo.addActionListener(e -> {
+            ActionListener fxToggleListener = e -> {
                 if (!isLoadingBulkItem) { saveBulkItemToList(); onFormatChanged(); }
-            });
+            };
+            bulkFxGlow      = makeFxToggle("Glow",      fxToggleListener);
+            bulkFxPulse     = makeFxToggle("Pulse",     fxToggleListener);
+            bulkFxPop       = makeFxToggle("Pop",       fxToggleListener);
+            bulkFxHeartbeat = makeFxToggle("Heartbeat", fxToggleListener);
+            bulkFxColorScan = makeFxToggle("Scan",      fxToggleListener);
+            bulkFxShine     = makeFxToggle("Shine",     fxToggleListener);
+            bulkFxBounce    = makeFxToggle("Bounce",    fxToggleListener);
 
             bulkItemSizeSpinner = new JSpinner(new SpinnerNumberModel(100, 10, 200, 5));
             bulkItemSizeSpinner.setPreferredSize(new Dimension(55, 24));
@@ -15539,7 +15553,13 @@ public class GifSlideShowApp extends JFrame {
             toolbar4g2.add(bulkAudioClearBtn);
             toolbar4g2.add(bulkAudioLabel);
             toolbar4g2.add(styledLabel("FX:"));
-            toolbar4g2.add(bulkEffectCombo);
+            toolbar4g2.add(bulkFxGlow);
+            toolbar4g2.add(bulkFxPulse);
+            toolbar4g2.add(bulkFxPop);
+            toolbar4g2.add(bulkFxHeartbeat);
+            toolbar4g2.add(bulkFxColorScan);
+            toolbar4g2.add(bulkFxShine);
+            toolbar4g2.add(bulkFxBounce);
             toolbar4g2.add(styledLabel("Size%:"));
             toolbar4g2.add(bulkItemSizeSpinner);
             toolbar4g2.add(styledLabel("X%:"));
@@ -17665,7 +17685,7 @@ public class GifSlideShowApp extends JFrame {
                 bulkItemPreviewLabel.setIcon(null);
                 bulkItemPreviewLabel.setText("No image");
                 bulkAudioLabel.setText("No audio");
-                bulkEffectCombo.setSelectedIndex(0);
+                setBulkFxToggles("");
                 bulkItemSizeSpinner.setValue(100);
                 bulkItemXSpinner.setValue(-1);
                 bulkItemYSpinner.setValue(-1);
@@ -17684,7 +17704,7 @@ public class GifSlideShowApp extends JFrame {
                     true, bulkItemLoadedImage, bulkItemLoadedFile,
                     manualX, manualY, perItemSize, old.shape, old.cornerRadius,
                     bulkItemAudioFile, bulkItemAudioDurationMs,
-                    (String) bulkEffectCombo.getSelectedItem()));
+                    getBulkFxString()));
         }
 
         private void loadBulkItemFromList(int index) {
@@ -17702,8 +17722,7 @@ public class GifSlideShowApp extends JFrame {
                 bulkItemYSpinner.setValue(Math.max(-1, Math.min(100, item.y)));
                 updateBulkItemPreview();
                 bulkAudioLabel.setText(item.audioFile != null ? item.audioFile.getName() : "No audio");
-                String fx = item.audioEffect != null ? item.audioEffect : "None";
-                bulkEffectCombo.setSelectedItem(fx);
+                setBulkFxToggles(item.audioEffect != null ? item.audioEffect : "");
             } finally {
                 isLoadingBulkItem = false;
             }
@@ -17979,6 +17998,51 @@ public class GifSlideShowApp extends JFrame {
             l.setForeground(Color.LIGHT_GRAY);
             l.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             return l;
+        }
+
+        private String getBulkFxString() {
+            StringBuilder sb = new StringBuilder();
+            if (bulkFxGlow.isSelected())      { if (sb.length()>0) sb.append(','); sb.append("Glow"); }
+            if (bulkFxPulse.isSelected())     { if (sb.length()>0) sb.append(','); sb.append("Scale Pulse"); }
+            if (bulkFxPop.isSelected())       { if (sb.length()>0) sb.append(','); sb.append("Pop"); }
+            if (bulkFxHeartbeat.isSelected()) { if (sb.length()>0) sb.append(','); sb.append("Heartbeat"); }
+            if (bulkFxColorScan.isSelected()) { if (sb.length()>0) sb.append(','); sb.append("Color Scan"); }
+            if (bulkFxShine.isSelected())     { if (sb.length()>0) sb.append(','); sb.append("Shine"); }
+            if (bulkFxBounce.isSelected())    { if (sb.length()>0) sb.append(','); sb.append("Bounce"); }
+            return sb.toString();
+        }
+
+        private void setBulkFxToggles(String fxStr) {
+            String s = fxStr != null ? fxStr : "";
+            setToggle(bulkFxGlow,      s.contains("Glow"));
+            setToggle(bulkFxPulse,     s.contains("Scale Pulse"));
+            setToggle(bulkFxPop,       s.contains("Pop"));
+            setToggle(bulkFxHeartbeat, s.contains("Heartbeat"));
+            setToggle(bulkFxColorScan, s.contains("Color Scan"));
+            setToggle(bulkFxShine,     s.contains("Shine"));
+            setToggle(bulkFxBounce,    s.contains("Bounce"));
+        }
+
+        private static void setToggle(JToggleButton btn, boolean on) {
+            btn.setSelected(on);
+            btn.setBackground(on ? new Color(80, 130, 220) : new Color(55, 65, 85));
+            btn.setForeground(on ? Color.WHITE : new Color(180, 190, 210));
+        }
+
+        private static JToggleButton makeFxToggle(String label, ActionListener listener) {
+            JToggleButton btn = new JToggleButton(label, false);
+            btn.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+            btn.setPreferredSize(new Dimension(60, 22));
+            btn.setFocusPainted(false);
+            btn.setBackground(new Color(55, 65, 85));
+            btn.setForeground(new Color(180, 190, 210));
+            btn.setBorderPainted(true);
+            btn.addActionListener(e -> {
+                btn.setBackground(btn.isSelected() ? new Color(80, 130, 220) : new Color(55, 65, 85));
+                btn.setForeground(btn.isSelected() ? Color.WHITE : new Color(180, 190, 210));
+            });
+            btn.addActionListener(listener);
+            return btn;
         }
 
         void schedulePreview() {
