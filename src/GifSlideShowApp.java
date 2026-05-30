@@ -13877,6 +13877,7 @@ public class GifSlideShowApp extends JFrame {
         private final JButton bulkBorderColorBtn;
         private final JComboBox<String> bulkFitCombo;
         private final JSpinner bulkOpacitySpinner;
+        private final JSpinner bulkWidthSpinner;
 
         private File slideVideoOverlayFile;
         private int slideVideoOverlayDurationMs = -1;
@@ -15489,11 +15490,18 @@ public class GifSlideShowApp extends JFrame {
             bulkOpacitySpinner.setToolTipText("Image opacity %");
             bulkOpacitySpinner.addChangeListener(e -> { if (!isLoadingBulkItem) onFormatChanged(); });
 
+            bulkWidthSpinner = new JSpinner(new SpinnerNumberModel(100, 10, 100, 5));
+            bulkWidthSpinner.setPreferredSize(new Dimension(50, 24));
+            bulkWidthSpinner.setToolTipText("Scale images within their cell (% of cell size)");
+            bulkWidthSpinner.addChangeListener(e -> { if (!isLoadingBulkItem) onFormatChanged(); });
+
             JLabel styleHeaderLbl = styledLabel("🎨 Style:");
             styleHeaderLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
             toolbar4g3.add(styleHeaderLbl);
             toolbar4g3.add(styledLabel("Gap %:"));
             toolbar4g3.add(bulkGapSpinner);
+            toolbar4g3.add(styledLabel("Size%:"));
+            toolbar4g3.add(bulkWidthSpinner);
             toolbar4g3.add(styledLabel("Corner:"));
             toolbar4g3.add(bulkCornerSpinner);
             toolbar4g3.add(styledLabel("Border px:"));
@@ -17502,19 +17510,30 @@ public class GifSlideShowApp extends JFrame {
             } else if (layout.equals("1×3")) { cols = 1; rows = 3;
             } else { cols = (int) Math.ceil(Math.sqrt(n)); rows = (int) Math.ceil((double) n / cols); }
 
-            double cellW = 100.0 / cols;
-            double cellH = 100.0 / rows;
-            // Each image is fit (aspect-preserved) inside its cell box. The gap
-            // spinner controls the gutter between cells as a % of cell size.
-            int gapPct = (int) bulkGapSpinner.getValue();          // 0-50
-            double gutter = gapPct / 100.0;
-            int widthPct  = Math.max(1, (int)(cellW * (1.0 - gutter)));
-            int heightPct = Math.max(1, (int)(cellH * (1.0 - gutter)));
+            // Pixel-space layout — gaps are real pixels between images, not % of cell.
+            int slideW = getOutputWidth();
+            int slideH = getOutputHeight();
+            int gapPct = (int) bulkGapSpinner.getValue();   // 0-50 % of shorter side
+            int gapPx  = Math.min(slideW, slideH) * gapPct / 100;
+            int sizeScalePct = (int) bulkWidthSpinner.getValue(); // 10-100
+
+            // Total grid spans (images only, gaps between them)
+            int totalGridW = slideW;   // grid fills full width
+            int totalGridH = slideH;   // grid fills full height
+            // Cell dimensions (image box + half-gap on each side)
+            // gap goes BETWEEN cells only: (cols-1) gaps for cols cells
+            int colWidthPx  = (totalGridW - Math.max(0, cols - 1) * gapPx) / cols;
+            int rowHeightPx = (totalGridH - Math.max(0, rows - 1) * gapPx) / rows;
+            // Scaled image box inside the cell
+            int imgBoxW = Math.max(1, colWidthPx  * sizeScalePct / 100);
+            int imgBoxH = Math.max(1, rowHeightPx * sizeScalePct / 100);
+
             int cornerRadius = (int) bulkCornerSpinner.getValue();
             int borderWidth  = (int) bulkBorderSpinner.getValue();
             Color borderColor = bulkBorderColor;
             int opacity = (int) bulkOpacitySpinner.getValue();
             String fitMode = (String) bulkFitCombo.getSelectedItem();
+            if (fitMode == null) fitMode = "Fit";
 
             // Compute where bulk audio starts in the full audioFiles list so
             // each image's effect fires only while its own audio segment plays.
@@ -17524,26 +17543,34 @@ public class GifSlideShowApp extends JFrame {
                 for (int k : slideAudioFiles.keySet()) if (k > maxIdx) maxIdx = k;
                 textAudioCount = maxIdx + 1; // 0 when no text audio
             }
-            int bulkAudioSlot = textAudioCount; // index of first bulk audio in full list
+            int bulkAudioSlot = textAudioCount;
 
             for (int i = 0; i < n; i++) {
                 SlidePictureData src = bulkGridItems.get(i);
                 int c = i % cols;
                 int r = i / cols;
                 if (r >= rows) break;
-                int cx = (int) Math.round((c + 0.5) * cellW);
-                int cy = (int) Math.round((r + 0.5) * cellH);
-                // audioActiveIdx: the slot in the full audioFiles list for this
-                // image. -1 if it has no audio (always-on effect, if any).
+
+                // Pixel center of this cell
+                int cellCenterX = c * (colWidthPx + gapPx) + colWidthPx / 2;
+                int cellCenterY = r * (rowHeightPx + gapPx) + rowHeightPx / 2;
+
+                // Convert pixel center to percentage (0-100 range)
+                int cx = (int) Math.round(cellCenterX * 100.0 / slideW);
+                int cy = (int) Math.round(cellCenterY * 100.0 / slideH);
+                // Image box percentages
+                int wPct = (int) Math.round(imgBoxW * 100.0 / slideW);
+                int hPct = (int) Math.round(imgBoxH * 100.0 / slideH);
+
                 int audioActiveIdx = -1;
                 if (src.audioFile != null && src.audioFile.exists() && src.audioDurationMs > 0) {
                     audioActiveIdx = bulkAudioSlot;
                     bulkAudioSlot++;
                 }
-                out.add(new SlidePictureData(true, src.image, src.imageFile, cx, cy, widthPct,
+                out.add(new SlidePictureData(true, src.image, src.imageFile, cx, cy, Math.max(1, wPct),
                         src.shape, cornerRadius, src.audioFile, src.audioDurationMs,
-                        src.audioEffect, heightPct, audioActiveIdx,
-                        borderWidth, borderColor, opacity, fitMode != null ? fitMode : "Fit"));
+                        src.audioEffect, Math.max(1, hPct), audioActiveIdx,
+                        borderWidth, borderColor, opacity, fitMode));
             }
             return out;
         }
