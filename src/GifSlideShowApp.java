@@ -13880,6 +13880,7 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner bulkWidthSpinner;
         private final JSpinner bulkMarginSpinner;
         private final JComboBox<String> bulkTemplateCombo;
+        private final JComboBox<String> bulkCollageCombo;
         private final JSpinner bulkItemSizeSpinner;
 
         private File slideVideoOverlayFile;
@@ -15535,6 +15536,28 @@ public class GifSlideShowApp extends JFrame {
             JPanel toolbar4g4 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
             toolbar4g4.setBackground(new Color(25, 60, 45));
 
+            bulkCollageCombo = new JComboBox<>(new String[]{
+                "— Grid Layout —",
+                "Side by Side (2)",
+                "Stacked (2)",
+                "Feature + Side (2)",
+                "Hero Left (3)",
+                "Hero Right (3)",
+                "Hero Top (3)",
+                "Triptych (3)",
+                "Big Left + 3 (4)",
+                "3 + Big Right (4)",
+                "Big Top + 3 (4)",
+                "2×2 Equal (4)",
+                "Magazine (5)",
+                "2 + 3 Strips (5)",
+                "Feature Mosaic (6)"
+            });
+            bulkCollageCombo.setPreferredSize(new Dimension(170, 24));
+            bulkCollageCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            bulkCollageCombo.setToolTipText("Professional collage layout (overrides grid when selected)");
+            bulkCollageCombo.addActionListener(e -> { if (!isLoadingBulkItem) onFormatChanged(); });
+
             bulkTemplateCombo = new JComboBox<>(new String[]{
                 "— Template —",
                 "Full Screen",
@@ -15628,7 +15651,9 @@ public class GifSlideShowApp extends JFrame {
             JLabel tplHeaderLbl = styledLabel("📐 Layout:");
             tplHeaderLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
             toolbar4g4.add(tplHeaderLbl);
-            toolbar4g4.add(styledLabel("Template:"));
+            toolbar4g4.add(styledLabel("Collage:"));
+            toolbar4g4.add(bulkCollageCombo);
+            toolbar4g4.add(styledLabel("Style Preset:"));
             toolbar4g4.add(bulkTemplateCombo);
             toolbar4g4.add(centerAllBtn);
 
@@ -17617,9 +17642,126 @@ public class GifSlideShowApp extends JFrame {
             }
         }
 
+        private static double[][] getCollageCells(String name) {
+            // Each cell: [left%, top%, right%, bottom%] in 0-100 coordinate space
+            if (name == null) return null;
+            switch (name) {
+                // ── 2-image ──────────────────────────────────
+                case "Side by Side (2)":
+                    return new double[][]{{0,0,50,100},{50,0,100,100}};
+                case "Stacked (2)":
+                    return new double[][]{{0,0,100,50},{0,50,100,100}};
+                case "Feature + Side (2)":
+                    return new double[][]{{0,0,65,100},{65,0,100,100}};
+                // ── 3-image ──────────────────────────────────
+                case "Hero Left (3)":
+                    return new double[][]{{0,0,60,100},{60,0,100,50},{60,50,100,100}};
+                case "Hero Right (3)":
+                    return new double[][]{{0,0,40,50},{0,50,40,100},{40,0,100,100}};
+                case "Hero Top (3)":
+                    return new double[][]{{0,0,100,60},{0,60,50,100},{50,60,100,100}};
+                case "Triptych (3)":
+                    return new double[][]{{0,0,33.4,100},{33.3,0,66.7,100},{66.6,0,100,100}};
+                // ── 4-image ──────────────────────────────────
+                case "Big Left + 3 (4)":
+                    return new double[][]{{0,0,60,100},{60,0,100,33.4},{60,33.3,100,66.7},{60,66.6,100,100}};
+                case "3 + Big Right (4)":
+                    return new double[][]{{0,0,40,33.4},{0,33.3,40,66.7},{0,66.6,40,100},{40,0,100,100}};
+                case "Big Top + 3 (4)":
+                    return new double[][]{{0,0,100,60},{0,60,33.4,100},{33.3,60,66.7,100},{66.6,60,100,100}};
+                case "2×2 Equal (4)":
+                    return new double[][]{{0,0,50,50},{50,0,100,50},{0,50,50,100},{50,50,100,100}};
+                // ── 5-image ──────────────────────────────────
+                case "Magazine (5)":
+                    return new double[][]{{0,0,55,65},{55,0,100,33},{55,33,100,65},{0,65,35,100},{35,65,100,100}};
+                case "2 + 3 Strips (5)":
+                    return new double[][]{{0,0,50,50},{50,0,100,50},{0,50,33.4,100},{33.3,50,66.7,100},{66.6,50,100,100}};
+                // ── 6-image ──────────────────────────────────
+                case "Feature Mosaic (6)":
+                    return new double[][]{{0,0,25,40},{25,0,50,40},{50,0,100,60},{0,40,50,65},{0,65,30,100},{30,65,100,100}};
+                default:
+                    return null;
+            }
+        }
+
         private List<SlidePictureData> computeBulkGridPositions() {
             List<SlidePictureData> out = new ArrayList<>();
             if (bulkGridItems.isEmpty()) return out;
+
+            int slideW = getOutputWidth();
+            int slideH = getOutputHeight();
+            int shorter = Math.min(slideW, slideH);
+            int gapPct    = (int) bulkGapSpinner.getValue();
+            int marginPct = (int) bulkMarginSpinner.getValue();
+            int sizeScalePct = (int) bulkWidthSpinner.getValue();
+
+            int gapPx    = shorter * gapPct    / 100;  // can be negative (overlap)
+            int marginPx = shorter * marginPct / 100;  // always >= 0
+
+            int cornerRadius = (int) bulkCornerSpinner.getValue();
+            int borderWidth  = (int) bulkBorderSpinner.getValue();
+            Color borderColor = bulkBorderColor;
+            int opacity = (int) bulkOpacitySpinner.getValue();
+            String fitMode = (String) bulkFitCombo.getSelectedItem();
+            if (fitMode == null) fitMode = "Fit";
+
+            // Audio slot base index
+            int textAudioCount = 0;
+            {
+                int maxIdx = -1;
+                for (int k : slideAudioFiles.keySet()) if (k > maxIdx) maxIdx = k;
+                textAudioCount = maxIdx + 1;
+            }
+            int bulkAudioSlot = textAudioCount;
+
+            // ── Collage mode ─────────────────────────────────────────────────────────
+            String collageName = (String) bulkCollageCombo.getSelectedItem();
+            double[][] collageCells = (collageName != null && !collageName.startsWith("—"))
+                    ? getCollageCells(collageName) : null;
+
+            if (collageCells != null) {
+                int usableW = slideW - 2 * marginPx;
+                int usableH = slideH - 2 * marginPx;
+                int n = Math.min(bulkGridItems.size(), collageCells.length);
+                for (int i = 0; i < n; i++) {
+                    SlidePictureData src = bulkGridItems.get(i);
+                    double[] cell = collageCells[i];
+                    // Map cell [0-100] to pixel rect within the usable (margin-inset) area
+                    int leftPx   = marginPx + (int) Math.round(usableW * cell[0] / 100.0);
+                    int topPx    = marginPx + (int) Math.round(usableH * cell[1] / 100.0);
+                    int rightPx  = marginPx + (int) Math.round(usableW * cell[2] / 100.0);
+                    int bottomPx = marginPx + (int) Math.round(usableH * cell[3] / 100.0);
+                    // Apply uniform half-gap inset on all 4 sides
+                    int halfGap = gapPx / 2;
+                    int imgLeft   = leftPx   + halfGap;
+                    int imgTop    = topPx    + halfGap;
+                    int imgRight  = rightPx  - (gapPx - halfGap);
+                    int imgBottom = bottomPx - (gapPx - halfGap);
+                    int cellW = Math.max(1, imgRight  - imgLeft);
+                    int cellH = Math.max(1, imgBottom - imgTop);
+                    int cellCX = imgLeft + cellW / 2;
+                    int cellCY = imgTop  + cellH / 2;
+                    // Apply global size% and per-item size%
+                    int perItemScale = src.widthPct > 0 ? src.widthPct : 100;
+                    int finalW = Math.max(1, cellW * sizeScalePct / 100 * perItemScale / 100);
+                    int finalH = Math.max(1, cellH * sizeScalePct / 100 * perItemScale / 100);
+                    int cx   = (int) Math.round(cellCX * 100.0 / slideW);
+                    int cy   = (int) Math.round(cellCY * 100.0 / slideH);
+                    int wPct = (int) Math.round(finalW  * 100.0 / slideW);
+                    int hPct = (int) Math.round(finalH  * 100.0 / slideH);
+                    int audioActiveIdx = -1;
+                    if (src.audioFile != null && src.audioFile.exists() && src.audioDurationMs > 0) {
+                        audioActiveIdx = bulkAudioSlot++;
+                    }
+                    out.add(new SlidePictureData(true, src.image, src.imageFile, cx, cy, Math.max(1, wPct),
+                            src.shape, cornerRadius, src.audioFile, src.audioDurationMs,
+                            src.audioEffect, Math.max(1, hPct), audioActiveIdx,
+                            borderWidth, borderColor, opacity, fitMode));
+                }
+                return out;
+            }
+
+            // ── Grid mode (original logic) ────────────────────────────────────────────
             String layout = (String) bulkLayoutCombo.getSelectedItem();
             int n = bulkGridItems.size();
             int cols, rows;
@@ -17635,74 +17777,32 @@ public class GifSlideShowApp extends JFrame {
             } else if (layout.equals("1×3")) { cols = 1; rows = 3;
             } else { cols = (int) Math.ceil(Math.sqrt(n)); rows = (int) Math.ceil((double) n / cols); }
 
-            // Pixel-space layout — gaps are real pixels between images, not % of cell.
-            int slideW = getOutputWidth();
-            int slideH = getOutputHeight();
-            int shorter = Math.min(slideW, slideH);
-            int gapPct    = (int) bulkGapSpinner.getValue();    // -30 to 50 % of shorter side
-            int marginPct = (int) bulkMarginSpinner.getValue(); //   0 to 40 % of shorter side
-            int sizeScalePct = (int) bulkWidthSpinner.getValue(); // 10-100
-
-            int gapPx    = shorter * gapPct    / 100;  // can be negative (overlap)
-            int marginPx = shorter * marginPct / 100;  // always >= 0
-
-            // Usable area after applying margin on all four sides
             int usableW = slideW - 2 * marginPx;
             int usableH = slideH - 2 * marginPx;
             int startX  = marginPx;
             int startY  = marginPx;
-
-            // Cell size: gaps go BETWEEN cells only; (cols-1) gaps for cols cells.
-            // Works for both positive and negative gapPx.
             int colWidthPx  = Math.max(1, (usableW - (cols - 1) * gapPx) / cols);
             int rowHeightPx = Math.max(1, (usableH - (rows - 1) * gapPx) / rows);
-            // Scaled image box inside the cell
             int imgBoxW = Math.max(1, colWidthPx  * sizeScalePct / 100);
             int imgBoxH = Math.max(1, rowHeightPx * sizeScalePct / 100);
-
-            int cornerRadius = (int) bulkCornerSpinner.getValue();
-            int borderWidth  = (int) bulkBorderSpinner.getValue();
-            Color borderColor = bulkBorderColor;
-            int opacity = (int) bulkOpacitySpinner.getValue();
-            String fitMode = (String) bulkFitCombo.getSelectedItem();
-            if (fitMode == null) fitMode = "Fit";
-
-            // Compute where bulk audio starts in the full audioFiles list so
-            // each image's effect fires only while its own audio segment plays.
-            int textAudioCount = 0;
-            {
-                int maxIdx = -1;
-                for (int k : slideAudioFiles.keySet()) if (k > maxIdx) maxIdx = k;
-                textAudioCount = maxIdx + 1; // 0 when no text audio
-            }
-            int bulkAudioSlot = textAudioCount;
 
             for (int i = 0; i < n; i++) {
                 SlidePictureData src = bulkGridItems.get(i);
                 int c = i % cols;
                 int r = i / cols;
                 if (r >= rows) break;
-
-                // Pixel center of this cell (offset by margin so the grid is centered)
                 int cellCenterX = startX + c * (colWidthPx + gapPx) + colWidthPx / 2;
                 int cellCenterY = startY + r * (rowHeightPx + gapPx) + rowHeightPx / 2;
-
-                // Per-item size scale stored in src.widthPct (100 = use global cell size)
                 int perItemScale = src.widthPct > 0 ? src.widthPct : 100;
                 int itemBoxW = Math.max(1, imgBoxW * perItemScale / 100);
                 int itemBoxH = Math.max(1, imgBoxH * perItemScale / 100);
-
-                // Convert pixel center to percentage (0-100 range)
-                int cx = (int) Math.round(cellCenterX * 100.0 / slideW);
-                int cy = (int) Math.round(cellCenterY * 100.0 / slideH);
-                // Image box percentages
+                int cx   = (int) Math.round(cellCenterX * 100.0 / slideW);
+                int cy   = (int) Math.round(cellCenterY * 100.0 / slideH);
                 int wPct = (int) Math.round(itemBoxW * 100.0 / slideW);
                 int hPct = (int) Math.round(itemBoxH * 100.0 / slideH);
-
                 int audioActiveIdx = -1;
                 if (src.audioFile != null && src.audioFile.exists() && src.audioDurationMs > 0) {
-                    audioActiveIdx = bulkAudioSlot;
-                    bulkAudioSlot++;
+                    audioActiveIdx = bulkAudioSlot++;
                 }
                 out.add(new SlidePictureData(true, src.image, src.imageFile, cx, cy, Math.max(1, wPct),
                         src.shape, cornerRadius, src.audioFile, src.audioDurationMs,
