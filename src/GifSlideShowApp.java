@@ -6313,11 +6313,12 @@ public class GifSlideShowApp extends JFrame {
                     eg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     eg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
                     if ("Glow".equals(pic.audioEffect)) {
-                        // Pronounced pulsing halo around the active image.
-                        float alpha = (float)(0.55 + 0.45 * Math.sin(phase * 2 * Math.PI));
-                        int glowSize = Math.max(8, (int)(Math.min(ew, eh) * 0.10));
+                        // Soft, subtle breathing halo (toned down — no harsh flash).
+                        float alpha = (float)(0.12 + 0.14 * (0.5 - 0.5 * Math.cos(phase * 2 * Math.PI)));
+                        int glowSize = Math.max(4, (int)(Math.min(ew, eh) * 0.045));
                         for (int gi = glowSize; gi >= 1; gi--) {
-                            eg.setColor(new Color(1f, 0.82f, 0.2f, alpha * (1f - (float)gi / glowSize)));
+                            float a = alpha * (1f - (float) gi / glowSize);
+                            eg.setColor(new Color(1f, 0.88f, 0.45f, Math.max(0f, a)));
                             eg.setStroke(new java.awt.BasicStroke(gi * 2));
                             if ("Circle".equals(pic.shape)) {
                                 eg.drawOval(ex - gi, ey - gi, ew + gi * 2, eh + gi * 2);
@@ -6327,27 +6328,80 @@ public class GifSlideShowApp extends JFrame {
                             }
                         }
                     } else if ("Scale Pulse".equals(pic.audioEffect)) {
-                        // Actually re-draw the image larger so it visibly pulses,
-                        // clipped to its shape, plus a bright breathing border.
-                        float scale = (float)(1.0 + 0.10 * Math.sin(phase * 2 * Math.PI));
+                        // Smooth gentle "breathing" zoom (Google Photos style).
+                        float scale = (float)(1.0 + 0.05 * (0.5 - 0.5 * Math.cos(phase * 2 * Math.PI)));
                         if (scale > 1.0f) {
                             int bw = (int)(ew * scale); int bh = (int)(eh * scale);
                             int bx = ex - (bw - ew) / 2; int by = ey - (bh - eh) / 2;
                             Graphics2D sg = (Graphics2D) eg.create();
-                            if ("Circle".equals(pic.shape)) {
-                                int d2 = Math.min(bw, bh);
-                                sg.setClip(new java.awt.geom.Ellipse2D.Double(bx, by, d2, d2));
-                            } else if (pic.cornerRadius > 0) {
-                                int rad = Math.max(1, (int)(pic.cornerRadius * Math.max(rcScaleE, 0.5f)));
-                                sg.setClip(new RoundRectangle2D.Double(bx, by, bw, bh, rad * 2, rad * 2));
-                            }
+                            clipPicShape(sg, pic, bx, by, bw, bh, rcScaleE);
                             sg.drawImage(pic.image, bx, by, bw, bh, null);
                             sg.dispose();
-                            eg.setColor(new Color(0.2f, 0.9f, 1f, 0.8f));
-                            eg.setStroke(new java.awt.BasicStroke(Math.max(3, ew / 80)));
-                            if ("Circle".equals(pic.shape)) eg.drawOval(bx, by, bw, bh);
-                            else eg.drawRoundRect(bx, by, bw, bh, Math.max(0, pic.cornerRadius), Math.max(0, pic.cornerRadius));
                         }
+                    } else if ("Pop".equals(pic.audioEffect)) {
+                        // Snappy Instagram-like double-tap pop: quick spring up, settle.
+                        double t2 = (animFrameIndex % 30) / 30.0;
+                        double s = (t2 < 0.5) ? Math.sin(t2 / 0.5 * Math.PI) : 0.0;
+                        float scale = (float)(1.0 + 0.18 * s);
+                        if (scale > 1.001f) {
+                            int bw = (int)(ew * scale); int bh = (int)(eh * scale);
+                            int bx = ex - (bw - ew) / 2; int by = ey - (bh - eh) / 2;
+                            Graphics2D sg = (Graphics2D) eg.create();
+                            clipPicShape(sg, pic, bx, by, bw, bh, rcScaleE);
+                            sg.drawImage(pic.image, bx, by, bw, bh, null);
+                            sg.dispose();
+                        }
+                    } else if ("Heartbeat".equals(pic.audioEffect)) {
+                        // Two quick beats then rest — like a "like" heart pulse.
+                        double t2 = (animFrameIndex % 36) / 36.0;
+                        double beat;
+                        if (t2 < 0.15) beat = Math.sin(t2 / 0.15 * Math.PI);
+                        else if (t2 < 0.32) beat = 0.6 * Math.sin((t2 - 0.17) / 0.15 * Math.PI);
+                        else beat = 0.0;
+                        beat = Math.max(0.0, beat);
+                        float scale = (float)(1.0 + 0.13 * beat);
+                        if (scale > 1.001f) {
+                            int bw = (int)(ew * scale); int bh = (int)(eh * scale);
+                            int bx = ex - (bw - ew) / 2; int by = ey - (bh - eh) / 2;
+                            Graphics2D sg = (Graphics2D) eg.create();
+                            clipPicShape(sg, pic, bx, by, bw, bh, rcScaleE);
+                            sg.drawImage(pic.image, bx, by, bw, bh, null);
+                            sg.dispose();
+                        }
+                    } else if ("Ken Burns".equals(pic.audioEffect)) {
+                        // Slow cinematic zoom + pan (Apple TV / Google Photos slideshow).
+                        double t2 = (animFrameIndex % 150) / 150.0; // ~5s cycle @30fps
+                        double zoom = 1.10 + 0.10 * (0.5 - 0.5 * Math.cos(t2 * 2 * Math.PI));
+                        double panX = Math.sin(t2 * 2 * Math.PI) * ew * 0.03;
+                        double panY = Math.cos(t2 * 2 * Math.PI) * eh * 0.03;
+                        int zw = (int)(ew * zoom), zh = (int)(eh * zoom);
+                        int zx = ex - (zw - ew) / 2 + (int) panX;
+                        int zy = ey - (zh - eh) / 2 + (int) panY;
+                        Graphics2D kg = (Graphics2D) eg.create();
+                        clipPicShape(kg, pic, ex, ey, ew, eh, rcScaleE);
+                        kg.drawImage(pic.image, zx, zy, zw, zh, null);
+                        kg.dispose();
+                    } else if ("Shine".equals(pic.audioEffect)) {
+                        // Diagonal light sweep (iOS App Store / shimmer skeleton).
+                        Graphics2D shg = (Graphics2D) eg.create();
+                        clipPicShape(shg, pic, ex, ey, ew, eh, rcScaleE);
+                        float prog = (animFrameIndex % 48) / 48f;
+                        float center = ex - ew * 0.3f + prog * (ew * 1.6f);
+                        float band = Math.max(2f, ew * 0.45f);
+                        float p0x = center - band / 2f;
+                        float p1x = center + band / 2f;
+                        if (p1x - p0x < 1f) p1x = p0x + 1f;
+                        java.awt.LinearGradientPaint lgp = new java.awt.LinearGradientPaint(
+                                new java.awt.geom.Point2D.Float(p0x, ey),
+                                new java.awt.geom.Point2D.Float(p1x, ey + eh),
+                                new float[]{0f, 0.5f, 1f},
+                                new Color[]{
+                                        new Color(1f, 1f, 1f, 0f),
+                                        new Color(1f, 1f, 1f, 0.4f),
+                                        new Color(1f, 1f, 1f, 0f)});
+                        shg.setPaint(lgp);
+                        shg.fillRect(ex, ey, ew, eh);
+                        shg.dispose();
                     } else if ("Bounce".equals(pic.audioEffect)) {
                         // Actually lift the image up and down so it bounces.
                         double bounce = Math.abs(Math.sin(phase * Math.PI));
@@ -6369,6 +6423,20 @@ public class GifSlideShowApp extends JFrame {
 
         g.dispose();
         return frame;
+    }
+
+    /** Clip a graphics context to a bulk picture's shape (circle / rounded / rect). */
+    private static void clipPicShape(Graphics2D gg, SlidePictureData pic,
+                                     int x, int y, int w, int h, float rcScale) {
+        if ("Circle".equals(pic.shape)) {
+            int d = Math.min(w, h);
+            gg.setClip(new java.awt.geom.Ellipse2D.Double(x, y, d, d));
+        } else if (pic.cornerRadius > 0) {
+            int rad = Math.max(1, (int) (pic.cornerRadius * Math.max(rcScale, 0.5f)));
+            gg.setClip(new RoundRectangle2D.Double(x, y, w, h, rad * 2, rad * 2));
+        } else {
+            gg.setClip(new java.awt.Rectangle(x, y, w, h));
+        }
     }
 
     // ========== Slide Text Entry Animation ==========
@@ -15272,9 +15340,9 @@ public class GifSlideShowApp extends JFrame {
 
             // ===== Toolbar Row 4g: Bulk Image Grid =====
             JPanel toolbar4g1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
-            toolbar4g1.setBackground(new Color(40, 70, 90));
+            toolbar4g1.setBackground(new Color(34, 49, 71));
             JPanel toolbar4g2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
-            toolbar4g2.setBackground(new Color(35, 60, 80));
+            toolbar4g2.setBackground(new Color(34, 49, 71));
 
             // initialise fields in the constructor context
             bulkGridShowCheck = new JCheckBox("Bulk Grid", false);
@@ -15432,7 +15500,9 @@ public class GifSlideShowApp extends JFrame {
                 onFormatChanged();
             });
 
-            bulkEffectCombo = new JComboBox<>(new String[]{"None", "Glow", "Scale Pulse", "Bounce"});
+            bulkEffectCombo = new JComboBox<>(new String[]{
+                    "None", "Glow", "Scale Pulse", "Pop", "Heartbeat",
+                    "Ken Burns", "Shine", "Bounce"});
             bulkEffectCombo.setPreferredSize(new Dimension(90, 24));
             bulkEffectCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             bulkEffectCombo.setToolTipText("Visual effect shown on this image when its audio plays");
@@ -15479,7 +15549,7 @@ public class GifSlideShowApp extends JFrame {
 
             // ===== Toolbar Row 4g3: Bulk Grid Style Controls =====
             JPanel toolbar4g3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
-            toolbar4g3.setBackground(new Color(30, 55, 75));
+            toolbar4g3.setBackground(new Color(34, 49, 71));
 
             bulkGapSpinner = new JSpinner(new SpinnerNumberModel(0, -30, 50, 1));
             bulkGapSpinner.setPreferredSize(new Dimension(50, 24));
@@ -15554,7 +15624,7 @@ public class GifSlideShowApp extends JFrame {
 
             // ===== Toolbar Row 4g4: Bulk Grid Templates =====
             JPanel toolbar4g4 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
-            toolbar4g4.setBackground(new Color(25, 60, 45));
+            toolbar4g4.setBackground(new Color(34, 49, 71));
 
             bulkCollageCombo = new JComboBox<>(new String[]{
                 "— Grid Layout —",
