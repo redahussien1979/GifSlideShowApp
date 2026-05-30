@@ -6300,69 +6300,81 @@ public class GifSlideShowApp extends JFrame {
                         : (_activeAudio == pic.audioActiveIdx);
                 String _fx = pic.audioEffect != null ? pic.audioEffect : "";
                 if (!_fx.isEmpty() && !_fx.equals("None") && animFrameIndex >= 0 && _effectOn) {
-                    int ex = picX, ey = picY, ew = picW, eh = picH;
-                    if ("Circle".equals(pic.shape)) {
-                        int diameter = Math.min(picW, picH);
-                        ex = (int)(targetW * pic.x / 100.0) - diameter / 2;
-                        ey = (int)(targetH * pic.y / 100.0) - diameter / 2;
-                        ew = diameter; eh = diameter;
-                    }
-                    double phase = (animFrameIndex % 30) / 30.0;
+                    // ── Compute DISPLAY bounds (never larger than the visible cell). ──
+                    // For Fill mode picW/picH are oversized (image is clipped to the box),
+                    // so we must use the box rect, not the raw image rect, as effect bounds.
                     float rcScaleE = Math.max(targetW, targetH) / 1920.0f;
+                    int ex, ey, ew, eh;
+                    if ("Circle".equals(pic.shape)) {
+                        int d = Math.min(boxW, boxH);
+                        ex = (int)(targetW * pic.x / 100.0) - d / 2;
+                        ey = (int)(targetH * pic.y / 100.0) - d / 2;
+                        ew = d; eh = d;
+                    } else if (pic.boxHeightPct > 0 && "Fill".equals(pic.fitMode)) {
+                        ex = clipX; ey = clipY; ew = boxW; eh = boxH;
+                    } else {
+                        ex = picX; ey = picY; ew = picW; eh = picH;
+                    }
+
+                    // Base scale: how pic.image maps to the display box (Fill or Fit).
+                    // Image-redraw effects multiply this so they always fill correctly.
+                    boolean _fillMode = "Fill".equals(pic.fitMode) || "Circle".equals(pic.shape);
+                    double _baseScale = _fillMode
+                            ? Math.max((double)ew / pic.image.getWidth(), (double)eh / pic.image.getHeight())
+                            : Math.min((double)ew / pic.image.getWidth(), (double)eh / pic.image.getHeight());
+
+                    double phase = (animFrameIndex % 30) / 30.0;
                     Graphics2D eg = (Graphics2D) g.create();
                     eg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     eg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 
-                    // ── Image-redraw effects (first match wins — only one can redraw) ──
+                    // ── Image-redraw effects (first match wins). ──
+                    // Each one draws pic.image at an animated scale, clipped strictly to
+                    // the display box so it NEVER bleeds outside the cell.
                     if (_fx.contains("Scale Pulse")) {
-                        // Gentle breathing zoom (Google Photos style).
-                        float scale = (float)(1.0 + 0.06 * (0.5 - 0.5 * Math.cos(phase * 2 * Math.PI)));
-                        int bw = (int)(ew * scale), bh = (int)(eh * scale);
-                        int bx = ex - (bw - ew) / 2, by = ey - (bh - eh) / 2;
+                        double animF = 1.0 + 0.06 * (0.5 - 0.5 * Math.cos(phase * 2 * Math.PI));
+                        double ts = _baseScale * animF;
+                        int iw = (int)(pic.image.getWidth() * ts), ih = (int)(pic.image.getHeight() * ts);
+                        int ix = ex + (ew - iw) / 2,             iy = ey + (eh - ih) / 2;
                         Graphics2D sg = (Graphics2D) eg.create();
-                        clipPicShape(sg, pic, bx, by, bw, bh, rcScaleE);
-                        sg.drawImage(pic.image, bx, by, bw, bh, null);
+                        clipPicShape(sg, pic, ex, ey, ew, eh, rcScaleE);
+                        sg.drawImage(pic.image, ix, iy, iw, ih, null);
                         sg.dispose();
                     } else if (_fx.contains("Pop")) {
-                        // Snappy Instagram spring pop.
                         double t2 = (animFrameIndex % 30) / 30.0;
-                        double s = (t2 < 0.5) ? Math.sin(t2 / 0.5 * Math.PI) : 0.0;
-                        float scale = (float)(1.0 + 0.18 * s);
-                        if (scale > 1.001f) {
-                            int bw = (int)(ew * scale), bh = (int)(eh * scale);
-                            int bx = ex - (bw - ew) / 2, by = ey - (bh - eh) / 2;
-                            Graphics2D sg = (Graphics2D) eg.create();
-                            clipPicShape(sg, pic, bx, by, bw, bh, rcScaleE);
-                            sg.drawImage(pic.image, bx, by, bw, bh, null);
-                            sg.dispose();
-                        }
+                        double animF = 1.0 + 0.18 * (t2 < 0.5 ? Math.sin(t2 / 0.5 * Math.PI) : 0.0);
+                        double ts = _baseScale * animF;
+                        int iw = (int)(pic.image.getWidth() * ts), ih = (int)(pic.image.getHeight() * ts);
+                        int ix = ex + (ew - iw) / 2,             iy = ey + (eh - ih) / 2;
+                        Graphics2D sg = (Graphics2D) eg.create();
+                        clipPicShape(sg, pic, ex, ey, ew, eh, rcScaleE);
+                        sg.drawImage(pic.image, ix, iy, iw, ih, null);
+                        sg.dispose();
                     } else if (_fx.contains("Heartbeat")) {
-                        // Smooth double-beat: lub-DUB, rest. ~1.2s cycle @30fps (36 frames).
                         double t2 = (animFrameIndex % 36) / 36.0;
                         double beat = 0.0;
-                        if (t2 < 0.13)                  beat = Math.sin(t2 / 0.13 * Math.PI);
+                        if (t2 < 0.13)                     beat = Math.sin(t2 / 0.13 * Math.PI);
                         else if (t2 >= 0.20 && t2 < 0.33) beat = 0.75 * Math.sin((t2 - 0.20) / 0.13 * Math.PI);
-                        float scale = (float)(1.0 + 0.12 * Math.max(0.0, beat));
-                        if (scale > 1.001f) {
-                            int bw = (int)(ew * scale), bh = (int)(eh * scale);
-                            int bx = ex - (bw - ew) / 2, by = ey - (bh - eh) / 2;
-                            Graphics2D sg = (Graphics2D) eg.create();
-                            clipPicShape(sg, pic, bx, by, bw, bh, rcScaleE);
-                            sg.drawImage(pic.image, bx, by, bw, bh, null);
-                            sg.dispose();
-                        }
+                        double ts = _baseScale * (1.0 + 0.12 * Math.max(0.0, beat));
+                        int iw = (int)(pic.image.getWidth() * ts), ih = (int)(pic.image.getHeight() * ts);
+                        int ix = ex + (ew - iw) / 2,             iy = ey + (eh - ih) / 2;
+                        Graphics2D sg = (Graphics2D) eg.create();
+                        clipPicShape(sg, pic, ex, ey, ew, eh, rcScaleE);
+                        sg.drawImage(pic.image, ix, iy, iw, ih, null);
+                        sg.dispose();
                     } else if (_fx.contains("Bounce")) {
-                        double bounce = Math.abs(Math.sin(phase * Math.PI));
-                        int lift = (int)(eh * 0.08 * bounce);
+                        int lift = (int)(eh * 0.08 * Math.abs(Math.sin(phase * Math.PI)));
+                        int iw = (int)(pic.image.getWidth() * _baseScale);
+                        int ih = (int)(pic.image.getHeight() * _baseScale);
+                        int ix = ex + (ew - iw) / 2, iy = ey + (eh - ih) / 2 - lift;
                         Graphics2D bg2 = (Graphics2D) eg.create();
-                        clipPicShape(bg2, pic, ex, ey - lift, ew, eh, rcScaleE);
-                        bg2.drawImage(pic.image, ex, ey - lift, ew, eh, null);
+                        clipPicShape(bg2, pic, ex, ey, ew, eh, rcScaleE);
+                        bg2.drawImage(pic.image, ix, iy, iw, ih, null);
                         bg2.dispose();
                     }
 
-                    // ── Overlay effects (all selected ones fire independently) ──
+                    // ── Overlay effects (all stack on top, all clipped to display box). ──
                     if (_fx.contains("Glow")) {
-                        // Soft breathing halo — warm amber.
                         float alpha = (float)(0.15 + 0.20 * (0.5 - 0.5 * Math.cos(phase * 2 * Math.PI)));
                         int glowSize = Math.max(5, (int)(Math.min(ew, eh) * 0.055));
                         for (int gi = glowSize; gi >= 1; gi--) {
@@ -6377,44 +6389,34 @@ public class GifSlideShowApp extends JFrame {
                         }
                     }
                     if (_fx.contains("Shine")) {
-                        // Narrow diagonal specular sweep — clearly visible white glint.
                         Graphics2D shg = (Graphics2D) eg.create();
                         clipPicShape(shg, pic, ex, ey, ew, eh, rcScaleE);
-                        float prog = (animFrameIndex % 50) / 50f;
-                        // narrow band: 20% of width
-                        float band = Math.max(4f, ew * 0.20f);
-                        float center = ex - band + prog * (ew + band * 2f);
-                        float p0 = center - band / 2f, p1 = center + band / 2f;
+                        float prog  = (animFrameIndex % 50) / 50f;
+                        float band  = Math.max(4f, ew * 0.20f);
+                        float ctr   = ex - band + prog * (ew + band * 2f);
+                        float p0 = ctr - band / 2f, p1 = ctr + band / 2f;
                         if (p1 - p0 < 2f) p1 = p0 + 2f;
-                        java.awt.LinearGradientPaint lgp = new java.awt.LinearGradientPaint(
+                        shg.setPaint(new java.awt.LinearGradientPaint(
                                 new java.awt.geom.Point2D.Float(p0, ey),
                                 new java.awt.geom.Point2D.Float(p1, ey + eh),
                                 new float[]{0f, 0.35f, 0.65f, 1f},
-                                new Color[]{
-                                    new Color(1f, 1f, 1f, 0f),
-                                    new Color(1f, 1f, 1f, 0.72f),
-                                    new Color(1f, 1f, 1f, 0.72f),
-                                    new Color(1f, 1f, 1f, 0f)});
-                        shg.setPaint(lgp);
+                                new Color[]{new Color(1f,1f,1f,0f), new Color(1f,1f,1f,0.72f),
+                                            new Color(1f,1f,1f,0.72f), new Color(1f,1f,1f,0f)}));
                         shg.fillRect(ex, ey, ew, eh);
                         shg.dispose();
                     }
                     if (_fx.contains("Color Scan")) {
-                        // Cyan scan line sweeping top→bottom, with bright glow trail.
-                        double t2 = (animFrameIndex % 45) / 45.0;
-                        int scanY = ey + (int)(t2 * eh);
+                        double t2  = (animFrameIndex % 45) / 45.0;
+                        int scanY  = ey + (int)(t2 * eh);
                         Graphics2D sg = (Graphics2D) eg.create();
                         clipPicShape(sg, pic, ex, ey, ew, eh, rcScaleE);
-                        // Semi-transparent tinted overlay above the scan line
                         if (scanY > ey) {
                             sg.setColor(new Color(0, 200, 255, 22));
                             sg.fillRect(ex, ey, ew, scanY - ey);
                         }
-                        // Bright scan line with soft glow above it
                         int lineGlow = Math.max(3, ew / 80);
                         for (int li = lineGlow; li >= 1; li--) {
-                            float la = 0.6f * (1f - (float) li / lineGlow);
-                            sg.setColor(new Color(0f, 0.85f, 1f, la));
+                            sg.setColor(new Color(0f, 0.85f, 1f, 0.6f * (1f - (float)li / lineGlow)));
                             sg.setStroke(new java.awt.BasicStroke(li * 2 + 1));
                             sg.drawLine(ex, scanY - li, ex + ew, scanY - li);
                         }
