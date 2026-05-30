@@ -6329,25 +6329,33 @@ public class GifSlideShowApp extends JFrame {
                     eg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 
                     // ── Image-redraw effects (first match wins). ──
-                    // Each one draws pic.image at an animated scale, clipped strictly to
-                    // the display box so it NEVER bleeds outside the cell.
+                    // Each effect scales the display area OUTWARD so the image grows beyond
+                    // its normal cell boundary. Clipped to the scaled shape, not the original cell.
                     if (_fx.contains("Scale Pulse")) {
-                        double animF = 1.0 + 0.06 * (0.5 - 0.5 * Math.cos(phase * 2 * Math.PI));
-                        double ts = _baseScale * animF;
+                        double animF = 1.0 + 0.08 * (0.5 - 0.5 * Math.cos(phase * 2 * Math.PI));
+                        int bw = (int)(ew * animF), bh = (int)(eh * animF);
+                        int bx = ex - (bw - ew) / 2, by = ey - (bh - eh) / 2;
+                        double ts = _fillMode
+                                ? Math.max((double)bw / pic.image.getWidth(), (double)bh / pic.image.getHeight())
+                                : _baseScale * animF;
                         int iw = (int)(pic.image.getWidth() * ts), ih = (int)(pic.image.getHeight() * ts);
-                        int ix = ex + (ew - iw) / 2,             iy = ey + (eh - ih) / 2;
+                        int ix = bx + (bw - iw) / 2, iy = by + (bh - ih) / 2;
                         Graphics2D sg = (Graphics2D) eg.create();
-                        clipPicShape(sg, pic, ex, ey, ew, eh, rcScaleE);
+                        clipPicShape(sg, pic, bx, by, bw, bh, rcScaleE);
                         sg.drawImage(pic.image, ix, iy, iw, ih, null);
                         sg.dispose();
                     } else if (_fx.contains("Pop")) {
                         double t2 = (animFrameIndex % 30) / 30.0;
-                        double animF = 1.0 + 0.18 * (t2 < 0.5 ? Math.sin(t2 / 0.5 * Math.PI) : 0.0);
-                        double ts = _baseScale * animF;
+                        double animF = 1.0 + 0.22 * (t2 < 0.5 ? Math.sin(t2 / 0.5 * Math.PI) : 0.0);
+                        int bw = (int)(ew * animF), bh = (int)(eh * animF);
+                        int bx = ex - (bw - ew) / 2, by = ey - (bh - eh) / 2;
+                        double ts = _fillMode
+                                ? Math.max((double)bw / pic.image.getWidth(), (double)bh / pic.image.getHeight())
+                                : _baseScale * animF;
                         int iw = (int)(pic.image.getWidth() * ts), ih = (int)(pic.image.getHeight() * ts);
-                        int ix = ex + (ew - iw) / 2,             iy = ey + (eh - ih) / 2;
+                        int ix = bx + (bw - iw) / 2, iy = by + (bh - ih) / 2;
                         Graphics2D sg = (Graphics2D) eg.create();
-                        clipPicShape(sg, pic, ex, ey, ew, eh, rcScaleE);
+                        clipPicShape(sg, pic, bx, by, bw, bh, rcScaleE);
                         sg.drawImage(pic.image, ix, iy, iw, ih, null);
                         sg.dispose();
                     } else if (_fx.contains("Heartbeat")) {
@@ -6355,20 +6363,26 @@ public class GifSlideShowApp extends JFrame {
                         double beat = 0.0;
                         if (t2 < 0.13)                     beat = Math.sin(t2 / 0.13 * Math.PI);
                         else if (t2 >= 0.20 && t2 < 0.33) beat = 0.75 * Math.sin((t2 - 0.20) / 0.13 * Math.PI);
-                        double ts = _baseScale * (1.0 + 0.12 * Math.max(0.0, beat));
+                        double animF = 1.0 + 0.14 * Math.max(0.0, beat);
+                        int bw = (int)(ew * animF), bh = (int)(eh * animF);
+                        int bx = ex - (bw - ew) / 2, by = ey - (bh - eh) / 2;
+                        double ts = _fillMode
+                                ? Math.max((double)bw / pic.image.getWidth(), (double)bh / pic.image.getHeight())
+                                : _baseScale * animF;
                         int iw = (int)(pic.image.getWidth() * ts), ih = (int)(pic.image.getHeight() * ts);
-                        int ix = ex + (ew - iw) / 2,             iy = ey + (eh - ih) / 2;
+                        int ix = bx + (bw - iw) / 2, iy = by + (bh - ih) / 2;
                         Graphics2D sg = (Graphics2D) eg.create();
-                        clipPicShape(sg, pic, ex, ey, ew, eh, rcScaleE);
+                        clipPicShape(sg, pic, bx, by, bw, bh, rcScaleE);
                         sg.drawImage(pic.image, ix, iy, iw, ih, null);
                         sg.dispose();
                     } else if (_fx.contains("Bounce")) {
-                        int lift = (int)(eh * 0.08 * Math.abs(Math.sin(phase * Math.PI)));
+                        int lift = (int)(eh * 0.10 * Math.abs(Math.sin(phase * Math.PI)));
                         int iw = (int)(pic.image.getWidth() * _baseScale);
                         int ih = (int)(pic.image.getHeight() * _baseScale);
                         int ix = ex + (ew - iw) / 2, iy = ey + (eh - ih) / 2 - lift;
                         Graphics2D bg2 = (Graphics2D) eg.create();
-                        clipPicShape(bg2, pic, ex, ey, ew, eh, rcScaleE);
+                        // Expand clip rect upward to allow the lifted image to show above the cell
+                        clipPicShape(bg2, pic, ex, ey - lift, ew, eh + lift, rcScaleE);
                         bg2.drawImage(pic.image, ix, iy, iw, ih, null);
                         bg2.dispose();
                     }
