@@ -13944,13 +13944,14 @@ public class GifSlideShowApp extends JFrame {
         private File bulkItemAudioFile;
         private int bulkItemAudioDurationMs = -1;
         private final JLabel bulkAudioLabel;
-        private final JToggleButton bulkFxGlow;
-        private final JToggleButton bulkFxPulse;
-        private final JToggleButton bulkFxPop;
-        private final JToggleButton bulkFxHeartbeat;
-        private final JToggleButton bulkFxColorScan;
-        private final JToggleButton bulkFxShine;
-        private final JToggleButton bulkFxBounce;
+        private final JButton bulkFxButton;
+        private final JCheckBoxMenuItem bulkFxGlow;
+        private final JCheckBoxMenuItem bulkFxPulse;
+        private final JCheckBoxMenuItem bulkFxPop;
+        private final JCheckBoxMenuItem bulkFxHeartbeat;
+        private final JCheckBoxMenuItem bulkFxColorScan;
+        private final JCheckBoxMenuItem bulkFxShine;
+        private final JCheckBoxMenuItem bulkFxBounce;
         private final JSpinner bulkGapSpinner;
         private final JSpinner bulkCornerSpinner;
         private final JSpinner bulkBorderSpinner;
@@ -15514,15 +15515,34 @@ public class GifSlideShowApp extends JFrame {
             });
 
             ActionListener fxToggleListener = e -> {
+                updateBulkFxButtonText();
                 if (!isLoadingBulkItem) { saveBulkItemToList(); onFormatChanged(); }
             };
-            bulkFxGlow      = makeFxToggle("Glow",      fxToggleListener);
-            bulkFxPulse     = makeFxToggle("Pulse",     fxToggleListener);
-            bulkFxPop       = makeFxToggle("Pop",       fxToggleListener);
-            bulkFxHeartbeat = makeFxToggle("Heartbeat", fxToggleListener);
-            bulkFxColorScan = makeFxToggle("Scan",      fxToggleListener);
-            bulkFxShine     = makeFxToggle("Shine",     fxToggleListener);
-            bulkFxBounce    = makeFxToggle("Bounce",    fxToggleListener);
+            bulkFxGlow      = new JCheckBoxMenuItem("Glow");
+            bulkFxPulse     = new JCheckBoxMenuItem("Scale Pulse");
+            bulkFxPop       = new JCheckBoxMenuItem("Pop");
+            bulkFxHeartbeat = new JCheckBoxMenuItem("Heartbeat");
+            bulkFxColorScan = new JCheckBoxMenuItem("Color Scan");
+            bulkFxShine     = new JCheckBoxMenuItem("Shine");
+            bulkFxBounce    = new JCheckBoxMenuItem("Bounce");
+            bulkFxButton = new JButton("FX: None ▾");
+            bulkFxButton.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            bulkFxButton.setPreferredSize(new Dimension(130, 24));
+            bulkFxButton.setFocusPainted(false);
+            bulkFxButton.setToolTipText("Visual effects shown on this image when its audio plays (multi-select)");
+            JPopupMenu bulkFxMenu = new JPopupMenu();
+            for (JCheckBoxMenuItem mi : new JCheckBoxMenuItem[]{
+                    bulkFxGlow, bulkFxPulse, bulkFxPop, bulkFxHeartbeat,
+                    bulkFxColorScan, bulkFxShine, bulkFxBounce}) {
+                mi.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+                // Re-open the popup after each click so several can be toggled
+                // without it closing between selections.
+                mi.addActionListener(ev -> SwingUtilities.invokeLater(
+                        () -> bulkFxMenu.show(bulkFxButton, 0, bulkFxButton.getHeight())));
+                mi.addActionListener(fxToggleListener);
+                bulkFxMenu.add(mi);
+            }
+            bulkFxButton.addActionListener(e -> bulkFxMenu.show(bulkFxButton, 0, bulkFxButton.getHeight()));
 
             bulkItemSizeSpinner = new JSpinner(new SpinnerNumberModel(100, 10, 200, 5));
             bulkItemSizeSpinner.setPreferredSize(new Dimension(55, 24));
@@ -15553,13 +15573,7 @@ public class GifSlideShowApp extends JFrame {
             toolbar4g2.add(bulkAudioClearBtn);
             toolbar4g2.add(bulkAudioLabel);
             toolbar4g2.add(styledLabel("FX:"));
-            toolbar4g2.add(bulkFxGlow);
-            toolbar4g2.add(bulkFxPulse);
-            toolbar4g2.add(bulkFxPop);
-            toolbar4g2.add(bulkFxHeartbeat);
-            toolbar4g2.add(bulkFxColorScan);
-            toolbar4g2.add(bulkFxShine);
-            toolbar4g2.add(bulkFxBounce);
+            toolbar4g2.add(bulkFxButton);
             toolbar4g2.add(styledLabel("Size%:"));
             toolbar4g2.add(bulkItemSizeSpinner);
             toolbar4g2.add(styledLabel("X%:"));
@@ -18014,35 +18028,31 @@ public class GifSlideShowApp extends JFrame {
 
         private void setBulkFxToggles(String fxStr) {
             String s = fxStr != null ? fxStr : "";
-            setToggle(bulkFxGlow,      s.contains("Glow"));
-            setToggle(bulkFxPulse,     s.contains("Scale Pulse"));
-            setToggle(bulkFxPop,       s.contains("Pop"));
-            setToggle(bulkFxHeartbeat, s.contains("Heartbeat"));
-            setToggle(bulkFxColorScan, s.contains("Color Scan"));
-            setToggle(bulkFxShine,     s.contains("Shine"));
-            setToggle(bulkFxBounce,    s.contains("Bounce"));
+            // "Scale Pulse" contains "Pulse"; check the full token to avoid Pop/Pulse clashes
+            bulkFxGlow.setSelected(s.contains("Glow"));
+            bulkFxPulse.setSelected(s.contains("Scale Pulse"));
+            bulkFxPop.setSelected(s.contains("Pop"));
+            bulkFxHeartbeat.setSelected(s.contains("Heartbeat"));
+            bulkFxColorScan.setSelected(s.contains("Color Scan"));
+            bulkFxShine.setSelected(s.contains("Shine"));
+            bulkFxBounce.setSelected(s.contains("Bounce"));
+            updateBulkFxButtonText();
         }
 
-        private static void setToggle(JToggleButton btn, boolean on) {
-            btn.setSelected(on);
-            btn.setBackground(on ? new Color(80, 130, 220) : new Color(55, 65, 85));
-            btn.setForeground(on ? Color.WHITE : new Color(180, 190, 210));
-        }
-
-        private static JToggleButton makeFxToggle(String label, ActionListener listener) {
-            JToggleButton btn = new JToggleButton(label, false);
-            btn.setFont(new Font("Segoe UI", Font.PLAIN, 10));
-            btn.setPreferredSize(new Dimension(60, 22));
-            btn.setFocusPainted(false);
-            btn.setBackground(new Color(55, 65, 85));
-            btn.setForeground(new Color(180, 190, 210));
-            btn.setBorderPainted(true);
-            btn.addActionListener(e -> {
-                btn.setBackground(btn.isSelected() ? new Color(80, 130, 220) : new Color(55, 65, 85));
-                btn.setForeground(btn.isSelected() ? Color.WHITE : new Color(180, 190, 210));
-            });
-            btn.addActionListener(listener);
-            return btn;
+        private void updateBulkFxButtonText() {
+            int count = 0;
+            String single = null;
+            for (Object[] o : new Object[][]{
+                    {bulkFxGlow, "Glow"}, {bulkFxPulse, "Pulse"}, {bulkFxPop, "Pop"},
+                    {bulkFxHeartbeat, "Heartbeat"}, {bulkFxColorScan, "Scan"},
+                    {bulkFxShine, "Shine"}, {bulkFxBounce, "Bounce"}}) {
+                if (((JCheckBoxMenuItem) o[0]).isSelected()) { count++; single = (String) o[1]; }
+            }
+            String label;
+            if (count == 0) label = "FX: None ▾";
+            else if (count == 1) label = "FX: " + single + " ▾";
+            else label = "FX: " + count + " effects ▾";
+            bulkFxButton.setText(label);
         }
 
         void schedulePreview() {
