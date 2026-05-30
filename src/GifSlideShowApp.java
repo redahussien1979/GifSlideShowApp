@@ -142,7 +142,7 @@ public class GifSlideShowApp extends JFrame {
         dictImportBtn.addActionListener(e -> dictionaryImport());
 
         JButton quizImportBtn = createStyledButton("Quiz Import", new Color(180, 120, 200));
-        quizImportBtn.setToolTipText("Import CSV/TSV of quiz settings: each row = one slide. Headers: QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD, QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO, QUIZ_TIMER_STYLE/X/Y/SIZE/WIDTH/COLOR/TEXT_COLOR/FONT/LABEL/START_MODE, QUIZ_BAR_SHAPE, QUIZ_REVEAL_MARK_STYLE/SIZE/COLOR, QUIZ_REVEAL_PAD, QUIZ_TIMER_ANIM/_STRENGTH/_TRIGGER/_EASING, QUIZ_TIMER_RED_COLOR, QUIZ_CUE1_AUDIO..QUIZ_CUEn_AUDIO, QUIZ_CUE_SPECIAL_AUDIO.");
+        quizImportBtn.setToolTipText("Import CSV/TSV of quiz settings: each row = one slide. Headers: QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD, QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO, QUIZ_TIMER_STYLE/X/Y/SIZE/WIDTH/COLOR/TEXT_COLOR/FONT/LABEL/START_MODE, QUIZ_BAR_SHAPE, QUIZ_REVEAL_MARK_STYLE/SIZE/COLOR, QUIZ_REVEAL_PAD, QUIZ_TIMER_ANIM/_STRENGTH/_TRIGGER/_EASING, QUIZ_TIMER_RED_COLOR, QUIZ_CUE1_AUDIO..QUIZ_CUEn_AUDIO, QUIZ_CUE_SPECIAL_AUDIO, QUIZ_CUE_REPLAY (comma-list of cue targets / all / none).");
         quizImportBtn.addActionListener(e -> quizImport());
 
         JButton titleGridBtn = createStyledButton("Title Grid", new Color(60, 160, 200));
@@ -2061,6 +2061,11 @@ public class GifSlideShowApp extends JFrame {
                         + "      -> audio file for the cue targeting Text #n,\n"
                         + "    QUIZ_CUE_SPECIAL_AUDIO (or QUIZ_CUE0_AUDIO)\n"
                         + "      -> the no-text \"Special\" cue.\n"
+                        + "    QUIZ_CUE_REPLAY -> per-row override of \"After\n"
+                        + "      reveal too\". Values: \"all\", \"none\", or a\n"
+                        + "      comma-list of cue targets (0=Special, 1..n=Text\n"
+                        + "      #n). e.g. \"2,4\" replays cues #2 and #4 only.\n"
+                        + "      Empty cell = inherit from master row.\n"
                         + "    Rank / Effects / Color / Glow / Replay propagate\n"
                         + "    from the FIRST data row's cues (set them on the\n"
                         + "    first slide's Audio Timeline before importing).\n"
@@ -2359,6 +2364,17 @@ public class GifSlideShowApp extends JFrame {
                 q.copyVisualSettingsFrom(targetSlides.get(0).getQuiz());
             }
 
+            // QUIZ_CUE_REPLAY: per-slide override of "After reveal too" for
+            // each cue. Empty = leave inherited values alone. "all" / "none"
+            // flip every cue. A comma-list ("2,4" or "0,1,3") turns replay
+            // ON for the listed cue targets and OFF for the others.
+            // Applied AFTER copyVisualSettingsFrom so it overrides whatever
+            // came from the master row.
+            s = quizCellAt(fields, col.get("QUIZ_CUE_REPLAY"));
+            if (s != null && !s.trim().isEmpty()) {
+                applyCueReplayList(q, s.trim(), r + 1, warnings);
+            }
+
             // If quiz is enabled, build the combined audio (question +
             // tick × N + ding + timeline cues mixed in) and attach it as
             // the slide's audio — same path the Quiz dialog Save uses.
@@ -2487,6 +2503,40 @@ public class GifSlideShowApp extends JFrame {
                     + (tick ? "QUIZ_TICK" : "QUIZ_DING")
                     + " value '" + cell
                     + "' is not a known stock preset and not an existing file. Ignored.");
+        }
+    }
+
+    /**
+     * Apply a QUIZ_CUE_REPLAY cell value to the slide's existing cues.
+     * Accepts "all" / "none" / a comma-separated list of cue target indices
+     * (0 = Special, 1..n = Text #n). The list is treated as exhaustive:
+     * listed cues get replay ON, everything else gets replay OFF.
+     */
+    private static void applyCueReplayList(QuizSlide q, String cell, int rowNum,
+                                           List<String> warnings) {
+        if (q.cues == null || q.cues.isEmpty()) return;
+        String v = cell.toLowerCase(Locale.ROOT);
+        if (v.equals("all")) {
+            for (QuizSlide.QuizCue c : q.cues) if (c != null) c.playAfterReveal = true;
+            return;
+        }
+        if (v.equals("none")) {
+            for (QuizSlide.QuizCue c : q.cues) if (c != null) c.playAfterReveal = false;
+            return;
+        }
+        Set<Integer> on = new HashSet<>();
+        for (String part : cell.split(",")) {
+            String t = part.trim();
+            if (t.isEmpty()) continue;
+            try {
+                on.add(Integer.parseInt(t));
+            } catch (NumberFormatException nfe) {
+                warnings.add("Row " + rowNum + ": QUIZ_CUE_REPLAY entry '"
+                        + t + "' is not a number. Ignored.");
+            }
+        }
+        for (QuizSlide.QuizCue c : q.cues) {
+            if (c != null) c.playAfterReveal = on.contains(c.targetTextIndex);
         }
     }
 
