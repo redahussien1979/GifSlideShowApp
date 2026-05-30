@@ -13880,6 +13880,7 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner bulkWidthSpinner;
         private final JSpinner bulkMarginSpinner;
         private final JComboBox<String> bulkTemplateCombo;
+        private final JSpinner bulkItemSizeSpinner;
 
         private File slideVideoOverlayFile;
         private int slideVideoOverlayDurationMs = -1;
@@ -15309,7 +15310,7 @@ public class GifSlideShowApp extends JFrame {
                             try {
                                 BufferedImage img = loadImageFile(f);
                                 if (img != null) {
-                                    bulkGridItems.add(new SlidePictureData(true, img, f, 50, 50, 20, "Rectangle", 0, null, -1, "None"));
+                                    bulkGridItems.add(new SlidePictureData(true, img, f, 50, 50, 100, "Rectangle", 0, null, -1, "None"));
                                 }
                             } catch (Exception ex) {
                                 // skip unreadable files
@@ -15436,6 +15437,13 @@ public class GifSlideShowApp extends JFrame {
                 if (!isLoadingBulkItem) { saveBulkItemToList(); onFormatChanged(); }
             });
 
+            bulkItemSizeSpinner = new JSpinner(new SpinnerNumberModel(100, 10, 200, 5));
+            bulkItemSizeSpinner.setPreferredSize(new Dimension(55, 24));
+            bulkItemSizeSpinner.setToolTipText("Size of this individual image relative to its cell (%)");
+            bulkItemSizeSpinner.addChangeListener(e -> {
+                if (!isLoadingBulkItem) { saveBulkItemToList(); onFormatChanged(); }
+            });
+
             toolbar4g2.add(styledLabel("Item:"));
             toolbar4g2.add(bulkItemSelector);
             toolbar4g2.add(bulkItemPreviewLabel);
@@ -15445,6 +15453,8 @@ public class GifSlideShowApp extends JFrame {
             toolbar4g2.add(bulkAudioLabel);
             toolbar4g2.add(styledLabel("FX:"));
             toolbar4g2.add(bulkEffectCombo);
+            toolbar4g2.add(styledLabel("Img Size%:"));
+            toolbar4g2.add(bulkItemSizeSpinner);
 
             // ===== Toolbar Row 4g3: Bulk Grid Style Controls =====
             JPanel toolbar4g3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
@@ -15602,7 +15612,6 @@ public class GifSlideShowApp extends JFrame {
                 } finally {
                     isLoadingBulkItem = false;
                 }
-                bulkTemplateCombo.setSelectedIndex(0);
                 onFormatChanged();
             });
 
@@ -17542,6 +17551,7 @@ public class GifSlideShowApp extends JFrame {
                 bulkItemPreviewLabel.setText("No image");
                 bulkAudioLabel.setText("No audio");
                 bulkEffectCombo.setSelectedIndex(0);
+                bulkItemSizeSpinner.setValue(100);
             } finally {
                 isLoadingBulkItem = false;
             }
@@ -17550,9 +17560,10 @@ public class GifSlideShowApp extends JFrame {
         private void saveBulkItemToList() {
             if (currentBulkIndex < 0 || currentBulkIndex >= bulkGridItems.size()) return;
             SlidePictureData old = bulkGridItems.get(currentBulkIndex);
+            int perItemSize = (int) bulkItemSizeSpinner.getValue();
             bulkGridItems.set(currentBulkIndex, new SlidePictureData(
                     true, bulkItemLoadedImage, bulkItemLoadedFile,
-                    old.x, old.y, old.widthPct, old.shape, old.cornerRadius,
+                    old.x, old.y, perItemSize, old.shape, old.cornerRadius,
                     bulkItemAudioFile, bulkItemAudioDurationMs,
                     (String) bulkEffectCombo.getSelectedItem()));
         }
@@ -17566,6 +17577,8 @@ public class GifSlideShowApp extends JFrame {
                 bulkItemLoadedFile = item.imageFile;
                 bulkItemAudioFile = item.audioFile;
                 bulkItemAudioDurationMs = item.audioDurationMs;
+                int storedSize = item.widthPct > 0 ? item.widthPct : 100;
+                bulkItemSizeSpinner.setValue(Math.min(200, Math.max(10, storedSize)));
                 updateBulkItemPreview();
                 bulkAudioLabel.setText(item.audioFile != null ? item.audioFile.getName() : "No audio");
                 String fx = item.audioEffect != null ? item.audioEffect : "None";
@@ -17674,12 +17687,17 @@ public class GifSlideShowApp extends JFrame {
                 int cellCenterX = startX + c * (colWidthPx + gapPx) + colWidthPx / 2;
                 int cellCenterY = startY + r * (rowHeightPx + gapPx) + rowHeightPx / 2;
 
+                // Per-item size scale stored in src.widthPct (100 = use global cell size)
+                int perItemScale = src.widthPct > 0 ? src.widthPct : 100;
+                int itemBoxW = Math.max(1, imgBoxW * perItemScale / 100);
+                int itemBoxH = Math.max(1, imgBoxH * perItemScale / 100);
+
                 // Convert pixel center to percentage (0-100 range)
                 int cx = (int) Math.round(cellCenterX * 100.0 / slideW);
                 int cy = (int) Math.round(cellCenterY * 100.0 / slideH);
                 // Image box percentages
-                int wPct = (int) Math.round(imgBoxW * 100.0 / slideW);
-                int hPct = (int) Math.round(imgBoxH * 100.0 / slideH);
+                int wPct = (int) Math.round(itemBoxW * 100.0 / slideW);
+                int hPct = (int) Math.round(itemBoxH * 100.0 / slideH);
 
                 int audioActiveIdx = -1;
                 if (src.audioFile != null && src.audioFile.exists() && src.audioDurationMs > 0) {
