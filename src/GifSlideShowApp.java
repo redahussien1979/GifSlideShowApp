@@ -13882,6 +13882,8 @@ public class GifSlideShowApp extends JFrame {
         private final JComboBox<String> bulkTemplateCombo;
         private final JComboBox<String> bulkCollageCombo;
         private final JSpinner bulkItemSizeSpinner;
+        private final JSpinner bulkItemXSpinner;
+        private final JSpinner bulkItemYSpinner;
 
         private File slideVideoOverlayFile;
         private int slideVideoOverlayDurationMs = -1;
@@ -15311,7 +15313,7 @@ public class GifSlideShowApp extends JFrame {
                             try {
                                 BufferedImage img = loadImageFile(f);
                                 if (img != null) {
-                                    bulkGridItems.add(new SlidePictureData(true, img, f, 50, 50, 100, "Rectangle", 0, null, -1, "None"));
+                                    bulkGridItems.add(new SlidePictureData(true, img, f, -1, -1, 100, "Rectangle", 0, null, -1, "None"));
                                 }
                             } catch (Exception ex) {
                                 // skip unreadable files
@@ -15445,6 +15447,20 @@ public class GifSlideShowApp extends JFrame {
                 if (!isLoadingBulkItem) { saveBulkItemToList(); onFormatChanged(); }
             });
 
+            bulkItemXSpinner = new JSpinner(new SpinnerNumberModel(-1, -1, 100, 1));
+            bulkItemXSpinner.setPreferredSize(new Dimension(50, 24));
+            bulkItemXSpinner.setToolTipText("Image center X% on slide (-1 = auto from layout)");
+            bulkItemXSpinner.addChangeListener(e -> {
+                if (!isLoadingBulkItem) { saveBulkItemToList(); onFormatChanged(); }
+            });
+
+            bulkItemYSpinner = new JSpinner(new SpinnerNumberModel(-1, -1, 100, 1));
+            bulkItemYSpinner.setPreferredSize(new Dimension(50, 24));
+            bulkItemYSpinner.setToolTipText("Image center Y% on slide (-1 = auto from layout)");
+            bulkItemYSpinner.addChangeListener(e -> {
+                if (!isLoadingBulkItem) { saveBulkItemToList(); onFormatChanged(); }
+            });
+
             toolbar4g2.add(styledLabel("Item:"));
             toolbar4g2.add(bulkItemSelector);
             toolbar4g2.add(bulkItemPreviewLabel);
@@ -15454,8 +15470,12 @@ public class GifSlideShowApp extends JFrame {
             toolbar4g2.add(bulkAudioLabel);
             toolbar4g2.add(styledLabel("FX:"));
             toolbar4g2.add(bulkEffectCombo);
-            toolbar4g2.add(styledLabel("Img Size%:"));
+            toolbar4g2.add(styledLabel("Size%:"));
             toolbar4g2.add(bulkItemSizeSpinner);
+            toolbar4g2.add(styledLabel("X%:"));
+            toolbar4g2.add(bulkItemXSpinner);
+            toolbar4g2.add(styledLabel("Y%:"));
+            toolbar4g2.add(bulkItemYSpinner);
 
             // ===== Toolbar Row 4g3: Bulk Grid Style Controls =====
             JPanel toolbar4g3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
@@ -17577,6 +17597,8 @@ public class GifSlideShowApp extends JFrame {
                 bulkAudioLabel.setText("No audio");
                 bulkEffectCombo.setSelectedIndex(0);
                 bulkItemSizeSpinner.setValue(100);
+                bulkItemXSpinner.setValue(-1);
+                bulkItemYSpinner.setValue(-1);
             } finally {
                 isLoadingBulkItem = false;
             }
@@ -17586,9 +17608,11 @@ public class GifSlideShowApp extends JFrame {
             if (currentBulkIndex < 0 || currentBulkIndex >= bulkGridItems.size()) return;
             SlidePictureData old = bulkGridItems.get(currentBulkIndex);
             int perItemSize = (int) bulkItemSizeSpinner.getValue();
+            int manualX = (int) bulkItemXSpinner.getValue(); // -1 = auto
+            int manualY = (int) bulkItemYSpinner.getValue(); // -1 = auto
             bulkGridItems.set(currentBulkIndex, new SlidePictureData(
                     true, bulkItemLoadedImage, bulkItemLoadedFile,
-                    old.x, old.y, perItemSize, old.shape, old.cornerRadius,
+                    manualX, manualY, perItemSize, old.shape, old.cornerRadius,
                     bulkItemAudioFile, bulkItemAudioDurationMs,
                     (String) bulkEffectCombo.getSelectedItem()));
         }
@@ -17604,6 +17628,8 @@ public class GifSlideShowApp extends JFrame {
                 bulkItemAudioDurationMs = item.audioDurationMs;
                 int storedSize = item.widthPct > 0 ? item.widthPct : 100;
                 bulkItemSizeSpinner.setValue(Math.min(200, Math.max(10, storedSize)));
+                bulkItemXSpinner.setValue(Math.max(-1, Math.min(100, item.x)));
+                bulkItemYSpinner.setValue(Math.max(-1, Math.min(100, item.y)));
                 updateBulkItemPreview();
                 bulkAudioLabel.setText(item.audioFile != null ? item.audioFile.getName() : "No audio");
                 String fx = item.audioEffect != null ? item.audioEffect : "None";
@@ -17745,8 +17771,8 @@ public class GifSlideShowApp extends JFrame {
                     int perItemScale = src.widthPct > 0 ? src.widthPct : 100;
                     int finalW = Math.max(1, cellW * sizeScalePct / 100 * perItemScale / 100);
                     int finalH = Math.max(1, cellH * sizeScalePct / 100 * perItemScale / 100);
-                    int cx   = (int) Math.round(cellCX * 100.0 / slideW);
-                    int cy   = (int) Math.round(cellCY * 100.0 / slideH);
+                    int cx   = src.x >= 0 ? src.x : (int) Math.round(cellCX * 100.0 / slideW);
+                    int cy   = src.y >= 0 ? src.y : (int) Math.round(cellCY * 100.0 / slideH);
                     int wPct = (int) Math.round(finalW  * 100.0 / slideW);
                     int hPct = (int) Math.round(finalH  * 100.0 / slideH);
                     int audioActiveIdx = -1;
@@ -17796,8 +17822,8 @@ public class GifSlideShowApp extends JFrame {
                 int perItemScale = src.widthPct > 0 ? src.widthPct : 100;
                 int itemBoxW = Math.max(1, imgBoxW * perItemScale / 100);
                 int itemBoxH = Math.max(1, imgBoxH * perItemScale / 100);
-                int cx   = (int) Math.round(cellCenterX * 100.0 / slideW);
-                int cy   = (int) Math.round(cellCenterY * 100.0 / slideH);
+                int cx   = src.x >= 0 ? src.x : (int) Math.round(cellCenterX * 100.0 / slideW);
+                int cy   = src.y >= 0 ? src.y : (int) Math.round(cellCenterY * 100.0 / slideH);
                 int wPct = (int) Math.round(itemBoxW * 100.0 / slideW);
                 int hPct = (int) Math.round(itemBoxH * 100.0 / slideH);
                 int audioActiveIdx = -1;
