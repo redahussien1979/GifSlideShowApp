@@ -142,7 +142,7 @@ public class GifSlideShowApp extends JFrame {
         dictImportBtn.addActionListener(e -> dictionaryImport());
 
         JButton quizImportBtn = createStyledButton("Quiz Import", new Color(180, 120, 200));
-        quizImportBtn.setToolTipText("Import CSV/TSV of quiz settings: each row = one slide. Headers: QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD, QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO, QUIZ_TIMER_STYLE/X/Y/SIZE/WIDTH/COLOR/TEXT_COLOR/FONT/LABEL/START_MODE, QUIZ_BAR_SHAPE, QUIZ_REVEAL_MARK_STYLE/SIZE/COLOR, QUIZ_REVEAL_PAD, QUIZ_TIMER_ANIM/_STRENGTH/_TRIGGER/_EASING, QUIZ_TIMER_RED_COLOR, QUIZ_CUE1_AUDIO..QUIZ_CUEn_AUDIO, QUIZ_CUE_SPECIAL_AUDIO, QUIZ_CUE_REPLAY (comma-list of cue targets / all / none).");
+        quizImportBtn.setToolTipText("Import CSV/TSV of quiz settings: each row = one slide. Headers: QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD, QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO, QUIZ_TIMER_STYLE/X/Y/SIZE/WIDTH/COLOR/TEXT_COLOR/FONT/LABEL/START_MODE, QUIZ_BAR_SHAPE, QUIZ_REVEAL_MARK_STYLE/SIZE/COLOR, QUIZ_REVEAL_PAD, QUIZ_TIMER_ANIM/_STRENGTH/_TRIGGER/_EASING, QUIZ_TIMER_RED_COLOR, QUIZ_CUE1_AUDIO..QUIZ_CUEn_AUDIO, QUIZ_CUE_SPECIAL_AUDIO, QUIZ_CUE_REPLAY (comma-list of Text-cue targets / all / none — Special is excluded).");
         quizImportBtn.addActionListener(e -> quizImport());
 
         JButton titleGridBtn = createStyledButton("Title Grid", new Color(60, 160, 200));
@@ -2063,9 +2063,10 @@ public class GifSlideShowApp extends JFrame {
                         + "      -> the no-text \"Special\" cue.\n"
                         + "    QUIZ_CUE_REPLAY -> per-row override of \"After\n"
                         + "      reveal too\". Values: \"all\", \"none\", or a\n"
-                        + "      comma-list of cue targets (0=Special, 1..n=Text\n"
-                        + "      #n). e.g. \"2,4\" replays cues #2 and #4 only.\n"
-                        + "      Empty cell = inherit from master row.\n"
+                        + "      comma-list of Text-cue targets (1..n=Text #n).\n"
+                        + "      e.g. \"2,4\" replays Text #2 and Text #4 only.\n"
+                        + "      The Special cue has no Replay setting and is\n"
+                        + "      always excluded. Empty cell = inherit master.\n"
                         + "    Rank / Effects / Color / Glow / Replay propagate\n"
                         + "    from the FIRST data row's cues (set them on the\n"
                         + "    first slide's Audio Timeline before importing).\n"
@@ -2509,15 +2510,19 @@ public class GifSlideShowApp extends JFrame {
     /**
      * Apply a QUIZ_CUE_REPLAY cell value to the slide's existing cues.
      * Accepts "all" / "none" / a comma-separated list of cue target indices
-     * (0 = Special, 1..n = Text #n). The list is treated as exhaustive:
-     * listed cues get replay ON, everything else gets replay OFF.
+     * (1..n = Text #n). The list is treated as exhaustive: listed cues get
+     * replay ON, everything else gets replay OFF. The Special cue
+     * (targetTextIndex == 0) has no Replay setting in the UI and is
+     * always forced to OFF — including "0" in the list emits a warning.
      */
     private static void applyCueReplayList(QuizSlide q, String cell, int rowNum,
                                            List<String> warnings) {
         if (q.cues == null || q.cues.isEmpty()) return;
         String v = cell.toLowerCase(Locale.ROOT);
         if (v.equals("all")) {
-            for (QuizSlide.QuizCue c : q.cues) if (c != null) c.playAfterReveal = true;
+            for (QuizSlide.QuizCue c : q.cues) {
+                if (c != null) c.playAfterReveal = (c.targetTextIndex >= 1);
+            }
             return;
         }
         if (v.equals("none")) {
@@ -2529,14 +2534,25 @@ public class GifSlideShowApp extends JFrame {
             String t = part.trim();
             if (t.isEmpty()) continue;
             try {
-                on.add(Integer.parseInt(t));
+                int n = Integer.parseInt(t);
+                if (n == 0) {
+                    warnings.add("Row " + rowNum + ": QUIZ_CUE_REPLAY entry '0' "
+                            + "ignored — the Special cue has no Replay setting.");
+                } else if (n < 0) {
+                    warnings.add("Row " + rowNum + ": QUIZ_CUE_REPLAY entry '"
+                            + n + "' is not a valid cue target. Ignored.");
+                } else {
+                    on.add(n);
+                }
             } catch (NumberFormatException nfe) {
                 warnings.add("Row " + rowNum + ": QUIZ_CUE_REPLAY entry '"
                         + t + "' is not a number. Ignored.");
             }
         }
         for (QuizSlide.QuizCue c : q.cues) {
-            if (c != null) c.playAfterReveal = on.contains(c.targetTextIndex);
+            if (c == null) continue;
+            c.playAfterReveal = (c.targetTextIndex >= 1)
+                    && on.contains(c.targetTextIndex);
         }
     }
 

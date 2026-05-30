@@ -476,7 +476,11 @@ public class QuizSlide {
                 dstCue.hlColor         = srcCue.hlColor;
                 dstCue.glowSize        = srcCue.glowSize;
                 dstCue.rank            = srcCue.rank;
-                dstCue.playAfterReveal = srcCue.playAfterReveal;
+                // The Special cue (targetTextIndex == 0) has no Replay
+                // setting in the timeline UI — keep that invariant when
+                // copying from a master that may have it set.
+                dstCue.playAfterReveal = srcCue.targetTextIndex >= 1
+                        && srcCue.playAfterReveal;
             }
         }
     }
