@@ -2216,6 +2216,11 @@ public class GifSlideShowApp extends JFrame {
         int audioBuilt = 0;
         List<String> warnings = new ArrayList<>();
         boolean visualsApplied = false;
+        // Slides touched by a CSV row: they already had master visuals merged
+        // and any per-row QUIZ_CUE_REPLAY override applied inside the loop.
+        // The final broadcast must skip them so it doesn't overwrite the
+        // per-row override.
+        Set<SlideRow> touchedSlides = new HashSet<>();
 
         for (int r = 1; r < trimmed.size(); r++) {
             if (trimmed.get(r).trim().isEmpty()) continue;
@@ -2416,17 +2421,22 @@ public class GifSlideShowApp extends JFrame {
 
             slide.refreshQuizToolbarFromState();
             slide.schedulePreview();
+            touchedSlides.add(slide);
             updated++;
         }
 
-        // Broadcast first-row visuals to all non-title-grid slides (matches
-        // preset behavior — see copyVisualSettingsFrom usage at line 591).
+        // Broadcast first-row visuals to slides that were NOT touched by the
+        // CSV (e.g. the sheet has fewer rows than non-title slides). Touched
+        // slides already got the master merge inside the loop and may have
+        // a per-row QUIZ_CUE_REPLAY override that must not be overwritten.
         if (visualsApplied && !targetSlides.isEmpty()) {
             QuizSlide srcQ = targetSlides.get(0).getQuiz();
             for (int i = 1; i < targetSlides.size(); i++) {
-                targetSlides.get(i).getQuiz().copyVisualSettingsFrom(srcQ);
-                targetSlides.get(i).refreshQuizToolbarFromState();
-                targetSlides.get(i).schedulePreview();
+                SlideRow target = targetSlides.get(i);
+                if (touchedSlides.contains(target)) continue;
+                target.getQuiz().copyVisualSettingsFrom(srcQ);
+                target.refreshQuizToolbarFromState();
+                target.schedulePreview();
             }
         }
 
