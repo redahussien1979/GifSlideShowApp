@@ -13878,6 +13878,8 @@ public class GifSlideShowApp extends JFrame {
         private final JComboBox<String> bulkFitCombo;
         private final JSpinner bulkOpacitySpinner;
         private final JSpinner bulkWidthSpinner;
+        private final JSpinner bulkMarginSpinner;
+        private final JComboBox<String> bulkTemplateCombo;
 
         private File slideVideoOverlayFile;
         private int slideVideoOverlayDurationMs = -1;
@@ -15448,9 +15450,9 @@ public class GifSlideShowApp extends JFrame {
             JPanel toolbar4g3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
             toolbar4g3.setBackground(new Color(30, 55, 75));
 
-            bulkGapSpinner = new JSpinner(new SpinnerNumberModel(4, 0, 50, 1));
-            bulkGapSpinner.setPreferredSize(new Dimension(45, 24));
-            bulkGapSpinner.setToolTipText("Gap between images as % of cell size");
+            bulkGapSpinner = new JSpinner(new SpinnerNumberModel(0, -30, 50, 1));
+            bulkGapSpinner.setPreferredSize(new Dimension(50, 24));
+            bulkGapSpinner.setToolTipText("Gap % between images (negative = overlap)");
             bulkGapSpinner.addChangeListener(e -> { if (!isLoadingBulkItem) onFormatChanged(); });
 
             bulkCornerSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 200, 5));
@@ -15495,11 +15497,18 @@ public class GifSlideShowApp extends JFrame {
             bulkWidthSpinner.setToolTipText("Scale images within their cell (% of cell size)");
             bulkWidthSpinner.addChangeListener(e -> { if (!isLoadingBulkItem) onFormatChanged(); });
 
+            bulkMarginSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 40, 1));
+            bulkMarginSpinner.setPreferredSize(new Dimension(50, 24));
+            bulkMarginSpinner.setToolTipText("Margin % around the entire grid (centers the group on the slide)");
+            bulkMarginSpinner.addChangeListener(e -> { if (!isLoadingBulkItem) onFormatChanged(); });
+
             JLabel styleHeaderLbl = styledLabel("🎨 Style:");
             styleHeaderLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
             toolbar4g3.add(styleHeaderLbl);
             toolbar4g3.add(styledLabel("Gap %:"));
             toolbar4g3.add(bulkGapSpinner);
+            toolbar4g3.add(styledLabel("Margin%:"));
+            toolbar4g3.add(bulkMarginSpinner);
             toolbar4g3.add(styledLabel("Size%:"));
             toolbar4g3.add(bulkWidthSpinner);
             toolbar4g3.add(styledLabel("Corner:"));
@@ -15511,6 +15520,108 @@ public class GifSlideShowApp extends JFrame {
             toolbar4g3.add(bulkFitCombo);
             toolbar4g3.add(styledLabel("Opacity%:"));
             toolbar4g3.add(bulkOpacitySpinner);
+
+            // ===== Toolbar Row 4g4: Bulk Grid Templates =====
+            JPanel toolbar4g4 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
+            toolbar4g4.setBackground(new Color(25, 60, 45));
+
+            bulkTemplateCombo = new JComboBox<>(new String[]{
+                "— Template —",
+                "Full Screen",
+                "Padded Grid",
+                "Centered Cards",
+                "Overlapping Stack",
+                "Mosaic Tight",
+                "Centered Spotlight"
+            });
+            bulkTemplateCombo.setPreferredSize(new Dimension(160, 24));
+            bulkTemplateCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            bulkTemplateCombo.setToolTipText("Apply a ready-made layout preset");
+            bulkTemplateCombo.addActionListener(e -> {
+                if (isLoadingBulkItem) return;
+                String tpl = (String) bulkTemplateCombo.getSelectedItem();
+                if (tpl == null || tpl.startsWith("—")) return;
+                isLoadingBulkItem = true;
+                try {
+                    switch (tpl) {
+                        case "Full Screen":
+                            bulkGapSpinner.setValue(0);
+                            bulkMarginSpinner.setValue(0);
+                            bulkWidthSpinner.setValue(100);
+                            bulkCornerSpinner.setValue(0);
+                            bulkBorderSpinner.setValue(0);
+                            bulkFitCombo.setSelectedItem("Fill");
+                            bulkOpacitySpinner.setValue(100);
+                            break;
+                        case "Padded Grid":
+                            bulkGapSpinner.setValue(2);
+                            bulkMarginSpinner.setValue(3);
+                            bulkWidthSpinner.setValue(100);
+                            bulkCornerSpinner.setValue(0);
+                            bulkBorderSpinner.setValue(0);
+                            bulkFitCombo.setSelectedItem("Fit");
+                            bulkOpacitySpinner.setValue(100);
+                            break;
+                        case "Centered Cards":
+                            bulkGapSpinner.setValue(3);
+                            bulkMarginSpinner.setValue(5);
+                            bulkWidthSpinner.setValue(95);
+                            bulkCornerSpinner.setValue(20);
+                            bulkBorderSpinner.setValue(3);
+                            bulkFitCombo.setSelectedItem("Fit");
+                            bulkOpacitySpinner.setValue(100);
+                            break;
+                        case "Overlapping Stack":
+                            bulkGapSpinner.setValue(-8);
+                            bulkMarginSpinner.setValue(0);
+                            bulkWidthSpinner.setValue(100);
+                            bulkCornerSpinner.setValue(10);
+                            bulkBorderSpinner.setValue(2);
+                            bulkFitCombo.setSelectedItem("Fill");
+                            bulkOpacitySpinner.setValue(90);
+                            break;
+                        case "Mosaic Tight":
+                            bulkGapSpinner.setValue(1);
+                            bulkMarginSpinner.setValue(0);
+                            bulkWidthSpinner.setValue(100);
+                            bulkCornerSpinner.setValue(0);
+                            bulkBorderSpinner.setValue(0);
+                            bulkFitCombo.setSelectedItem("Fill");
+                            bulkOpacitySpinner.setValue(100);
+                            break;
+                        case "Centered Spotlight":
+                            bulkGapSpinner.setValue(4);
+                            bulkMarginSpinner.setValue(10);
+                            bulkWidthSpinner.setValue(90);
+                            bulkCornerSpinner.setValue(30);
+                            bulkBorderSpinner.setValue(4);
+                            bulkFitCombo.setSelectedItem("Fit");
+                            bulkOpacitySpinner.setValue(95);
+                            break;
+                    }
+                } finally {
+                    isLoadingBulkItem = false;
+                }
+                bulkTemplateCombo.setSelectedIndex(0);
+                onFormatChanged();
+            });
+
+            JButton centerAllBtn = new JButton("⊕ Center All");
+            centerAllBtn.setPreferredSize(new Dimension(100, 24));
+            centerAllBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            centerAllBtn.setFocusPainted(false);
+            centerAllBtn.setToolTipText("Center the image grid on the slide (set Margin to 0)");
+            centerAllBtn.addActionListener(e -> {
+                bulkMarginSpinner.setValue(0);
+                onFormatChanged();
+            });
+
+            JLabel tplHeaderLbl = styledLabel("📐 Layout:");
+            tplHeaderLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            toolbar4g4.add(tplHeaderLbl);
+            toolbar4g4.add(styledLabel("Template:"));
+            toolbar4g4.add(bulkTemplateCombo);
+            toolbar4g4.add(centerAllBtn);
 
             // ===== Toolbar Row 5: Image Effects (3 rows) =====
             JPanel toolbar5a = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 1));
@@ -16860,6 +16971,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(toolbar4g1);
             toolbarsPanel.add(toolbar4g2);
             toolbarsPanel.add(toolbar4g3);
+            toolbarsPanel.add(toolbar4g4);
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar5a);
             toolbarsPanel.add(toolbar5b);
@@ -17513,17 +17625,24 @@ public class GifSlideShowApp extends JFrame {
             // Pixel-space layout — gaps are real pixels between images, not % of cell.
             int slideW = getOutputWidth();
             int slideH = getOutputHeight();
-            int gapPct = (int) bulkGapSpinner.getValue();   // 0-50 % of shorter side
-            int gapPx  = Math.min(slideW, slideH) * gapPct / 100;
+            int shorter = Math.min(slideW, slideH);
+            int gapPct    = (int) bulkGapSpinner.getValue();    // -30 to 50 % of shorter side
+            int marginPct = (int) bulkMarginSpinner.getValue(); //   0 to 40 % of shorter side
             int sizeScalePct = (int) bulkWidthSpinner.getValue(); // 10-100
 
-            // Total grid spans (images only, gaps between them)
-            int totalGridW = slideW;   // grid fills full width
-            int totalGridH = slideH;   // grid fills full height
-            // Cell dimensions (image box + half-gap on each side)
-            // gap goes BETWEEN cells only: (cols-1) gaps for cols cells
-            int colWidthPx  = (totalGridW - Math.max(0, cols - 1) * gapPx) / cols;
-            int rowHeightPx = (totalGridH - Math.max(0, rows - 1) * gapPx) / rows;
+            int gapPx    = shorter * gapPct    / 100;  // can be negative (overlap)
+            int marginPx = shorter * marginPct / 100;  // always >= 0
+
+            // Usable area after applying margin on all four sides
+            int usableW = slideW - 2 * marginPx;
+            int usableH = slideH - 2 * marginPx;
+            int startX  = marginPx;
+            int startY  = marginPx;
+
+            // Cell size: gaps go BETWEEN cells only; (cols-1) gaps for cols cells.
+            // Works for both positive and negative gapPx.
+            int colWidthPx  = Math.max(1, (usableW - (cols - 1) * gapPx) / cols);
+            int rowHeightPx = Math.max(1, (usableH - (rows - 1) * gapPx) / rows);
             // Scaled image box inside the cell
             int imgBoxW = Math.max(1, colWidthPx  * sizeScalePct / 100);
             int imgBoxH = Math.max(1, rowHeightPx * sizeScalePct / 100);
@@ -17551,9 +17670,9 @@ public class GifSlideShowApp extends JFrame {
                 int r = i / cols;
                 if (r >= rows) break;
 
-                // Pixel center of this cell
-                int cellCenterX = c * (colWidthPx + gapPx) + colWidthPx / 2;
-                int cellCenterY = r * (rowHeightPx + gapPx) + rowHeightPx / 2;
+                // Pixel center of this cell (offset by margin so the grid is centered)
+                int cellCenterX = startX + c * (colWidthPx + gapPx) + colWidthPx / 2;
+                int cellCenterY = startY + r * (rowHeightPx + gapPx) + rowHeightPx / 2;
 
                 // Convert pixel center to percentage (0-100 range)
                 int cx = (int) Math.round(cellCenterX * 100.0 / slideW);
