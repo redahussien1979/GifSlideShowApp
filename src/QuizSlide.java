@@ -380,13 +380,12 @@ public class QuizSlide {
      * the renderer to decide which cue's color / effects / glow to apply.
      */
     public QuizCue activeCueForTextIndex(int textIdx0Based, long elapsedMs) {
-        // New: special-audio timeline events take priority when the opt-in
-        // flag is on. Off by default — when off, this block is skipped and
-        // the existing per-cue search runs unchanged.
+        // Special-audio timeline mode is EXCLUSIVE: only timeline events
+        // drive text highlights, and the old per-text cues are not consulted.
+        // When the flag is off, the legacy search below runs unchanged.
         if (useSpecialTimeline) {
-            QuizCue synth = synthCueForTimelineEvent(
+            return synthCueForTimelineEvent(
                     activeTimelineEventForTextIndex(textIdx0Based, elapsedMs));
-            if (synth != null) return synth;
         }
         if (cues == null || cues.isEmpty()) return null;
         long revealAt = revealAtMs();
@@ -459,12 +458,11 @@ public class QuizSlide {
      * or null. "Text-targeting" = targetTextIndex >= 1 (excludes special cues).
      */
     public QuizCue activeTextCueAt(long elapsedMs) {
-        // New: special-audio timeline events take priority when the opt-in
-        // flag is on. Off by default — when off, this block is skipped and
-        // the existing search runs unchanged.
+        // Special-audio timeline mode is EXCLUSIVE: only timeline events
+        // drive text highlights, and the old per-text cues are not consulted.
+        // When the flag is off, the legacy search below runs unchanged.
         if (useSpecialTimeline) {
-            QuizCue synth = synthCueForTimelineEvent(activeTimelineEventAt(elapsedMs));
-            if (synth != null) return synth;
+            return synthCueForTimelineEvent(activeTimelineEventAt(elapsedMs));
         }
         if (cues == null || cues.isEmpty()) return null;
         long revealAt = revealAtMs();
@@ -626,6 +624,11 @@ public class QuizSlide {
             }
             return 0L;
         }
+        // "AfterQuestion" — in special-timeline mode the SPECIAL narration is
+        // the question; wait for it to finish before starting the timer.
+        if (useSpecialTimeline && specialTimelineAudioDurationMs > 0) {
+            return specialTimelineAudioDurationMs;
+        }
         return Math.max(0, questionEndMs);
     }
 
@@ -646,12 +649,18 @@ public class QuizSlide {
      */
     public long lastNonReplayAudioEndMs() {
         long end = 0L;
-        if (useQuestionAudio) end = Math.max(end, Math.max(0, questionEndMs));
-        if (cues != null) {
-            for (QuizCue c : cues) {
-                if (c == null || c.audioFile == null || c.durationMs <= 0) continue;
-                if (c.playAfterReveal) continue;
-                end = Math.max(end, (long) effectiveStartMs(c) + c.durationMs);
+        // In special-timeline mode the narration is the special audio; in
+        // classic mode it's the question audio + per-text cues.
+        if (useSpecialTimeline && specialTimelineAudioDurationMs > 0) {
+            end = Math.max(end, specialTimelineAudioDurationMs);
+        } else {
+            if (useQuestionAudio) end = Math.max(end, Math.max(0, questionEndMs));
+            if (cues != null) {
+                for (QuizCue c : cues) {
+                    if (c == null || c.audioFile == null || c.durationMs <= 0) continue;
+                    if (c.playAfterReveal) continue;
+                    end = Math.max(end, (long) effectiveStartMs(c) + c.durationMs);
+                }
             }
         }
         return end;
@@ -2583,13 +2592,27 @@ public class QuizSlide {
             quiz.useQuestionAudio    = useQuestionCheck.isSelected();
 
             if (quiz.enabled) {
-                if (quiz.useQuestionAudio
+                // In special-timeline mode the special audio IS the narration,
+                // so we don't require a question-audio file.
+                if (!quiz.useSpecialTimeline
+                        && quiz.useQuestionAudio
                         && (quiz.questionAudioFile == null
                         || !quiz.questionAudioFile.exists())) {
                     JOptionPane.showMessageDialog(dialog,
                             "Please choose a question-audio file, "
                                     + "or uncheck \"Use question audio\".",
                             "Missing question audio",
+                            JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+                if (quiz.useSpecialTimeline
+                        && (quiz.specialTimelineAudioFile == null
+                        || !quiz.specialTimelineAudioFile.exists())) {
+                    JOptionPane.showMessageDialog(dialog,
+                            "Special-audio timeline is on but no narration "
+                                    + "audio is chosen. Open \"Special timeline…\" "
+                                    + "and browse for one, or turn the timeline off.",
+                            "Missing special audio",
                             JOptionPane.WARNING_MESSAGE);
                     return;
                 }
@@ -3533,11 +3556,21 @@ public class QuizSlide {
         boolean hasQuestion = quiz.useQuestionAudio
                 && quiz.questionAudioFile != null
                 && quiz.questionAudioFile.exists();
+        // EXCLUSIVE MODE: when the special-audio timeline is on, the single
+        // narration audio REPLACES the old question/per-text-cue narration.
+        // We force-off the question leg and skip the existing cues block in
+        // the mixer below so the user hears only: special audio + ticks + ding.
+        boolean special = quiz.useSpecialTimeline
+                && quiz.specialTimelineAudioFile != null
+                && quiz.specialTimelineAudioFile.exists()
+                && quiz.specialTimelineAudioDurationMs > 0;
+        if (special) hasQuestion = false;
 
         // Recompute timing locally (don't call the QuizSlide helpers — they
         // read fields like questionEndMs that the dialog sets only AFTER the
         // build returns).
-        int  qEndMs    = hasQuestion ? quiz.questionAudioDurationMs : 0;
+        int  qEndMs    = hasQuestion ? quiz.questionAudioDurationMs
+                : (special ? quiz.specialTimelineAudioDurationMs : 0);
         long timerMs   = Math.max(0, quiz.timerSeconds) * 1000L;
         long timerStart;
         if ("AtSlideStart".equals(quiz.timerStartMode)) {
@@ -3606,7 +3639,9 @@ public class QuizSlide {
         // Ding rides the VISUAL reveal moment so the audible "answer" matches
         // the box appearing on screen — not the natural-countdown end.
         files.add(dingSrc); delays.add(visualReveal); vols.add(1.0);
-        if (quiz.cues != null) {
+        // Existing per-text cue audios — skipped entirely in EXCLUSIVE MODE
+        // so the user's "single audio only" expectation holds.
+        if (!special && quiz.cues != null) {
             for (QuizCue c : quiz.cues) {
                 if (c == null || c.audioFile == null || !c.audioFile.exists()
                         || c.durationMs <= 0) continue;
@@ -3620,13 +3655,8 @@ public class QuizSlide {
                 }
             }
         }
-        // New: when the special-audio timeline is in use, mix that single
-        // narration audio in at slide start. The cues block above is bypassed
-        // by users who choose this workflow (no per-text cue audio needed).
-        if (quiz.useSpecialTimeline
-                && quiz.specialTimelineAudioFile != null
-                && quiz.specialTimelineAudioFile.exists()
-                && quiz.specialTimelineAudioDurationMs > 0) {
+        // EXCLUSIVE MODE narration: the single special audio at slide start.
+        if (special) {
             files.add(quiz.specialTimelineAudioFile);
             delays.add(0L);
             vols.add(1.0);

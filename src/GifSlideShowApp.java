@@ -11767,7 +11767,12 @@ public class GifSlideShowApp extends JFrame {
      * trigger a text effect.
      */
     private static void applyQuizCueOverlay(SlideData s) {
-        if (!isQuizSlide(s) || s.quiz.cues == null || s.quiz.cues.isEmpty()) return;
+        if (!isQuizSlide(s)) return;
+        boolean special = s.quiz.useSpecialTimeline;
+        boolean haveCues  = s.quiz.cues != null && !s.quiz.cues.isEmpty();
+        boolean haveTimeline = special && s.quiz.timelineEvents != null
+                && !s.quiz.timelineEvents.isEmpty();
+        if (!haveCues && !haveTimeline) return;
         int n = s.slideTexts != null ? s.slideTexts.size() : 0;
         // Make sure the lists are big enough to set() at the cue's index. The
         // standard SlideRow path sizes them to slideTexts.size() so this is a
@@ -11775,25 +11780,23 @@ public class GifSlideShowApp extends JFrame {
         while (s.audioHlColor.size()   < n) s.audioHlColor.add(DEFAULT_AUDIO_HL_COLOR);
         while (s.audioHlEffects.size() < n) s.audioHlEffects.add(DEFAULT_AUDIO_HL_EFFECTS);
         while (s.audioGlowSize.size()  < n) s.audioGlowSize.add(DEFAULT_AUDIO_GLOW_SIZE);
-        for (QuizSlide.QuizCue c : s.quiz.cues) {
-            if (c == null || c.audioFile == null || c.durationMs <= 0) continue;
-            int t = c.targetTextIndex - 1;
-            if (t < 0 || t >= n) continue;
-            if (c.hlColor != null) s.audioHlColor.set(t, c.hlColor);
-            s.audioHlEffects.set(t, c.effects != null ? c.effects : DEFAULT_AUDIO_HL_EFFECTS);
-            s.audioGlowSize.set(t, c.glowSize > 0 ? c.glowSize : DEFAULT_AUDIO_GLOW_SIZE);
+        // Special-timeline mode is EXCLUSIVE: skip the legacy per-text cue
+        // writes entirely so the old narration's effects don't bleed through.
+        if (!special) {
+            for (QuizSlide.QuizCue c : s.quiz.cues) {
+                if (c == null || c.audioFile == null || c.durationMs <= 0) continue;
+                int t = c.targetTextIndex - 1;
+                if (t < 0 || t >= n) continue;
+                if (c.hlColor != null) s.audioHlColor.set(t, c.hlColor);
+                s.audioHlEffects.set(t, c.effects != null ? c.effects : DEFAULT_AUDIO_HL_EFFECTS);
+                s.audioGlowSize.set(t, c.glowSize > 0 ? c.glowSize : DEFAULT_AUDIO_GLOW_SIZE);
+            }
         }
-        // NEW: special-audio-timeline events. Gated on the opt-in flag — when
-        // off, this loop is a no-op and the existing behavior is preserved.
-        if (s.quiz.useSpecialTimeline && s.quiz.timelineEvents != null) {
-            // Same shape as cue write: register each event's effects/color/glow
-            // on its target text so the render-side resolvers pick them up
-            // when activeTextCueAt returns the synthesized cue for the event's
-            // window. Multiple events targeting the same text → last-writer-wins
-            // (matches existing cue behavior for the same case).
-            while (s.audioHlColor.size()   < n) s.audioHlColor.add(DEFAULT_AUDIO_HL_COLOR);
-            while (s.audioHlEffects.size() < n) s.audioHlEffects.add(DEFAULT_AUDIO_HL_EFFECTS);
-            while (s.audioGlowSize.size()  < n) s.audioGlowSize.add(DEFAULT_AUDIO_GLOW_SIZE);
+        // Special-audio-timeline events: register each event's effects/color/glow
+        // on its target text so the render-side resolvers pick them up when
+        // activeTextCueAt returns the synthesized cue for the event's window.
+        // Multiple events targeting the same text → last-writer-wins.
+        if (haveTimeline) {
             for (QuizSlide.TimelineEvent e : s.quiz.timelineEvents) {
                 if (e == null || e.durationMs <= 0) continue;
                 int t = e.targetTextIndex - 1;
