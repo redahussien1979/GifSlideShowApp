@@ -19351,10 +19351,15 @@ public class GifSlideShowApp extends JFrame {
         // which makes the slide auto-extend to fit through the existing pipeline.
         private void openQuizDialog() {
             int textCount = Math.max(slideTextItems.size(), 2);
+            List<String> textStrings = new ArrayList<>();
+            for (SlideTextData d : slideTextItems) {
+                textStrings.add(d != null ? d.text : null);
+            }
             QuizSlide.openConfigDialog(
                     SwingUtilities.getWindowAncestor(panel),
                     quiz,
                     textCount,
+                    textStrings,
                     (combinedFile, durationMs) -> {
                         if (combinedFile != null && durationMs > 0) {
                             setSlideAudio(0, combinedFile, durationMs);
