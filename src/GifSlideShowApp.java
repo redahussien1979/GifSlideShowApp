@@ -11783,6 +11783,26 @@ public class GifSlideShowApp extends JFrame {
             s.audioHlEffects.set(t, c.effects != null ? c.effects : DEFAULT_AUDIO_HL_EFFECTS);
             s.audioGlowSize.set(t, c.glowSize > 0 ? c.glowSize : DEFAULT_AUDIO_GLOW_SIZE);
         }
+        // NEW: special-audio-timeline events. Gated on the opt-in flag — when
+        // off, this loop is a no-op and the existing behavior is preserved.
+        if (s.quiz.useSpecialTimeline && s.quiz.timelineEvents != null) {
+            // Same shape as cue write: register each event's effects/color/glow
+            // on its target text so the render-side resolvers pick them up
+            // when activeTextCueAt returns the synthesized cue for the event's
+            // window. Multiple events targeting the same text → last-writer-wins
+            // (matches existing cue behavior for the same case).
+            while (s.audioHlColor.size()   < n) s.audioHlColor.add(DEFAULT_AUDIO_HL_COLOR);
+            while (s.audioHlEffects.size() < n) s.audioHlEffects.add(DEFAULT_AUDIO_HL_EFFECTS);
+            while (s.audioGlowSize.size()  < n) s.audioGlowSize.add(DEFAULT_AUDIO_GLOW_SIZE);
+            for (QuizSlide.TimelineEvent e : s.quiz.timelineEvents) {
+                if (e == null || e.durationMs <= 0) continue;
+                int t = e.targetTextIndex - 1;
+                if (t < 0 || t >= n) continue;
+                if (e.hlColor != null) s.audioHlColor.set(t, e.hlColor);
+                s.audioHlEffects.set(t, e.effects != null ? e.effects : DEFAULT_AUDIO_HL_EFFECTS);
+                s.audioGlowSize.set(t, e.glowSize > 0 ? e.glowSize : DEFAULT_AUDIO_GLOW_SIZE);
+            }
+        }
     }
 
     /** Paint the quiz countdown / reveal overlay onto a frame in place. No-op when not a quiz. */
