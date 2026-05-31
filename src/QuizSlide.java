@@ -2996,9 +2996,12 @@ public class QuizSlide {
         return "on — " + n + (n == 1 ? " event" : " events");
     }
 
-    /** Read-only viewer for the special-audio timeline. All values
-     *  (enable flag, narration audio, per-word At(s)) come from the CSV
-     *  import — this dialog only displays what was imported. */
+    /** Special-audio timeline viewer.
+     *  Read-only: At(s), Color, Glow, Dur (ms), narration audio, enable flag
+     *             (all come from CSV import).
+     *  Editable:  Target (dropdown of the slide's texts) and Effect (dropdown
+     *             of the effect vocabulary) — changes commit to the slide
+     *             immediately, so closing the dialog persists them. */
     private static void openSpecialTimelineDialog(Window parent, QuizSlide quiz,
                                                   int textItemCount,
                                                   List<String> textItemTexts) {
@@ -3037,39 +3040,53 @@ public class QuizSlide {
         gc.gridwidth = 1;
         r++;
 
-        // ----- Middle panel: read-only table of imported effect fires -----
+        // Build Target-dropdown options once: one per slide-text item, with
+        // the actual text content for context (e.g. "Text #2 — Sparse").
+        final int targetCount = Math.max(textItemCount,
+                textItemTexts != null ? textItemTexts.size() : 0);
+        final TargetOption[] targetOptions = new TargetOption[Math.max(1, targetCount)];
+        for (int i = 0; i < targetOptions.length; i++) {
+            String t = (textItemTexts != null && i < textItemTexts.size())
+                    ? textItemTexts.get(i) : null;
+            targetOptions[i] = new TargetOption(i + 1, t);
+        }
+
+        // ----- Middle panel: table of imported effect fires -----
         String[] cols = {"At (s)", "Target", "Effect", "Color", "Glow", "Dur (ms)"};
+        // Live reference to the slide's events so dropdown edits persist
+        // without a Save button.
+        final List<TimelineEvent> view = quiz.timelineEvents != null
+                ? quiz.timelineEvents : new ArrayList<>();
+        if (quiz.timelineEvents == null) quiz.timelineEvents = view;
         javax.swing.table.DefaultTableModel tm =
                 new javax.swing.table.DefaultTableModel(cols, 0) {
                     @Override public boolean isCellEditable(int row, int column) {
-                        return false;
+                        // Only Target (1) and Effect (2) are editable.
+                        return column == 1 || column == 2;
+                    }
+                    @Override public Class<?> getColumnClass(int column) {
+                        if (column == 1) return TargetOption.class;
+                        return Object.class;
                     }
                 };
         JTable table = new JTable(tm);
         table.setRowHeight(26);
         table.getTableHeader().setReorderingAllowed(false);
 
-        // Snapshot of imported events for the renderer to read swatches from.
-        final List<TimelineEvent> view = new ArrayList<>();
-        if (quiz.timelineEvents != null) {
-            for (TimelineEvent e : quiz.timelineEvents) {
-                if (e != null) view.add(e);
-            }
-        }
         for (TimelineEvent e : view) {
-            int idx = e.targetTextIndex;
-            String targetText;
-            if (idx >= 1 && textItemTexts != null && idx - 1 < textItemTexts.size()) {
-                String t = textItemTexts.get(idx - 1);
-                targetText = (t != null && !t.isEmpty()) ? t : "Text #" + idx;
-            } else {
-                targetText = idx >= 1 ? "Text #" + idx : "—";
+            TargetOption opt = null;
+            for (TargetOption o : targetOptions) {
+                if (o.index == e.targetTextIndex) { opt = o; break; }
+            }
+            if (opt == null) {
+                opt = new TargetOption(e.targetTextIndex,
+                        e.targetTextIndex >= 1 ? null : "—");
             }
             String colorHex = String.format("#%02X%02X%02X",
                     e.hlColor.getRed(), e.hlColor.getGreen(), e.hlColor.getBlue());
             tm.addRow(new Object[] {
                     String.format("%.2f", e.atMs / 1000.0),
-                    targetText,
+                    opt,
                     e.effects != null ? e.effects : "Glow",
                     colorHex,
                     e.glowSize,
@@ -3077,6 +3094,20 @@ public class QuizSlide {
             });
         }
 
+        // Target column: combo-box editor over the slide's texts.
+        JComboBox<TargetOption> targetCombo = new JComboBox<>(targetOptions);
+        table.getColumnModel().getColumn(1)
+                .setCellEditor(new javax.swing.DefaultCellEditor(targetCombo));
+
+        // Effect column: combo-box editor over the effect vocabulary.
+        String[] effectChoices = new String[FX_NAMES.length + 1];
+        effectChoices[0] = "None";
+        System.arraycopy(FX_NAMES, 0, effectChoices, 1, FX_NAMES.length);
+        JComboBox<String> effectCombo = new JComboBox<>(effectChoices);
+        table.getColumnModel().getColumn(2)
+                .setCellEditor(new javax.swing.DefaultCellEditor(effectCombo));
+
+        // Color column: swatch renderer.
         table.getColumnModel().getColumn(3).setCellRenderer(
                 new javax.swing.table.DefaultTableCellRenderer() {
                     @Override public Component getTableCellRendererComponent(
@@ -3090,6 +3121,20 @@ public class QuizSlide {
                     }
                 });
 
+        // Commit dropdown edits back to the live TimelineEvent list.
+        tm.addTableModelListener(ev -> {
+            int row = ev.getFirstRow();
+            int col = ev.getColumn();
+            if (row < 0 || row >= view.size() || col < 0) return;
+            TimelineEvent te = view.get(row);
+            Object val = tm.getValueAt(row, col);
+            if (col == 1 && val instanceof TargetOption) {
+                te.targetTextIndex = ((TargetOption) val).index;
+            } else if (col == 2 && val != null) {
+                te.effects = val.toString();
+            }
+        });
+
         JScrollPane tableScroll = new JScrollPane(table);
         tableScroll.setBorder(BorderFactory.createTitledBorder("Effect fires (one per row)"));
         tableScroll.setPreferredSize(new Dimension(720, 240));
@@ -3101,7 +3146,14 @@ public class QuizSlide {
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 8));
         JButton close = new JButton("Close");
-        close.addActionListener(e -> dlg.dispose());
+        close.addActionListener(e -> {
+            // Commit any in-progress editor before closing so the last edit
+            // isn't silently discarded.
+            if (table.isEditing() && table.getCellEditor() != null) {
+                table.getCellEditor().stopCellEditing();
+            }
+            dlg.dispose();
+        });
         buttons.add(close);
         dlg.add(buttons, BorderLayout.SOUTH);
 
@@ -3109,6 +3161,23 @@ public class QuizSlide {
         dlg.setSize(Math.max(820, dlg.getWidth()), Math.max(520, dlg.getHeight()));
         dlg.setLocationRelativeTo(parent);
         dlg.setVisible(true);
+    }
+
+    /** Dropdown item for the Target column. Display = "Text #N — content"
+     *  (or "Text #N" when content is empty); selected value carries the
+     *  1-based slide-text index back to the event. */
+    private static final class TargetOption {
+        final int index;
+        final String text;
+        TargetOption(int index, String text) {
+            this.index = index;
+            this.text = text;
+        }
+        @Override public String toString() {
+            return text != null && !text.isEmpty()
+                    ? "Text #" + index + " — " + text
+                    : "Text #" + index;
+        }
     }
 
     @FunctionalInterface
