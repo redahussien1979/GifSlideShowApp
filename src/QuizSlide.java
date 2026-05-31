@@ -2997,11 +2997,13 @@ public class QuizSlide {
     }
 
     /** Special-audio timeline viewer.
-     *  Read-only: At(s), Color, Glow, Dur (ms), narration audio, enable flag
-     *             (all come from CSV import).
-     *  Editable:  Target (dropdown of the slide's texts) and Effect (dropdown
-     *             of the effect vocabulary) — changes commit to the slide
-     *             immediately, so closing the dialog persists them. */
+     *  Read-only: At(s), Dur (ms), narration audio, enable flag — these
+     *             come from the CSV import.
+     *  Editable:  Target (dropdown of the slide's texts), Effect (multi-
+     *             select popup over the effect vocabulary), Color (color
+     *             picker), Glow (1-40). All edits commit to the slide's
+     *             live timelineEvents on selection / Enter, so closing
+     *             the dialog persists them. */
     private static void openSpecialTimelineDialog(Window parent, QuizSlide quiz,
                                                   int textItemCount,
                                                   List<String> textItemTexts) {
@@ -3053,19 +3055,23 @@ public class QuizSlide {
 
         // ----- Middle panel: table of imported effect fires -----
         String[] cols = {"At (s)", "Target", "Effect", "Color", "Glow", "Dur (ms)"};
-        // Live reference to the slide's events so dropdown edits persist
-        // without a Save button.
+        // Live reference to the slide's events so edits persist without a
+        // Save button.
         final List<TimelineEvent> view = quiz.timelineEvents != null
                 ? quiz.timelineEvents : new ArrayList<>();
         if (quiz.timelineEvents == null) quiz.timelineEvents = view;
         javax.swing.table.DefaultTableModel tm =
                 new javax.swing.table.DefaultTableModel(cols, 0) {
                     @Override public boolean isCellEditable(int row, int column) {
-                        // Only Target (1) and Effect (2) are editable.
-                        return column == 1 || column == 2;
+                        // Target (1) and Glow (4) use built-in editors;
+                        // Effect (2) and Color (3) open custom pickers via
+                        // a mouse listener, so they're flagged uneditable
+                        // here to prevent the default text editor.
+                        return column == 1 || column == 4;
                     }
                     @Override public Class<?> getColumnClass(int column) {
                         if (column == 1) return TargetOption.class;
+                        if (column == 4) return Integer.class;
                         return Object.class;
                     }
                 };
@@ -3099,15 +3105,7 @@ public class QuizSlide {
         table.getColumnModel().getColumn(1)
                 .setCellEditor(new javax.swing.DefaultCellEditor(targetCombo));
 
-        // Effect column: combo-box editor over the effect vocabulary.
-        String[] effectChoices = new String[FX_NAMES.length + 1];
-        effectChoices[0] = "None";
-        System.arraycopy(FX_NAMES, 0, effectChoices, 1, FX_NAMES.length);
-        JComboBox<String> effectCombo = new JComboBox<>(effectChoices);
-        table.getColumnModel().getColumn(2)
-                .setCellEditor(new javax.swing.DefaultCellEditor(effectCombo));
-
-        // Color column: swatch renderer.
+        // Color column: swatch renderer (no text — just the colored cell).
         table.getColumnModel().getColumn(3).setCellRenderer(
                 new javax.swing.table.DefaultTableCellRenderer() {
                     @Override public Component getTableCellRendererComponent(
@@ -3121,7 +3119,35 @@ public class QuizSlide {
                     }
                 });
 
-        // Commit dropdown edits back to the live TimelineEvent list.
+        // Effect (col 2) and Color (col 3): click opens the picker dialog.
+        // Glow (col 4) uses the default integer editor; we still validate
+        // the committed value below in the table-model listener.
+        table.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mouseClicked(java.awt.event.MouseEvent me) {
+                int row = table.rowAtPoint(me.getPoint());
+                int col = table.columnAtPoint(me.getPoint());
+                if (row < 0 || row >= view.size()) return;
+                TimelineEvent te = view.get(row);
+                if (col == 2) {
+                    String picked = pickEffects(dlg, te.effects);
+                    if (picked != null) {
+                        te.effects = picked;
+                        tm.setValueAt(picked, row, 2);
+                    }
+                } else if (col == 3) {
+                    Color picked = JColorChooser.showDialog(dlg,
+                            "Highlight color", te.hlColor);
+                    if (picked != null) {
+                        te.hlColor = picked;
+                        tm.setValueAt(String.format("#%02X%02X%02X",
+                                picked.getRed(), picked.getGreen(), picked.getBlue()),
+                                row, 3);
+                    }
+                }
+            }
+        });
+
+        // Commit edits back to the live TimelineEvent list.
         tm.addTableModelListener(ev -> {
             int row = ev.getFirstRow();
             int col = ev.getColumn();
@@ -3130,8 +3156,14 @@ public class QuizSlide {
             Object val = tm.getValueAt(row, col);
             if (col == 1 && val instanceof TargetOption) {
                 te.targetTextIndex = ((TargetOption) val).index;
-            } else if (col == 2 && val != null) {
-                te.effects = val.toString();
+            } else if (col == 4) {
+                try {
+                    int g = Integer.parseInt(String.valueOf(val).trim());
+                    te.glowSize = Math.max(1, Math.min(40, g));
+                    if (te.glowSize != g) tm.setValueAt(te.glowSize, row, 4);
+                } catch (NumberFormatException ignored) {
+                    tm.setValueAt(te.glowSize, row, 4);
+                }
             }
         });
 
