@@ -2238,6 +2238,21 @@ public class GifSlideShowApp extends JFrame {
         // per-row override.
         Set<SlideRow> touchedSlides = new HashSet<>();
 
+        // DIAGNOSTIC: log which of the new special-timeline headers the parser
+        // actually saw, so a subtle typo / hidden character in the header row
+        // surfaces in the import-result warnings instead of silently being
+        // ignored. Each "*** ?" warning is benign info, not an error.
+        warnings.add("*** diagnostics: header detection — "
+                + "QUIZ_USE_SPECIAL_TIMELINE="
+                + (col.containsKey("QUIZ_USE_SPECIAL_TIMELINE")
+                ? "col " + col.get("QUIZ_USE_SPECIAL_TIMELINE") : "MISSING")
+                + ", QUIZ_SPECIAL_TIMELINE_AUDIO="
+                + (col.containsKey("QUIZ_SPECIAL_TIMELINE_AUDIO")
+                ? "col " + col.get("QUIZ_SPECIAL_TIMELINE_AUDIO") : "MISSING")
+                + ", QUIZ_SPECIAL_TIMELINE_AT="
+                + (col.containsKey("QUIZ_SPECIAL_TIMELINE_AT")
+                ? "col " + col.get("QUIZ_SPECIAL_TIMELINE_AT") : "MISSING"));
+
         for (int r = 1; r < trimmed.size(); r++) {
             if (trimmed.get(r).trim().isEmpty()) continue;
             List<String> fields = parseCsvLine(trimmed.get(r));
@@ -2342,11 +2357,22 @@ public class GifSlideShowApp extends JFrame {
             // QUIZ_SPECIAL_TIMELINE_AT     "2.118,3.629,6.924,9.824" — seconds per word
             //                              Nth timestamp → Text #(N+1), so 4 values
             //                              fire effects on Text #2 / #3 / #4 / #5.
-            s = quizCellAt(fields, col.get("QUIZ_USE_SPECIAL_TIMELINE"));
+            String dbgUse = quizCellAt(fields, col.get("QUIZ_USE_SPECIAL_TIMELINE"));
+            String dbgAud = quizCellAt(fields, col.get("QUIZ_SPECIAL_TIMELINE_AUDIO"));
+            String dbgAt  = quizCellAt(fields, col.get("QUIZ_SPECIAL_TIMELINE_AT"));
+            if ((dbgUse != null && !dbgUse.trim().isEmpty())
+                    || (dbgAud != null && !dbgAud.trim().isEmpty())
+                    || (dbgAt  != null && !dbgAt.trim().isEmpty())) {
+                warnings.add("*** Row " + (r + 1) + " special-timeline cells — "
+                        + "USE=[" + (dbgUse == null ? "null" : dbgUse) + "], "
+                        + "AUDIO=[" + (dbgAud == null ? "null" : dbgAud) + "], "
+                        + "AT=[" + (dbgAt == null ? "null" : dbgAt) + "]");
+            }
+            s = dbgUse;
             if (s != null && !s.trim().isEmpty()) {
                 q.useSpecialTimeline = parseQuizBool(s, q.useSpecialTimeline);
             }
-            s = quizCellAt(fields, col.get("QUIZ_SPECIAL_TIMELINE_AUDIO"));
+            s = dbgAud;
             if (s != null && !s.trim().isEmpty()) {
                 // Tolerate Excel's habit of re-wrapping cell values in quotes.
                 String path = stripWrappingQuotes(s.trim());
@@ -2363,7 +2389,7 @@ public class GifSlideShowApp extends JFrame {
                             + af.getAbsolutePath() + "' (cell: '" + s + "').");
                 }
             }
-            s = quizCellAt(fields, col.get("QUIZ_SPECIAL_TIMELINE_AT"));
+            s = dbgAt;
             if (s != null && !s.trim().isEmpty()) {
                 // Strip any wrapping quotes Excel may have added around the
                 // comma-separated value. Also accept ';' as a fallback
@@ -2531,7 +2557,7 @@ public class GifSlideShowApp extends JFrame {
                 .append("Combined audio built: ").append(audioBuilt);
         if (!warnings.isEmpty()) {
             msg.append("\n\nWarnings (").append(warnings.size()).append("):");
-            int show = Math.min(warnings.size(), 30);
+            int show = Math.min(warnings.size(), 80);
             for (int i = 0; i < show; i++) {
                 msg.append("\n  • ").append(warnings.get(i));
             }
