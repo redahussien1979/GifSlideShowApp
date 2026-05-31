@@ -142,7 +142,7 @@ public class GifSlideShowApp extends JFrame {
         dictImportBtn.addActionListener(e -> dictionaryImport());
 
         JButton quizImportBtn = createStyledButton("Quiz Import", new Color(180, 120, 200));
-        quizImportBtn.setToolTipText("Import CSV/TSV of quiz settings: each row = one slide. Headers: QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD, QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO, QUIZ_TIMER_STYLE/X/Y/SIZE/WIDTH/COLOR/TEXT_COLOR/FONT/LABEL/START_MODE, QUIZ_BAR_SHAPE, QUIZ_REVEAL_MARK_STYLE/SIZE/COLOR, QUIZ_REVEAL_PAD, QUIZ_TIMER_ANIM/_STRENGTH/_TRIGGER/_EASING, QUIZ_TIMER_RED_COLOR, QUIZ_CUE1_AUDIO..QUIZ_CUEn_AUDIO, QUIZ_CUE_SPECIAL_AUDIO, QUIZ_CUE_REPLAY (comma-list of Text-cue targets / all / none — Special is excluded).");
+        quizImportBtn.setToolTipText("Import CSV/TSV of quiz settings: each row = one slide. Headers: QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD, QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO, QUIZ_TIMER_STYLE/X/Y/SIZE/WIDTH/COLOR/TEXT_COLOR/FONT/LABEL/START_MODE, QUIZ_BAR_SHAPE, QUIZ_REVEAL_MARK_STYLE/SIZE/COLOR, QUIZ_REVEAL_PAD, QUIZ_TIMER_ANIM/_STRENGTH/_TRIGGER/_EASING, QUIZ_TIMER_RED_COLOR, QUIZ_CUE1_AUDIO..QUIZ_CUEn_AUDIO, QUIZ_CUE_SPECIAL_AUDIO, QUIZ_CUE_REPLAY (comma-list of Text-cue targets / all / none — Special is excluded), QUIZ_USE_SPECIAL_TIMELINE, QUIZ_SPECIAL_TIMELINE_AUDIO, QUIZ_SPECIAL_TIMELINE_AT (comma-separated seconds; Nth value → Text #N+1).");
         quizImportBtn.addActionListener(e -> quizImport());
 
         JButton titleGridBtn = createStyledButton("Title Grid", new Color(60, 160, 200));
@@ -2072,6 +2072,20 @@ public class GifSlideShowApp extends JFrame {
                         + "    Rank / Effects / Color / Glow propagate from the\n"
                         + "    FIRST data row's cues (set them on the first\n"
                         + "    slide's Audio Timeline before importing).\n"
+                        + "  Special-audio timeline (parallel feature):\n"
+                        + "    QUIZ_USE_SPECIAL_TIMELINE -> true/false. When true,\n"
+                        + "      the slide narration is ONLY the audio in\n"
+                        + "      QUIZ_SPECIAL_TIMELINE_AUDIO; question audio and\n"
+                        + "      per-text cues are skipped.\n"
+                        + "    QUIZ_SPECIAL_TIMELINE_AUDIO -> path to that\n"
+                        + "      single narration audio.\n"
+                        + "    QUIZ_SPECIAL_TIMELINE_AT -> comma-separated\n"
+                        + "      seconds, one per word, e.g.\n"
+                        + "      \"2.118,3.629,6.924,9.824\". The Nth value\n"
+                        + "      fires the Glow default effect on Text #(N+1),\n"
+                        + "      so 4 values target Text #2 / #3 / #4 / #5.\n"
+                        + "      Edit Effect/Color/Glow/Duration afterward in\n"
+                        + "      the Special Timeline dialog if you want.\n"
                         + "  Available QUIZ_TIMER_STYLE values: Number Circle, Progress Bar H,\n"
                         + "  Progress Bar V, Ring Arc, Analog Clock, Hourglass, Flip Clock,\n"
                         + "  Bomb Fuse, Dot Grid.\n"
@@ -2322,6 +2336,54 @@ public class GifSlideShowApp extends JFrame {
                 }
             }
 
+            // ---- Special-audio timeline (opt-in alternative narration path) ----
+            // QUIZ_USE_SPECIAL_TIMELINE  true/false
+            // QUIZ_SPECIAL_TIMELINE_AUDIO  path to single narration audio
+            // QUIZ_SPECIAL_TIMELINE_AT     "2.118,3.629,6.924,9.824" — seconds per word
+            //                              Nth timestamp → Text #(N+1), so 4 values
+            //                              fire effects on Text #2 / #3 / #4 / #5.
+            s = quizCellAt(fields, col.get("QUIZ_USE_SPECIAL_TIMELINE"));
+            if (s != null && !s.trim().isEmpty()) {
+                q.useSpecialTimeline = parseQuizBool(s, q.useSpecialTimeline);
+            }
+            s = quizCellAt(fields, col.get("QUIZ_SPECIAL_TIMELINE_AUDIO"));
+            if (s != null && !s.trim().isEmpty()) {
+                File af = resolveQuizPath(s.trim(), importSourceDir);
+                if (af.exists()) {
+                    q.specialTimelineAudioFile = af;
+                    int dur = probeAudioDurationMs(af);
+                    if (dur > 0) q.specialTimelineAudioDurationMs = dur;
+                    else warnings.add("Row " + (r + 1)
+                            + ": could not probe duration of '" + af.getName() + "'.");
+                } else {
+                    warnings.add("Row " + (r + 1)
+                            + ": special timeline audio not found: '" + s + "'.");
+                }
+            }
+            s = quizCellAt(fields, col.get("QUIZ_SPECIAL_TIMELINE_AT"));
+            if (s != null && !s.trim().isEmpty()) {
+                List<QuizSlide.TimelineEvent> events = new ArrayList<>();
+                String[] parts = s.trim().split("\\s*,\\s*");
+                int eventIdx = 0;
+                for (String p : parts) {
+                    if (p.isEmpty()) continue;
+                    try {
+                        double sec = Double.parseDouble(p);
+                        QuizSlide.TimelineEvent e = new QuizSlide.TimelineEvent();
+                        e.atMs = (int) Math.round(sec * 1000.0);
+                        // Nth timestamp (0-based) → Text #(N+2): #2, #3, #4, ...
+                        e.targetTextIndex = eventIdx + 2;
+                        events.add(e);
+                        eventIdx++;
+                    } catch (NumberFormatException nfe) {
+                        warnings.add("Row " + (r + 1)
+                                + ": QUIZ_SPECIAL_TIMELINE_AT value '" + p
+                                + "' is not a number — skipped.");
+                    }
+                }
+                q.timelineEvents = events;
+            }
+
             // QUIZ_CUEn_AUDIO / QUIZ_CUE_SPECIAL_AUDIO: per-text cue audio.
             // Empty cell = leave that cue unchanged. A path sets the audio
             // on the slide's existing cue for that target (creating one if
@@ -2402,7 +2464,11 @@ public class GifSlideShowApp extends JFrame {
                     }
                 }
             }
-            if (q.enabled && (hasQuestion || hasCueAudio)) {
+            boolean hasSpecialTimeline = q.useSpecialTimeline
+                    && q.specialTimelineAudioFile != null
+                    && q.specialTimelineAudioFile.exists()
+                    && q.specialTimelineAudioDurationMs > 0;
+            if (q.enabled && (hasQuestion || hasCueAudio || hasSpecialTimeline)) {
                 // Without a question audio file we must turn off the
                 // useQuestionAudio flag so timer-start math and the audio
                 // mixer both skip the question-audio leg cleanly.
