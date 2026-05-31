@@ -2315,11 +2315,16 @@ public class QuizSlide {
      * @param parent          parent frame (for modality)
      * @param quiz            the slide's QuizSlide instance (mutated)
      * @param textItemCount   how many slide-text items the slide currently has
+     * @param textItemTexts   the actual text strings for those items (in order);
+     *                        used by the read-only special-timeline viewer to
+     *                        show the target text instead of "Text #N". May be
+     *                        null or shorter than {@code textItemCount}.
      * @param onAttach        called with (combinedAudioFile, durationMs);
      *                        caller should call setSlideAudio(0, file, ms)
      */
     public static void openConfigDialog(Window parent, QuizSlide quiz,
                                         int textItemCount,
+                                        List<String> textItemTexts,
                                         AudioAttachCallback onAttach) {
         JDialog dialog = new JDialog(parent, "Quiz Slide — Timer & Reveal",
                 Dialog.ModalityType.APPLICATION_MODAL);
@@ -2551,7 +2556,7 @@ public class QuizSlide {
         JLabel  specialTimelineLabel = new JLabel(specialTimelineSummary(quiz));
         specialTimelineLabel.setForeground(new Color(120, 200, 255));
         specialTimelineBtn.addActionListener(e -> {
-            openSpecialTimelineDialog(dialog, quiz, textItemCount);
+            openSpecialTimelineDialog(dialog, quiz, textItemCount, textItemTexts);
             specialTimelineLabel.setText(specialTimelineSummary(quiz));
         });
         gc.gridx = 1; form.add(specialTimelineBtn, gc);
@@ -2991,14 +2996,17 @@ public class QuizSlide {
         return "on — " + n + (n == 1 ? " event" : " events");
     }
 
-    /** Modal editor for the special-audio timeline: one narration audio +
-     *  per-second list of "fire effect E on Text #T at time t for D ms". */
-    private static void openSpecialTimelineDialog(Window parent, QuizSlide quiz, int textItemCount) {
+    /** Read-only viewer for the special-audio timeline. All values
+     *  (enable flag, narration audio, per-word At(s)) come from the CSV
+     *  import — this dialog only displays what was imported. */
+    private static void openSpecialTimelineDialog(Window parent, QuizSlide quiz,
+                                                  int textItemCount,
+                                                  List<String> textItemTexts) {
         JDialog dlg = new JDialog(parent, "Quiz Special Audio Timeline",
                 Dialog.ModalityType.APPLICATION_MODAL);
         dlg.setLayout(new BorderLayout(8, 8));
 
-        // ----- Top panel: enable + audio file + transport -----
+        // ----- Top panel: read-only display of CSV-imported values -----
         JPanel top = new JPanel(new GridBagLayout());
         top.setBorder(BorderFactory.createEmptyBorder(12, 14, 6, 14));
         GridBagConstraints gc = new GridBagConstraints();
@@ -3009,382 +3017,99 @@ public class QuizSlide {
 
         JCheckBox enableBox = new JCheckBox(
                 "Use special-audio timeline on this slide", quiz.useSpecialTimeline);
-        enableBox.setToolTipText("When off, this entire feature is dormant — the slide "
-                + "behaves exactly as it did before.");
+        enableBox.setEnabled(false);
         gc.gridx = 0; gc.gridy = r++; gc.gridwidth = 4;
         top.add(enableBox, gc);
         gc.gridwidth = 1;
 
         gc.gridx = 0; gc.gridy = r;
         top.add(new JLabel("Narration audio:"), gc);
-        JButton browseBtn = new JButton("Browse…");
-        JLabel  fileLabel = new JLabel(quiz.specialTimelineAudioFile != null
+        String audioText = quiz.specialTimelineAudioFile != null
                 ? quiz.specialTimelineAudioFile.getName()
                 + (quiz.specialTimelineAudioDurationMs > 0
                 ? "  (" + (quiz.specialTimelineAudioDurationMs / 1000.0) + " s)" : "")
-                : "(none)");
+                : "(none)";
+        JLabel fileLabel = new JLabel(audioText);
         fileLabel.setForeground(quiz.specialTimelineAudioFile != null
                 ? new Color(120, 200, 255) : Color.GRAY);
-        gc.gridx = 1; top.add(browseBtn, gc);
-        gc.gridx = 2; gc.gridwidth = 2;
+        gc.gridx = 1; gc.gridwidth = 3;
         top.add(fileLabel, gc);
         gc.gridwidth = 1;
         r++;
 
-        // Transport: Play / Stop / slider / time readout.
-        final SpecialAudioPlayer player = new SpecialAudioPlayer();
-        JButton playBtn = new JButton("▶ Play");
-        JButton stopBtn = new JButton("■ Stop");
-        JSlider scrub   = new JSlider(0, 1000, 0);
-        scrub.setEnabled(false);
-        JLabel timeLbl  = new JLabel("0.00 / 0.00 s");
-        timeLbl.setFont(timeLbl.getFont().deriveFont(Font.PLAIN, 12f));
-
-        gc.gridx = 0; gc.gridy = r;
-        top.add(new JLabel("Preview:"), gc);
-        JPanel transport = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        transport.setOpaque(false);
-        transport.add(playBtn);
-        transport.add(stopBtn);
-        transport.add(scrub);
-        transport.add(timeLbl);
-        gc.gridx = 1; gc.gridwidth = 3;
-        top.add(transport, gc);
-        gc.gridwidth = 1;
-        r++;
-
-        // Reusable refresher for the file label after browse / load.
-        Runnable refreshFileLabel = () -> {
-            if (quiz.specialTimelineAudioFile != null) {
-                fileLabel.setText(quiz.specialTimelineAudioFile.getName()
-                        + (quiz.specialTimelineAudioDurationMs > 0
-                        ? "  (" + (quiz.specialTimelineAudioDurationMs / 1000.0) + " s)"
-                        : ""));
-                fileLabel.setForeground(new Color(120, 200, 255));
-            } else {
-                fileLabel.setText("(none)");
-                fileLabel.setForeground(Color.GRAY);
-            }
-        };
-
-        browseBtn.addActionListener(ae -> {
-            File f = pickAudio(dlg);
-            if (f != null) {
-                quiz.specialTimelineAudioFile = f;
-                quiz.specialTimelineAudioDurationMs = probeDurationMs(f);
-                refreshFileLabel.run();
-                player.load(f);
-            }
-        });
-        if (quiz.specialTimelineAudioFile != null
-                && quiz.specialTimelineAudioFile.exists()) {
-            player.load(quiz.specialTimelineAudioFile);
-        }
-
-        // ----- Middle panel: scrolling table of events -----
+        // ----- Middle panel: read-only table of imported effect fires -----
         String[] cols = {"At (s)", "Target", "Effect", "Color", "Glow", "Dur (ms)"};
         javax.swing.table.DefaultTableModel tm =
                 new javax.swing.table.DefaultTableModel(cols, 0) {
                     @Override public boolean isCellEditable(int row, int column) {
-                        // Only direct edits for At / Dur. Other columns use renderers / pickers.
-                        return column == 0 || column == 5;
+                        return false;
                     }
                 };
         JTable table = new JTable(tm);
         table.setRowHeight(26);
         table.getTableHeader().setReorderingAllowed(false);
-        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 
-        // Backing list — we mutate this directly and rebuild rows.
-        final List<TimelineEvent> working = new ArrayList<>();
+        // Snapshot of imported events for the renderer to read swatches from.
+        final List<TimelineEvent> view = new ArrayList<>();
         if (quiz.timelineEvents != null) {
             for (TimelineEvent e : quiz.timelineEvents) {
-                if (e != null) working.add(e.copy());
+                if (e != null) view.add(e);
             }
         }
-        Runnable reloadTable = () -> {
-            tm.setRowCount(0);
-            for (TimelineEvent e : working) {
-                String tgt = e.targetTextIndex >= 1
-                        ? "Text #" + e.targetTextIndex
-                        : "—";
-                String colorHex = String.format("#%02X%02X%02X",
-                        e.hlColor.getRed(), e.hlColor.getGreen(), e.hlColor.getBlue());
-                tm.addRow(new Object[] {
-                        String.format("%.2f", e.atMs / 1000.0),
-                        tgt,
-                        e.effects != null ? e.effects : "Glow",
-                        colorHex,
-                        e.glowSize,
-                        e.durationMs
-                });
+        for (TimelineEvent e : view) {
+            int idx = e.targetTextIndex;
+            String targetText;
+            if (idx >= 1 && textItemTexts != null && idx - 1 < textItemTexts.size()) {
+                String t = textItemTexts.get(idx - 1);
+                targetText = (t != null && !t.isEmpty()) ? t : "Text #" + idx;
+            } else {
+                targetText = idx >= 1 ? "Text #" + idx : "—";
             }
-        };
-        reloadTable.run();
+            String colorHex = String.format("#%02X%02X%02X",
+                    e.hlColor.getRed(), e.hlColor.getGreen(), e.hlColor.getBlue());
+            tm.addRow(new Object[] {
+                    String.format("%.2f", e.atMs / 1000.0),
+                    targetText,
+                    e.effects != null ? e.effects : "Glow",
+                    colorHex,
+                    e.glowSize,
+                    e.durationMs
+            });
+        }
 
-        // Color cell renderer: paint swatch in column 3.
         table.getColumnModel().getColumn(3).setCellRenderer(
                 new javax.swing.table.DefaultTableCellRenderer() {
                     @Override public Component getTableCellRendererComponent(
                             JTable t, Object v, boolean sel, boolean foc, int row, int col) {
                         Component c = super.getTableCellRendererComponent(t, v, sel, foc, row, col);
-                        if (row >= 0 && row < working.size()) {
-                            c.setBackground(working.get(row).hlColor);
+                        if (row >= 0 && row < view.size()) {
+                            c.setBackground(view.get(row).hlColor);
                             setText("");
                         }
                         return c;
                     }
                 });
 
-        // Commit At / Dur edits back into the model.
-        tm.addTableModelListener(ev -> {
-            int row = ev.getFirstRow();
-            int col = ev.getColumn();
-            if (row < 0 || row >= working.size() || col < 0) return;
-            TimelineEvent te = working.get(row);
-            try {
-                if (col == 0) {
-                    double sec = Double.parseDouble(String.valueOf(tm.getValueAt(row, 0)).trim());
-                    te.atMs = (int) Math.round(sec * 1000.0);
-                } else if (col == 5) {
-                    te.durationMs = Math.max(50,
-                            Integer.parseInt(String.valueOf(tm.getValueAt(row, 5)).trim()));
-                }
-            } catch (NumberFormatException ignored) {}
-        });
-
-        // Click on Target / Effect / Color / Glow opens a picker for that cell.
-        table.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override public void mouseClicked(java.awt.event.MouseEvent me) {
-                int row = table.rowAtPoint(me.getPoint());
-                int col = table.columnAtPoint(me.getPoint());
-                if (row < 0 || row >= working.size()) return;
-                TimelineEvent te = working.get(row);
-                if (col == 1) {
-                    // Target text combo.
-                    Integer[] opts = new Integer[Math.max(1, textItemCount)];
-                    for (int i = 0; i < opts.length; i++) opts[i] = i + 1;
-                    Integer pick = (Integer) JOptionPane.showInputDialog(dlg,
-                            "Target text item:", "Target",
-                            JOptionPane.PLAIN_MESSAGE, null, opts, te.targetTextIndex);
-                    if (pick != null) {
-                        te.targetTextIndex = pick;
-                        reloadTable.run();
-                    }
-                } else if (col == 2) {
-                    String picked = pickEffects(dlg, te.effects);
-                    if (picked != null) {
-                        te.effects = picked;
-                        reloadTable.run();
-                    }
-                } else if (col == 3) {
-                    Color picked = JColorChooser.showDialog(dlg, "Highlight color", te.hlColor);
-                    if (picked != null) {
-                        te.hlColor = picked;
-                        reloadTable.run();
-                    }
-                } else if (col == 4) {
-                    String s = JOptionPane.showInputDialog(dlg, "Glow size (1–40):",
-                            String.valueOf(te.glowSize));
-                    if (s != null) {
-                        try {
-                            te.glowSize = Math.max(1, Math.min(40, Integer.parseInt(s.trim())));
-                            reloadTable.run();
-                        } catch (NumberFormatException ignored) {}
-                    }
-                }
-            }
-        });
-
         JScrollPane tableScroll = new JScrollPane(table);
         tableScroll.setBorder(BorderFactory.createTitledBorder("Effect fires (one per row)"));
         tableScroll.setPreferredSize(new Dimension(720, 240));
 
-        // ----- Bottom row of actions on the events table -----
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        JButton addAtPlayhead = new JButton("+ Add @ playhead");
-        addAtPlayhead.setToolTipText("Insert a new row whose 'At' equals the audio "
-                + "preview's current position. Lets you scrub to a word and capture "
-                + "its timestamp with one click.");
-        JButton addRow = new JButton("+ Add row");
-        JButton delRow = new JButton("− Remove selected");
-        JButton sortBy = new JButton("Sort by time");
-        actions.add(addAtPlayhead);
-        actions.add(addRow);
-        actions.add(delRow);
-        actions.add(sortBy);
-
-        addAtPlayhead.addActionListener(ae -> {
-            TimelineEvent te = new TimelineEvent();
-            te.atMs = (int) player.positionMs();
-            te.targetTextIndex = Math.min(textItemCount, working.size() + 1);
-            if (te.targetTextIndex < 1) te.targetTextIndex = 1;
-            working.add(te);
-            reloadTable.run();
-        });
-        addRow.addActionListener(ae -> {
-            TimelineEvent te = new TimelineEvent();
-            te.targetTextIndex = Math.min(textItemCount, working.size() + 1);
-            if (te.targetTextIndex < 1) te.targetTextIndex = 1;
-            working.add(te);
-            reloadTable.run();
-        });
-        delRow.addActionListener(ae -> {
-            int sel = table.getSelectedRow();
-            if (sel >= 0 && sel < working.size()) {
-                working.remove(sel);
-                reloadTable.run();
-            }
-        });
-        sortBy.addActionListener(ae -> {
-            working.sort((a, b) -> Integer.compare(a.atMs, b.atMs));
-            reloadTable.run();
-        });
-
-        // Transport wiring.
-        javax.swing.Timer tick = new javax.swing.Timer(80, ae -> {
-            long pos = player.positionMs();
-            long dur = player.durationMs();
-            if (dur > 0) {
-                scrub.setEnabled(true);
-                int v = (int) Math.min(1000, Math.max(0, pos * 1000L / dur));
-                if (!scrub.getValueIsAdjusting()) scrub.setValue(v);
-                timeLbl.setText(String.format("%.2f / %.2f s", pos / 1000.0, dur / 1000.0));
-            } else {
-                timeLbl.setText("0.00 / 0.00 s");
-            }
-        });
-        tick.start();
-
-        playBtn.addActionListener(ae -> player.play());
-        stopBtn.addActionListener(ae -> player.stop());
-        scrub.addChangeListener(ce -> {
-            if (scrub.getValueIsAdjusting() && player.durationMs() > 0) {
-                long target = player.durationMs() * scrub.getValue() / 1000L;
-                player.seek(target);
-            }
-        });
-
-        // ----- Layout the dialog -----
         JPanel center = new JPanel(new BorderLayout(6, 6));
         center.add(top, BorderLayout.NORTH);
         center.add(tableScroll, BorderLayout.CENTER);
-        center.add(actions, BorderLayout.SOUTH);
         dlg.add(center, BorderLayout.CENTER);
 
-        // ----- Save / Cancel -----
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 8));
-        JButton cancel = new JButton("Cancel");
-        JButton save   = new JButton("Save");
-        cancel.addActionListener(e -> { tick.stop(); player.close(); dlg.dispose(); });
-        save.addActionListener(e -> {
-            quiz.useSpecialTimeline = enableBox.isSelected();
-            quiz.timelineEvents = new ArrayList<>(working);
-            tick.stop();
-            player.close();
-            dlg.dispose();
-        });
-        buttons.add(cancel);
-        buttons.add(save);
+        JButton close = new JButton("Close");
+        close.addActionListener(e -> dlg.dispose());
+        buttons.add(close);
         dlg.add(buttons, BorderLayout.SOUTH);
 
         dlg.pack();
         dlg.setSize(Math.max(820, dlg.getWidth()), Math.max(520, dlg.getHeight()));
         dlg.setLocationRelativeTo(parent);
-        // Stop the player if the user closes via the [×].
-        dlg.addWindowListener(new java.awt.event.WindowAdapter() {
-            @Override public void windowClosed(java.awt.event.WindowEvent we) {
-                tick.stop();
-                player.close();
-            }
-        });
         dlg.setVisible(true);
     }
-
-    /** Tiny preview player. Uses javax.sound.sampled for WAV/AIFF/AU; for
-     *  compressed formats (mp3/m4a/aac/ogg) it transparently decodes to a
-     *  temp WAV via ffmpeg so the preview & playhead capture work uniformly. */
-    private static class SpecialAudioPlayer {
-        private javax.sound.sampled.Clip clip;
-        private File decoded;          // temp WAV when input wasn't PCM
-        private long durationUs;       // total duration in microseconds
-
-        synchronized void load(File src) {
-            close();
-            if (src == null || !src.exists()) return;
-            File toOpen = src;
-            String name = src.getName().toLowerCase();
-            boolean nativePcm = name.endsWith(".wav") || name.endsWith(".aif")
-                    || name.endsWith(".aiff") || name.endsWith(".au");
-            if (!nativePcm) {
-                try {
-                    File tmp = File.createTempFile("quizslide-preview-", ".wav");
-                    tmp.deleteOnExit();
-                    runFfmpeg(new String[] {
-                            "ffmpeg", "-y",
-                            "-i", src.getAbsolutePath(),
-                            "-ac", "2", "-ar", "44100",
-                            tmp.getAbsolutePath()
-                    });
-                    decoded = tmp;
-                    toOpen = tmp;
-                } catch (Exception ignored) {
-                    return;
-                }
-            }
-            try {
-                AudioInputStream in = AudioSystem.getAudioInputStream(toOpen);
-                clip = AudioSystem.getClip();
-                clip.open(in);
-                durationUs = clip.getMicrosecondLength();
-            } catch (Exception ignored) {
-                clip = null;
-                durationUs = 0;
-            }
-        }
-
-        synchronized void play() {
-            if (clip == null) return;
-            if (clip.getMicrosecondPosition() >= clip.getMicrosecondLength()) {
-                clip.setMicrosecondPosition(0);
-            }
-            clip.start();
-        }
-
-        synchronized void stop() {
-            if (clip == null) return;
-            clip.stop();
-            clip.setMicrosecondPosition(0);
-        }
-
-        synchronized void seek(long ms) {
-            if (clip == null) return;
-            boolean wasRunning = clip.isRunning();
-            clip.stop();
-            long us = Math.max(0, Math.min(durationUs, ms * 1000L));
-            clip.setMicrosecondPosition(us);
-            if (wasRunning) clip.start();
-        }
-
-        synchronized long positionMs() {
-            return clip != null ? clip.getMicrosecondPosition() / 1000L : 0L;
-        }
-
-        synchronized long durationMs() {
-            return durationUs / 1000L;
-        }
-
-        synchronized void close() {
-            if (clip != null) {
-                try { clip.stop(); } catch (Exception ignored) {}
-                try { clip.close(); } catch (Exception ignored) {}
-                clip = null;
-            }
-            durationUs = 0;
-            decoded = null; // temp file is deleteOnExit
-        }
-    }
-
 
     @FunctionalInterface
     public interface AudioAttachCallback {
