@@ -2232,6 +2232,23 @@ public class GifSlideShowApp extends JFrame {
         int audioBuilt = 0;
         List<String> warnings = new ArrayList<>();
         boolean visualsApplied = false;
+        // Up-front diagnostic: confirm the three special-timeline columns
+        // were seen in the header row. If they're missing, every row that
+        // sets them is a no-op, which looks like "nothing happened".
+        {
+            List<String> sttFound   = new ArrayList<>();
+            List<String> sttMissing = new ArrayList<>();
+            for (String h : new String[] {
+                    "QUIZ_USE_SPECIAL_TIMELINE",
+                    "QUIZ_SPECIAL_TIMELINE_AUDIO",
+                    "QUIZ_SPECIAL_TIMELINE_AT"}) {
+                if (col.containsKey(h)) sttFound.add(h);
+                else                    sttMissing.add(h);
+            }
+            warnings.add("[headers] special-timeline columns found: "
+                    + (sttFound.isEmpty() ? "(none)" : String.join(", ", sttFound))
+                    + (sttMissing.isEmpty() ? "" : "  |  missing: " + String.join(", ", sttMissing)));
+        }
         // Slides touched by a CSV row: they already had master visuals merged
         // and any per-row QUIZ_CUE_REPLAY override applied inside the loop.
         // The final broadcast must skip them so it doesn't overwrite the
@@ -2342,9 +2359,17 @@ public class GifSlideShowApp extends JFrame {
             // QUIZ_SPECIAL_TIMELINE_AT     "2.118,3.629,6.924,9.824" — seconds per word
             //                              Nth timestamp → Text #(N+1), so 4 values
             //                              fire effects on Text #2 / #3 / #4 / #5.
+            boolean specialTimelineColPresent =
+                       col.containsKey("QUIZ_USE_SPECIAL_TIMELINE")
+                    || col.containsKey("QUIZ_SPECIAL_TIMELINE_AUDIO")
+                    || col.containsKey("QUIZ_SPECIAL_TIMELINE_AT");
+            int sttEventsParsed = 0;
+            boolean sttFlagSet  = false;
+            boolean sttAudioSet = false;
             s = quizCellAt(fields, col.get("QUIZ_USE_SPECIAL_TIMELINE"));
             if (s != null && !s.trim().isEmpty()) {
                 q.useSpecialTimeline = parseQuizBool(s, q.useSpecialTimeline);
+                sttFlagSet = q.useSpecialTimeline;
             }
             s = quizCellAt(fields, col.get("QUIZ_SPECIAL_TIMELINE_AUDIO"));
             if (s != null && !s.trim().isEmpty()) {
@@ -2355,6 +2380,7 @@ public class GifSlideShowApp extends JFrame {
                     if (dur > 0) q.specialTimelineAudioDurationMs = dur;
                     else warnings.add("Row " + (r + 1)
                             + ": could not probe duration of '" + af.getName() + "'.");
+                    sttAudioSet = true;
                 } else {
                     warnings.add("Row " + (r + 1)
                             + ": special timeline audio not found: '" + s + "'.");
@@ -2382,6 +2408,21 @@ public class GifSlideShowApp extends JFrame {
                     }
                 }
                 q.timelineEvents = events;
+                sttEventsParsed = events.size();
+            }
+            // Diagnostic line — always logged when any special-timeline column
+            // was present in the header, so the import-complete popup tells
+            // you exactly what landed on the slide (or why it didn't).
+            if (specialTimelineColPresent) {
+                warnings.add("Row " + (r + 1) + ": [special timeline] flag="
+                        + (q.useSpecialTimeline ? "ON" : "OFF")
+                        + (sttFlagSet ? " (set this row)" : "")
+                        + ", audio=" + (q.specialTimelineAudioFile != null
+                                ? q.specialTimelineAudioFile.getName()
+                                  + (sttAudioSet ? " (loaded this row)" : "")
+                                : "(none)")
+                        + ", events=" + (q.timelineEvents != null ? q.timelineEvents.size() : 0)
+                        + (sttEventsParsed > 0 ? " (parsed " + sttEventsParsed + " this row)" : ""));
             }
 
             // QUIZ_CUEn_AUDIO / QUIZ_CUE_SPECIAL_AUDIO: per-text cue audio.
@@ -2517,7 +2558,7 @@ public class GifSlideShowApp extends JFrame {
                 .append("Combined audio built: ").append(audioBuilt);
         if (!warnings.isEmpty()) {
             msg.append("\n\nWarnings (").append(warnings.size()).append("):");
-            int show = Math.min(warnings.size(), 30);
+            int show = Math.min(warnings.size(), 60);
             for (int i = 0; i < show; i++) {
                 msg.append("\n  • ").append(warnings.get(i));
             }
