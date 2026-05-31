@@ -612,6 +612,12 @@ public class QuizSlide {
      * references a cue that doesn't exist.
      */
     public long timerStartMs() {
+        // EXCLUSIVE special-timeline mode: the special narration IS the
+        // question — timer always waits for it to finish, regardless of
+        // the legacy timerStartMode (which targets the old narration paths).
+        if (useSpecialTimeline && specialTimelineAudioDurationMs > 0) {
+            return specialTimelineAudioDurationMs;
+        }
         if ("AtSlideStart".equals(timerStartMode)) return 0L;
         if ("AfterCue".equals(timerStartMode)) {
             if (cues != null) {
@@ -623,11 +629,6 @@ public class QuizSlide {
                 }
             }
             return 0L;
-        }
-        // "AfterQuestion" — in special-timeline mode the SPECIAL narration is
-        // the question; wait for it to finish before starting the timer.
-        if (useSpecialTimeline && specialTimelineAudioDurationMs > 0) {
-            return specialTimelineAudioDurationMs;
         }
         return Math.max(0, questionEndMs);
     }
@@ -3573,7 +3574,11 @@ public class QuizSlide {
                 : (special ? quiz.specialTimelineAudioDurationMs : 0);
         long timerMs   = Math.max(0, quiz.timerSeconds) * 1000L;
         long timerStart;
-        if ("AtSlideStart".equals(quiz.timerStartMode)) {
+        if (special) {
+            // EXCLUSIVE: timer waits for the special narration regardless of
+            // the legacy timerStartMode (which only knows about old paths).
+            timerStart = qEndMs;
+        } else if ("AtSlideStart".equals(quiz.timerStartMode)) {
             timerStart = 0L;
         } else if ("AfterCue".equals(quiz.timerStartMode)) {
             timerStart = 0L;
@@ -3592,7 +3597,8 @@ public class QuizSlide {
         long naturalReveal = timerStart + timerMs;
         long lastNonReplayEnd = 0L;
         if (hasQuestion) lastNonReplayEnd = Math.max(lastNonReplayEnd, qEndMs);
-        if (quiz.cues != null) {
+        if (special) lastNonReplayEnd = Math.max(lastNonReplayEnd, qEndMs);
+        if (!special && quiz.cues != null) {
             for (QuizCue c : quiz.cues) {
                 if (c == null || c.audioFile == null || c.durationMs <= 0) continue;
                 if (c.playAfterReveal) continue;
