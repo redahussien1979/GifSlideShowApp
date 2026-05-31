@@ -2348,7 +2348,9 @@ public class GifSlideShowApp extends JFrame {
             }
             s = quizCellAt(fields, col.get("QUIZ_SPECIAL_TIMELINE_AUDIO"));
             if (s != null && !s.trim().isEmpty()) {
-                File af = resolveQuizPath(s.trim(), importSourceDir);
+                // Tolerate Excel's habit of re-wrapping cell values in quotes.
+                String path = stripWrappingQuotes(s.trim());
+                File af = resolveQuizPath(path, importSourceDir);
                 if (af.exists()) {
                     q.specialTimelineAudioFile = af;
                     int dur = probeAudioDurationMs(af);
@@ -2357,14 +2359,20 @@ public class GifSlideShowApp extends JFrame {
                             + ": could not probe duration of '" + af.getName() + "'.");
                 } else {
                     warnings.add("Row " + (r + 1)
-                            + ": special timeline audio not found: '" + s + "'.");
+                            + ": special timeline audio not found at '"
+                            + af.getAbsolutePath() + "' (cell: '" + s + "').");
                 }
             }
             s = quizCellAt(fields, col.get("QUIZ_SPECIAL_TIMELINE_AT"));
             if (s != null && !s.trim().isEmpty()) {
+                // Strip any wrapping quotes Excel may have added around the
+                // comma-separated value. Also accept ';' as a fallback
+                // separator for locales where Excel uses semicolons.
+                String raw = stripWrappingQuotes(s.trim()).replace(';', ',');
                 List<QuizSlide.TimelineEvent> events = new ArrayList<>();
-                String[] parts = s.trim().split("\\s*,\\s*");
+                String[] parts = raw.split("\\s*,\\s*");
                 int eventIdx = 0;
+                int bad = 0;
                 for (String p : parts) {
                     if (p.isEmpty()) continue;
                     try {
@@ -2376,10 +2384,16 @@ public class GifSlideShowApp extends JFrame {
                         events.add(e);
                         eventIdx++;
                     } catch (NumberFormatException nfe) {
+                        bad++;
                         warnings.add("Row " + (r + 1)
                                 + ": QUIZ_SPECIAL_TIMELINE_AT value '" + p
                                 + "' is not a number — skipped.");
                     }
+                }
+                if (events.isEmpty()) {
+                    warnings.add("Row " + (r + 1)
+                            + ": QUIZ_SPECIAL_TIMELINE_AT produced 0 valid "
+                            + "timestamps (" + bad + " bad). Raw cell: '" + s + "'.");
                 }
                 q.timelineEvents = events;
             }
@@ -2545,6 +2559,16 @@ public class GifSlideShowApp extends JFrame {
         if (v.equals("false") || v.equals("0") || v.equals("no")
                 || v.equals("n") || v.equals("off")) return false;
         return def;
+    }
+
+    /** Remove ONE pair of surrounding straight double quotes if present —
+     *  Excel sometimes re-wraps cell values when copying to the clipboard. */
+    private static String stripWrappingQuotes(String s) {
+        if (s == null) return null;
+        if (s.length() >= 2 && s.startsWith("\"") && s.endsWith("\"")) {
+            return s.substring(1, s.length() - 1);
+        }
+        return s;
     }
 
     private static File resolveQuizPath(String s, File base) {
