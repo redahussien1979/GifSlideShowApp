@@ -2197,7 +2197,7 @@ public class GifSlideShowApp extends JFrame {
         Map<Integer, Integer> cueAudioColByTarget = new TreeMap<>();
         int hlColIndex = -1;
         for (int i = 0; i < headerFields.size(); i++) {
-            String h = headerFields.get(i).trim().toUpperCase(Locale.ROOT);
+            String h = normalizeHeader(headerFields.get(i));
             // Accept both "QUIZ_X" and "QUIZ.X" header conventions.
             if (h.startsWith("QUIZ.")) h = "QUIZ_" + h.substring(5);
             if (h.equals("QUIZ_CUE_SPECIAL_AUDIO") || h.equals("QUIZ_CUE0_AUDIO")) {
@@ -2248,6 +2248,23 @@ public class GifSlideShowApp extends JFrame {
             warnings.add("[headers] special-timeline columns found: "
                     + (sttFound.isEmpty() ? "(none)" : String.join(", ", sttFound))
                     + (sttMissing.isEmpty() ? "" : "  |  missing: " + String.join(", ", sttMissing)));
+            // If any of the three are missing, dump every raw header that
+            // looks even vaguely like a QUIZ_* column so the user can spot
+            // typos, hidden characters, or wrong file imports.
+            if (!sttMissing.isEmpty()) {
+                StringBuilder dump = new StringBuilder("[headers] raw cells: ");
+                for (int i = 0; i < headerFields.size(); i++) {
+                    String raw = headerFields.get(i);
+                    if (raw == null) continue;
+                    String upper = raw.toUpperCase(Locale.ROOT);
+                    if (!upper.contains("QUIZ") && !upper.contains("SPECIAL")
+                            && !upper.contains("TIMELINE")) continue;
+                    if (dump.length() > 20) dump.append(" | ");
+                    dump.append("[").append(i).append("]=\"").append(raw)
+                            .append("\" (len=").append(raw.length()).append(")");
+                }
+                warnings.add(dump.toString());
+            }
         }
         // Slides touched by a CSV row: they already had master visuals merged
         // and any per-row QUIZ_CUE_REPLAY override applied inside the loop.
@@ -2575,6 +2592,29 @@ public class GifSlideShowApp extends JFrame {
         if (idx == null) return null;
         if (idx < 0 || idx >= fields.size()) return "";
         return fields.get(idx);
+    }
+
+    /** Normalize a header cell for matching. Strips BOM, non-breaking
+     *  spaces, zero-width characters, and surrounding ASCII whitespace,
+     *  then upper-cases. Without this, a header that looks identical in
+     *  Excel can silently fail to match because of hidden characters
+     *  pasted in from the web or kept across copy/paste rounds. */
+    private static String normalizeHeader(String raw) {
+        if (raw == null) return "";
+        StringBuilder b = new StringBuilder(raw.length());
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            // Drop BOM, zero-width space/joiner/non-joiner, soft hyphen.
+            if (c == '﻿' || c == '​' || c == '‌' || c == '‍'
+                    || c == '­') {
+                continue;
+            }
+            // Normalize non-breaking and other unicode spaces to a regular
+            // space so trim() can strip them at the edges.
+            if (c == ' ' || c == ' ' || c == ' ') c = ' ';
+            b.append(c);
+        }
+        return b.toString().trim().toUpperCase(Locale.ROOT);
     }
 
     private static boolean parseQuizBool(String s, boolean def) {
