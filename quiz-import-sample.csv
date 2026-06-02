@@ -1,7 +1,7 @@
-TEXT1,TEXT2,TEXT3,TEXT4,TEXT5,HL,QUIZ_ENABLED,QUIZ_CORRECT,QUIZ_SECONDS,QUIZ_RED_THRESHOLD,QUIZ_TICK,QUIZ_DING,QUIZ_QUESTION_AUDIO,QUIZ_TIMER_STYLE,QUIZ_TIMER_X,QUIZ_TIMER_Y,QUIZ_TIMER_SIZE,QUIZ_TIMER_WIDTH,QUIZ_TIMER_COLOR,QUIZ_TIMER_LABEL,QUIZ_TIMER_START_MODE,QUIZ_USE_SPECIAL_TIMELINE,QUIZ_SPECIAL_TIMELINE_AUDIO,QUIZ_SPECIAL_TIMELINE_AT
+TEXT1,TEXT2,TEXT3,TEXT4,TEXT5,HL,QUIZ_ENABLED,QUIZ_CORRECT,QUIZ_SECONDS,QUIZ_RED_THRESHOLD,QUIZ_TICK,QUIZ_DING,QUIZ_QUESTION_AUDIO,QUIZ_TIMER_STYLE,QUIZ_TIMER_X,QUIZ_TIMER_Y,QUIZ_TIMER_SIZE,QUIZ_TIMER_WIDTH,QUIZ_TIMER_COLOR,QUIZ_TIMER_LABEL,QUIZ_TIMER_START_MODE,QUIZ_USE_SPECIAL_TIMELINE,QUIZ_SPECIAL_TIMELINE_AUDIO,QUIZ_SPECIAL_TIMELINE_AT,QUIZ_USE_AFTER_REVEAL_TIMELINE,QUIZ_AFTER_REVEAL_AUDIO,QUIZ_AFTER_REVEAL_AT
 What is the capital of France?,London,Paris,Berlin,,Paris,true,3,10,4,Stock: Classic Clock,Stock: Bell,audio/q1.mp3,Ring Arc,92,12,14,30,#50C8FF,Time:,AfterQuestion,,,
 2 + 2 = ?,3,4,5,,4,true,2,8,3,Stock: Game Show,Stock: Chime,audio/q2.mp3,,,,,,,,,,
 Largest planet in our solar system?,Earth,Jupiter,Mars,Saturn,Jupiter,true,4,12,4,Stock: Soft Tap,Stock: Bell,audio/q3.mp3,,,,,,,,,,
 "Which language runs in a web browser?","Java","C++","Python","JavaScript",JavaScript,true,4,10,3,Stock: Classic Clock,Stock: Chime,audio/q4.mp3,,,,,,,,,,
 H2O is the chemical formula for?,Salt,Water,Oxygen,Hydrogen,Water,true,2,8,3,Stock: Classic Clock,Stock: Bell,audio/q5.mp3,,,,,,,,,,
-"What is the opposite of the word abundant? Sparse is the opposite! or maybe the word Scarce! or the last option, Scant?",abundant,Sparse,Scarce,Scant,,true,2,10,4,Stock: Classic Clock,Stock: Bell,,,,,,,,,true,audio/opposite.mp3,"2.118,3.629,6.924,9.824"
+"What is the opposite of the word abundant? Sparse is the opposite! or maybe the word Scarce! or the last option, Scant?",abundant,Sparse,Scarce,Scant,,true,2,10,4,Stock: Classic Clock,Stock: Bell,,,,,,,,,true,audio/opposite.mp3,"2.118,3.629,6.924,9.824",true,audio/after.mp3,"1.0"
