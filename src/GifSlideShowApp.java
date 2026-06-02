@@ -11919,7 +11919,10 @@ public class GifSlideShowApp extends JFrame {
         boolean haveCues  = s.quiz.cues != null && !s.quiz.cues.isEmpty();
         boolean haveTimeline = special && s.quiz.timelineEvents != null
                 && !s.quiz.timelineEvents.isEmpty();
-        if (!haveCues && !haveTimeline) return;
+        boolean haveAfterReveal = s.quiz.useAfterRevealTimeline
+                && s.quiz.afterRevealEvents != null
+                && !s.quiz.afterRevealEvents.isEmpty();
+        if (!haveCues && !haveTimeline && !haveAfterReveal) return;
         int n = s.slideTexts != null ? s.slideTexts.size() : 0;
         // Make sure the lists are big enough to set() at the cue's index. The
         // standard SlideRow path sizes them to slideTexts.size() so this is a
@@ -11945,6 +11948,19 @@ public class GifSlideShowApp extends JFrame {
         // Multiple events targeting the same text → last-writer-wins.
         if (haveTimeline) {
             for (QuizSlide.TimelineEvent e : s.quiz.timelineEvents) {
+                if (e == null || e.durationMs <= 0) continue;
+                int t = e.targetTextIndex - 1;
+                if (t < 0 || t >= n) continue;
+                if (e.hlColor != null) s.audioHlColor.set(t, e.hlColor);
+                s.audioHlEffects.set(t, e.effects != null ? e.effects : DEFAULT_AUDIO_HL_EFFECTS);
+                s.audioGlowSize.set(t, e.glowSize > 0 ? e.glowSize : DEFAULT_AUDIO_GLOW_SIZE);
+            }
+        }
+        // After-reveal events: same registration so post-reveal highlights
+        // pick up the right color/effects/glow when the render-side resolver
+        // returns the synthesized cue for an event's window.
+        if (s.quiz.useAfterRevealTimeline && s.quiz.afterRevealEvents != null) {
+            for (QuizSlide.TimelineEvent e : s.quiz.afterRevealEvents) {
                 if (e == null || e.durationMs <= 0) continue;
                 int t = e.targetTextIndex - 1;
                 if (t < 0 || t >= n) continue;
