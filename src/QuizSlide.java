@@ -146,6 +146,20 @@ public class QuizSlide {
     // Effect-fires scheduled against specialTimelineAudioFile's playhead.
     public List<TimelineEvent> timelineEvents = new ArrayList<>();
 
+    // ============================================================
+    //  AFTER-REVEAL TIMELINE (opt-in, plays AFTER the reveal moment)
+    // ============================================================
+    // Optional second narration that plays after revealAtMs(), with its own
+    // schedule of effect fires on the same slide texts. Independent of the
+    // pre-reveal special timeline above — either, both, or neither can be on.
+    // Event atMs values are relative to this audio's own playhead (i.e. an
+    // event with atMs = 500 fires 500ms after the after-reveal audio starts,
+    // which is revealAtMs() + 500ms in slide-relative time).
+    public boolean useAfterRevealTimeline = false;
+    public File    afterRevealAudioFile = null;
+    public int     afterRevealAudioDurationMs = 0;
+    public List<TimelineEvent> afterRevealEvents = new ArrayList<>();
+
     // ===== Per-slide settings =====
     public boolean enabled = false;
     public int correctOptionIndex = 1;        // 1-based; refers to slide-text item index
@@ -367,6 +381,15 @@ public class QuizSlide {
                 if (e != null) c.timelineEvents.add(e.copy());
             }
         }
+        c.useAfterRevealTimeline       = useAfterRevealTimeline;
+        c.afterRevealAudioFile         = afterRevealAudioFile;
+        c.afterRevealAudioDurationMs   = afterRevealAudioDurationMs;
+        if (afterRevealEvents != null) {
+            c.afterRevealEvents = new ArrayList<>(afterRevealEvents.size());
+            for (TimelineEvent e : afterRevealEvents) {
+                if (e != null) c.afterRevealEvents.add(e.copy());
+            }
+        }
         return c;
     }
 
@@ -380,6 +403,11 @@ public class QuizSlide {
      * the renderer to decide which cue's color / effects / glow to apply.
      */
     public QuizCue activeCueForTextIndex(int textIdx0Based, long elapsedMs) {
+        // After-reveal timeline overlays on top of any other mode once the
+        // reveal moment has passed — its events take precedence so the user's
+        // post-reveal highlights actually appear.
+        TimelineEvent ar = activeAfterRevealEventForTextIndex(textIdx0Based, elapsedMs);
+        if (ar != null) return synthCueForAfterRevealEvent(ar);
         // Special-audio timeline mode is EXCLUSIVE: only timeline events
         // drive text highlights, and the old per-text cues are not consulted.
         // When the flag is off, the legacy search below runs unchanged.
@@ -434,6 +462,59 @@ public class QuizSlide {
         return null;
     }
 
+    /** First after-reveal event whose [revealAt+atMs, +durationMs) window
+     *  contains elapsedMs and targets the given 0-based text index, or null.
+     *  No-op when the after-reveal timeline is off or the moment hasn't
+     *  arrived yet. */
+    public TimelineEvent activeAfterRevealEventForTextIndex(int textIdx0Based, long elapsedMs) {
+        if (!useAfterRevealTimeline || afterRevealEvents == null) return null;
+        long revealAt = revealAtMs();
+        if (elapsedMs < revealAt) return null;
+        long sinceReveal = elapsedMs - revealAt;
+        for (TimelineEvent e : afterRevealEvents) {
+            if (e == null || e.durationMs <= 0) continue;
+            if (e.targetTextIndex - 1 != textIdx0Based) continue;
+            if (sinceReveal >= e.atMs && sinceReveal < e.atMs + e.durationMs) {
+                return e;
+            }
+        }
+        return null;
+    }
+
+    /** First text-targeting after-reveal event currently alive at elapsedMs. */
+    public TimelineEvent activeAfterRevealEventAt(long elapsedMs) {
+        if (!useAfterRevealTimeline || afterRevealEvents == null) return null;
+        long revealAt = revealAtMs();
+        if (elapsedMs < revealAt) return null;
+        long sinceReveal = elapsedMs - revealAt;
+        for (TimelineEvent e : afterRevealEvents) {
+            if (e == null || e.durationMs <= 0) continue;
+            if (e.targetTextIndex <= 0) continue;
+            if (sinceReveal >= e.atMs && sinceReveal < e.atMs + e.durationMs) {
+                return e;
+            }
+        }
+        return null;
+    }
+
+    /** Wrap an after-reveal event in a transient QuizCue. Points audioFile
+     *  at the after-reveal narration so downstream "is this cue alive"
+     *  checks pass. */
+    private QuizCue synthCueForAfterRevealEvent(TimelineEvent e) {
+        if (e == null) return null;
+        QuizCue c = new QuizCue();
+        c.audioFile        = afterRevealAudioFile;
+        c.durationMs       = Math.max(1, e.durationMs);
+        c.startMs          = (int) Math.max(0, revealAtMs()) + e.atMs;
+        c.targetTextIndex  = e.targetTextIndex;
+        c.effects          = e.effects != null ? e.effects : "Glow";
+        c.hlColor          = e.hlColor != null ? e.hlColor : new Color(255, 200, 50, 160);
+        c.glowSize         = e.glowSize > 0 ? e.glowSize : 7;
+        c.playAfterReveal  = false;
+        c.rank             = 0;
+        return c;
+    }
+
     /** Wrap a TimelineEvent in a transient QuizCue so the existing
      *  render-side pipeline (which consumes QuizCue values) "just works". */
     private QuizCue synthCueForTimelineEvent(TimelineEvent e) {
@@ -458,6 +539,9 @@ public class QuizSlide {
      * or null. "Text-targeting" = targetTextIndex >= 1 (excludes special cues).
      */
     public QuizCue activeTextCueAt(long elapsedMs) {
+        // After-reveal timeline takes precedence once the reveal moment passes.
+        TimelineEvent ar = activeAfterRevealEventAt(elapsedMs);
+        if (ar != null) return synthCueForAfterRevealEvent(ar);
         // Special-audio timeline mode is EXCLUSIVE: only timeline events
         // drive text highlights, and the old per-text cues are not consulted.
         // When the flag is off, the legacy search below runs unchanged.
@@ -2990,10 +3074,20 @@ public class QuizSlide {
     // ============================================================
     /** One-liner summary of the special-timeline config for the main label. */
     private static String specialTimelineSummary(QuizSlide quiz) {
-        if (quiz == null || !quiz.useSpecialTimeline) return "(off)";
-        int n = quiz.timelineEvents != null ? quiz.timelineEvents.size() : 0;
-        if (quiz.specialTimelineAudioFile == null) return "on — no audio";
-        return "on — " + n + (n == 1 ? " event" : " events");
+        if (quiz == null) return "(off)";
+        StringBuilder sb = new StringBuilder();
+        if (quiz.useSpecialTimeline) {
+            int n = quiz.timelineEvents != null ? quiz.timelineEvents.size() : 0;
+            if (quiz.specialTimelineAudioFile == null) sb.append("pre: no audio");
+            else sb.append("pre: ").append(n).append(n == 1 ? " event" : " events");
+        }
+        if (quiz.useAfterRevealTimeline) {
+            if (sb.length() > 0) sb.append(" · ");
+            int m = quiz.afterRevealEvents != null ? quiz.afterRevealEvents.size() : 0;
+            if (quiz.afterRevealAudioFile == null) sb.append("after-reveal: no audio");
+            else sb.append("after-reveal: ").append(m).append(m == 1 ? " event" : " events");
+        }
+        return sb.length() == 0 ? "(off)" : "on — " + sb;
     }
 
     /** Special-audio timeline viewer.
@@ -3053,21 +3147,128 @@ public class QuizSlide {
             targetOptions[i] = new TargetOption(i + 1, t);
         }
 
-        // ----- Middle panel: table of imported effect fires -----
+        // ----- Pre-reveal (existing) timeline table -----
+        if (quiz.timelineEvents == null) quiz.timelineEvents = new ArrayList<>();
+        TimelineTablePanel preTable = buildTimelineTablePanel(
+                dlg, quiz.timelineEvents, targetOptions,
+                "Effect fires (one per row)", false);
+
+        // ----- After-reveal section: audio picker + table -----
+        if (quiz.afterRevealEvents == null) quiz.afterRevealEvents = new ArrayList<>();
+        JPanel afterTop = new JPanel(new GridBagLayout());
+        afterTop.setBorder(BorderFactory.createEmptyBorder(8, 14, 4, 14));
+        GridBagConstraints ag = new GridBagConstraints();
+        ag.insets = new Insets(4, 4, 4, 8);
+        ag.anchor = GridBagConstraints.WEST;
+        ag.fill   = GridBagConstraints.HORIZONTAL;
+        JCheckBox afterEnable = new JCheckBox(
+                "Use after-reveal audio + timeline on this slide",
+                quiz.useAfterRevealTimeline);
+        ag.gridx = 0; ag.gridy = 0; ag.gridwidth = 4;
+        afterTop.add(afterEnable, ag);
+        ag.gridwidth = 1;
+
+        ag.gridx = 0; ag.gridy = 1;
+        afterTop.add(new JLabel("After-reveal audio:"), ag);
+        JLabel afterFileLabel = new JLabel(afterRevealAudioSummary(quiz));
+        afterFileLabel.setForeground(quiz.afterRevealAudioFile != null
+                ? new Color(120, 200, 255) : Color.GRAY);
+        ag.gridx = 1; ag.gridwidth = 2;
+        afterTop.add(afterFileLabel, ag);
+        ag.gridwidth = 1;
+        JButton afterPickBtn = new JButton("Choose audio…");
+        afterPickBtn.addActionListener(e -> {
+            File picked = pickAudio(dlg);
+            if (picked != null && picked.exists()) {
+                quiz.afterRevealAudioFile = picked;
+                int dur = probeDurationMs(picked);
+                quiz.afterRevealAudioDurationMs = dur > 0 ? dur : 0;
+                afterFileLabel.setText(afterRevealAudioSummary(quiz));
+                afterFileLabel.setForeground(new Color(120, 200, 255));
+            }
+        });
+        ag.gridx = 3;
+        afterTop.add(afterPickBtn, ag);
+
+        afterEnable.addActionListener(e ->
+                quiz.useAfterRevealTimeline = afterEnable.isSelected());
+
+        TimelineTablePanel postTable = buildTimelineTablePanel(
+                dlg, quiz.afterRevealEvents, targetOptions,
+                "After-reveal effect fires (times relative to after-reveal audio start)",
+                true);
+
+        JPanel afterSection = new JPanel(new BorderLayout(6, 6));
+        afterSection.add(afterTop, BorderLayout.NORTH);
+        afterSection.add(postTable.panel, BorderLayout.CENTER);
+
+        // Stack pre-reveal table over the after-reveal section, sharing
+        // vertical space evenly so both stay usable in a single dialog.
+        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
+                preTable.panel, afterSection);
+        split.setResizeWeight(0.5);
+        split.setBorder(null);
+
+        JPanel center = new JPanel(new BorderLayout(6, 6));
+        center.add(top, BorderLayout.NORTH);
+        center.add(split, BorderLayout.CENTER);
+        dlg.add(center, BorderLayout.CENTER);
+
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 8));
+        JButton close = new JButton("Close");
+        close.addActionListener(e -> {
+            // Commit any in-progress editor before closing so the last edit
+            // isn't silently discarded.
+            preTable.stopEditing();
+            postTable.stopEditing();
+            dlg.dispose();
+        });
+        buttons.add(close);
+        dlg.add(buttons, BorderLayout.SOUTH);
+
+        dlg.pack();
+        dlg.setSize(Math.max(820, dlg.getWidth()), Math.max(680, dlg.getHeight()));
+        dlg.setLocationRelativeTo(parent);
+        split.setDividerLocation(0.5);
+        dlg.setVisible(true);
+    }
+
+    /** Container returned by {@link #buildTimelineTablePanel} so callers can
+     *  embed the table panel and still flush any in-progress edits on close. */
+    private static final class TimelineTablePanel {
+        final JPanel panel;
+        final JTable table;
+        TimelineTablePanel(JPanel panel, JTable table) {
+            this.panel = panel;
+            this.table = table;
+        }
+        void stopEditing() {
+            if (table != null && table.isEditing() && table.getCellEditor() != null) {
+                table.getCellEditor().stopCellEditing();
+            }
+        }
+    }
+
+    /** Build a table panel (with optional Add/Remove buttons) bound to the
+     *  given {@code view} list. Cell edits mutate the events in place. Used
+     *  for both the pre-reveal and the after-reveal timeline tables. */
+    private static TimelineTablePanel buildTimelineTablePanel(
+            JDialog dlg,
+            List<TimelineEvent> view,
+            TargetOption[] targetOptions,
+            String borderTitle,
+            boolean editable) {
         String[] cols = {"At (s)", "Target", "Effect", "Color", "Glow", "Dur (ms)"};
-        // Live reference to the slide's events so edits persist without a
-        // Save button.
-        final List<TimelineEvent> view = quiz.timelineEvents != null
-                ? quiz.timelineEvents : new ArrayList<>();
-        if (quiz.timelineEvents == null) quiz.timelineEvents = view;
         javax.swing.table.DefaultTableModel tm =
                 new javax.swing.table.DefaultTableModel(cols, 0) {
                     @Override public boolean isCellEditable(int row, int column) {
-                        // Target (1) and Glow (4) use built-in editors;
-                        // Effect (2) and Color (3) open custom pickers via
-                        // a mouse listener, so they're flagged uneditable
-                        // here to prevent the default text editor.
-                        return column == 1 || column == 4;
+                        // Target (1) and Glow (4) always editable. When the
+                        // table is fully editable (after-reveal section) the
+                        // At (0) and Dur (5) columns are editable too — the
+                        // pre-reveal table keeps them read-only because they
+                        // come from CSV.
+                        if (column == 1 || column == 4) return true;
+                        return editable && (column == 0 || column == 5);
                     }
                     @Override public Class<?> getColumnClass(int column) {
                         if (column == 1) return TargetOption.class;
@@ -3079,25 +3280,9 @@ public class QuizSlide {
         table.setRowHeight(26);
         table.getTableHeader().setReorderingAllowed(false);
 
+        // Populate from existing events.
         for (TimelineEvent e : view) {
-            TargetOption opt = null;
-            for (TargetOption o : targetOptions) {
-                if (o.index == e.targetTextIndex) { opt = o; break; }
-            }
-            if (opt == null) {
-                opt = new TargetOption(e.targetTextIndex,
-                        e.targetTextIndex >= 1 ? null : "—");
-            }
-            String colorHex = String.format("#%02X%02X%02X",
-                    e.hlColor.getRed(), e.hlColor.getGreen(), e.hlColor.getBlue());
-            tm.addRow(new Object[] {
-                    String.format("%.2f", e.atMs / 1000.0),
-                    opt,
-                    e.effects != null ? e.effects : "Glow",
-                    colorHex,
-                    e.glowSize,
-                    e.durationMs
-            });
+            tm.addRow(rowDataFor(e, targetOptions));
         }
 
         // Target column: combo-box editor over the slide's texts.
@@ -3120,8 +3305,6 @@ public class QuizSlide {
                 });
 
         // Effect (col 2) and Color (col 3): click opens the picker dialog.
-        // Glow (col 4) uses the default integer editor; we still validate
-        // the committed value below in the table-model listener.
         table.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override public void mouseClicked(java.awt.event.MouseEvent me) {
                 int row = table.rowAtPoint(me.getPoint());
@@ -3154,7 +3337,14 @@ public class QuizSlide {
             if (row < 0 || row >= view.size() || col < 0) return;
             TimelineEvent te = view.get(row);
             Object val = tm.getValueAt(row, col);
-            if (col == 1 && val instanceof TargetOption) {
+            if (col == 0) {
+                try {
+                    double sec = Double.parseDouble(String.valueOf(val).trim());
+                    te.atMs = (int) Math.round(Math.max(0, sec) * 1000.0);
+                } catch (NumberFormatException ignored) {
+                    tm.setValueAt(String.format("%.2f", te.atMs / 1000.0), row, 0);
+                }
+            } else if (col == 1 && val instanceof TargetOption) {
                 te.targetTextIndex = ((TargetOption) val).index;
             } else if (col == 4) {
                 try {
@@ -3164,35 +3354,77 @@ public class QuizSlide {
                 } catch (NumberFormatException ignored) {
                     tm.setValueAt(te.glowSize, row, 4);
                 }
+            } else if (col == 5) {
+                try {
+                    int d = Integer.parseInt(String.valueOf(val).trim());
+                    te.durationMs = Math.max(1, d);
+                    if (te.durationMs != d) tm.setValueAt(te.durationMs, row, 5);
+                } catch (NumberFormatException ignored) {
+                    tm.setValueAt(te.durationMs, row, 5);
+                }
             }
         });
 
         JScrollPane tableScroll = new JScrollPane(table);
-        tableScroll.setBorder(BorderFactory.createTitledBorder("Effect fires (one per row)"));
-        tableScroll.setPreferredSize(new Dimension(720, 240));
+        tableScroll.setBorder(BorderFactory.createTitledBorder(borderTitle));
+        tableScroll.setPreferredSize(new Dimension(720, 200));
 
-        JPanel center = new JPanel(new BorderLayout(6, 6));
-        center.add(top, BorderLayout.NORTH);
-        center.add(tableScroll, BorderLayout.CENTER);
-        dlg.add(center, BorderLayout.CENTER);
+        JPanel wrap = new JPanel(new BorderLayout(6, 6));
+        wrap.add(tableScroll, BorderLayout.CENTER);
 
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 8));
-        JButton close = new JButton("Close");
-        close.addActionListener(e -> {
-            // Commit any in-progress editor before closing so the last edit
-            // isn't silently discarded.
-            if (table.isEditing() && table.getCellEditor() != null) {
-                table.getCellEditor().stopCellEditing();
-            }
-            dlg.dispose();
-        });
-        buttons.add(close);
-        dlg.add(buttons, BorderLayout.SOUTH);
+        if (editable) {
+            // Add/Remove row controls for the after-reveal table — the pre-
+            // reveal one is CSV-driven so it doesn't expose these.
+            JPanel rowButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+            JButton addBtn = new JButton("Add row");
+            JButton delBtn = new JButton("Remove selected");
+            addBtn.addActionListener(e -> {
+                TimelineEvent ne = new TimelineEvent();
+                view.add(ne);
+                tm.addRow(rowDataFor(ne, targetOptions));
+            });
+            delBtn.addActionListener(e -> {
+                int sel = table.getSelectedRow();
+                if (sel < 0 || sel >= view.size()) return;
+                view.remove(sel);
+                tm.removeRow(sel);
+            });
+            rowButtons.add(addBtn);
+            rowButtons.add(delBtn);
+            wrap.add(rowButtons, BorderLayout.SOUTH);
+        }
+        return new TimelineTablePanel(wrap, table);
+    }
 
-        dlg.pack();
-        dlg.setSize(Math.max(820, dlg.getWidth()), Math.max(520, dlg.getHeight()));
-        dlg.setLocationRelativeTo(parent);
-        dlg.setVisible(true);
+    /** Build the row-array view of an event for the timeline table. */
+    private static Object[] rowDataFor(TimelineEvent e, TargetOption[] targetOptions) {
+        TargetOption opt = null;
+        for (TargetOption o : targetOptions) {
+            if (o.index == e.targetTextIndex) { opt = o; break; }
+        }
+        if (opt == null) {
+            opt = new TargetOption(e.targetTextIndex,
+                    e.targetTextIndex >= 1 ? null : "—");
+        }
+        String colorHex = String.format("#%02X%02X%02X",
+                e.hlColor.getRed(), e.hlColor.getGreen(), e.hlColor.getBlue());
+        return new Object[] {
+                String.format("%.2f", e.atMs / 1000.0),
+                opt,
+                e.effects != null ? e.effects : "Glow",
+                colorHex,
+                e.glowSize,
+                e.durationMs
+        };
+    }
+
+    /** One-liner describing the after-reveal audio for the dialog label. */
+    private static String afterRevealAudioSummary(QuizSlide quiz) {
+        if (quiz == null || quiz.afterRevealAudioFile == null) return "(none)";
+        return quiz.afterRevealAudioFile.getName()
+                + (quiz.afterRevealAudioDurationMs > 0
+                ? "  (" + (quiz.afterRevealAudioDurationMs / 1000.0) + " s)"
+                : "");
     }
 
     /** Dropdown item for the Target column. Display = "Text #N — content"
@@ -3491,6 +3723,17 @@ public class QuizSlide {
         if (special) {
             files.add(quiz.specialTimelineAudioFile);
             delays.add(0L);
+            vols.add(1.0);
+        }
+        // After-reveal narration: plays once, starting at the visual reveal
+        // moment. Independent of every other mode — when enabled and the file
+        // exists, it's always mixed in.
+        boolean hasAfterReveal = quiz.useAfterRevealTimeline
+                && quiz.afterRevealAudioFile != null
+                && quiz.afterRevealAudioFile.exists();
+        if (hasAfterReveal) {
+            files.add(quiz.afterRevealAudioFile);
+            delays.add(visualReveal);
             vols.add(1.0);
         }
 
