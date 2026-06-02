@@ -3726,14 +3726,26 @@ public class QuizSlide {
             vols.add(1.0);
         }
         // After-reveal narration: plays once, starting at the visual reveal
-        // moment. Independent of every other mode — when enabled and the file
-        // exists, it's always mixed in.
+        // moment plus the smallest atMs across the after-reveal events (so
+        // setting At(s) on the row delays the audio by that many seconds).
+        // Each event's effect then fires at revealAt + its own atMs, which
+        // means the first event lands at audio-start and any later events
+        // fire while the audio keeps playing.
         boolean hasAfterReveal = quiz.useAfterRevealTimeline
                 && quiz.afterRevealAudioFile != null
                 && quiz.afterRevealAudioFile.exists();
         if (hasAfterReveal) {
+            long audioDelay = 0L;
+            if (quiz.afterRevealEvents != null && !quiz.afterRevealEvents.isEmpty()) {
+                long minAt = Long.MAX_VALUE;
+                for (QuizSlide.TimelineEvent e : quiz.afterRevealEvents) {
+                    if (e == null) continue;
+                    if (e.atMs < minAt) minAt = e.atMs;
+                }
+                if (minAt != Long.MAX_VALUE) audioDelay = Math.max(0, minAt);
+            }
             files.add(quiz.afterRevealAudioFile);
-            delays.add(visualReveal);
+            delays.add(visualReveal + audioDelay);
             vols.add(1.0);
         }
 
