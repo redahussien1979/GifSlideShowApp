@@ -687,6 +687,37 @@ public class QuizSlide {
                 // it per slide.
             }
         }
+
+        // Pre-reveal special-timeline events: VISUAL fields (effects /
+        // color / glow / durationMs) come from the master, matched per
+        // targetTextIndex. The per-slide atMs is preserved — each slide's
+        // narration has its own per-word timestamps.
+        if (src.timelineEvents != null && this.timelineEvents != null) {
+            for (TimelineEvent dst : this.timelineEvents) {
+                if (dst == null) continue;
+                for (TimelineEvent srcE : src.timelineEvents) {
+                    if (srcE == null) continue;
+                    if (srcE.targetTextIndex == dst.targetTextIndex) {
+                        dst.effects    = srcE.effects;
+                        dst.hlColor    = srcE.hlColor;
+                        dst.glowSize   = srcE.glowSize;
+                        dst.durationMs = srcE.durationMs;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // After-reveal events: full deep copy from the master — targets,
+        // effects, color, glow, durationMs AND atMs all come from the
+        // first slide. The after-reveal audio file is NOT touched: each
+        // slide keeps its own recording (set via QUIZ_AFTER_REVEAL_AUDIO).
+        if (src.afterRevealEvents != null) {
+            this.afterRevealEvents = new ArrayList<>(src.afterRevealEvents.size());
+            for (TimelineEvent e : src.afterRevealEvents) {
+                if (e != null) this.afterRevealEvents.add(e.copy());
+            }
+        }
     }
 
     /**
