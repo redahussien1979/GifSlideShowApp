@@ -483,6 +483,40 @@ public class GifSlideShowApp extends JFrame {
                 props.setProperty(cp + "rank",            String.valueOf(c.rank));
                 props.setProperty(cp + "playAfterReveal", String.valueOf(c.playAfterReveal));
             }
+            // Pre-reveal special-timeline events. copyVisualSettingsFrom
+            // propagates the visual fields by targetTextIndex; per-slide
+            // atMs is preserved on load, so persisting it here is harmless
+            // (it just serves as the master's record).
+            int tlCount = qs.timelineEvents != null ? qs.timelineEvents.size() : 0;
+            props.setProperty("quiz.timelineEventCount", String.valueOf(tlCount));
+            for (int ti = 0; ti < tlCount; ti++) {
+                QuizSlide.TimelineEvent e = qs.timelineEvents.get(ti);
+                if (e == null) continue;
+                String tp = "quiz.timelineEvent" + ti + ".";
+                props.setProperty(tp + "targetTextIndex", String.valueOf(e.targetTextIndex));
+                props.setProperty(tp + "atMs",            String.valueOf(e.atMs));
+                props.setProperty(tp + "durationMs",      String.valueOf(e.durationMs));
+                props.setProperty(tp + "effects",         e.effects != null ? e.effects : "Glow");
+                props.setProperty(tp + "hlColor",         colorToHex(e.hlColor != null
+                        ? e.hlColor : new Color(255, 200, 50, 160)));
+                props.setProperty(tp + "glowSize",        String.valueOf(e.glowSize));
+            }
+            // After-reveal events. Full deep-copy via copyVisualSettingsFrom,
+            // including atMs — every persisted field matters here.
+            int arCount = qs.afterRevealEvents != null ? qs.afterRevealEvents.size() : 0;
+            props.setProperty("quiz.afterRevealEventCount", String.valueOf(arCount));
+            for (int ai = 0; ai < arCount; ai++) {
+                QuizSlide.TimelineEvent e = qs.afterRevealEvents.get(ai);
+                if (e == null) continue;
+                String ap = "quiz.afterRevealEvent" + ai + ".";
+                props.setProperty(ap + "targetTextIndex", String.valueOf(e.targetTextIndex));
+                props.setProperty(ap + "atMs",            String.valueOf(e.atMs));
+                props.setProperty(ap + "durationMs",      String.valueOf(e.durationMs));
+                props.setProperty(ap + "effects",         e.effects != null ? e.effects : "Glow");
+                props.setProperty(ap + "hlColor",         colorToHex(e.hlColor != null
+                        ? e.hlColor : new Color(255, 200, 50, 160)));
+                props.setProperty(ap + "glowSize",        String.valueOf(e.glowSize));
+            }
         }
 
         File file = new File(PRESETS_DIR, name + ".preset");
@@ -770,6 +804,37 @@ public class GifSlideShowApp extends JFrame {
             c.rank            = Integer.parseInt(props.getProperty(cp + "rank", "0"));
             c.playAfterReveal = Boolean.parseBoolean(props.getProperty(cp + "playAfterReveal", "false"));
             tmpl.cues.add(c);
+        }
+        // Pre-reveal special-timeline events: visuals propagated by
+        // copyVisualSettingsFrom (per-slide atMs is preserved).
+        int tlCount = Integer.parseInt(props.getProperty("quiz.timelineEventCount", "0"));
+        tmpl.timelineEvents = new ArrayList<>();
+        for (int ti = 0; ti < tlCount; ti++) {
+            String tp = "quiz.timelineEvent" + ti + ".";
+            if (props.getProperty(tp + "targetTextIndex") == null) continue;
+            QuizSlide.TimelineEvent e = new QuizSlide.TimelineEvent();
+            e.targetTextIndex = Integer.parseInt(props.getProperty(tp + "targetTextIndex", "1"));
+            e.atMs            = Integer.parseInt(props.getProperty(tp + "atMs", "0"));
+            e.durationMs      = Integer.parseInt(props.getProperty(tp + "durationMs", "600"));
+            e.effects         = props.getProperty(tp + "effects", "Glow");
+            e.hlColor         = hexToColor(props.getProperty(tp + "hlColor", "#FFC832A0"));
+            e.glowSize        = Integer.parseInt(props.getProperty(tp + "glowSize", "7"));
+            tmpl.timelineEvents.add(e);
+        }
+        // After-reveal events: full deep copy, atMs included.
+        int arCount = Integer.parseInt(props.getProperty("quiz.afterRevealEventCount", "0"));
+        tmpl.afterRevealEvents = new ArrayList<>();
+        for (int ai = 0; ai < arCount; ai++) {
+            String ap = "quiz.afterRevealEvent" + ai + ".";
+            if (props.getProperty(ap + "targetTextIndex") == null) continue;
+            QuizSlide.TimelineEvent e = new QuizSlide.TimelineEvent();
+            e.targetTextIndex = Integer.parseInt(props.getProperty(ap + "targetTextIndex", "1"));
+            e.atMs            = Integer.parseInt(props.getProperty(ap + "atMs", "0"));
+            e.durationMs      = Integer.parseInt(props.getProperty(ap + "durationMs", "600"));
+            e.effects         = props.getProperty(ap + "effects", "Glow");
+            e.hlColor         = hexToColor(props.getProperty(ap + "hlColor", "#FFC832A0"));
+            e.glowSize        = Integer.parseInt(props.getProperty(ap + "glowSize", "7"));
+            tmpl.afterRevealEvents.add(e);
         }
 
         // Apply to all non-title-grid slides
