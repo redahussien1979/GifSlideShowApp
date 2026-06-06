@@ -207,11 +207,16 @@ public class GifSlideShowApp extends JFrame {
         JButton presetDeleteBtn = createStyledButton("Delete Preset", new Color(160, 60, 60));
         presetDeleteBtn.addActionListener(e -> deletePreset());
 
+        JButton saveImagesBtn = createStyledButton("Save Images", new Color(120, 80, 180));
+        saveImagesBtn.setToolTipText("Save each slide as an HD PNG named after Text 1");
+        saveImagesBtn.addActionListener(e -> saveSlidesAsImages());
+
         botRow.add(presetLabel);
         botRow.add(presetCombo);
         botRow.add(presetSaveBtn);
         botRow.add(presetLoadBtn);
         botRow.add(presetDeleteBtn);
+        botRow.add(saveImagesBtn);
 
         bottomPanel.add(topRow);
         bottomPanel.add(botRow);
@@ -884,6 +889,121 @@ public class GifSlideShowApp extends JFrame {
         File file = new File(PRESETS_DIR, name + ".preset");
         if (file.exists()) file.delete();
         refreshPresetCombo();
+    }
+
+    // ==================== Save Slides as Images ====================
+
+    private void saveSlidesAsImages() {
+        List<SlideData> slides = collectSlides();
+        if (slides == null) return;
+
+        File parent = new File(".").getAbsoluteFile().getParentFile();
+        String stamp = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+        File outDir = new File(parent, "image_" + stamp);
+        if (!outDir.mkdirs() && !outDir.isDirectory()) {
+            JOptionPane.showMessageDialog(this,
+                    "Could not create folder:\n" + outDir.getAbsolutePath(),
+                    "Save Images", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        final int w = getOutputWidth();
+        final int h = getOutputHeight();
+
+        JDialog progressDialog = createProgressDialog("Saving Images...");
+        JProgressBar progressBar = getProgressBar(progressDialog);
+        JLabel progressLabel = getProgressLabel(progressDialog);
+
+        SwingWorker<Void, String> worker = new SwingWorker<>() {
+            String errorMsg = null;
+            int savedCount = 0;
+
+            @Override
+            protected Void doInBackground() {
+                try {
+                    publish("Rendering at " + w + "×" + h + "...");
+                    List<BufferedImage> frames = renderAllFrames(slides, w, h, progressBar, 80);
+
+                    Set<String> usedNames = new HashSet<>();
+                    for (int i = 0; i < frames.size(); i++) {
+                        String text1 = slides.get(i).text;
+                        String base = sanitizeFileName(text1);
+                        if (base.isEmpty()) base = "slide_" + (i + 1);
+                        String name = base;
+                        int dup = 2;
+                        while (!usedNames.add(name.toLowerCase(Locale.ROOT))) {
+                            name = base + "_" + dup;
+                            dup++;
+                        }
+                        File pngOut = new File(outDir, name + ".png");
+                        File jpgOut = new File(outDir, name + ".jpg");
+                        publish("Saving " + name + " (PNG + JPG)...");
+                        ImageIO.write(frames.get(i), "png", pngOut);
+                        writeHighQualityJpeg(frames.get(i), jpgOut, 0.95f);
+                        savedCount++;
+                        int pct = 80 + (int) ((i + 1.0) / frames.size() * 20);
+                        SwingUtilities.invokeLater(() -> progressBar.setValue(pct));
+                    }
+                } catch (Exception ex) {
+                    errorMsg = ex.getMessage();
+                }
+                return null;
+            }
+
+            @Override
+            protected void process(java.util.List<String> chunks) {
+                progressLabel.setText(chunks.get(chunks.size() - 1));
+            }
+
+            @Override
+            protected void done() {
+                progressDialog.dispose();
+                if (errorMsg != null) {
+                    JOptionPane.showMessageDialog(GifSlideShowApp.this,
+                            "Error saving images:\n" + errorMsg,
+                            "Save Images", JOptionPane.ERROR_MESSAGE);
+                } else {
+                    JOptionPane.showMessageDialog(GifSlideShowApp.this,
+                            "Saved " + savedCount + " image(s) at " + w + "×" + h + "\nFolder: "
+                                    + outDir.getAbsolutePath(),
+                            "Save Images", JOptionPane.INFORMATION_MESSAGE);
+                }
+            }
+        };
+        worker.execute();
+        progressDialog.setVisible(true);
+    }
+
+    private static void writeHighQualityJpeg(BufferedImage img, File out, float quality) throws IOException {
+        BufferedImage rgb = img;
+        if (img.getType() != BufferedImage.TYPE_INT_RGB) {
+            rgb = new BufferedImage(img.getWidth(), img.getHeight(), BufferedImage.TYPE_INT_RGB);
+            Graphics2D g = rgb.createGraphics();
+            g.setColor(Color.BLACK);
+            g.fillRect(0, 0, rgb.getWidth(), rgb.getHeight());
+            g.drawImage(img, 0, 0, null);
+            g.dispose();
+        }
+        Iterator<ImageWriter> it = ImageIO.getImageWritersByFormatName("jpeg");
+        if (!it.hasNext()) throw new IOException("No JPEG writer available");
+        ImageWriter writer = it.next();
+        ImageWriteParam param = writer.getDefaultWriteParam();
+        param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+        param.setCompressionQuality(quality);
+        try (ImageOutputStream ios = ImageIO.createImageOutputStream(out)) {
+            writer.setOutput(ios);
+            writer.write(null, new javax.imageio.IIOImage(rgb, null, null), param);
+        } finally {
+            writer.dispose();
+        }
+    }
+
+    private static String sanitizeFileName(String s) {
+        if (s == null) return "";
+        String cleaned = s.replaceAll("[\\r\\n\\t]+", " ").trim();
+        cleaned = cleaned.replaceAll("[\\\\/:*?\"<>|]", "_");
+        if (cleaned.length() > 120) cleaned = cleaned.substring(0, 120).trim();
+        return cleaned;
     }
 
     // Arabic script uses cursive shaping: each letter has different glyph forms
