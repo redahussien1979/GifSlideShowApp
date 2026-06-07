@@ -1503,6 +1503,36 @@ public class GifSlideShowApp extends JFrame {
         File[] files = fc.getSelectedFiles();
         if (files.length == 0) return;
 
+        // Single file: offer to repeat it across N slides.
+        if (files.length == 1) {
+            String input = JOptionPane.showInputDialog(this,
+                    "How many slides do you want from \"" + files[0].getName() + "\"?\n"
+                            + "(Enter 1 to import just once.)",
+                    "Repeat Media",
+                    JOptionPane.QUESTION_MESSAGE);
+            if (input == null) return; // user cancelled
+            int count;
+            try {
+                count = Integer.parseInt(input.trim());
+            } catch (NumberFormatException nfe) {
+                JOptionPane.showMessageDialog(this,
+                        "Please enter a whole number greater than 0.",
+                        "Repeat Media", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            if (count < 1) {
+                JOptionPane.showMessageDialog(this,
+                        "Please enter a whole number greater than 0.",
+                        "Repeat Media", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            if (count > 1) {
+                File single = files[0];
+                files = new File[count];
+                Arrays.fill(files, single);
+            }
+        }
+
         Arrays.sort(files, (a, b) -> {
             int numA = extractLeadingNumber(a.getName());
             int numB = extractLeadingNumber(b.getName());
