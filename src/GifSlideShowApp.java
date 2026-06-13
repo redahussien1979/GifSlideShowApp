@@ -9761,6 +9761,14 @@ public class GifSlideShowApp extends JFrame {
 
                         int fps = 30;
 
+                        // Auto-fill: slides that use the Eraser text effect and have no
+                        // chosen audio get a procedurally synthesized scrub sound whose
+                        // length matches the on-screen erase duration. Done up front so
+                        // the existing audio mux picks them up like any other slide audio.
+                        for (int __ei = 0; __ei < slides.size(); __ei++) {
+                            maybeInjectEraserAudio(slides.get(__ei), fps, tempDir, __ei);
+                        }
+
                         // Per-slide effective duration: each slide's overlay video overrides duration
                         int effectiveDuration = duration; // base duration for slides without overlay
                         int defaultFramesPerSlide = Math.max(1, (int) Math.round(effectiveDuration / 1000.0 * fps));
@@ -11447,6 +11455,9 @@ public class GifSlideShowApp extends JFrame {
                             throw new IOException("Failed to create temp directory: " + tempDir);
                         }
 
+                        // Auto-fill eraser scrub audio when applicable (see helper for rules).
+                        maybeInjectEraserAudio(s, fps, tempDir, si);
+
                         try {
                             boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxRaised > 0 || (s.fxOther > 0 && !"None".equals(s.fxOtherKind));
                             // Audio-highlight Pulse/Shake animate per-frame too.
@@ -12290,6 +12301,78 @@ public class GifSlideShowApp extends JFrame {
             rgbBytes[i * 3 + 2] = (byte) (pixels[i] & 0xFF);          // B
         }
         out.write(rgbBytes);
+    }
+
+    /**
+     * If a slide has the "Eraser" text effect on at least one visible text
+     * row AND no slide audio is configured, synthesize a procedural eraser
+     * scrub WAV scaled to the visible erase duration (only-while-erasing
+     * mode), inject it as the slide's audio, and recompute the slide's
+     * total audio duration so the existing ffmpeg audio mux picks it up
+     * with no further changes to call sites.
+     *
+     * Word count + intensity determine duration the same way the visual
+     * pass does (framesPerWord = 28 / (0.5 + 1.7*intensity)), so the
+     * audio extent matches the on-screen scrubbing.
+     */
+    static boolean maybeInjectEraserAudio(SlideData s, int fps, java.io.File tempDir, int slideIdx) {
+        if (s == null || s.slideTexts == null || s.slideTexts.isEmpty()) return false;
+        // Don't replace existing audio.
+        if (s.audioFiles != null) {
+            for (File af : s.audioFiles) if (af != null && af.exists()) return false;
+        }
+        // Pick the first visible text using Eraser; treat its intensity as
+        // the global scrub rate.
+        SlideTextData eraserSt = null;
+        for (SlideTextData st : s.slideTexts) {
+            if (st != null && st.show && st.text != null && !st.text.isEmpty()
+                    && "Eraser".equals(st.textEffect)) {
+                eraserSt = st;
+                break;
+            }
+        }
+        if (eraserSt == null) return false;
+
+        // Count words across every visible Eraser text row (the renderer
+        // erases them all in sequence).
+        int totalWords = 0;
+        for (SlideTextData st : s.slideTexts) {
+            if (st == null || !st.show || st.text == null || st.text.isEmpty()) continue;
+            if (!"Eraser".equals(st.textEffect)) continue;
+            for (String paragraph : st.text.split("\n")) {
+                if (paragraph.trim().isEmpty()) continue;
+                totalWords += paragraph.trim().split("\\s+").length;
+            }
+        }
+        if (totalWords <= 0) return false;
+
+        double intensity = eraserSt.textEffectIntensity / 100.0;
+        double eraserSpeed = 0.5 + 1.7 * intensity;
+        int framesPerWord = Math.max(6, (int) Math.round(28.0 / eraserSpeed));
+        int totalFrames = totalWords * framesPerWord;
+        double durationSec = totalFrames / (double) fps;
+        if (durationSec < 0.05) durationSec = 0.05;
+        // Cap so a runaway word count doesn't blow up the WAV.
+        if (durationSec > 60.0) durationSec = 60.0;
+
+        try {
+            if (tempDir != null && !tempDir.exists()) tempDir.mkdirs();
+            java.io.File wav = new java.io.File(tempDir,
+                    "eraser_slide_" + slideIdx + "_" + System.currentTimeMillis() + ".wav");
+            writeEraserSoundWav(wav, durationSec);
+            s.audioFiles.add(wav);
+            s.audioDurationsMs.add((int) Math.round(durationSec * 1000));
+            // Recompute total so downstream code that consults
+            // totalAudioDurationMs sees the new value.
+            int totalMs = 0;
+            int numValid = 0;
+            for (int d : s.audioDurationsMs) { if (d > 0) { totalMs += d; numValid++; } }
+            if (numValid > 1 && s.audioGapMs > 0) totalMs += (numValid - 1) * s.audioGapMs;
+            s.totalAudioDurationMs = totalMs;
+            return true;
+        } catch (IOException ignored) {
+            return false;
+        }
     }
 
     /**
@@ -14804,7 +14887,11 @@ public class GifSlideShowApp extends JFrame {
         final List<Color> audioHlColor;
         final List<String> audioHlEffects;
         final List<Integer> audioGlowSize;
-        final int totalAudioDurationMs;
+        // Not final so post-construction audio injection (e.g. the Eraser
+        // text effect auto-filling its procedural scrub WAV when the slide
+        // has no audio configured) can recompute this consistently with
+        // mutations of audioFiles / audioDurationsMs.
+        int totalAudioDurationMs;
         final File videoOverlayFile;
         final int videoOverlayX;
         final int videoOverlayY;
