@@ -8657,7 +8657,7 @@ public class GifSlideShowApp extends JFrame {
     private static final String FX_FILM_BURN        = "Film burn";
     private static final String FX_GLITCH_CUT       = "Glitch cut";
     private static final String FX_PAGE_TURN        = "Page turn (realistic)";
-    private static final String FX_ERASER           = "Eraser wipe";
+    private static final String FX_ERASER           = "Eraser scrub (realistic)";
     private static final int    DEFAULT_TRANSITION_MS = 500;
 
     private String askScrollDirection() {
@@ -8921,186 +8921,228 @@ public class GifSlideShowApp extends JFrame {
         }
 
         if (FX_ERASER.equals(effect)) {
-            // Eraser wipe: a tilted pink-rubber eraser sweeps across the
-            // frame, removing slide A as it goes and revealing slide B
-            // underneath. Smudge gradient + crumbs + shavings sell the
-            // physicality. Direction respects scrollDir: SCROLL_LEFT
-            // wipes right→left, anything else wipes left→right.
+            // Realistic eraser scrub: instead of a smooth left-to-right wipe,
+            // a tilted pink-rubber eraser is held against slide A and
+            // physically scrubbed back-and-forth in horizontal rows. The
+            // scrub head advances slowly while the eraser oscillates over
+            // each band several times — this is what makes it read as
+            // "someone erasing" rather than a clean swipe.
+            //
+            // We progress the work in HORIZONTAL BANDS (rows) so the eraser
+            // visibly works the page row by row, like a human would. Within
+            // each band the eraser scrubs sideways multiple times.
             boolean rtl = SCROLL_LEFT.equals(scrollDir);
-            double eraseX = rtl ? ((1.0 - t) * w) : (t * w);
 
-            // 1) Page B underneath.
+            // Number of horizontal bands the eraser works through.
+            int bands = Math.max(6, h / Math.max(40, (int) Math.round(h * 0.10)));
+            // Per-band: how many side-to-side scrub passes the eraser makes.
+            int passesPerBand = 3;
+            // Total scrub units across the whole transition.
+            double totalUnits = (double) bands * passesPerBand;
+            double unit = t * totalUnits;
+            int curBand = Math.min(bands - 1, (int) Math.floor(unit / passesPerBand));
+            double passInBand = unit - curBand * passesPerBand;
+            // Phase inside the current pass, 0..1.
+            double passPhase = Math.max(0.0, Math.min(1.0, passInBand - Math.floor(passInBand)));
+            // Direction of this pass: alternates each pass to mimic back-and-forth.
+            int passIdx = (int) Math.floor(passInBand);
+            boolean passLeftToRight = (passIdx % 2 == 0) ^ rtl;
+
+            // Per-band geometry. Bands are slightly overlapped to avoid
+            // a stripey look.
+            double bandH = h / (double) bands;
+            // The eraser body height is slightly bigger than the band so
+            // consecutive bands blend without visible seams.
+            int erH = (int) Math.max(28, bandH * 1.45);
+            int erW = (int) Math.max(80, w * 0.14);
+
+            // 1) Slide B underneath.
             g.drawImage(imgB, 0, 0, null);
 
-            // 2) Unerased portion of page A.
-            Shape oldClip = g.getClip();
-            if (rtl) {
-                int ex = (int) Math.round(eraseX);
-                if (ex > 0) {
-                    g.setClip(0, 0, ex, h);
-                    g.drawImage(imgA, 0, 0, null);
-                }
-            } else {
-                int ex = (int) Math.round(eraseX);
-                if (ex < w) {
-                    g.setClip(ex, 0, w - ex, h);
-                    g.drawImage(imgA, 0, 0, null);
-                }
-            }
-            g.setClip(oldClip);
+            // 2) Slide A on top, but with bands already cleared by previous
+            //    scrub passes punched out so slide B shows through there.
+            //    Cleared bands fade from full slide A to a smudge-blended
+            //    look toward the bottom edge of the cleared zone.
+            // 2a) Draw full slide A first.
+            g.drawImage(imgA, 0, 0, null);
 
-            // 3) Smudge gradient over slide B in the just-erased band
-            //    (faint grey graphite residue that the eraser leaves).
-            int smudgeReach = (int) Math.round(w * 0.10);
-            if (smudgeReach > 0) {
-                int sx0, sx1;
-                Color cNear = new Color(110, 110, 110, 95);
-                Color cFar  = new Color(110, 110, 110, 0);
-                if (rtl) {
-                    sx0 = (int) Math.round(eraseX);
-                    sx1 = Math.min(w, sx0 + smudgeReach);
-                } else {
-                    sx1 = (int) Math.round(eraseX);
-                    sx0 = Math.max(0, sx1 - smudgeReach);
-                }
-                if (sx1 > sx0) {
-                    java.awt.GradientPaint smGp = rtl
-                            ? new java.awt.GradientPaint(sx0, 0, cNear, sx1, 0, cFar)
-                            : new java.awt.GradientPaint(sx0, 0, cFar,  sx1, 0, cNear);
-                    java.awt.Paint oldPaint = g.getPaint();
-                    g.setPaint(smGp);
-                    g.fillRect(sx0, 0, sx1 - sx0, h);
-                    g.setPaint(oldPaint);
-                    // Horizontal drag-mark striations on top of the gradient.
-                    java.util.Random rs = new java.util.Random((long)(slideA * 173L + slideB * 7L + t * 1000));
-                    g.setStroke(new BasicStroke(Math.max(1f, w / 1500f),
-                            BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                    int strokeCount = 24 + rs.nextInt(16);
-                    for (int k = 0; k < strokeCount; k++) {
-                        int sy = rs.nextInt(h);
-                        int sxA2 = sx0 + rs.nextInt(Math.max(1, sx1 - sx0));
-                        int len = (int)(w * (0.02 + rs.nextDouble() * 0.05));
-                        int sxB2 = Math.min(sx1, sxA2 + len);
-                        g.setColor(new Color(90, 90, 90, 30 + rs.nextInt(35)));
-                        g.drawLine(sxA2, sy, sxB2, sy + rs.nextInt(3) - 1);
-                    }
-                }
+            // 2b) Punch out fully-cleared bands (those above the current
+            //     band) by drawing slide B over them, with a soft fade at
+            //     the boundary into the active band.
+            int clearedBottomY = (int) Math.round(curBand * bandH);
+            if (clearedBottomY > 0) {
+                Shape oldClip = g.getClip();
+                g.setClip(0, 0, w, clearedBottomY);
+                g.drawImage(imgB, 0, 0, null);
+                g.setClip(oldClip);
             }
 
-            // 4) Soft drop shadow under the eraser on slide B side.
-            int shadowReach = (int) Math.round(w * 0.05);
-            if (shadowReach > 0) {
-                int sgx0, sgx1;
-                Color cN = new Color(0, 0, 0, 80);
-                Color cF = new Color(0, 0, 0, 0);
-                if (rtl) {
-                    sgx1 = (int) Math.round(eraseX);
-                    sgx0 = Math.max(0, sgx1 - shadowReach);
-                } else {
-                    sgx0 = (int) Math.round(eraseX);
-                    sgx1 = Math.min(w, sgx0 + shadowReach);
-                }
-                if (sgx1 > sgx0) {
-                    java.awt.GradientPaint shGp = rtl
-                            ? new java.awt.GradientPaint(sgx0, 0, cF, sgx1, 0, cN)
-                            : new java.awt.GradientPaint(sgx0, 0, cN, sgx1, 0, cF);
-                    java.awt.Paint oldPaint = g.getPaint();
-                    g.setPaint(shGp);
-                    g.fillRect(sgx0, 0, sgx1 - sgx0, h);
-                    g.setPaint(oldPaint);
-                }
+            // 2c) The active band: slide A is being progressively erased.
+            //     Fade from slide A → slide B based on how far the scrub
+            //     has progressed through this band's passes.
+            int bandTop = (int) Math.round(curBand * bandH);
+            int bandBot = (int) Math.round(Math.min(h, (curBand + 1) * bandH));
+            int bandPx = bandBot - bandTop;
+            // Mix factor for this band: 0 = pure slide A, 1 = pure slide B.
+            // Each pass brings it ~1/passesPerBand closer to B.
+            double bandMix = Math.min(1.0, passInBand / passesPerBand);
+            if (bandPx > 0 && bandMix > 0.0) {
+                Shape oldClip = g.getClip();
+                g.setClip(0, bandTop, w, bandPx);
+                java.awt.Composite oldComp = g.getComposite();
+                g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) bandMix));
+                g.drawImage(imgB, 0, 0, null);
+                g.setComposite(oldComp);
+                g.setClip(oldClip);
             }
 
-            // 5) Eraser sprite — tilted pink-rubber block with metal
-            //    ferrule. Sized relative to frame, with mid-frame scrub
-            //    jitter so it visibly "scrubs" instead of sliding.
-            int erW = (int) Math.max(60, w * 0.10);
-            int erH = (int) Math.max(24, h * 0.05);
-            int frame100 = (int) Math.round(t * 100);
-            java.util.Random jr = new java.util.Random(frame100 * 31L + slideA * 11L);
-            double jitterY = Math.sin(frame100 * 0.9) * h * 0.004
-                    + (jr.nextDouble() - 0.5) * h * 0.003;
-            double tilt = Math.toRadians((rtl ? 8 : -8)
-                    + Math.sin(frame100 * 0.45) * 3);
-            int cx2 = (int) eraseX;
-            int cy2 = (int) (h / 2.0 + jitterY);
+            // 3) Smudge + striations on already-cleared bands and the
+            //    active band. These are the grey residue an eraser leaves.
+            Graphics2D gs = (Graphics2D) g.create();
+            gs.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            java.util.Random smRng = new java.util.Random(slideA * 1009L + slideB * 31L);
+            int smudgeBottom = Math.min(h, bandBot);
+            if (smudgeBottom > 0) {
+                gs.setStroke(new BasicStroke(Math.max(1f, w / 1400f),
+                        BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                int strokeCount = (int) (smudgeBottom * 0.6);
+                for (int k = 0; k < strokeCount; k++) {
+                    int sy = smRng.nextInt(smudgeBottom);
+                    int sx0 = smRng.nextInt(w);
+                    int len = (int)(w * (0.015 + smRng.nextDouble() * 0.05));
+                    int alpha = 18 + smRng.nextInt(30);
+                    gs.setColor(new Color(120, 120, 120, alpha));
+                    gs.drawLine(sx0, sy, Math.min(w - 1, sx0 + len), sy + smRng.nextInt(3) - 1);
+                }
+                // Soft horizontal band shading per cleared row.
+                for (int b = 0; b <= curBand; b++) {
+                    int by0 = (int) Math.round(b * bandH);
+                    int by1 = (int) Math.round(Math.min(h, (b + 1) * bandH));
+                    if (by1 - by0 <= 0) continue;
+                    Color cTop = new Color(100, 100, 100, 28);
+                    Color cMid = new Color(100, 100, 100, 0);
+                    java.awt.GradientPaint vgp = new java.awt.GradientPaint(
+                            0, by0, cTop, 0, (by0 + by1) / 2f, cMid, true);
+                    gs.setPaint(vgp);
+                    gs.fillRect(0, by0, w, by1 - by0);
+                }
+            }
+            gs.dispose();
+
+            // 4) Eraser sprite — large, tilted, with REAL scrubbing motion.
+            //    The eraser center sweeps left-right across the active band
+            //    in a sine wave at the current pass phase, with extra
+            //    high-frequency jitter so it looks scrubby, not pendulum.
+            double sweepFrom = passLeftToRight ? -erW * 0.4 : (w + erW * 0.4);
+            double sweepTo   = passLeftToRight ? (w + erW * 0.4) : -erW * 0.4;
+            double sweepX = sweepFrom + (sweepTo - sweepFrom) * passPhase;
+            // Per-frame scrub jitter (faster than the sweep so eraser
+            // visibly wobbles every frame).
+            int jitterSeed = (int) Math.round(t * 1000);
+            java.util.Random jr = new java.util.Random(jitterSeed);
+            double jitterX = (jr.nextDouble() - 0.5) * w * 0.012;
+            double jitterY = (jr.nextDouble() - 0.5) * bandPx * 0.25;
+            double tilt = Math.toRadians((passLeftToRight ? -12 : 12)
+                    + (jr.nextDouble() - 0.5) * 8);
+            double cx2 = sweepX + jitterX;
+            double cy2 = (bandTop + bandBot) / 2.0 + jitterY;
+
             Graphics2D ge = (Graphics2D) g.create();
             ge.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             AffineTransform saved = ge.getTransform();
             ge.translate(cx2, cy2);
             ge.rotate(tilt);
-            // Drop shadow under eraser body.
-            ge.setColor(new Color(0, 0, 0, 90));
-            ge.fillRoundRect(-erW / 2 + 4, -erH / 2 + 6, erW, erH,
+            // Big soft drop shadow under the eraser (hand pressure).
+            ge.setColor(new Color(0, 0, 0, 80));
+            ge.fillRoundRect(-erW / 2 + 6, -erH / 2 + 8, erW, erH,
                     (int)(erH * 0.5), (int)(erH * 0.5));
-            // Eraser body (rubber).
+            // Rubber body.
             java.awt.GradientPaint bodyGp = new java.awt.GradientPaint(
                     0, -erH / 2f, new Color(255, 130, 140),
                     0,  erH / 2f, new Color(205,  60,  75));
             ge.setPaint(bodyGp);
             ge.fillRoundRect(-erW / 2, -erH / 2, erW, erH,
                     (int)(erH * 0.45), (int)(erH * 0.45));
-            // Worn / dirty leading edge (on the side facing the wipe direction).
-            int wornX = rtl ? (-erW / 2 + 1) : (erW / 2 - (int)(erW * 0.18));
-            ge.setColor(new Color(70, 30, 30, 110));
-            ge.fillRoundRect(wornX, -erH / 2 + 1, (int)(erW * 0.18), erH - 2,
+            // Worn/dirty leading edge.
+            int wornW = (int)(erW * 0.20);
+            int wornX = passLeftToRight ? (erW / 2 - wornW) : (-erW / 2);
+            ge.setColor(new Color(70, 30, 30, 130));
+            ge.fillRoundRect(wornX, -erH / 2 + 2, wornW, erH - 4,
                     (int)(erH * 0.35), (int)(erH * 0.35));
-            // Metal ferrule on the trailing side.
-            int ferruleW = (int)(erW * 0.20);
-            int ferruleX = rtl ? (erW / 2 - ferruleW) : (-erW / 2);
+            // Metal ferrule on the trailing end.
+            int ferruleW = (int)(erW * 0.22);
+            int ferruleX = passLeftToRight ? (-erW / 2) : (erW / 2 - ferruleW);
             java.awt.GradientPaint ferruleGp = new java.awt.GradientPaint(
-                    ferruleX,             -erH / 2f, new Color(170, 170, 175),
-                    ferruleX + ferruleW,   erH / 2f, new Color(110, 110, 118));
+                    ferruleX,              -erH / 2f, new Color(180, 180, 185),
+                    ferruleX + ferruleW,    erH / 2f, new Color(105, 105, 112));
             ge.setPaint(ferruleGp);
             ge.fillRect(ferruleX, -erH / 2, ferruleW, erH);
             // Ferrule ridges.
-            ge.setColor(new Color(60, 60, 65, 180));
-            ge.setStroke(new BasicStroke(Math.max(1f, erH * 0.04f)));
+            ge.setColor(new Color(60, 60, 65, 200));
+            ge.setStroke(new BasicStroke(Math.max(1.5f, erH * 0.045f)));
             for (int rr = 1; rr <= 3; rr++) {
                 int rx = ferruleX + (int) (ferruleW * rr / 4.0);
-                ge.drawLine(rx, -erH / 2 + 3, rx, erH / 2 - 3);
+                ge.drawLine(rx, -erH / 2 + 4, rx, erH / 2 - 4);
             }
-            // Highlight strip on the rubber.
-            ge.setColor(new Color(255, 220, 225, 170));
-            int hlX1 = rtl ? (-erW / 2 + 4) : (-erW / 2 + ferruleW + 4);
-            int hlW  = erW - ferruleW - 8;
-            ge.fillRoundRect(hlX1, -erH / 2 + 3, hlW,
+            // Highlight on the rubber surface.
+            ge.setColor(new Color(255, 220, 225, 180));
+            int hlX1 = passLeftToRight ? (-erW / 2 + ferruleW + 6) : (-erW / 2 + 6);
+            int hlW = erW - ferruleW - 12;
+            ge.fillRoundRect(hlX1, -erH / 2 + 4, hlW,
                     Math.max(1, (int)(erH * 0.18)),
-                    (int)(erH * 0.2), (int)(erH * 0.2));
+                    (int)(erH * 0.22), (int)(erH * 0.22));
             ge.setTransform(saved);
 
-            // 6) Crumbs + shavings trailing behind the eraser, scattered
-            //    across the just-erased band.
+            // 5) Motion-blur ghost of the eraser body (trailing the scrub
+            //    direction) — this is the single biggest "physical motion"
+            //    cue, makes the scrub read as fast hand movement.
+            int trailCount = 3;
+            double trailDir = passLeftToRight ? -1 : 1;
+            for (int t2 = 1; t2 <= trailCount; t2++) {
+                double tx = sweepX + trailDir * (erW * 0.18 * t2);
+                AffineTransform sv2 = ge.getTransform();
+                ge.translate(tx, cy2);
+                ge.rotate(tilt);
+                ge.setColor(new Color(220, 80, 95, 70 - t2 * 15));
+                ge.fillRoundRect(-erW / 2, -erH / 2, erW, erH,
+                        (int)(erH * 0.45), (int)(erH * 0.45));
+                ge.setTransform(sv2);
+            }
+
+            // 6) Crumbs + shavings trailing behind the eraser within the
+            //    active band. Scale up so they're visible at video res.
             java.util.Random cr = new java.util.Random((long)(t * 7919) + slideA * 31L);
-            int crumbCount = 90 + cr.nextInt(40);
+            int crumbCount = 80 + cr.nextInt(40);
             for (int k = 0; k < crumbCount; k++) {
                 double age = cr.nextDouble();
-                double offX = w * 0.005 + age * w * 0.09 + (cr.nextDouble() - 0.5) * w * 0.015;
-                double cxF = rtl ? (eraseX + offX) : (eraseX - offX);
-                double cyF = h / 2.0 + (cr.nextDouble() - 0.5) * h * 0.35;
-                float size = (float) (w * (0.0008 + cr.nextDouble() * 0.0028));
-                int alpha = (int) (200 * (1.0 - age));
-                int shade = 60 + cr.nextInt(60);
+                double offX = w * 0.005 + age * w * 0.10 + (cr.nextDouble() - 0.5) * w * 0.02;
+                double cxF = sweepX + trailDir * offX;
+                double cyF = (bandTop + bandBot) / 2.0
+                        + (cr.nextDouble() - 0.5) * bandPx * 0.95;
+                float size = (float) (w * (0.0010 + cr.nextDouble() * 0.0032));
+                int alpha = (int) (210 * (1.0 - age));
+                int shade = 60 + cr.nextInt(50);
                 ge.setColor(new Color(shade, shade, shade,
                         Math.max(0, Math.min(255, alpha))));
                 ge.fill(new java.awt.geom.Ellipse2D.Float(
                         (float) cxF - size / 2, (float) cyF - size / 2, size, size));
             }
-            int shavingCount = 22 + cr.nextInt(12);
-            ge.setStroke(new BasicStroke(Math.max(1f, w / 1400f),
+            int shavingCount = 20 + cr.nextInt(12);
+            ge.setStroke(new BasicStroke(Math.max(1.2f, w / 1200f),
                     BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
             for (int k = 0; k < shavingCount; k++) {
                 double age = cr.nextDouble();
-                double offX = w * 0.004 + age * w * 0.07;
-                double sxF = rtl ? (eraseX + offX) : (eraseX - offX);
-                double syF = h / 2.0 + (cr.nextDouble() - 0.5) * h * 0.30;
-                double len = w * (0.004 + cr.nextDouble() * 0.012);
-                double ang = (cr.nextDouble() - 0.5) * 0.8;
+                double offX = w * 0.004 + age * w * 0.08;
+                double sxF = sweepX + trailDir * offX;
+                double syF = (bandTop + bandBot) / 2.0
+                        + (cr.nextDouble() - 0.5) * bandPx * 0.85;
+                double len = w * (0.005 + cr.nextDouble() * 0.014);
+                double ang = (cr.nextDouble() - 0.5) * 1.0;
                 int shade = 50 + cr.nextInt(50);
-                int alpha = (int) (160 * (1.0 - age));
+                int alpha = (int) (180 * (1.0 - age));
                 ge.setColor(new Color(shade, shade, shade,
                         Math.max(0, Math.min(255, alpha))));
-                double dx = Math.cos(ang) * len * (rtl ? -1 : 1);
+                double dx = Math.cos(ang) * len * (passLeftToRight ? -1 : 1);
                 ge.drawLine((int) sxF, (int) syF,
                         (int) (sxF + dx),
                         (int) (syF + Math.sin(ang) * len));
