@@ -6547,218 +6547,6 @@ public class GifSlideShowApp extends JFrame {
                             }
                             break;
                         }
-                        case "Eraser": {
-                            // Word-by-word eraser: a tilted pink eraser sweeps left→right
-                            // across each word, leaving smudges + crumbs in its wake.
-                            // Word timing is driven by animFrameIndex; intensity controls
-                            // how fast the eraser moves.
-                            if (visibleLine.isEmpty() || animFrameIndex < 0) {
-                                g2.setColor(stColor);
-                                if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
-                                else g2.drawString(visibleLine, lineX, lineY);
-                                break;
-                            }
-                            // Per-word geometry on this wrapped line.
-                            String[] eraserWords = visibleLine.split(" ");
-                            int spaceW = stFm.stringWidth(" ");
-                            int[] wStart = new int[eraserWords.length];
-                            int[] wEnd   = new int[eraserWords.length];
-                            int eCx = lineX;
-                            for (int wi = 0; wi < eraserWords.length; wi++) {
-                                int ww = stFm.stringWidth(eraserWords[wi]);
-                                wStart[wi] = eCx;
-                                wEnd[wi]   = eCx + ww;
-                                eCx += ww + spaceW;
-                            }
-                            // Words erased BEFORE this wrapped line.
-                            int wordsBeforeLine = 0;
-                            for (int tli = 0; tli < li; tli++) {
-                                String prevLn = stWrappedLines.get(tli);
-                                if (!prevLn.isEmpty()) wordsBeforeLine += prevLn.split(" ").length;
-                            }
-                            // Erase rate: frames-per-word from intensity.
-                            // Higher intensity → faster eraser.
-                            double eraserSpeed = 0.5 + 1.7 * intensity;
-                            int framesPerWord = Math.max(6, (int) Math.round(28.0 / eraserSpeed));
-                            double globalErased = animFrameIndex / (double) framesPerWord;
-                            double lineErased = Math.max(0.0, globalErased - wordsBeforeLine);
-                            int fullyErased = (int) Math.floor(lineErased);
-                            double curProgress = lineErased - fullyErased;
-                            if (fullyErased > eraserWords.length) {
-                                fullyErased = eraserWords.length;
-                                curProgress = 0.0;
-                            }
-
-                            int textTop = lineY - stAscent;
-                            int textBot = lineY + stFm.getDescent();
-                            int textH = textBot - textTop;
-
-                            // 1) Draw untouched words (right of the eraser) at full color.
-                            g2.setColor(stColor);
-                            for (int wi = fullyErased + 1; wi < eraserWords.length; wi++) {
-                                g2.drawString(eraserWords[wi], wStart[wi], lineY);
-                            }
-                            // 2) Currently-erasing word: draw only the unerased (right) portion.
-                            int eraserCenterX = -1;
-                            boolean hasActiveErase = (fullyErased < eraserWords.length);
-                            if (hasActiveErase) {
-                                int wi = fullyErased;
-                                int ww = wEnd[wi] - wStart[wi];
-                                int erasedW = (int) Math.round(ww * curProgress);
-                                eraserCenterX = wStart[wi] + erasedW;
-                                if (erasedW < ww) {
-                                    Shape oldClip = g2.getClip();
-                                    g2.setClip(wStart[wi] + erasedW, textTop - 2,
-                                            ww - erasedW, textH + 4);
-                                    g2.setColor(stColor);
-                                    g2.drawString(eraserWords[wi], wStart[wi], lineY);
-                                    g2.setClip(oldClip);
-                                }
-                            }
-
-                            // 3) Smudge gradient over fully-erased words and the erased
-                            //    portion of the active word: light graphite-gray streaks
-                            //    with faint horizontal striations.
-                            Graphics2D gs = (Graphics2D) g2.create();
-                            gs.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                            java.util.function.BiConsumer<int[], Long> drawSmudge = (range, seed) -> {
-                                int sxA = range[0], sxB = range[1];
-                                if (sxB - sxA < 2) return;
-                                int padTop = (int) (textH * 0.10);
-                                int sty = textTop + padTop;
-                                int sth = textH - padTop * 2;
-                                if (sth < 2) return;
-                                // Soft gray smudge body.
-                                int alphaMid = 70;
-                                java.awt.GradientPaint vgp = new java.awt.GradientPaint(
-                                        sxA, sty,           new Color(120, 120, 120, 0),
-                                        sxA, sty + sth / 2, new Color(120, 120, 120, alphaMid), true);
-                                gs.setPaint(vgp);
-                                gs.fillRect(sxA, sty, sxB - sxA, sth);
-                                // Horizontal striations — eraser drag marks.
-                                java.util.Random rs = new java.util.Random(seed);
-                                int strokes = Math.max(2, (sxB - sxA) / Math.max(8, (int)(stScaleFactor * 14)));
-                                gs.setStroke(new BasicStroke(Math.max(1f, stScaleFactor * 0.9f),
-                                        BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                                for (int k = 0; k < strokes; k++) {
-                                    int sy0 = sty + rs.nextInt(Math.max(1, sth));
-                                    int sx0 = sxA + rs.nextInt(Math.max(1, sxB - sxA));
-                                    int len = (int)(stScaleFactor * (6 + rs.nextInt(14)));
-                                    int sx1 = Math.min(sxB - 1, sx0 + len);
-                                    int alpha = 35 + rs.nextInt(40);
-                                    gs.setColor(new Color(90, 90, 90, alpha));
-                                    gs.drawLine(sx0, sy0, sx1, sy0 + rs.nextInt(3) - 1);
-                                }
-                            };
-                            // Fully-erased words (seed stable per word so smudges don't flicker).
-                            for (int wi = 0; wi < Math.min(fullyErased, eraserWords.length); wi++) {
-                                long seed = 1009L * (wi + 1) + 31L * li + visibleLine.hashCode();
-                                drawSmudge.accept(new int[]{wStart[wi], wEnd[wi]}, seed);
-                            }
-                            // Erased portion of the active word.
-                            if (hasActiveErase && eraserCenterX > wStart[fullyErased]) {
-                                long seed = 7919L * (fullyErased + 1) + 31L * li + visibleLine.hashCode();
-                                drawSmudge.accept(new int[]{wStart[fullyErased], eraserCenterX}, seed);
-                            }
-                            gs.dispose();
-
-                            // 4) Eraser sprite — tilted pink-red block with metal ferrule
-                            //    and soft drop shadow. Sits at the erase boundary of the
-                            //    active word, with a small per-frame jitter for "scrubbing".
-                            if (hasActiveErase && eraserCenterX >= 0) {
-                                Graphics2D ge = (Graphics2D) g2.create();
-                                ge.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                                int erW = (int) Math.max(18, scaledStSize * 1.4);
-                                int erH = (int) Math.max(10, scaledStSize * 0.55);
-                                // Scrub jitter: small back-and-forth and vertical jiggle.
-                                java.util.Random jr = new java.util.Random(animFrameIndex * 31L);
-                                double jitterX = (jr.nextDouble() - 0.5) * stScaleFactor * 2.0;
-                                double jitterY = Math.sin(animFrameIndex * 0.9) * stScaleFactor * 1.2
-                                        + (jr.nextDouble() - 0.5) * stScaleFactor;
-                                double tilt = Math.toRadians(-8 + Math.sin(animFrameIndex * 0.45) * 3);
-                                int cx2 = (int) (eraserCenterX + jitterX);
-                                int cy2 = (int) (lineY - stAscent / 2 + jitterY);
-                                AffineTransform saved = ge.getTransform();
-                                ge.translate(cx2, cy2);
-                                ge.rotate(tilt);
-                                // Drop shadow under eraser.
-                                ge.setColor(new Color(0, 0, 0, 70));
-                                ge.fillRoundRect(-erW / 2 + 3, -erH / 2 + 4, erW, erH,
-                                        (int)(erH * 0.55), (int)(erH * 0.55));
-                                // Eraser body (rubber): pink-red, with subtle vertical
-                                // shading for a 3D feel.
-                                java.awt.GradientPaint bodyGp = new java.awt.GradientPaint(
-                                        0, -erH / 2f, new Color(255, 130, 140),
-                                        0,  erH / 2f, new Color(205,  60,  75));
-                                ge.setPaint(bodyGp);
-                                ge.fillRoundRect(-erW / 2, -erH / 2, erW, erH,
-                                        (int)(erH * 0.45), (int)(erH * 0.45));
-                                // Worn / dirty leading edge.
-                                ge.setColor(new Color(70, 30, 30, 90));
-                                ge.fillRoundRect(erW / 2 - (int)(erW * 0.18), -erH / 2 + 1,
-                                        (int)(erW * 0.18), erH - 2,
-                                        (int)(erH * 0.35), (int)(erH * 0.35));
-                                // Metal ferrule on the back end.
-                                int ferruleW = (int)(erW * 0.20);
-                                java.awt.GradientPaint ferruleGp = new java.awt.GradientPaint(
-                                        -erW / 2f,                -erH / 2f, new Color(170, 170, 175),
-                                        -erW / 2f + ferruleW,      erH / 2f, new Color(110, 110, 118));
-                                ge.setPaint(ferruleGp);
-                                ge.fillRect(-erW / 2, -erH / 2, ferruleW, erH);
-                                // Ferrule ridges.
-                                ge.setColor(new Color(60, 60, 65, 180));
-                                ge.setStroke(new BasicStroke(Math.max(1f, stScaleFactor * 0.8f)));
-                                for (int rr = 1; rr <= 3; rr++) {
-                                    int rx = -erW / 2 + (int) (ferruleW * rr / 4.0);
-                                    ge.drawLine(rx, -erH / 2 + 2, rx, erH / 2 - 2);
-                                }
-                                // Highlight strip on the rubber.
-                                ge.setColor(new Color(255, 220, 225, 160));
-                                ge.fillRoundRect(-erW / 2 + ferruleW + 4, -erH / 2 + 2,
-                                        erW - ferruleW - 8, Math.max(1, (int)(erH * 0.18)),
-                                        (int)(erH * 0.2), (int)(erH * 0.2));
-                                ge.setTransform(saved);
-                                ge.dispose();
-
-                                // 5) Crumbs / shavings near the trailing edge of the eraser.
-                                Graphics2D gc = (Graphics2D) g2.create();
-                                gc.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                                long crumbSeed = animFrameIndex * 911L + li * 7L;
-                                java.util.Random cr = new java.util.Random(crumbSeed);
-                                int crumbCount = (int) (8 + 18 * intensity);
-                                for (int k = 0; k < crumbCount; k++) {
-                                    double age = cr.nextDouble();
-                                    double cxF = eraserCenterX - stScaleFactor * (4 + 22 * age) + (cr.nextDouble() - 0.5) * stScaleFactor * 6;
-                                    double cyF = lineY + (cr.nextDouble() - 0.5) * stScaleFactor * (textH * 0.5)
-                                            + age * stScaleFactor * 6;
-                                    float size = (float) (stScaleFactor * (0.8 + cr.nextDouble() * 2.4));
-                                    int alpha = (int) (180 * (1.0 - age));
-                                    int shade = 60 + cr.nextInt(60);
-                                    gc.setColor(new Color(shade, shade, shade, Math.max(0, Math.min(255, alpha))));
-                                    gc.fill(new java.awt.geom.Ellipse2D.Float(
-                                            (float) cxF - size / 2, (float) cyF - size / 2, size, size));
-                                }
-                                // A few longer "shaving" strokes for realism.
-                                int shavingCount = (int) (3 + 6 * intensity);
-                                gc.setStroke(new BasicStroke(Math.max(1f, stScaleFactor * 0.9f),
-                                        BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                                for (int k = 0; k < shavingCount; k++) {
-                                    double age = cr.nextDouble();
-                                    double sxF = eraserCenterX - stScaleFactor * (3 + 18 * age);
-                                    double syF = lineY + (cr.nextDouble() - 0.5) * stScaleFactor * textH * 0.45;
-                                    double len = stScaleFactor * (4 + cr.nextDouble() * 8);
-                                    double ang = (cr.nextDouble() - 0.5) * 0.7;
-                                    int shade = 50 + cr.nextInt(50);
-                                    int alpha = (int) (160 * (1.0 - age));
-                                    gc.setColor(new Color(shade, shade, shade, Math.max(0, Math.min(255, alpha))));
-                                    gc.drawLine((int) sxF, (int) syF,
-                                            (int) (sxF + Math.cos(ang) * len),
-                                            (int) (syF + Math.sin(ang) * len));
-                                }
-                                gc.dispose();
-                            }
-                            break;
-                        }
                         default: { // "None" and "Typewriter" (typewriter just limits chars above)
                             g2.setColor(stColor);
                             if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
@@ -8869,6 +8657,7 @@ public class GifSlideShowApp extends JFrame {
     private static final String FX_FILM_BURN        = "Film burn";
     private static final String FX_GLITCH_CUT       = "Glitch cut";
     private static final String FX_PAGE_TURN        = "Page turn (realistic)";
+    private static final String FX_ERASER           = "Eraser scrub (realistic)";
     private static final int    DEFAULT_TRANSITION_MS = 500;
 
     private String askScrollDirection() {
@@ -8894,12 +8683,12 @@ public class GifSlideShowApp extends JFrame {
                 FX_CROSSFADE_ONLY, FX_DIM_FADE, FX_FLASH_FADE,
                 FX_IRIS, FX_ZOOM_IN,
                 FX_LIGHT_LEAK, FX_FILM_BURN, FX_GLITCH_CUT,
-                FX_PAGE_TURN}
+                FX_PAGE_TURN, FX_ERASER}
                 : new String[]{
                 FX_CROSSFADE_ONLY, FX_DIM_FADE, FX_FLASH_FADE,
                 FX_IRIS, FX_ZOOM_IN,
                 FX_LIGHT_LEAK, FX_FILM_BURN, FX_GLITCH_CUT,
-                FX_PAGE_TURN};
+                FX_PAGE_TURN, FX_ERASER};
         Object choice = JOptionPane.showInputDialog(this,
                 "Transition effect between slides:",
                 "Transition Effect", JOptionPane.QUESTION_MESSAGE,
@@ -9127,6 +8916,239 @@ public class GifSlideShowApp extends JFrame {
                 g.drawImage(imgB, 0, 0, null);
                 g.setClip(oldClip);
             }
+            g.dispose();
+            return frame;
+        }
+
+        if (FX_ERASER.equals(effect)) {
+            // Realistic eraser scrub: instead of a smooth left-to-right wipe,
+            // a tilted pink-rubber eraser is held against slide A and
+            // physically scrubbed back-and-forth in horizontal rows. The
+            // scrub head advances slowly while the eraser oscillates over
+            // each band several times — this is what makes it read as
+            // "someone erasing" rather than a clean swipe.
+            //
+            // We progress the work in HORIZONTAL BANDS (rows) so the eraser
+            // visibly works the page row by row, like a human would. Within
+            // each band the eraser scrubs sideways multiple times.
+            boolean rtl = SCROLL_LEFT.equals(scrollDir);
+
+            // Number of horizontal bands the eraser works through.
+            int bands = Math.max(6, h / Math.max(40, (int) Math.round(h * 0.10)));
+            // Per-band: how many side-to-side scrub passes the eraser makes.
+            int passesPerBand = 3;
+            // Total scrub units across the whole transition.
+            double totalUnits = (double) bands * passesPerBand;
+            double unit = t * totalUnits;
+            int curBand = Math.min(bands - 1, (int) Math.floor(unit / passesPerBand));
+            double passInBand = unit - curBand * passesPerBand;
+            // Phase inside the current pass, 0..1.
+            double passPhase = Math.max(0.0, Math.min(1.0, passInBand - Math.floor(passInBand)));
+            // Direction of this pass: alternates each pass to mimic back-and-forth.
+            int passIdx = (int) Math.floor(passInBand);
+            boolean passLeftToRight = (passIdx % 2 == 0) ^ rtl;
+
+            // Per-band geometry. Bands are slightly overlapped to avoid
+            // a stripey look.
+            double bandH = h / (double) bands;
+            // The eraser body height is slightly bigger than the band so
+            // consecutive bands blend without visible seams.
+            int erH = (int) Math.max(28, bandH * 1.45);
+            int erW = (int) Math.max(80, w * 0.14);
+
+            // 1) Slide B underneath.
+            g.drawImage(imgB, 0, 0, null);
+
+            // 2) Slide A on top, but with bands already cleared by previous
+            //    scrub passes punched out so slide B shows through there.
+            //    Cleared bands fade from full slide A to a smudge-blended
+            //    look toward the bottom edge of the cleared zone.
+            // 2a) Draw full slide A first.
+            g.drawImage(imgA, 0, 0, null);
+
+            // 2b) Punch out fully-cleared bands (those above the current
+            //     band) by drawing slide B over them, with a soft fade at
+            //     the boundary into the active band.
+            int clearedBottomY = (int) Math.round(curBand * bandH);
+            if (clearedBottomY > 0) {
+                Shape oldClip = g.getClip();
+                g.setClip(0, 0, w, clearedBottomY);
+                g.drawImage(imgB, 0, 0, null);
+                g.setClip(oldClip);
+            }
+
+            // 2c) The active band: slide A is being progressively erased.
+            //     Fade from slide A → slide B based on how far the scrub
+            //     has progressed through this band's passes.
+            int bandTop = (int) Math.round(curBand * bandH);
+            int bandBot = (int) Math.round(Math.min(h, (curBand + 1) * bandH));
+            int bandPx = bandBot - bandTop;
+            // Mix factor for this band: 0 = pure slide A, 1 = pure slide B.
+            // Each pass brings it ~1/passesPerBand closer to B.
+            double bandMix = Math.min(1.0, passInBand / passesPerBand);
+            if (bandPx > 0 && bandMix > 0.0) {
+                Shape oldClip = g.getClip();
+                g.setClip(0, bandTop, w, bandPx);
+                java.awt.Composite oldComp = g.getComposite();
+                g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) bandMix));
+                g.drawImage(imgB, 0, 0, null);
+                g.setComposite(oldComp);
+                g.setClip(oldClip);
+            }
+
+            // 3) Smudge + striations on already-cleared bands and the
+            //    active band. These are the grey residue an eraser leaves.
+            Graphics2D gs = (Graphics2D) g.create();
+            gs.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            java.util.Random smRng = new java.util.Random(slideA * 1009L + slideB * 31L);
+            int smudgeBottom = Math.min(h, bandBot);
+            if (smudgeBottom > 0) {
+                gs.setStroke(new BasicStroke(Math.max(1f, w / 1400f),
+                        BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                int strokeCount = (int) (smudgeBottom * 0.6);
+                for (int k = 0; k < strokeCount; k++) {
+                    int sy = smRng.nextInt(smudgeBottom);
+                    int sx0 = smRng.nextInt(w);
+                    int len = (int)(w * (0.015 + smRng.nextDouble() * 0.05));
+                    int alpha = 18 + smRng.nextInt(30);
+                    gs.setColor(new Color(120, 120, 120, alpha));
+                    gs.drawLine(sx0, sy, Math.min(w - 1, sx0 + len), sy + smRng.nextInt(3) - 1);
+                }
+                // Soft horizontal band shading per cleared row.
+                for (int b = 0; b <= curBand; b++) {
+                    int by0 = (int) Math.round(b * bandH);
+                    int by1 = (int) Math.round(Math.min(h, (b + 1) * bandH));
+                    if (by1 - by0 <= 0) continue;
+                    Color cTop = new Color(100, 100, 100, 28);
+                    Color cMid = new Color(100, 100, 100, 0);
+                    java.awt.GradientPaint vgp = new java.awt.GradientPaint(
+                            0, by0, cTop, 0, (by0 + by1) / 2f, cMid, true);
+                    gs.setPaint(vgp);
+                    gs.fillRect(0, by0, w, by1 - by0);
+                }
+            }
+            gs.dispose();
+
+            // 4) Eraser sprite — large, tilted, with REAL scrubbing motion.
+            //    The eraser center sweeps left-right across the active band
+            //    in a sine wave at the current pass phase, with extra
+            //    high-frequency jitter so it looks scrubby, not pendulum.
+            double sweepFrom = passLeftToRight ? -erW * 0.4 : (w + erW * 0.4);
+            double sweepTo   = passLeftToRight ? (w + erW * 0.4) : -erW * 0.4;
+            double sweepX = sweepFrom + (sweepTo - sweepFrom) * passPhase;
+            // Per-frame scrub jitter (faster than the sweep so eraser
+            // visibly wobbles every frame).
+            int jitterSeed = (int) Math.round(t * 1000);
+            java.util.Random jr = new java.util.Random(jitterSeed);
+            double jitterX = (jr.nextDouble() - 0.5) * w * 0.012;
+            double jitterY = (jr.nextDouble() - 0.5) * bandPx * 0.25;
+            double tilt = Math.toRadians((passLeftToRight ? -12 : 12)
+                    + (jr.nextDouble() - 0.5) * 8);
+            double cx2 = sweepX + jitterX;
+            double cy2 = (bandTop + bandBot) / 2.0 + jitterY;
+
+            Graphics2D ge = (Graphics2D) g.create();
+            ge.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            AffineTransform saved = ge.getTransform();
+            ge.translate(cx2, cy2);
+            ge.rotate(tilt);
+            // Big soft drop shadow under the eraser (hand pressure).
+            ge.setColor(new Color(0, 0, 0, 80));
+            ge.fillRoundRect(-erW / 2 + 6, -erH / 2 + 8, erW, erH,
+                    (int)(erH * 0.5), (int)(erH * 0.5));
+            // Rubber body.
+            java.awt.GradientPaint bodyGp = new java.awt.GradientPaint(
+                    0, -erH / 2f, new Color(255, 130, 140),
+                    0,  erH / 2f, new Color(205,  60,  75));
+            ge.setPaint(bodyGp);
+            ge.fillRoundRect(-erW / 2, -erH / 2, erW, erH,
+                    (int)(erH * 0.45), (int)(erH * 0.45));
+            // Worn/dirty leading edge.
+            int wornW = (int)(erW * 0.20);
+            int wornX = passLeftToRight ? (erW / 2 - wornW) : (-erW / 2);
+            ge.setColor(new Color(70, 30, 30, 130));
+            ge.fillRoundRect(wornX, -erH / 2 + 2, wornW, erH - 4,
+                    (int)(erH * 0.35), (int)(erH * 0.35));
+            // Metal ferrule on the trailing end.
+            int ferruleW = (int)(erW * 0.22);
+            int ferruleX = passLeftToRight ? (-erW / 2) : (erW / 2 - ferruleW);
+            java.awt.GradientPaint ferruleGp = new java.awt.GradientPaint(
+                    ferruleX,              -erH / 2f, new Color(180, 180, 185),
+                    ferruleX + ferruleW,    erH / 2f, new Color(105, 105, 112));
+            ge.setPaint(ferruleGp);
+            ge.fillRect(ferruleX, -erH / 2, ferruleW, erH);
+            // Ferrule ridges.
+            ge.setColor(new Color(60, 60, 65, 200));
+            ge.setStroke(new BasicStroke(Math.max(1.5f, erH * 0.045f)));
+            for (int rr = 1; rr <= 3; rr++) {
+                int rx = ferruleX + (int) (ferruleW * rr / 4.0);
+                ge.drawLine(rx, -erH / 2 + 4, rx, erH / 2 - 4);
+            }
+            // Highlight on the rubber surface.
+            ge.setColor(new Color(255, 220, 225, 180));
+            int hlX1 = passLeftToRight ? (-erW / 2 + ferruleW + 6) : (-erW / 2 + 6);
+            int hlW = erW - ferruleW - 12;
+            ge.fillRoundRect(hlX1, -erH / 2 + 4, hlW,
+                    Math.max(1, (int)(erH * 0.18)),
+                    (int)(erH * 0.22), (int)(erH * 0.22));
+            ge.setTransform(saved);
+
+            // 5) Motion-blur ghost of the eraser body (trailing the scrub
+            //    direction) — this is the single biggest "physical motion"
+            //    cue, makes the scrub read as fast hand movement.
+            int trailCount = 3;
+            double trailDir = passLeftToRight ? -1 : 1;
+            for (int t2 = 1; t2 <= trailCount; t2++) {
+                double tx = sweepX + trailDir * (erW * 0.18 * t2);
+                AffineTransform sv2 = ge.getTransform();
+                ge.translate(tx, cy2);
+                ge.rotate(tilt);
+                ge.setColor(new Color(220, 80, 95, 70 - t2 * 15));
+                ge.fillRoundRect(-erW / 2, -erH / 2, erW, erH,
+                        (int)(erH * 0.45), (int)(erH * 0.45));
+                ge.setTransform(sv2);
+            }
+
+            // 6) Crumbs + shavings trailing behind the eraser within the
+            //    active band. Scale up so they're visible at video res.
+            java.util.Random cr = new java.util.Random((long)(t * 7919) + slideA * 31L);
+            int crumbCount = 80 + cr.nextInt(40);
+            for (int k = 0; k < crumbCount; k++) {
+                double age = cr.nextDouble();
+                double offX = w * 0.005 + age * w * 0.10 + (cr.nextDouble() - 0.5) * w * 0.02;
+                double cxF = sweepX + trailDir * offX;
+                double cyF = (bandTop + bandBot) / 2.0
+                        + (cr.nextDouble() - 0.5) * bandPx * 0.95;
+                float size = (float) (w * (0.0010 + cr.nextDouble() * 0.0032));
+                int alpha = (int) (210 * (1.0 - age));
+                int shade = 60 + cr.nextInt(50);
+                ge.setColor(new Color(shade, shade, shade,
+                        Math.max(0, Math.min(255, alpha))));
+                ge.fill(new java.awt.geom.Ellipse2D.Float(
+                        (float) cxF - size / 2, (float) cyF - size / 2, size, size));
+            }
+            int shavingCount = 20 + cr.nextInt(12);
+            ge.setStroke(new BasicStroke(Math.max(1.2f, w / 1200f),
+                    BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            for (int k = 0; k < shavingCount; k++) {
+                double age = cr.nextDouble();
+                double offX = w * 0.004 + age * w * 0.08;
+                double sxF = sweepX + trailDir * offX;
+                double syF = (bandTop + bandBot) / 2.0
+                        + (cr.nextDouble() - 0.5) * bandPx * 0.85;
+                double len = w * (0.005 + cr.nextDouble() * 0.014);
+                double ang = (cr.nextDouble() - 0.5) * 1.0;
+                int shade = 50 + cr.nextInt(50);
+                int alpha = (int) (180 * (1.0 - age));
+                ge.setColor(new Color(shade, shade, shade,
+                        Math.max(0, Math.min(255, alpha))));
+                double dx = Math.cos(ang) * len * (passLeftToRight ? -1 : 1);
+                ge.drawLine((int) sxF, (int) syF,
+                        (int) (sxF + dx),
+                        (int) (syF + Math.sin(ang) * len));
+            }
+            ge.dispose();
+
             g.dispose();
             return frame;
         }
@@ -10278,8 +10300,7 @@ public class GifSlideShowApp extends JFrame {
                                                 String fx = stx.textEffect;
                                                 if (fx.equals("Water Ripple") || fx.equals("Fire") || fx.equals("Ice")
                                                         || fx.equals("Rainbow") || fx.equals("Typewriter")
-                                                        || fx.equals("Shake") || fx.equals("Pulse")
-                                                        || fx.equals("Eraser")) {
+                                                        || fx.equals("Shake") || fx.equals("Pulse")) {
                                                     hasAnimatedText = true;
                                                     break;
                                                 }
@@ -11460,8 +11481,7 @@ public class GifSlideShowApp extends JFrame {
                                         String fx = stx.textEffect;
                                         if (fx.equals("Water Ripple") || fx.equals("Fire") || fx.equals("Ice")
                                                 || fx.equals("Rainbow") || fx.equals("Typewriter")
-                                                || fx.equals("Shake") || fx.equals("Pulse")
-                                                || fx.equals("Eraser")) {
+                                                || fx.equals("Shake") || fx.equals("Pulse")) {
                                             hasAnimatedText = true;
                                             break;
                                         }
@@ -13787,8 +13807,7 @@ public class GifSlideShowApp extends JFrame {
             "Water Ripple", "Fire", "Ice", "Rainbow", "Typewriter", "Stone Engraving",
             "Shake", "Pulse",
             "Chalk", "Distressed", "Gold Foil", "Chrome", "Marble", "Watercolor",
-            "Glitch", "Long Shadow", "Spotlight", "Sticker", "Inner Glow",
-            "Eraser"
+            "Glitch", "Long Shadow", "Spotlight", "Sticker", "Inner Glow"
     };
 
     static final String[] HIGHLIGHT_STYLES = { "None", "Regular", "Brush", "Brush2", "Pill", "Gradient", "Glow", "Box", "Circle", "Scribble", "Sketch", "Sketch Bold", "Ink", "Strikethrough", "Tag", "Speech Bubble", "Marker" };
