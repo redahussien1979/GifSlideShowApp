@@ -8656,6 +8656,7 @@ public class GifSlideShowApp extends JFrame {
     private static final String FX_LIGHT_LEAK       = "Light leak";
     private static final String FX_FILM_BURN        = "Film burn";
     private static final String FX_GLITCH_CUT       = "Glitch cut";
+    private static final String FX_PAGE_TURN        = "Page turn (realistic)";
     private static final int    DEFAULT_TRANSITION_MS = 500;
 
     private String askScrollDirection() {
@@ -8680,11 +8681,13 @@ public class GifSlideShowApp extends JFrame {
                 FX_WHIP_PAN, FX_WIPE,
                 FX_CROSSFADE_ONLY, FX_DIM_FADE, FX_FLASH_FADE,
                 FX_IRIS, FX_ZOOM_IN,
-                FX_LIGHT_LEAK, FX_FILM_BURN, FX_GLITCH_CUT}
+                FX_LIGHT_LEAK, FX_FILM_BURN, FX_GLITCH_CUT,
+                FX_PAGE_TURN}
                 : new String[]{
                 FX_CROSSFADE_ONLY, FX_DIM_FADE, FX_FLASH_FADE,
                 FX_IRIS, FX_ZOOM_IN,
-                FX_LIGHT_LEAK, FX_FILM_BURN, FX_GLITCH_CUT};
+                FX_LIGHT_LEAK, FX_FILM_BURN, FX_GLITCH_CUT,
+                FX_PAGE_TURN};
         Object choice = JOptionPane.showInputDialog(this,
                 "Transition effect between slides:",
                 "Transition Effect", JOptionPane.QUESTION_MESSAGE,
@@ -8912,6 +8915,161 @@ public class GifSlideShowApp extends JFrame {
                 g.drawImage(imgB, 0, 0, null);
                 g.setClip(oldClip);
             }
+            g.dispose();
+            return frame;
+        }
+
+        if (FX_PAGE_TURN.equals(effect)) {
+            // Strip-based page-turn: page A is sliced into vertical strips and
+            // wrapped around a cylindrical curl whose axis sweeps across the
+            // frame as t goes 0 → 1. The curl casts a soft shadow and shows
+            // a shaded back; page B is revealed underneath.
+            // Direction: SCROLL_LEFT  → fold sweeps left-to-right (left edge lifts)
+            //            otherwise    → fold sweeps right-to-left (right edge lifts)
+            boolean mirror = SCROLL_LEFT.equals(scrollDir);
+            double foldX = mirror ? (t * w) : ((1.0 - t) * w);
+            double curlSpan = mirror ? (w - foldX) : foldX;
+            if (curlSpan < 1) curlSpan = 1;
+            double radius = curlSpan / Math.PI;
+
+            // 1) Reveal page B underneath.
+            g.drawImage(imgB, 0, 0, null);
+
+            // 2) Soft drop shadow cast by the curl onto page B, ahead of the fold.
+            int shadowReach = (int) Math.round(radius * 1.6);
+            if (shadowReach > 0) {
+                int sgx0, sgx1;
+                Color cNear = new Color(0, 0, 0, 110);
+                Color cFar  = new Color(0, 0, 0, 0);
+                if (mirror) {
+                    sgx0 = (int) Math.round(foldX);
+                    sgx1 = Math.min(w, sgx0 + shadowReach);
+                } else {
+                    sgx1 = (int) Math.round(foldX);
+                    sgx0 = Math.max(0, sgx1 - shadowReach);
+                }
+                if (sgx1 > sgx0) {
+                    java.awt.GradientPaint sgp = mirror
+                            ? new java.awt.GradientPaint(sgx0, 0, cNear, sgx1, 0, cFar)
+                            : new java.awt.GradientPaint(sgx0, 0, cFar,  sgx1, 0, cNear);
+                    java.awt.Paint oldPaint = g.getPaint();
+                    g.setPaint(sgp);
+                    g.fillRect(sgx0, 0, sgx1 - sgx0, h);
+                    g.setPaint(oldPaint);
+                }
+            }
+
+            // 3) Flat (un-turned) portion of page A.
+            Shape oldClip = g.getClip();
+            if (mirror) {
+                int fx = (int) Math.round(foldX);
+                if (fx < w) {
+                    g.setClip(fx, 0, w - fx, h);
+                    g.drawImage(imgA, 0, 0, null);
+                }
+            } else {
+                int fx = (int) Math.round(foldX);
+                if (fx > 0) {
+                    g.setClip(0, 0, fx, h);
+                    g.drawImage(imgA, 0, 0, null);
+                }
+            }
+            g.setClip(oldClip);
+
+            // 4) The curl itself, drawn as vertical strips.
+            // Two passes: back-of-page first (θ ∈ [π/2, π]) then front (θ ∈ [0, π/2])
+            // so front strips correctly overlap back strips along the curl spine.
+            int N = Math.max(60, Math.min(160, (int) (curlSpan / 8.0) + 40));
+            double stripSrcW = curlSpan / N;
+            // Page-back color sampled from page A's average-ish tone; for simplicity
+            // a warm off-white. Could be sampled from corners for more fidelity.
+            Color pageBackBase = new Color(245, 240, 230);
+
+            for (int pass = 0; pass < 2; pass++) {
+                boolean backPass = (pass == 0);
+                for (int i = 0; i < N; i++) {
+                    // sxStart/sxEnd are in page-A source coords; the strip that is
+                    // closest to the fold corresponds to θ=0 (just lifting), the
+                    // strip at the far edge corresponds to θ=π (fully wrapped).
+                    double sxStart, sxEnd;
+                    if (mirror) {
+                        // Curl on left side (sx in [foldX, w])
+                        sxStart = foldX + i * stripSrcW;
+                        sxEnd   = foldX + (i + 1) * stripSrcW;
+                    } else {
+                        // Curl on right side (sx in [0, foldX])
+                        sxStart = foldX - (i + 1) * stripSrcW;
+                        sxEnd   = foldX - i * stripSrcW;
+                    }
+                    double sxMid = (sxStart + sxEnd) / 2.0;
+                    double arcLen = mirror ? (sxMid - foldX) : (foldX - sxMid);
+                    double theta = arcLen / radius;
+                    if (theta < 0 || theta > Math.PI) continue;
+                    boolean isBack = theta > Math.PI / 2.0;
+                    if (backPass != isBack) continue;
+
+                    double sinT = Math.sin(theta);
+                    double cosT = Math.cos(theta);
+                    // Curl bulges AWAY from the still-flat side: for a right-edge
+                    // lift (default), the bulge extends LEFT of the fold; for the
+                    // mirrored case the bulge extends RIGHT of the fold.
+                    double screenXc = mirror
+                            ? (foldX + radius * sinT)
+                            : (foldX - radius * sinT);
+                    double scrW = stripSrcW * Math.abs(cosT);
+                    if (scrW < 0.5) scrW = 0.5;
+                    int dx1 = (int) Math.round(screenXc - scrW / 2.0);
+                    int dx2 = (int) Math.round(screenXc + scrW / 2.0);
+                    if (dx2 <= dx1) dx2 = dx1 + 1;
+                    dx1 = Math.max(0, dx1);
+                    dx2 = Math.min(w, dx2);
+                    if (dx2 <= dx1) continue;
+
+                    if (isBack) {
+                        // Back of the page: pale tone with shading.
+                        // Bright near θ=π/2 (top of curl), darker near θ=π (rejoining flat).
+                        double frac = (theta - Math.PI / 2.0) / (Math.PI / 2.0); // 0..1
+                        double shade = 1.0 - 0.55 * frac;
+                        int rB = (int) Math.max(0, Math.min(255, pageBackBase.getRed()   * shade));
+                        int gB = (int) Math.max(0, Math.min(255, pageBackBase.getGreen() * shade));
+                        int bB = (int) Math.max(0, Math.min(255, pageBackBase.getBlue()  * shade));
+                        g.setColor(new Color(rB, gB, bB));
+                        g.fillRect(dx1, 0, dx2 - dx1, h);
+                    } else {
+                        // Front-facing curl strip: sample from page A and shade.
+                        int isx1 = Math.max(0, (int) Math.round(sxStart));
+                        int isx2 = Math.min(w, (int) Math.round(sxEnd));
+                        if (isx2 <= isx1) isx2 = isx1 + 1;
+                        g.drawImage(imgA, dx1, 0, dx2, h, isx1, 0, isx2, h, null);
+                        // Darken toward θ=π/2 (steep grazing angle, less light).
+                        double sd = 1.0 - cosT; // 0 at θ=0, 1 at θ=π/2
+                        int sa = (int) Math.round(140 * sd);
+                        if (sa > 0) {
+                            g.setColor(new Color(0, 0, 0, sa));
+                            g.fillRect(dx1, 0, dx2 - dx1, h);
+                        }
+                    }
+                }
+            }
+
+            // 5) Bright specular highlight along the crest of the curl (θ ≈ π/2)
+            //    sells the cylindrical curvature.
+            double crestX = mirror ? (foldX + radius) : (foldX - radius);
+            int crestBand = Math.max(2, (int) Math.round(radius * 0.18));
+            int hx0 = (int) Math.round(crestX - crestBand);
+            int hx1 = (int) Math.round(crestX + crestBand);
+            hx0 = Math.max(0, hx0);
+            hx1 = Math.min(w, hx1);
+            if (hx1 > hx0) {
+                java.awt.Paint oldPaint = g.getPaint();
+                java.awt.GradientPaint hgp = new java.awt.GradientPaint(
+                        hx0, 0, new Color(255, 255, 255, 0),
+                        (hx0 + hx1) / 2f, 0, new Color(255, 255, 255, 70), true);
+                g.setPaint(hgp);
+                g.fillRect(hx0, 0, hx1 - hx0, h);
+                g.setPaint(oldPaint);
+            }
+
             g.dispose();
             return frame;
         }
