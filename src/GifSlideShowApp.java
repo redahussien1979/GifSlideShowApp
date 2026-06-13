@@ -4557,7 +4557,10 @@ public class GifSlideShowApp extends JFrame {
                     }
 
                     // === Slide text highlight (supports comma-separated words) ===
-                    if (stHlSegments != null && !stHlSegments.get(li).isEmpty()) {
+                    String hlStyleSkipCheck = st.highlightStyle != null ? st.highlightStyle : "Regular";
+                    int hlSkipColon = hlStyleSkipCheck.indexOf(':');
+                    if (hlSkipColon > 0) hlStyleSkipCheck = hlStyleSkipCheck.substring(0, hlSkipColon);
+                    if (stHlSegments != null && !stHlSegments.get(li).isEmpty() && !"None".equals(hlStyleSkipCheck)) {
                         // Tightness: positive = padding around text, negative = reduce height
                         int tightness = st.highlightTightness;
                         int hlPadX, hlPadY;
@@ -5266,7 +5269,10 @@ public class GifSlideShowApp extends JFrame {
                                     }
                                     Graphics2D gUL = (Graphics2D) g.create();
                                     gUL.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                                    int ulY = lineY + stFm.getDescent() + (int) (1 * stScaleFactor);
+                                    // Tight controls underline distance below the text:
+                                    // 0 = flush against text bottom (descent), higher = further down.
+                                    int ulTight = Math.max(0, st.highlightTightness);
+                                    int ulY = lineY + stFm.getDescent() + (int) (ulTight * stScaleFactor * 0.2f);
                                     int ulX1 = ulMatchX;
                                     int ulX2 = ulMatchX + ulMatchW;
                                     float baseStroke = Math.max(1, 2 * stScaleFactor);
@@ -5334,6 +5340,127 @@ public class GifSlideShowApp extends JFrame {
                                                 up = !up;
                                             }
                                             gUL.draw(zigPath);
+                                            break;
+                                        }
+                                        case "Hand Sketch": {
+                                            // Multi-pass hand-drawn line: a few slightly offset
+                                            // strokes with jitter create a confident sketched look.
+                                            java.util.Random rnd = new java.util.Random(
+                                                    (long)(ulX1 * 7919L + ulMatchW * 104729L + li));
+                                            int passes = 3;
+                                            float segLenPx = Math.max(4f * stScaleFactor, 6f);
+                                            for (int pass = 0; pass < passes; pass++) {
+                                                float passOffset = (pass - (passes - 1) / 2f) * 0.9f * stScaleFactor;
+                                                float passStroke = baseStroke * (0.85f + 0.15f * pass);
+                                                gUL.setStroke(new BasicStroke(passStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                                int passAlpha = (int)(hlC.getAlpha() * (0.55f + 0.18f * pass));
+                                                gUL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), Math.min(255, passAlpha)));
+                                                java.awt.geom.GeneralPath hp = new java.awt.geom.GeneralPath();
+                                                float overshootL = (rnd.nextFloat() * 2f) * stScaleFactor;
+                                                float overshootR = (rnd.nextFloat() * 2f) * stScaleFactor;
+                                                float startX = ulX1 - overshootL;
+                                                float endX   = ulX2 + overshootR;
+                                                hp.moveTo(startX, ulY + passOffset + (rnd.nextFloat() - 0.5f) * stScaleFactor);
+                                                for (float hx = startX + segLenPx; hx < endX; hx += segLenPx) {
+                                                    float jitterY = (rnd.nextFloat() - 0.5f) * 1.6f * stScaleFactor;
+                                                    hp.lineTo(hx, ulY + passOffset + jitterY);
+                                                }
+                                                hp.lineTo(endX, ulY + passOffset + (rnd.nextFloat() - 0.5f) * stScaleFactor);
+                                                gUL.draw(hp);
+                                            }
+                                            break;
+                                        }
+                                        case "Hand Wave": {
+                                            // Hand-drawn wavy line: a smooth wave with slight
+                                            // amplitude/length variation and a faint shadow pass.
+                                            java.util.Random rnd = new java.util.Random(
+                                                    (long)(ulX1 * 31L + ulMatchW * 17L + li * 991L));
+                                            gUL.setStroke(new BasicStroke(baseStroke * 1.1f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                            float waveAmp = 2.5f * stScaleFactor;
+                                            float waveLen = 10f * stScaleFactor;
+                                            for (int pass = 0; pass < 2; pass++) {
+                                                int passAlpha = pass == 0 ? hlC.getAlpha() / 3 : hlC.getAlpha();
+                                                gUL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), Math.min(255, passAlpha)));
+                                                float passOff = pass == 0 ? 1.2f * stScaleFactor : 0f;
+                                                java.awt.geom.GeneralPath wp = new java.awt.geom.GeneralPath();
+                                                wp.moveTo(ulX1, ulY + passOff);
+                                                int idx = 0;
+                                                for (float wx = ulX1; wx < ulX2; wx += waveLen) {
+                                                    float endX = Math.min(wx + waveLen, ulX2);
+                                                    float midX = (wx + endX) / 2f;
+                                                    float ampJ = waveAmp * (0.8f + 0.4f * rnd.nextFloat());
+                                                    float dir = (idx % 2 == 0) ? -ampJ : ampJ;
+                                                    wp.quadTo(midX, ulY + passOff + dir, endX, ulY + passOff);
+                                                    idx++;
+                                                }
+                                                gUL.draw(wp);
+                                            }
+                                            break;
+                                        }
+                                        case "Hand Double": {
+                                            // Two slightly imperfect parallel hand-drawn lines.
+                                            java.util.Random rnd = new java.util.Random(
+                                                    (long)(ulX1 * 13L + ulMatchW * 7L + li * 541L));
+                                            float gap = 3.5f * stScaleFactor;
+                                            float segLenPx = Math.max(5f * stScaleFactor, 6f);
+                                            for (int lineIdx = 0; lineIdx < 2; lineIdx++) {
+                                                float baseY = ulY + lineIdx * gap;
+                                                float strokeW = baseStroke * (lineIdx == 0 ? 0.95f : 0.75f);
+                                                gUL.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                                gUL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(),
+                                                        Math.min(255, lineIdx == 0 ? hlC.getAlpha() : (int)(hlC.getAlpha() * 0.75f))));
+                                                java.awt.geom.GeneralPath dp = new java.awt.geom.GeneralPath();
+                                                float overshootL = rnd.nextFloat() * 2f * stScaleFactor;
+                                                float overshootR = rnd.nextFloat() * 2f * stScaleFactor;
+                                                float sx = ulX1 - overshootL;
+                                                float ex = ulX2 + overshootR;
+                                                dp.moveTo(sx, baseY + (rnd.nextFloat() - 0.5f) * stScaleFactor);
+                                                for (float hx = sx + segLenPx; hx < ex; hx += segLenPx) {
+                                                    float jitterY = (rnd.nextFloat() - 0.5f) * 1.4f * stScaleFactor;
+                                                    dp.lineTo(hx, baseY + jitterY);
+                                                }
+                                                dp.lineTo(ex, baseY + (rnd.nextFloat() - 0.5f) * stScaleFactor);
+                                                gUL.draw(dp);
+                                            }
+                                            break;
+                                        }
+                                        case "Hand Loop": {
+                                            // Cursive-style loopy underline: small loops along the baseline.
+                                            gUL.setStroke(new BasicStroke(baseStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                            java.awt.geom.GeneralPath lp = new java.awt.geom.GeneralPath();
+                                            float loopLen = 12f * stScaleFactor;
+                                            float loopH   = 4f  * stScaleFactor;
+                                            lp.moveTo(ulX1, ulY);
+                                            for (float lx = ulX1; lx < ulX2; lx += loopLen) {
+                                                float endX = Math.min(lx + loopLen, ulX2);
+                                                float midX = (lx + endX) / 2f;
+                                                lp.curveTo(
+                                                        midX - loopLen * 0.15f, ulY + loopH,
+                                                        midX + loopLen * 0.15f, ulY - loopH * 0.7f,
+                                                        endX, ulY);
+                                            }
+                                            gUL.draw(lp);
+                                            break;
+                                        }
+                                        case "Hand Scribble": {
+                                            // Quick back-and-forth scribbled underline.
+                                            java.util.Random rnd = new java.util.Random(
+                                                    (long)(ulX1 * 53L + ulMatchW * 113L + li * 257L));
+                                            gUL.setStroke(new BasicStroke(baseStroke * 0.85f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                            gUL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(),
+                                                    Math.min(255, (int)(hlC.getAlpha() * 0.85f))));
+                                            java.awt.geom.GeneralPath sp = new java.awt.geom.GeneralPath();
+                                            float step = 5f * stScaleFactor;
+                                            float amp = 2.2f * stScaleFactor;
+                                            sp.moveTo(ulX1, ulY);
+                                            boolean up = true;
+                                            for (float sx = ulX1; sx < ulX2; sx += step) {
+                                                float jitter = (rnd.nextFloat() - 0.5f) * stScaleFactor;
+                                                float endX = Math.min(sx + step, ulX2);
+                                                sp.lineTo(endX, ulY + (up ? -amp : amp) + jitter);
+                                                up = !up;
+                                            }
+                                            gUL.draw(sp);
                                             break;
                                         }
                                     }
@@ -13291,7 +13418,7 @@ public class GifSlideShowApp extends JFrame {
             "Glitch", "Long Shadow", "Spotlight", "Sticker", "Inner Glow"
     };
 
-    static final String[] HIGHLIGHT_STYLES = { "Regular", "Brush", "Brush2", "Pill", "Gradient", "Glow", "Box", "Circle", "Scribble", "Sketch", "Sketch Bold", "Ink", "Strikethrough", "Tag", "Speech Bubble", "Marker" };
+    static final String[] HIGHLIGHT_STYLES = { "None", "Regular", "Brush", "Brush2", "Pill", "Gradient", "Glow", "Box", "Circle", "Scribble", "Sketch", "Sketch Bold", "Ink", "Strikethrough", "Tag", "Speech Bubble", "Marker" };
 
     /** Per-word effects available on toolbar 7d. Each style is rendered as a
      *  geometry tightly fitted to the active word's bounding box, independent
@@ -13301,7 +13428,8 @@ public class GifSlideShowApp extends JFrame {
     };
     static final String DEFAULT_KARAOKE_STYLE = "Box";
     static final Color  DEFAULT_KARAOKE_COLOR = new Color(255, 220, 0, 220);
-    static final String[] UNDERLINE_STYLES = { "None", "Straight", "Wavy", "Double", "Dotted", "Dashed", "Thick", "Zigzag" };
+    static final String[] UNDERLINE_STYLES = { "None", "Straight", "Wavy", "Double", "Dotted", "Dashed", "Thick", "Zigzag",
+            "Hand Sketch", "Hand Wave", "Hand Double", "Hand Loop", "Hand Scribble" };
 
     static class SlideTextData {
         final boolean show;
@@ -15640,7 +15768,7 @@ public class GifSlideShowApp extends JFrame {
             slideTextHighlightTightnessSpinner = new JSpinner(new SpinnerNumberModel(50, -50, 100, 5));
             slideTextHighlightTightnessSpinner.setPreferredSize(new Dimension(52, 24));
             slideTextHighlightTightnessSpinner.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            slideTextHighlightTightnessSpinner.setToolTipText("Highlight tightness (-50=overlap/shrink, 0=tight, 50=normal, 100=loose)");
+            slideTextHighlightTightnessSpinner.setToolTipText("Tight: HL padding (-50=shrink, 0=tight, 100=loose) / UL distance below text (0=flush against text)");
             slideTextHighlightTightnessSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
             slideTextUnderlineCombo = new JComboBox<>(UNDERLINE_STYLES);
