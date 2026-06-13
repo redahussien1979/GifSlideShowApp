@@ -9761,14 +9761,6 @@ public class GifSlideShowApp extends JFrame {
 
                         int fps = 30;
 
-                        // Auto-fill: slides that use the Eraser text effect and have no
-                        // chosen audio get a procedurally synthesized scrub sound whose
-                        // length matches the on-screen erase duration. Done up front so
-                        // the existing audio mux picks them up like any other slide audio.
-                        for (int __ei = 0; __ei < slides.size(); __ei++) {
-                            maybeInjectEraserAudio(slides.get(__ei), fps, tempDir, __ei);
-                        }
-
                         // Per-slide effective duration: each slide's overlay video overrides duration
                         int effectiveDuration = duration; // base duration for slides without overlay
                         int defaultFramesPerSlide = Math.max(1, (int) Math.round(effectiveDuration / 1000.0 * fps));
@@ -11455,9 +11447,6 @@ public class GifSlideShowApp extends JFrame {
                             throw new IOException("Failed to create temp directory: " + tempDir);
                         }
 
-                        // Auto-fill eraser scrub audio when applicable (see helper for rules).
-                        maybeInjectEraserAudio(s, fps, tempDir, si);
-
                         try {
                             boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxRaised > 0 || (s.fxOther > 0 && !"None".equals(s.fxOtherKind));
                             // Audio-highlight Pulse/Shake animate per-frame too.
@@ -12301,172 +12290,6 @@ public class GifSlideShowApp extends JFrame {
             rgbBytes[i * 3 + 2] = (byte) (pixels[i] & 0xFF);          // B
         }
         out.write(rgbBytes);
-    }
-
-    /**
-     * If a slide has the "Eraser" text effect on at least one visible text
-     * row AND no slide audio is configured, synthesize a procedural eraser
-     * scrub WAV scaled to the visible erase duration (only-while-erasing
-     * mode), inject it as the slide's audio, and recompute the slide's
-     * total audio duration so the existing ffmpeg audio mux picks it up
-     * with no further changes to call sites.
-     *
-     * Word count + intensity determine duration the same way the visual
-     * pass does (framesPerWord = 28 / (0.5 + 1.7*intensity)), so the
-     * audio extent matches the on-screen scrubbing.
-     */
-    static boolean maybeInjectEraserAudio(SlideData s, int fps, java.io.File tempDir, int slideIdx) {
-        if (s == null || s.slideTexts == null || s.slideTexts.isEmpty()) return false;
-        // Don't replace existing audio.
-        if (s.audioFiles != null) {
-            for (File af : s.audioFiles) if (af != null && af.exists()) return false;
-        }
-        // Pick the first visible text using Eraser; treat its intensity as
-        // the global scrub rate.
-        SlideTextData eraserSt = null;
-        for (SlideTextData st : s.slideTexts) {
-            if (st != null && st.show && st.text != null && !st.text.isEmpty()
-                    && "Eraser".equals(st.textEffect)) {
-                eraserSt = st;
-                break;
-            }
-        }
-        if (eraserSt == null) return false;
-
-        // Count words across every visible Eraser text row (the renderer
-        // erases them all in sequence).
-        int totalWords = 0;
-        for (SlideTextData st : s.slideTexts) {
-            if (st == null || !st.show || st.text == null || st.text.isEmpty()) continue;
-            if (!"Eraser".equals(st.textEffect)) continue;
-            for (String paragraph : st.text.split("\n")) {
-                if (paragraph.trim().isEmpty()) continue;
-                totalWords += paragraph.trim().split("\\s+").length;
-            }
-        }
-        if (totalWords <= 0) return false;
-
-        double intensity = eraserSt.textEffectIntensity / 100.0;
-        double eraserSpeed = 0.5 + 1.7 * intensity;
-        int framesPerWord = Math.max(6, (int) Math.round(28.0 / eraserSpeed));
-        int totalFrames = totalWords * framesPerWord;
-        double durationSec = totalFrames / (double) fps;
-        if (durationSec < 0.05) durationSec = 0.05;
-        // Cap so a runaway word count doesn't blow up the WAV.
-        if (durationSec > 60.0) durationSec = 60.0;
-
-        try {
-            if (tempDir != null && !tempDir.exists()) tempDir.mkdirs();
-            java.io.File wav = new java.io.File(tempDir,
-                    "eraser_slide_" + slideIdx + "_" + System.currentTimeMillis() + ".wav");
-            writeEraserSoundWav(wav, durationSec);
-            s.audioFiles.add(wav);
-            s.audioDurationsMs.add((int) Math.round(durationSec * 1000));
-            // Recompute total so downstream code that consults
-            // totalAudioDurationMs sees the new value.
-            int totalMs = 0;
-            int numValid = 0;
-            for (int d : s.audioDurationsMs) { if (d > 0) { totalMs += d; numValid++; } }
-            if (numValid > 1 && s.audioGapMs > 0) totalMs += (numValid - 1) * s.audioGapMs;
-            s.totalAudioDurationMs = totalMs;
-            return true;
-        } catch (IOException ignored) {
-            return false;
-        }
-    }
-
-    /**
-     * Synthesizes a procedural "eraser scrubbing on paper" sound and writes
-     * it as a 16-bit mono PCM WAV. The texture is band-limited pink-ish noise
-     * amplitude-modulated by a slow back-and-forth envelope to mimic the
-     * physical scrub motion of an eraser, with short fade-in/out edges.
-     *
-     * Designed to pair with the "Eraser" text effect at the same sample-rate
-     * as a typical ffmpeg audio mix (44.1 kHz). Frame-accuracy with the
-     * visual is intentionally loose — what reads as "real eraser" is the
-     * timbre and the rhythm of the scrubs, not exact alignment to each word.
-     */
-    static void writeEraserSoundWav(java.io.File out, double durationSec) throws IOException {
-        int sampleRate = 44100;
-        int numSamples = (int) Math.round(sampleRate * Math.max(0.05, durationSec));
-        byte[] data = new byte[numSamples * 2];
-        java.util.Random rng = new java.util.Random(20251213L);
-
-        // Two-pole low-pass on white noise approximates a soft "shhhh"
-        // friction tone. y[n] = (1-a)*x[n] + a*y[n-1], with two stages.
-        double a = 0.72;
-        double lp1 = 0.0, lp2 = 0.0;
-        // High-pass to take out subsonic rumble.
-        double hpPrev = 0.0, hpPrevIn = 0.0;
-        double hpA = 0.96;
-        // Scrub rate: ~4–6 Hz, slightly modulated so it doesn't sound robotic.
-        double scrubBaseHz = 4.7;
-        double envPhase = 0.0;
-        double fadeSec = Math.min(0.05, durationSec / 4.0);
-        int fadeSamples = (int) (fadeSec * sampleRate);
-        for (int i = 0; i < numSamples; i++) {
-            double t = i / (double) sampleRate;
-            // Scrub envelope: |sin| modulated by a slow drift in rate.
-            double rateMod = 1.0 + 0.18 * Math.sin(2 * Math.PI * 0.7 * t);
-            envPhase += 2 * Math.PI * scrubBaseHz * rateMod / sampleRate;
-            double scrub = Math.abs(Math.sin(envPhase));
-            // Sharper scrub peaks (more "scrubby", less sustained hiss).
-            scrub = Math.pow(scrub, 1.6);
-            // Add a faint micro-modulation so consecutive scrubs aren't twins.
-            double micro = 0.85 + 0.15 * Math.sin(2 * Math.PI * 3.3 * t + rng.nextDouble() * 0.0);
-
-            double noise = rng.nextDouble() * 2.0 - 1.0;
-            // Two-stage low-pass for warmth.
-            lp1 = (1 - a) * noise + a * lp1;
-            lp2 = (1 - a) * lp1  + a * lp2;
-            // High-pass to remove sub-bass.
-            double y = lp2;
-            double hpOut = hpA * (hpPrev + y - hpPrevIn);
-            hpPrev = hpOut;
-            hpPrevIn = y;
-
-            double s = hpOut * scrub * micro * 0.55;
-
-            // Fade-in / fade-out edges.
-            if (i < fadeSamples) {
-                s *= (i / (double) fadeSamples);
-            } else if (i > numSamples - fadeSamples) {
-                s *= ((numSamples - i) / (double) fadeSamples);
-            }
-            if (s > 1.0) s = 1.0; else if (s < -1.0) s = -1.0;
-            int v = (int) Math.round(s * 30000.0);
-            data[i * 2]     = (byte) (v & 0xFF);
-            data[i * 2 + 1] = (byte) ((v >> 8) & 0xFF);
-        }
-
-        // RIFF / WAVE container.
-        int byteRate = sampleRate * 2;
-        int dataLen = data.length;
-        int totalLen = 36 + dataLen;
-        try (java.io.FileOutputStream fos = new java.io.FileOutputStream(out);
-             java.io.BufferedOutputStream bos = new java.io.BufferedOutputStream(fos)) {
-            bos.write(new byte[]{'R','I','F','F'});
-            bos.write(new byte[]{
-                    (byte)(totalLen & 0xFF), (byte)((totalLen >> 8) & 0xFF),
-                    (byte)((totalLen >> 16) & 0xFF), (byte)((totalLen >> 24) & 0xFF)});
-            bos.write(new byte[]{'W','A','V','E','f','m','t',' '});
-            bos.write(new byte[]{16, 0, 0, 0}); // fmt chunk size
-            bos.write(new byte[]{1, 0});        // PCM
-            bos.write(new byte[]{1, 0});        // mono
-            bos.write(new byte[]{
-                    (byte)(sampleRate & 0xFF), (byte)((sampleRate >> 8) & 0xFF),
-                    (byte)((sampleRate >> 16) & 0xFF), (byte)((sampleRate >> 24) & 0xFF)});
-            bos.write(new byte[]{
-                    (byte)(byteRate & 0xFF), (byte)((byteRate >> 8) & 0xFF),
-                    (byte)((byteRate >> 16) & 0xFF), (byte)((byteRate >> 24) & 0xFF)});
-            bos.write(new byte[]{2, 0});        // block align (2 bytes/sample)
-            bos.write(new byte[]{16, 0});       // bits per sample
-            bos.write(new byte[]{'d','a','t','a'});
-            bos.write(new byte[]{
-                    (byte)(dataLen & 0xFF), (byte)((dataLen >> 8) & 0xFF),
-                    (byte)((dataLen >> 16) & 0xFF), (byte)((dataLen >> 24) & 0xFF)});
-            bos.write(data);
-        }
     }
 
     // Monochromatic uniform grain: same noise added to R, G, B; alpha forced to 0xFF
@@ -14887,11 +14710,7 @@ public class GifSlideShowApp extends JFrame {
         final List<Color> audioHlColor;
         final List<String> audioHlEffects;
         final List<Integer> audioGlowSize;
-        // Not final so post-construction audio injection (e.g. the Eraser
-        // text effect auto-filling its procedural scrub WAV when the slide
-        // has no audio configured) can recompute this consistently with
-        // mutations of audioFiles / audioDurationsMs.
-        int totalAudioDurationMs;
+        final int totalAudioDurationMs;
         final File videoOverlayFile;
         final int videoOverlayX;
         final int videoOverlayY;
