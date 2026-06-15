@@ -13652,7 +13652,11 @@ public class GifSlideShowApp extends JFrame {
         outDir.mkdirs();
         boolean animated = hasAnimatedDecoration(s);
         boolean audioHl = hasAudioHighlightDecoration(s);
-        boolean useSequence = animated || audioHl;
+        // Quiz slides change every frame (countdown digits), so they must
+        // be emitted as a PNG sequence — a single static deco.png would
+        // freeze the timer at one number over the playing source video.
+        boolean quiz = isQuizSlide(s);
+        boolean useSequence = animated || audioHl || quiz;
         isSeqOut[0] = useSequence;
         if (!useSequence) {
             BufferedImage img = renderFrame(
@@ -13676,10 +13680,13 @@ public class GifSlideShowApp extends JFrame {
         }
         for (int f = 0; f < slideFrames; f++) {
             List<SlideTextData> framedTexts = s.slideTexts;
+            long elapsedMs = (long) (f * 1000.0 / fps);
             // Keep the bulk-picture audio-effect gate in sync every frame.
-            activeAudioSegmentIdx.set(getActiveAudioTextIndex(s, (long) (f * 1000.0 / fps)));
+            activeAudioSegmentIdx.set(getActiveAudioTextIndex(s, elapsedMs));
+            // Apply quiz hide/reveal mask so the delayed-reveal text behaves
+            // the same on video-bg slides as on image-bg slides.
+            applyQuizHideMask(framedTexts, s.quiz, elapsedMs);
             if (audioHl) {
-                long elapsedMs = (long) (f * 1000.0 / fps);
                 int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
                 if (activeIdx >= 0) {
                     long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
@@ -13711,6 +13718,9 @@ public class GifSlideShowApp extends JFrame {
                     s.textJustify, s.textWidthPct,
                     s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures,
                     s.bgTransparency, true);
+            // Bake the quiz countdown timer into the decoration overlay so
+            // it appears over the source video (no-op for non-quiz slides).
+            paintQuizOverlay(img, s, elapsedMs);
             File out = new File(outDir, String.format("%05d.png", f + 1));
             ImageIO.write(img, "png", out);
         }
