@@ -15817,12 +15817,21 @@ public class GifSlideShowApp extends JFrame {
             slideTextColorBtn.setFocusPainted(false);
             slideTextColorBtn.setToolTipText("Slide Text Color");
             slideTextColorBtn.addActionListener(e -> {
-                Color c = JColorChooser.showDialog(panel, "Slide Text Color", slideTextColor);
-                if (c != null) {
-                    slideTextColor = c;
-                    slideTextColorBtn.setForeground(c);
+                final Color original = slideTextColor;
+                JColorChooser chooser = new JColorChooser(slideTextColor);
+                chooser.getSelectionModel().addChangeListener(ev -> {
+                    slideTextColor = chooser.getColor();
+                    slideTextColorBtn.setForeground(slideTextColor);
                     onFormatChanged();
-                }
+                });
+                JDialog dialog = JColorChooser.createDialog(panel, "Slide Text Color", true, chooser,
+                        ok -> { /* keep current */ },
+                        cancel -> {
+                            slideTextColor = original;
+                            slideTextColorBtn.setForeground(original);
+                            onFormatChanged();
+                        });
+                dialog.setVisible(true);
             });
 
             toolbar4a.add(slideTextSelector);
