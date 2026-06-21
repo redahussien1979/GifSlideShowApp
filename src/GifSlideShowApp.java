@@ -3301,7 +3301,7 @@ public class GifSlideShowApp extends JFrame {
         isSyncingFormat = true;
         try {
             for (SlideRow row : slideRows) {
-                if (row == source || row.isTitleGridSlide) continue;
+                if (row == source || row.isTitleGridSlide || row.isLocked()) continue;
                 row.applyFormatting(fontName, fontSize, fontStyle, fontColor, alignment, showPin, displayMode, subtitleY, subtitleBgOpacity, source.getSourceVideoVolume(),
                         source.getBgTransparency(),
                         showSlideNumber, slideNumberFontName, slideNumberX, slideNumberY, slideNumberSize, slideNumberColor,
@@ -14891,6 +14891,7 @@ public class GifSlideShowApp extends JFrame {
         private final JComboBox<String> alignCombo;
         private final JCheckBox pinCheckBox;
         private final JCheckBox includeInVideoCheck;
+        private final JCheckBox lockCheck;
         private final JComboBox<String> rowPresetCombo;
         private final JComboBox<String> displayModeCombo;
         private final JCheckBox slideNumberCheckBox;
@@ -15351,6 +15352,13 @@ public class GifSlideShowApp extends JFrame {
             includeInVideoCheck.setFocusPainted(false);
             includeInVideoCheck.setToolTipText("Include this slide in video / image / export output");
 
+            lockCheck = new JCheckBox("🔒 Lock", false);
+            lockCheck.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+            lockCheck.setForeground(Color.LIGHT_GRAY);
+            lockCheck.setBackground(new Color(44, 47, 51));
+            lockCheck.setFocusPainted(false);
+            lockCheck.setToolTipText("Lock this slide: changes on the main (first) slide will not propagate here");
+
             rowPresetCombo = new JComboBox<>();
             rowPresetCombo.setPreferredSize(new Dimension(140, 26));
             rowPresetCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
@@ -15383,6 +15391,7 @@ public class GifSlideShowApp extends JFrame {
             toolbar1.add(alignCombo);
             toolbar1.add(pinCheckBox);
             toolbar1.add(includeInVideoCheck);
+            toolbar1.add(lockCheck);
             toolbar1.add(styledLabel("Preset:"));
             toolbar1.add(rowPresetCombo);
 
@@ -19693,6 +19702,7 @@ public class GifSlideShowApp extends JFrame {
         Color getFontColor() { return selectedColor; }
         boolean isShowPin() { return pinCheckBox.isSelected(); }
         boolean isIncludedInVideo() { return includeInVideoCheck.isSelected(); }
+        boolean isLocked() { return lockCheck.isSelected(); }
         String getDisplayMode() { return (String) displayModeCombo.getSelectedItem(); }
 
         private boolean isLoadingRowPreset = false;
