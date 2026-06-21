@@ -60,6 +60,7 @@ public class GifSlideShowApp extends JFrame {
     private final JScrollPane scrollPane;
 
     private boolean isSyncingFormat = false;
+    private boolean isLivePreviewActive = false;
 
     // Orientation: "Landscape" or "Portrait"
     private JComboBox<String> orientationCombo;
@@ -1060,15 +1061,37 @@ public class GifSlideShowApp extends JFrame {
         return Color.WHITE;
     }
 
-    // Live-preview color picker: re-renders on each chooser change; Cancel restores the original.
-    private static void pickColorLive(Component parent, String title, Color initial,
-                                      java.util.function.Consumer<Color> onChange) {
+    // Live-preview color picker: re-renders on each chooser change; OK commits with broadcast,
+    // Cancel (and window X close) restore the original. While the dialog is open the live
+    // preview only repaints the current slide — broadcast to other slides is deferred to commit.
+    private void pickColorLive(Component parent, String title, Color initial,
+                               java.util.function.Consumer<Color> onChange) {
         final Color original = initial;
+        final boolean[] committed = { false };
         JColorChooser chooser = new JColorChooser(initial);
-        chooser.getSelectionModel().addChangeListener(ev -> onChange.accept(chooser.getColor()));
+        chooser.getSelectionModel().addChangeListener(ev -> {
+            isLivePreviewActive = true;
+            try {
+                onChange.accept(chooser.getColor());
+            } finally {
+                isLivePreviewActive = false;
+            }
+        });
         JDialog dialog = JColorChooser.createDialog(parent, title, true, chooser,
-                ok -> { /* keep current */ },
-                cancel -> onChange.accept(original));
+                ok -> {
+                    committed[0] = true;
+                    onChange.accept(chooser.getColor()); // final commit with broadcast enabled
+                },
+                cancel -> {
+                    committed[0] = true;
+                    onChange.accept(original);
+                });
+        dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosed(java.awt.event.WindowEvent e) {
+                if (!committed[0]) onChange.accept(original);
+            }
+        });
         dialog.setVisible(true);
     }
 
@@ -17775,19 +17798,31 @@ public class GifSlideShowApp extends JFrame {
             quizTextColorBtn.addActionListener(e -> {
                 final Color originalField = quiz.timerTextColor;
                 Color initial = originalField != null ? originalField : Color.WHITE;
+                final boolean[] committed = { false };
                 JColorChooser chooser = new JColorChooser(initial);
-                chooser.getSelectionModel().addChangeListener(ev -> {
-                    quiz.timerTextColor = chooser.getColor();
-                    quizTextColorBtn.setForeground(chooser.getColor());
+                Runnable restore = () -> {
+                    quiz.timerTextColor = originalField;
+                    quizTextColorBtn.setForeground(originalField != null ? originalField : Color.WHITE);
                     onFormatChanged();
+                };
+                chooser.getSelectionModel().addChangeListener(ev -> {
+                    isLivePreviewActive = true;
+                    try {
+                        quiz.timerTextColor = chooser.getColor();
+                        quizTextColorBtn.setForeground(chooser.getColor());
+                        onFormatChanged();
+                    } finally {
+                        isLivePreviewActive = false;
+                    }
                 });
                 JDialog dialog = JColorChooser.createDialog(panel, "Timer text color", true, chooser,
-                        ok -> { /* keep */ },
-                        cancel -> {
-                            quiz.timerTextColor = originalField;
-                            quizTextColorBtn.setForeground(originalField != null ? originalField : Color.WHITE);
-                            onFormatChanged();
-                        });
+                        ok -> { committed[0] = true; onFormatChanged(); },
+                        cancel -> { committed[0] = true; restore.run(); });
+                dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+                    @Override public void windowClosed(java.awt.event.WindowEvent ev) {
+                        if (!committed[0]) restore.run();
+                    }
+                });
                 dialog.setVisible(true);
             });
 
@@ -17965,19 +18000,31 @@ public class GifSlideShowApp extends JFrame {
                 final Color originalField = quiz.revealMarkColor;
                 Color fallback = new Color(60, 220, 110);
                 Color initial = originalField != null ? originalField : fallback;
+                final boolean[] committed = { false };
                 JColorChooser chooser = new JColorChooser(initial);
-                chooser.getSelectionModel().addChangeListener(ev -> {
-                    quiz.revealMarkColor = chooser.getColor();
-                    quizRevealColorBtn.setForeground(chooser.getColor());
+                Runnable restore = () -> {
+                    quiz.revealMarkColor = originalField;
+                    quizRevealColorBtn.setForeground(originalField != null ? originalField : fallback);
                     onFormatChanged();
+                };
+                chooser.getSelectionModel().addChangeListener(ev -> {
+                    isLivePreviewActive = true;
+                    try {
+                        quiz.revealMarkColor = chooser.getColor();
+                        quizRevealColorBtn.setForeground(chooser.getColor());
+                        onFormatChanged();
+                    } finally {
+                        isLivePreviewActive = false;
+                    }
                 });
                 JDialog dialog = JColorChooser.createDialog(panel, "Reveal mark color", true, chooser,
-                        ok -> { /* keep */ },
-                        cancel -> {
-                            quiz.revealMarkColor = originalField;
-                            quizRevealColorBtn.setForeground(originalField != null ? originalField : fallback);
-                            onFormatChanged();
-                        });
+                        ok -> { committed[0] = true; onFormatChanged(); },
+                        cancel -> { committed[0] = true; restore.run(); });
+                dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+                    @Override public void windowClosed(java.awt.event.WindowEvent ev) {
+                        if (!committed[0]) restore.run();
+                    }
+                });
                 dialog.setVisible(true);
             });
 
@@ -18166,19 +18213,31 @@ public class GifSlideShowApp extends JFrame {
                 final Color originalField = quiz.timerRedColor;
                 Color fallback = new Color(235, 70, 70);
                 Color initial = originalField != null ? originalField : fallback;
+                final boolean[] committed = { false };
                 JColorChooser chooser = new JColorChooser(initial);
-                chooser.getSelectionModel().addChangeListener(ev -> {
-                    quiz.timerRedColor = chooser.getColor();
-                    quizRedColorBtn.setForeground(chooser.getColor());
+                Runnable restore = () -> {
+                    quiz.timerRedColor = originalField;
+                    quizRedColorBtn.setForeground(originalField != null ? originalField : fallback);
                     onFormatChanged();
+                };
+                chooser.getSelectionModel().addChangeListener(ev -> {
+                    isLivePreviewActive = true;
+                    try {
+                        quiz.timerRedColor = chooser.getColor();
+                        quizRedColorBtn.setForeground(chooser.getColor());
+                        onFormatChanged();
+                    } finally {
+                        isLivePreviewActive = false;
+                    }
                 });
                 JDialog dialog = JColorChooser.createDialog(panel, "Urgent-phase (red) color", true, chooser,
-                        ok -> { /* keep */ },
-                        cancel -> {
-                            quiz.timerRedColor = originalField;
-                            quizRedColorBtn.setForeground(originalField != null ? originalField : fallback);
-                            onFormatChanged();
-                        });
+                        ok -> { committed[0] = true; onFormatChanged(); },
+                        cancel -> { committed[0] = true; restore.run(); });
+                dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+                    @Override public void windowClosed(java.awt.event.WindowEvent ev) {
+                        if (!committed[0]) restore.run();
+                    }
+                });
                 dialog.setVisible(true);
             });
             quizRedColorBtn.addMouseListener(new java.awt.event.MouseAdapter() {
@@ -19214,7 +19273,7 @@ public class GifSlideShowApp extends JFrame {
         private void onFormatChanged() {
             schedulePreview();
             updateTextAreaStyle();
-            if (!isSyncingFormat && !isTitleGridSlide && !slideRows.isEmpty()) {
+            if (!isSyncingFormat && !isLivePreviewActive && !isTitleGridSlide && !slideRows.isEmpty()) {
                 for (SlideRow row : slideRows) {
                     if (!row.isTitleGridSlide) {
                         if (row == this) {
@@ -19899,7 +19958,7 @@ public class GifSlideShowApp extends JFrame {
             schedulePreview();
             // If this is the master slide, broadcast Word FX style/color to the rest
             // — same trigger pattern as onFormatChanged().
-            if (!isSyncingFormat && !isTitleGridSlide && !slideRows.isEmpty()) {
+            if (!isSyncingFormat && !isLivePreviewActive && !isTitleGridSlide && !slideRows.isEmpty()) {
                 for (SlideRow row : slideRows) {
                     if (!row.isTitleGridSlide) {
                         if (row == this) syncFormattingFromFirstSlide();
