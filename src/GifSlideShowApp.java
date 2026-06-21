@@ -230,12 +230,17 @@ public class GifSlideShowApp extends JFrame {
 
     private void refreshPresetCombo() {
         presetCombo.removeAllItems();
-        if (!PRESETS_DIR.isDirectory()) return;
-        File[] files = PRESETS_DIR.listFiles((d, n) -> n.endsWith(".preset"));
-        if (files == null) return;
-        Arrays.sort(files, Comparator.comparing(File::getName, String.CASE_INSENSITIVE_ORDER));
-        for (File f : files) {
-            presetCombo.addItem(f.getName().replace(".preset", ""));
+        if (PRESETS_DIR.isDirectory()) {
+            File[] files = PRESETS_DIR.listFiles((d, n) -> n.endsWith(".preset"));
+            if (files != null) {
+                Arrays.sort(files, Comparator.comparing(File::getName, String.CASE_INSENSITIVE_ORDER));
+                for (File f : files) {
+                    presetCombo.addItem(f.getName().replace(".preset", ""));
+                }
+            }
+        }
+        for (SlideRow row : slideRows) {
+            row.refreshRowPresetCombo();
         }
     }
 
@@ -543,10 +548,13 @@ public class GifSlideShowApp extends JFrame {
             JOptionPane.showMessageDialog(this, "No preset selected.", "Load Preset", JOptionPane.WARNING_MESSAGE);
             return;
         }
+        loadPresetIntoRows(name, slideRows, true);
+    }
 
+    private void loadPresetIntoRows(String name, List<SlideRow> targets, boolean showMessage) {
         File file = new File(PRESETS_DIR, name + ".preset");
         if (!file.exists()) {
-            JOptionPane.showMessageDialog(this, "Preset file not found.", "Load Preset", JOptionPane.ERROR_MESSAGE);
+            if (showMessage) JOptionPane.showMessageDialog(this, "Preset file not found.", "Load Preset", JOptionPane.ERROR_MESSAGE);
             return;
         }
 
@@ -554,7 +562,7 @@ public class GifSlideShowApp extends JFrame {
         try (FileInputStream fis = new FileInputStream(file)) {
             props.load(fis);
         } catch (IOException ex) {
-            JOptionPane.showMessageDialog(this, "Failed to load preset: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            if (showMessage) JOptionPane.showMessageDialog(this, "Failed to load preset: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
 
@@ -845,7 +853,7 @@ public class GifSlideShowApp extends JFrame {
         // Apply to all non-title-grid slides
         isSyncingFormat = true;
         try {
-            for (SlideRow row : slideRows) {
+            for (SlideRow row : targets) {
                 if (row.isTitleGridSlide) continue;
                 row.applyFormatting(fontName, fontSize, fontStyle, fontColor, alignment, showPin, displayMode,
                         subtitleY, subtitleBgOpacity, sourceVideoVolume,
@@ -872,7 +880,9 @@ public class GifSlideShowApp extends JFrame {
             isSyncingFormat = false;
         }
 
-        JOptionPane.showMessageDialog(this, "Preset \"" + name + "\" loaded.", "Load Preset", JOptionPane.INFORMATION_MESSAGE);
+        if (showMessage) {
+            JOptionPane.showMessageDialog(this, "Preset \"" + name + "\" loaded.", "Load Preset", JOptionPane.INFORMATION_MESSAGE);
+        }
     }
 
     private void deletePreset() {
@@ -8447,6 +8457,7 @@ public class GifSlideShowApp extends JFrame {
         List<SlideData> slides = new ArrayList<>();
         for (int i = 0; i < slideRows.size(); i++) {
             SlideRow row = slideRows.get(i);
+            if (!row.isIncludedInVideo()) continue;
             if (row.getImage() == null && row.getSlideVideoOverlayFile() == null
                     && row.getSourceVideoFile() == null) {
                 JOptionPane.showMessageDialog(this,
@@ -14879,6 +14890,8 @@ public class GifSlideShowApp extends JFrame {
         private final JButton colorBtn;
         private final JComboBox<String> alignCombo;
         private final JCheckBox pinCheckBox;
+        private final JCheckBox includeInVideoCheck;
+        private final JComboBox<String> rowPresetCombo;
         private final JComboBox<String> displayModeCombo;
         private final JCheckBox slideNumberCheckBox;
         private final JTextField slideNumberField;
@@ -15331,6 +15344,25 @@ public class GifSlideShowApp extends JFrame {
             pinCheckBox.setFocusPainted(false);
             pinCheckBox.addActionListener(e -> onFormatChanged());
 
+            includeInVideoCheck = new JCheckBox("✅ Include", true);
+            includeInVideoCheck.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+            includeInVideoCheck.setForeground(Color.LIGHT_GRAY);
+            includeInVideoCheck.setBackground(new Color(44, 47, 51));
+            includeInVideoCheck.setFocusPainted(false);
+            includeInVideoCheck.setToolTipText("Include this slide in video / image / export output");
+
+            rowPresetCombo = new JComboBox<>();
+            rowPresetCombo.setPreferredSize(new Dimension(140, 26));
+            rowPresetCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            rowPresetCombo.setToolTipText("Apply a preset to this slide only");
+            refreshRowPresetCombo();
+            rowPresetCombo.addActionListener(e -> {
+                if (isLoadingRowPreset) return;
+                String selected = (String) rowPresetCombo.getSelectedItem();
+                if (selected == null || selected.isEmpty() || "(no override)".equals(selected)) return;
+                loadPresetIntoRows(selected, java.util.Collections.singletonList(this), false);
+            });
+
             displayModeCombo = new JComboBox<>(new String[]{
                     "Blur-Fit", "Fill (Crop)", "Fit (Bars)", "Original Size",
                     "Stretch", "Top-Fit", "Bottom-Fit", "Left-Fit", "Right-Fit"
@@ -15350,6 +15382,9 @@ public class GifSlideShowApp extends JFrame {
             toolbar1.add(colorBtn);
             toolbar1.add(alignCombo);
             toolbar1.add(pinCheckBox);
+            toolbar1.add(includeInVideoCheck);
+            toolbar1.add(styledLabel("Preset:"));
+            toolbar1.add(rowPresetCombo);
 
             // ===== Toolbar Row 1b: Justify, Width, Highlight =====
             JPanel toolbar1b = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
@@ -19657,7 +19692,38 @@ public class GifSlideShowApp extends JFrame {
         int getFontSize() { return (int) sizeSpinner.getValue(); }
         Color getFontColor() { return selectedColor; }
         boolean isShowPin() { return pinCheckBox.isSelected(); }
+        boolean isIncludedInVideo() { return includeInVideoCheck.isSelected(); }
         String getDisplayMode() { return (String) displayModeCombo.getSelectedItem(); }
+
+        private boolean isLoadingRowPreset = false;
+
+        void refreshRowPresetCombo() {
+            isLoadingRowPreset = true;
+            try {
+                String previous = (String) rowPresetCombo.getSelectedItem();
+                rowPresetCombo.removeAllItems();
+                rowPresetCombo.addItem("(no override)");
+                if (PRESETS_DIR.isDirectory()) {
+                    File[] files = PRESETS_DIR.listFiles((d, n) -> n.endsWith(".preset"));
+                    if (files != null) {
+                        Arrays.sort(files, Comparator.comparing(File::getName, String.CASE_INSENSITIVE_ORDER));
+                        for (File f : files) {
+                            rowPresetCombo.addItem(f.getName().replace(".preset", ""));
+                        }
+                    }
+                }
+                if (previous != null) {
+                    for (int i = 0; i < rowPresetCombo.getItemCount(); i++) {
+                        if (previous.equals(rowPresetCombo.getItemAt(i))) {
+                            rowPresetCombo.setSelectedIndex(i);
+                            break;
+                        }
+                    }
+                }
+            } finally {
+                isLoadingRowPreset = false;
+            }
+        }
         int getSubtitleY() { return (int) subtitleYSpinner.getValue(); }
         int getSubtitleBgOpacity() { return (int) subtitleBgOpacitySpinner.getValue(); }
 
