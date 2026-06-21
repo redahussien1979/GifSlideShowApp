@@ -60,6 +60,7 @@ public class GifSlideShowApp extends JFrame {
     private final JScrollPane scrollPane;
 
     private boolean isSyncingFormat = false;
+    private boolean isLivePreviewActive = false;
 
     // Orientation: "Landscape" or "Portrait"
     private JComboBox<String> orientationCombo;
@@ -1058,6 +1059,40 @@ public class GifSlideShowApp extends JFrame {
             }
         } catch (NumberFormatException ignored) {}
         return Color.WHITE;
+    }
+
+    // Live-preview color picker: re-renders on each chooser change; OK commits with broadcast,
+    // Cancel (and window X close) restore the original. While the dialog is open the live
+    // preview only repaints the current slide — broadcast to other slides is deferred to commit.
+    private void pickColorLive(Component parent, String title, Color initial,
+                               java.util.function.Consumer<Color> onChange) {
+        final Color original = initial;
+        final boolean[] committed = { false };
+        JColorChooser chooser = new JColorChooser(initial);
+        chooser.getSelectionModel().addChangeListener(ev -> {
+            isLivePreviewActive = true;
+            try {
+                onChange.accept(chooser.getColor());
+            } finally {
+                isLivePreviewActive = false;
+            }
+        });
+        JDialog dialog = JColorChooser.createDialog(parent, title, true, chooser,
+                ok -> {
+                    committed[0] = true;
+                    onChange.accept(chooser.getColor()); // final commit with broadcast enabled
+                },
+                cancel -> {
+                    committed[0] = true;
+                    onChange.accept(original);
+                });
+        dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosed(java.awt.event.WindowEvent e) {
+                if (!committed[0]) onChange.accept(original);
+            }
+        });
+        dialog.setVisible(true);
     }
 
     // ==================== Title Grid Slide ====================
@@ -15323,14 +15358,11 @@ public class GifSlideShowApp extends JFrame {
             colorBtn.setPreferredSize(new Dimension(36, 28));
             colorBtn.setFocusPainted(false);
             colorBtn.setToolTipText("Text Color");
-            colorBtn.addActionListener(e -> {
-                Color c = JColorChooser.showDialog(panel, "Text Color", selectedColor);
-                if (c != null) {
-                    selectedColor = c;
-                    colorBtn.setForeground(c);
-                    onFormatChanged();
-                }
-            });
+            colorBtn.addActionListener(e -> pickColorLive(panel, "Text Color", selectedColor, c -> {
+                selectedColor = c;
+                colorBtn.setForeground(c);
+                onFormatChanged();
+            }));
 
             alignCombo = new JComboBox<>(new String[]{"Left", "Center", "Right"});
             alignCombo.setSelectedIndex(0);
@@ -15428,14 +15460,11 @@ public class GifSlideShowApp extends JFrame {
             highlightColorBtn.setPreferredSize(new Dimension(32, 24));
             highlightColorBtn.setFocusPainted(false);
             highlightColorBtn.setToolTipText("Highlight color");
-            highlightColorBtn.addActionListener(e -> {
-                Color c = JColorChooser.showDialog(panel, "Highlight Color", highlightColor);
-                if (c != null) {
-                    highlightColor = new Color(c.getRed(), c.getGreen(), c.getBlue(), 180);
-                    highlightColorBtn.setForeground(highlightColor);
-                    onFormatChanged();
-                }
-            });
+            highlightColorBtn.addActionListener(e -> pickColorLive(panel, "Highlight Color", highlightColor, c -> {
+                highlightColor = new Color(c.getRed(), c.getGreen(), c.getBlue(), 180);
+                highlightColorBtn.setForeground(highlightColor);
+                onFormatChanged();
+            }));
 
             textShiftXSpinner = new JSpinner(new SpinnerNumberModel(0, -50, 50, 1));
             textShiftXSpinner.setPreferredSize(new Dimension(50, 24));
@@ -15539,14 +15568,11 @@ public class GifSlideShowApp extends JFrame {
             slideNumberColorBtn.setPreferredSize(new Dimension(36, 28));
             slideNumberColorBtn.setFocusPainted(false);
             slideNumberColorBtn.setToolTipText("Number Color");
-            slideNumberColorBtn.addActionListener(e -> {
-                Color c = JColorChooser.showDialog(panel, "Number Color", slideNumberColor);
-                if (c != null) {
-                    slideNumberColor = c;
-                    slideNumberColorBtn.setForeground(c);
-                    onFormatChanged();
-                }
-            });
+            slideNumberColorBtn.addActionListener(e -> pickColorLive(panel, "Number Color", slideNumberColor, c -> {
+                slideNumberColor = c;
+                slideNumberColorBtn.setForeground(c);
+                onFormatChanged();
+            }));
 
             slideNumberStyleCombo = new JComboBox<>(new String[]{
                     "None", "Circle", "Square", "Rounded", "Hexagon", "Ribbon", "Pill", "Stamp", "Star", "Shield"});
@@ -15816,23 +15842,11 @@ public class GifSlideShowApp extends JFrame {
             slideTextColorBtn.setPreferredSize(new Dimension(36, 28));
             slideTextColorBtn.setFocusPainted(false);
             slideTextColorBtn.setToolTipText("Slide Text Color");
-            slideTextColorBtn.addActionListener(e -> {
-                final Color original = slideTextColor;
-                JColorChooser chooser = new JColorChooser(slideTextColor);
-                chooser.getSelectionModel().addChangeListener(ev -> {
-                    slideTextColor = chooser.getColor();
-                    slideTextColorBtn.setForeground(slideTextColor);
-                    onFormatChanged();
-                });
-                JDialog dialog = JColorChooser.createDialog(panel, "Slide Text Color", true, chooser,
-                        ok -> { /* keep current */ },
-                        cancel -> {
-                            slideTextColor = original;
-                            slideTextColorBtn.setForeground(original);
-                            onFormatChanged();
-                        });
-                dialog.setVisible(true);
-            });
+            slideTextColorBtn.addActionListener(e -> pickColorLive(panel, "Slide Text Color", slideTextColor, c -> {
+                slideTextColor = c;
+                slideTextColorBtn.setForeground(c);
+                onFormatChanged();
+            }));
 
             toolbar4a.add(slideTextSelector);
             toolbar4a.add(addSlideTextBtn);
@@ -15875,14 +15889,11 @@ public class GifSlideShowApp extends JFrame {
             slideTextBgColorBtn.setPreferredSize(new Dimension(36, 28));
             slideTextBgColorBtn.setFocusPainted(false);
             slideTextBgColorBtn.setToolTipText("Slide Text Background Color");
-            slideTextBgColorBtn.addActionListener(e -> {
-                Color c = JColorChooser.showDialog(panel, "Slide Text BG Color", slideTextBgColor);
-                if (c != null) {
-                    slideTextBgColor = c;
-                    slideTextBgColorBtn.setForeground(c);
-                    onFormatChanged();
-                }
-            });
+            slideTextBgColorBtn.addActionListener(e -> pickColorLive(panel, "Slide Text BG Color", slideTextBgColor, c -> {
+                slideTextBgColor = c;
+                slideTextBgColorBtn.setForeground(c);
+                onFormatChanged();
+            }));
 
             slideTextJustifyCheck = new JCheckBox("Justify", false);
             slideTextJustifyCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
@@ -15948,14 +15959,11 @@ public class GifSlideShowApp extends JFrame {
             slideTextBgColor2Btn.setPreferredSize(new Dimension(36, 24));
             slideTextBgColor2Btn.setFocusPainted(false);
             slideTextBgColor2Btn.setToolTipText("Fill 2nd color (gradients / patterns)");
-            slideTextBgColor2Btn.addActionListener(e -> {
-                Color c = JColorChooser.showDialog(panel, "BG Fill 2nd Color", slideTextBgColor2);
-                if (c != null) {
-                    slideTextBgColor2 = c;
-                    slideTextBgColor2Btn.setForeground(c);
-                    onFormatChanged();
-                }
-            });
+            slideTextBgColor2Btn.addActionListener(e -> pickColorLive(panel, "BG Fill 2nd Color", slideTextBgColor2, c -> {
+                slideTextBgColor2 = c;
+                slideTextBgColor2Btn.setForeground(c);
+                onFormatChanged();
+            }));
 
             slideTextBgFillAngleSpinner = new JSpinner(new SpinnerNumberModel(90, 0, 360, 15));
             slideTextBgFillAngleSpinner.setPreferredSize(new Dimension(55, 24));
@@ -16025,14 +16033,11 @@ public class GifSlideShowApp extends JFrame {
             slideTextBgBorderColorBtn.setPreferredSize(new Dimension(36, 24));
             slideTextBgBorderColorBtn.setFocusPainted(false);
             slideTextBgBorderColorBtn.setToolTipText("Border color");
-            slideTextBgBorderColorBtn.addActionListener(e -> {
-                Color c = JColorChooser.showDialog(panel, "Border Color", slideTextBgBorderColor);
-                if (c != null) {
-                    slideTextBgBorderColor = c;
-                    slideTextBgBorderColorBtn.setForeground(c);
-                    onFormatChanged();
-                }
-            });
+            slideTextBgBorderColorBtn.addActionListener(e -> pickColorLive(panel, "Border Color", slideTextBgBorderColor, c -> {
+                slideTextBgBorderColor = c;
+                slideTextBgBorderColorBtn.setForeground(c);
+                onFormatChanged();
+            }));
 
             toolbar4b3.add(mkLbl.apply("      ⬢ Shape:", bgRowFg));
             toolbar4b3.add(slideTextBgShapeCombo);
@@ -16119,14 +16124,11 @@ public class GifSlideShowApp extends JFrame {
             slideTextBgGlowColorBtn.setPreferredSize(new Dimension(36, 24));
             slideTextBgGlowColorBtn.setFocusPainted(false);
             slideTextBgGlowColorBtn.setToolTipText("Outer glow color");
-            slideTextBgGlowColorBtn.addActionListener(e -> {
-                Color c = JColorChooser.showDialog(panel, "Outer Glow Color", slideTextBgGlowColor);
-                if (c != null) {
-                    slideTextBgGlowColor = c;
-                    slideTextBgGlowColorBtn.setForeground(c);
-                    onFormatChanged();
-                }
-            });
+            slideTextBgGlowColorBtn.addActionListener(e -> pickColorLive(panel, "Outer Glow Color", slideTextBgGlowColor, c -> {
+                slideTextBgGlowColor = c;
+                slideTextBgGlowColorBtn.setForeground(c);
+                onFormatChanged();
+            }));
 
             toolbar4b4.add(mkLbl.apply("      ✨ Noise:", bgRowFg));
             toolbar4b4.add(slideTextBgNoiseCombo);
@@ -16205,14 +16207,11 @@ public class GifSlideShowApp extends JFrame {
             slideTextHighlightColorBtn.setPreferredSize(new Dimension(32, 24));
             slideTextHighlightColorBtn.setFocusPainted(false);
             slideTextHighlightColorBtn.setToolTipText("Highlight color");
-            slideTextHighlightColorBtn.addActionListener(e -> {
-                Color c = JColorChooser.showDialog(panel, "Slide Text Highlight Color", slideTextHighlightColor);
-                if (c != null) {
-                    slideTextHighlightColor = new Color(c.getRed(), c.getGreen(), c.getBlue(), 180);
-                    slideTextHighlightColorBtn.setForeground(slideTextHighlightColor);
-                    onFormatChanged();
-                }
-            });
+            slideTextHighlightColorBtn.addActionListener(e -> pickColorLive(panel, "Slide Text Highlight Color", slideTextHighlightColor, c -> {
+                slideTextHighlightColor = new Color(c.getRed(), c.getGreen(), c.getBlue(), 180);
+                slideTextHighlightColorBtn.setForeground(slideTextHighlightColor);
+                onFormatChanged();
+            }));
 
             slideTextHighlightStyleCombo = new JComboBox<>(HIGHLIGHT_STYLES);
             slideTextHighlightStyleCombo.setPreferredSize(new Dimension(80, 24));
@@ -16278,14 +16277,11 @@ public class GifSlideShowApp extends JFrame {
             slideTextColorTextColorBtn.setPreferredSize(new Dimension(32, 24));
             slideTextColorTextColorBtn.setFocusPainted(false);
             slideTextColorTextColorBtn.setToolTipText("Word color");
-            slideTextColorTextColorBtn.addActionListener(e -> {
-                Color c = JColorChooser.showDialog(panel, "Word Color", slideTextColorTextColor);
-                if (c != null) {
-                    slideTextColorTextColor = c;
-                    slideTextColorTextColorBtn.setForeground(c);
-                    onFormatChanged();
-                }
-            });
+            slideTextColorTextColorBtn.addActionListener(e -> pickColorLive(panel, "Word Color", slideTextColorTextColor, c -> {
+                slideTextColorTextColor = c;
+                slideTextColorTextColorBtn.setForeground(c);
+                onFormatChanged();
+            }));
 
             JLabel tc4cAlignLbl = styledLabel("      \u2B82 Align:");
             tc4cAlignLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
@@ -16853,15 +16849,12 @@ public class GifSlideShowApp extends JFrame {
             bulkBorderColorBtn.setFocusPainted(false);
             bulkBorderColorBtn.setBackground(bulkBorderColor);
             bulkBorderColorBtn.setForeground(Color.BLACK);
-            bulkBorderColorBtn.addActionListener(e -> {
-                Color chosen = JColorChooser.showDialog(bulkBorderColorBtn, "Border Color", bulkBorderColor);
-                if (chosen != null) {
-                    bulkBorderColor = chosen;
-                    bulkBorderColorBtn.setBackground(bulkBorderColor);
-                    bulkBorderColorBtn.repaint();
-                    if (!isLoadingBulkItem) onFormatChanged();
-                }
-            });
+            bulkBorderColorBtn.addActionListener(e -> pickColorLive(bulkBorderColorBtn, "Border Color", bulkBorderColor, chosen -> {
+                bulkBorderColor = chosen;
+                bulkBorderColorBtn.setBackground(bulkBorderColor);
+                bulkBorderColorBtn.repaint();
+                if (!isLoadingBulkItem) onFormatChanged();
+            }));
 
             bulkFitCombo = new JComboBox<>(new String[]{"Fit", "Fill"});
             bulkFitCombo.setPreferredSize(new Dimension(60, 24));
@@ -17244,14 +17237,11 @@ public class GifSlideShowApp extends JFrame {
             overlayBgColorBtn.setPreferredSize(new Dimension(36, 24));
             overlayBgColorBtn.setFocusPainted(false);
             overlayBgColorBtn.setToolTipText("Background color");
-            overlayBgColorBtn.addActionListener(e -> {
-                Color c = JColorChooser.showDialog(panel, "Background Color", overlayBgColor);
-                if (c != null) {
-                    overlayBgColor = c;
-                    overlayBgColorBtn.setForeground(c);
-                    onFormatChanged();
-                }
-            });
+            overlayBgColorBtn.addActionListener(e -> pickColorLive(panel, "Background Color", overlayBgColor, c -> {
+                overlayBgColor = c;
+                overlayBgColorBtn.setForeground(c);
+                onFormatChanged();
+            }));
 
             overlaySizeSpinner = new JSpinner(new SpinnerNumberModel(50, 5, 100, 1));
             overlaySizeSpinner.setPreferredSize(new Dimension(45, 24));
@@ -17366,14 +17356,11 @@ public class GifSlideShowApp extends JFrame {
             audioHlColorBtn.setBorder(BorderFactory.createLineBorder(new Color(80, 85, 100), 1));
             audioHlColorBtn.setToolTipText("Audio highlight color");
             audioHlColorBtn.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
-            audioHlColorBtn.addActionListener(e -> {
-                Color c = JColorChooser.showDialog(panel, "Audio Highlight Color", audioHlColor);
-                if (c != null) {
-                    audioHlColor = new Color(c.getRed(), c.getGreen(), c.getBlue(), 160);
-                    audioHlColorBtn.setForeground(audioHlColor);
-                    onFormatChanged();
-                }
-            });
+            audioHlColorBtn.addActionListener(e -> pickColorLive(panel, "Audio Highlight Color", audioHlColor, c -> {
+                audioHlColor = new Color(c.getRed(), c.getGreen(), c.getBlue(), 160);
+                audioHlColorBtn.setForeground(audioHlColor);
+                onFormatChanged();
+            }));
 
             // Professional styled toggle buttons with clear selected/unselected states
             Font fxBtnFont = new Font("Segoe UI", Font.BOLD, 10);
@@ -17658,15 +17645,12 @@ public class GifSlideShowApp extends JFrame {
             karaokeColorBtn.setBorder(BorderFactory.createLineBorder(new Color(120, 180, 180), 1));
             karaokeColorBtn.setFocusPainted(false);
             karaokeColorBtn.setToolTipText("Color of the per-word effect (with alpha)");
-            karaokeColorBtn.addActionListener(e -> {
-                Color c = JColorChooser.showDialog(panel, "Karaoke word color",
-                        new Color(karaokeColor.getRed(), karaokeColor.getGreen(), karaokeColor.getBlue()));
-                if (c != null) {
-                    karaokeColor = new Color(c.getRed(), c.getGreen(), c.getBlue(), karaokeColor.getAlpha());
-                    karaokeColorBtn.setBackground(karaokeColor);
-                    onKaraokeUiChanged();
-                }
-            });
+            karaokeColorBtn.addActionListener(e -> pickColorLive(panel, "Karaoke word color",
+                    new Color(karaokeColor.getRed(), karaokeColor.getGreen(), karaokeColor.getBlue()), c -> {
+                karaokeColor = new Color(c.getRed(), c.getGreen(), c.getBlue(), karaokeColor.getAlpha());
+                karaokeColorBtn.setBackground(karaokeColor);
+                onKaraokeUiChanged();
+            }));
 
             toolbar7d.add(karaokeLbl);
             toolbar7d.add(karaokeSyncBtn);
@@ -17763,15 +17747,11 @@ public class GifSlideShowApp extends JFrame {
             quizColorBtn.setPreferredSize(new Dimension(28, 24));
             quizColorBtn.setForeground(quiz.timerColor);
             quizColorBtn.setToolTipText("Timer accent color (red overrides this in the last few seconds)");
-            quizColorBtn.addActionListener(e -> {
-                Color picked = JColorChooser.showDialog(panel,
-                        "Timer color", quiz.timerColor);
-                if (picked != null) {
-                    quiz.timerColor = picked;
-                    quizColorBtn.setForeground(picked);
-                    onFormatChanged();
-                }
-            });
+            quizColorBtn.addActionListener(e -> pickColorLive(panel, "Timer color", quiz.timerColor, picked -> {
+                quiz.timerColor = picked;
+                quizColorBtn.setForeground(picked);
+                onFormatChanged();
+            }));
 
             // Optional label drawn alongside the digit (e.g. "Time:").
             JLabel labelLbl = styledLabel("Label");
@@ -17816,14 +17796,34 @@ public class GifSlideShowApp extends JFrame {
                     ? quiz.timerTextColor : Color.WHITE);
             quizTextColorBtn.setToolTipText("Digit text color (red still wins in the final seconds)");
             quizTextColorBtn.addActionListener(e -> {
-                Color picked = JColorChooser.showDialog(panel,
-                        "Timer text color",
-                        quiz.timerTextColor != null ? quiz.timerTextColor : Color.WHITE);
-                if (picked != null) {
-                    quiz.timerTextColor = picked;
-                    quizTextColorBtn.setForeground(picked);
+                final Color originalField = quiz.timerTextColor;
+                Color initial = originalField != null ? originalField : Color.WHITE;
+                final boolean[] committed = { false };
+                JColorChooser chooser = new JColorChooser(initial);
+                Runnable restore = () -> {
+                    quiz.timerTextColor = originalField;
+                    quizTextColorBtn.setForeground(originalField != null ? originalField : Color.WHITE);
                     onFormatChanged();
-                }
+                };
+                chooser.getSelectionModel().addChangeListener(ev -> {
+                    isLivePreviewActive = true;
+                    try {
+                        quiz.timerTextColor = chooser.getColor();
+                        quizTextColorBtn.setForeground(chooser.getColor());
+                        onFormatChanged();
+                    } finally {
+                        isLivePreviewActive = false;
+                    }
+                });
+                JDialog dialog = JColorChooser.createDialog(panel, "Timer text color", true, chooser,
+                        ok -> { committed[0] = true; onFormatChanged(); },
+                        cancel -> { committed[0] = true; restore.run(); });
+                dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+                    @Override public void windowClosed(java.awt.event.WindowEvent ev) {
+                        if (!committed[0]) restore.run();
+                    }
+                });
+                dialog.setVisible(true);
             });
 
             toolbar7c.add(quizTimerLbl);
@@ -17997,15 +17997,35 @@ public class GifSlideShowApp extends JFrame {
                     ? quiz.revealMarkColor : new Color(60, 220, 110));
             quizRevealColorBtn.setToolTipText("Color of the reveal badge and highlight ring");
             quizRevealColorBtn.addActionListener(e -> {
-                Color picked = JColorChooser.showDialog(panel,
-                        "Reveal mark color",
-                        quiz.revealMarkColor != null ? quiz.revealMarkColor
-                                : new Color(60, 220, 110));
-                if (picked != null) {
-                    quiz.revealMarkColor = picked;
-                    quizRevealColorBtn.setForeground(picked);
+                final Color originalField = quiz.revealMarkColor;
+                Color fallback = new Color(60, 220, 110);
+                Color initial = originalField != null ? originalField : fallback;
+                final boolean[] committed = { false };
+                JColorChooser chooser = new JColorChooser(initial);
+                Runnable restore = () -> {
+                    quiz.revealMarkColor = originalField;
+                    quizRevealColorBtn.setForeground(originalField != null ? originalField : fallback);
                     onFormatChanged();
-                }
+                };
+                chooser.getSelectionModel().addChangeListener(ev -> {
+                    isLivePreviewActive = true;
+                    try {
+                        quiz.revealMarkColor = chooser.getColor();
+                        quizRevealColorBtn.setForeground(chooser.getColor());
+                        onFormatChanged();
+                    } finally {
+                        isLivePreviewActive = false;
+                    }
+                });
+                JDialog dialog = JColorChooser.createDialog(panel, "Reveal mark color", true, chooser,
+                        ok -> { committed[0] = true; onFormatChanged(); },
+                        cancel -> { committed[0] = true; restore.run(); });
+                dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+                    @Override public void windowClosed(java.awt.event.WindowEvent ev) {
+                        if (!committed[0]) restore.run();
+                    }
+                });
+                dialog.setVisible(true);
             });
 
             JLabel revealPadLbl = styledLabel("Pad%");
@@ -18190,15 +18210,35 @@ public class GifSlideShowApp extends JFrame {
                     ? quiz.timerRedColor : new Color(235, 70, 70));
             quizRedColorBtn.setToolTipText("Color used in the urgent (red threshold) phase. Right-click to reset to default.");
             quizRedColorBtn.addActionListener(e -> {
-                Color picked = JColorChooser.showDialog(panel,
-                        "Urgent-phase (red) color",
-                        quiz.timerRedColor != null ? quiz.timerRedColor
-                                : new Color(235, 70, 70));
-                if (picked != null) {
-                    quiz.timerRedColor = picked;
-                    quizRedColorBtn.setForeground(picked);
+                final Color originalField = quiz.timerRedColor;
+                Color fallback = new Color(235, 70, 70);
+                Color initial = originalField != null ? originalField : fallback;
+                final boolean[] committed = { false };
+                JColorChooser chooser = new JColorChooser(initial);
+                Runnable restore = () -> {
+                    quiz.timerRedColor = originalField;
+                    quizRedColorBtn.setForeground(originalField != null ? originalField : fallback);
                     onFormatChanged();
-                }
+                };
+                chooser.getSelectionModel().addChangeListener(ev -> {
+                    isLivePreviewActive = true;
+                    try {
+                        quiz.timerRedColor = chooser.getColor();
+                        quizRedColorBtn.setForeground(chooser.getColor());
+                        onFormatChanged();
+                    } finally {
+                        isLivePreviewActive = false;
+                    }
+                });
+                JDialog dialog = JColorChooser.createDialog(panel, "Urgent-phase (red) color", true, chooser,
+                        ok -> { committed[0] = true; onFormatChanged(); },
+                        cancel -> { committed[0] = true; restore.run(); });
+                dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+                    @Override public void windowClosed(java.awt.event.WindowEvent ev) {
+                        if (!committed[0]) restore.run();
+                    }
+                });
+                dialog.setVisible(true);
             });
             quizRedColorBtn.addMouseListener(new java.awt.event.MouseAdapter() {
                 @Override public void mousePressed(java.awt.event.MouseEvent e) {
@@ -19233,7 +19273,7 @@ public class GifSlideShowApp extends JFrame {
         private void onFormatChanged() {
             schedulePreview();
             updateTextAreaStyle();
-            if (!isSyncingFormat && !isTitleGridSlide && !slideRows.isEmpty()) {
+            if (!isSyncingFormat && !isLivePreviewActive && !isTitleGridSlide && !slideRows.isEmpty()) {
                 for (SlideRow row : slideRows) {
                     if (!row.isTitleGridSlide) {
                         if (row == this) {
@@ -19918,7 +19958,7 @@ public class GifSlideShowApp extends JFrame {
             schedulePreview();
             // If this is the master slide, broadcast Word FX style/color to the rest
             // — same trigger pattern as onFormatChanged().
-            if (!isSyncingFormat && !isTitleGridSlide && !slideRows.isEmpty()) {
+            if (!isSyncingFormat && !isLivePreviewActive && !isTitleGridSlide && !slideRows.isEmpty()) {
                 for (SlideRow row : slideRows) {
                     if (!row.isTitleGridSlide) {
                         if (row == this) syncFormattingFromFirstSlide();
