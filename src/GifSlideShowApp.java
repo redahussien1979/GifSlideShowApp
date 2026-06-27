@@ -15683,9 +15683,13 @@ public class GifSlideShowApp extends JFrame {
             toolbar4a.setBackground(new Color(50, 95, 60));
             JPanel toolbar4b = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
             toolbar4b.setBackground(new Color(50, 95, 60));
-            // Layout Group toolbar (purple accent so it's visually distinct from the per-text rows)
-            JPanel toolbar4lg = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
-            toolbar4lg.setBackground(new Color(60, 50, 95));
+            // Layout Group toolbars (purple accent). Two rows so all controls
+            // stay visible: row 1 = layout knobs, row 2 = stamp toggles + style
+            // pickers + Apply/Undo buttons.
+            JPanel toolbar4lg1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
+            toolbar4lg1.setBackground(new Color(60, 50, 95));
+            JPanel toolbar4lg2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
+            toolbar4lg2.setBackground(new Color(60, 50, 95));
             JPanel toolbar4b2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
             toolbar4b2.setBackground(new Color(50, 95, 60));
             JPanel toolbar4b3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
@@ -16109,34 +16113,37 @@ public class GifSlideShowApp extends JFrame {
             lgUndoBtn.setToolTipText("Restore the previous values of the texts touched by the most recent Apply on this slide");
             lgUndoBtn.addActionListener(e -> undoLayoutGroup());
 
-            toolbar4lg.add(lgLbl.apply("◧ Layout:"));
-            toolbar4lg.add(lgLbl.apply("Skip:"));
-            toolbar4lg.add(lgSkipSpinner);
-            toolbar4lg.add(lgLbl.apply("Cols:"));
-            toolbar4lg.add(lgColsSpinner);
-            toolbar4lg.add(lgLbl.apply("AnchorX%:"));
-            toolbar4lg.add(lgAnchorXSpinner);
-            toolbar4lg.add(lgLbl.apply("Y%:"));
-            toolbar4lg.add(lgAnchorYSpinner);
-            toolbar4lg.add(lgLbl.apply("ColGap%:"));
-            toolbar4lg.add(lgColGapSpinner);
-            toolbar4lg.add(lgLbl.apply("RowGap%:"));
-            toolbar4lg.add(lgRowGapSpinner);
-            toolbar4lg.add(lgLbl.apply("  Stamp:"));
-            toolbar4lg.add(lgApplyPosCheck);
-            toolbar4lg.add(lgApplyFontCheck);
-            toolbar4lg.add(lgFontCombo);
-            toolbar4lg.add(lgApplySizeCheck);
-            toolbar4lg.add(lgSizeSpinner);
-            toolbar4lg.add(lgApplyColorCheck);
-            toolbar4lg.add(lgColorBtn);
-            toolbar4lg.add(lgApplyBoldCheck);
-            toolbar4lg.add(lgBoldBtn);
-            toolbar4lg.add(lgApplyItalicCheck);
-            toolbar4lg.add(lgItalicBtn);
-            toolbar4lg.add(lgApplyBtn);
-            toolbar4lg.add(lgApplyAllBtn);
-            toolbar4lg.add(lgUndoBtn);
+            // Row 1: layout knobs
+            toolbar4lg1.add(lgLbl.apply("◧ Layout:"));
+            toolbar4lg1.add(lgLbl.apply("Skip:"));
+            toolbar4lg1.add(lgSkipSpinner);
+            toolbar4lg1.add(lgLbl.apply("Cols:"));
+            toolbar4lg1.add(lgColsSpinner);
+            toolbar4lg1.add(lgLbl.apply("AnchorX%:"));
+            toolbar4lg1.add(lgAnchorXSpinner);
+            toolbar4lg1.add(lgLbl.apply("Y%:"));
+            toolbar4lg1.add(lgAnchorYSpinner);
+            toolbar4lg1.add(lgLbl.apply("ColGap%:"));
+            toolbar4lg1.add(lgColGapSpinner);
+            toolbar4lg1.add(lgLbl.apply("RowGap%:"));
+            toolbar4lg1.add(lgRowGapSpinner);
+
+            // Row 2: which fields to stamp, the style pickers, and the action buttons
+            toolbar4lg2.add(lgLbl.apply("  Stamp:"));
+            toolbar4lg2.add(lgApplyPosCheck);
+            toolbar4lg2.add(lgApplyFontCheck);
+            toolbar4lg2.add(lgFontCombo);
+            toolbar4lg2.add(lgApplySizeCheck);
+            toolbar4lg2.add(lgSizeSpinner);
+            toolbar4lg2.add(lgApplyColorCheck);
+            toolbar4lg2.add(lgColorBtn);
+            toolbar4lg2.add(lgApplyBoldCheck);
+            toolbar4lg2.add(lgBoldBtn);
+            toolbar4lg2.add(lgApplyItalicCheck);
+            toolbar4lg2.add(lgItalicBtn);
+            toolbar4lg2.add(lgApplyBtn);
+            toolbar4lg2.add(lgApplyAllBtn);
+            toolbar4lg2.add(lgUndoBtn);
 
             // ===== Toolbar 4b2: BG Fill (opacity / color / padding / round / fill paint) =====
             final Color bgRowFg = new Color(140, 210, 160);
@@ -18619,7 +18626,8 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar4a);
             toolbarsPanel.add(toolbar4b);
-            toolbarsPanel.add(toolbar4lg);
+            toolbarsPanel.add(toolbar4lg1);
+            toolbarsPanel.add(toolbar4lg2);
             toolbarsPanel.add(toolbar4b2);
             toolbarsPanel.add(toolbar4b3);
             toolbarsPanel.add(toolbar4b4);
