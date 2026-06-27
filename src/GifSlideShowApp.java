@@ -19135,9 +19135,10 @@ public class GifSlideShowApp extends JFrame {
             dlg.setLocationRelativeTo(owner);
             dlg.setVisible(true);
 
-            // Kick a first preview so the user sees the stored config without
-            // having to touch any spinner.
-            livePreview.run();
+            // Intentionally do NOT call livePreview.run() here. The slide must
+            // stay exactly as the user left it until they actively change
+            // something in the dialog. Otherwise opening the dialog would
+            // re-stamp positions using whatever the stored defaults are.
         }
 
         private JLabel sectionLabel(String txt) {
