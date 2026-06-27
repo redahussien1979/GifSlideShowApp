@@ -418,26 +418,26 @@ public class GifSlideShowApp extends JFrame {
         // Orientation
         props.setProperty("orientation", isPortrait() ? "Portrait" : "Landscape");
 
-        // Layout Group (toolbar 4lg) panel state — saved so reopening a preset
-        // re-populates the same knobs/checkboxes. NOT auto-replayed on load:
-        // target slides may have a different number of visible texts.
-        props.setProperty("layoutGroup.skip",      String.valueOf(source.getLgSkip()));
-        props.setProperty("layoutGroup.cols",      String.valueOf(source.getLgCols()));
-        props.setProperty("layoutGroup.anchorX",   String.valueOf(source.getLgAnchorX()));
-        props.setProperty("layoutGroup.anchorY",   String.valueOf(source.getLgAnchorY()));
-        props.setProperty("layoutGroup.colGap",    String.valueOf(source.getLgColGap()));
-        props.setProperty("layoutGroup.rowGap",    String.valueOf(source.getLgRowGap()));
-        props.setProperty("layoutGroup.doPos",     String.valueOf(source.isLgApplyPos()));
-        props.setProperty("layoutGroup.doFont",    String.valueOf(source.isLgApplyFont()));
-        props.setProperty("layoutGroup.doSize",    String.valueOf(source.isLgApplySize()));
-        props.setProperty("layoutGroup.doColor",   String.valueOf(source.isLgApplyColor()));
-        props.setProperty("layoutGroup.doBold",    String.valueOf(source.isLgApplyBold()));
-        props.setProperty("layoutGroup.doItalic",  String.valueOf(source.isLgApplyItalic()));
-        props.setProperty("layoutGroup.font",      source.getLgFont());
-        props.setProperty("layoutGroup.size",      String.valueOf(source.getLgSize()));
-        props.setProperty("layoutGroup.color",     colorToHex(source.getLgColor()));
-        props.setProperty("layoutGroup.bold",      String.valueOf(source.isLgBold()));
-        props.setProperty("layoutGroup.italic",    String.valueOf(source.isLgItalic()));
+        // Layout Group dialog state — saved so reopening the dialog (or saving
+        // the project as a preset) preserves the user's last picks. NOT auto-
+        // replayed on load: the selection list is per-slide and per-session.
+        props.setProperty("layoutGroup.cols",       String.valueOf(source.getLgCols()));
+        props.setProperty("layoutGroup.anchorX",    String.valueOf(source.getLgAnchorX()));
+        props.setProperty("layoutGroup.anchorY",    String.valueOf(source.getLgAnchorY()));
+        props.setProperty("layoutGroup.colGap",     String.valueOf(source.getLgColGap()));
+        props.setProperty("layoutGroup.rowGap",     String.valueOf(source.getLgRowGap()));
+        props.setProperty("layoutGroup.fillOrder",  source.getLgFillOrder());
+        props.setProperty("layoutGroup.doPos",      String.valueOf(source.isLgApplyPos()));
+        props.setProperty("layoutGroup.doFont",     String.valueOf(source.isLgApplyFont()));
+        props.setProperty("layoutGroup.doSize",     String.valueOf(source.isLgApplySize()));
+        props.setProperty("layoutGroup.doColor",    String.valueOf(source.isLgApplyColor()));
+        props.setProperty("layoutGroup.doBold",     String.valueOf(source.isLgApplyBold()));
+        props.setProperty("layoutGroup.doItalic",   String.valueOf(source.isLgApplyItalic()));
+        props.setProperty("layoutGroup.font",       source.getLgFont());
+        props.setProperty("layoutGroup.size",       String.valueOf(source.getLgSize()));
+        props.setProperty("layoutGroup.color",      colorToHex(source.getLgColor()));
+        props.setProperty("layoutGroup.bold",       String.valueOf(source.isLgBold()));
+        props.setProperty("layoutGroup.italic",     String.valueOf(source.isLgItalic()));
 
         // Quiz timer shared/visual settings (per-slide fields like the
         // "enabled" flag, correct option, and question audio file are NOT
@@ -752,27 +752,27 @@ public class GifSlideShowApp extends JFrame {
             orientationCombo.setSelectedItem("Landscape (1920×1080)");
         }
 
-        // Layout Group (toolbar 4lg) — restore the panel state on every row so
-        // the master and any future-master row sees the saved knobs. Does NOT
-        // call Apply: target slides may have different visible text counts.
-        int  lgSkip    = parseIntOr(props.getProperty("layoutGroup.skip"),    0);
-        int  lgCols    = parseIntOr(props.getProperty("layoutGroup.cols"),    2);
-        int  lgAnchorX = parseIntOr(props.getProperty("layoutGroup.anchorX"), 10);
-        int  lgAnchorY = parseIntOr(props.getProperty("layoutGroup.anchorY"), 55);
-        int  lgColGap  = parseIntOr(props.getProperty("layoutGroup.colGap"),  30);
-        int  lgRowGap  = parseIntOr(props.getProperty("layoutGroup.rowGap"),  4);
-        boolean lgPos   = Boolean.parseBoolean(props.getProperty("layoutGroup.doPos",    "true"));
-        boolean lgFontC = Boolean.parseBoolean(props.getProperty("layoutGroup.doFont",   "false"));
-        boolean lgSizeC = Boolean.parseBoolean(props.getProperty("layoutGroup.doSize",   "false"));
-        boolean lgColC  = Boolean.parseBoolean(props.getProperty("layoutGroup.doColor",  "false"));
-        boolean lgBoldC = Boolean.parseBoolean(props.getProperty("layoutGroup.doBold",   "false"));
-        boolean lgItalC = Boolean.parseBoolean(props.getProperty("layoutGroup.doItalic", "false"));
-        String  lgFont  = props.getProperty("layoutGroup.font",
+        // Layout Group — restore last-used dialog state into every row so any row
+        // can later become master and start with the same knob values. Does NOT
+        // open the dialog or run Apply: selection is per-slide/per-session.
+        int     lgCols    = parseIntOr(props.getProperty("layoutGroup.cols"),    2);
+        int     lgAnchorX = parseIntOr(props.getProperty("layoutGroup.anchorX"), 10);
+        int     lgAnchorY = parseIntOr(props.getProperty("layoutGroup.anchorY"), 55);
+        int     lgColGap  = parseIntOr(props.getProperty("layoutGroup.colGap"),  30);
+        int     lgRowGap  = parseIntOr(props.getProperty("layoutGroup.rowGap"),  4);
+        String  lgFillOrd = props.getProperty("layoutGroup.fillOrder", "Row");
+        boolean lgPos     = Boolean.parseBoolean(props.getProperty("layoutGroup.doPos",    "true"));
+        boolean lgFontC   = Boolean.parseBoolean(props.getProperty("layoutGroup.doFont",   "false"));
+        boolean lgSizeC   = Boolean.parseBoolean(props.getProperty("layoutGroup.doSize",   "false"));
+        boolean lgColC    = Boolean.parseBoolean(props.getProperty("layoutGroup.doColor",  "false"));
+        boolean lgBoldC   = Boolean.parseBoolean(props.getProperty("layoutGroup.doBold",   "false"));
+        boolean lgItalC   = Boolean.parseBoolean(props.getProperty("layoutGroup.doItalic", "false"));
+        String  lgFont    = props.getProperty("layoutGroup.font",
                 loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI");
-        int     lgSize  = parseIntOr(props.getProperty("layoutGroup.size"), 32);
-        Color   lgCol   = hexToColor(props.getProperty("layoutGroup.color", "#FFFF00"));
-        boolean lgBold  = Boolean.parseBoolean(props.getProperty("layoutGroup.bold",   "false"));
-        boolean lgItal  = Boolean.parseBoolean(props.getProperty("layoutGroup.italic", "false"));
+        int     lgSize    = parseIntOr(props.getProperty("layoutGroup.size"), 32);
+        Color   lgCol     = hexToColor(props.getProperty("layoutGroup.color", "#FFFF00"));
+        boolean lgBold    = Boolean.parseBoolean(props.getProperty("layoutGroup.bold",   "false"));
+        boolean lgItal    = Boolean.parseBoolean(props.getProperty("layoutGroup.italic", "false"));
 
         // Quiz timer shared/visual settings — read from preset (defaults
         // mirror QuizSlide field defaults so older presets still load).
@@ -919,8 +919,9 @@ public class GifSlideShowApp extends JFrame {
                         karaokeStyleList, karaokeColorList);
                 row.getQuiz().copyVisualSettingsFrom(tmpl);
                 row.refreshQuizToolbarFromState();
-                row.applyLayoutGroupPanelState(lgSkip, lgCols, lgAnchorX, lgAnchorY,
-                        lgColGap, lgRowGap, lgPos, lgFontC, lgSizeC, lgColC, lgBoldC, lgItalC,
+                row.applyLayoutGroupPanelState(lgCols, lgAnchorX, lgAnchorY,
+                        lgColGap, lgRowGap, lgFillOrd,
+                        lgPos, lgFontC, lgSizeC, lgColC, lgBoldC, lgItalC,
                         lgFont, lgSize, lgCol, lgBold, lgItal);
             }
         } finally {
@@ -15049,29 +15050,28 @@ public class GifSlideShowApp extends JFrame {
         private final JCheckBox slideTextJustifyCheck;
         private final JSpinner slideTextWidthSpinner;
         private final JSpinner slideTextShiftXSpinner;
-        // ===== Layout Group (toolbar 4lg): bulk-stamp position/style across visible slide texts =====
-        // Writes into existing SlideTextData fields (x/y/font/size/color/style) — no new render path,
-        // so presets and propagation keep working unchanged.
-        private final JSpinner lgSkipSpinner;
-        private final JSpinner lgColsSpinner;
-        private final JSpinner lgAnchorXSpinner;
-        private final JSpinner lgAnchorYSpinner;
-        private final JSpinner lgColGapSpinner;
-        private final JSpinner lgRowGapSpinner;
-        private final JCheckBox lgApplyPosCheck;
-        private final JCheckBox lgApplyFontCheck;
-        private final JCheckBox lgApplySizeCheck;
-        private final JCheckBox lgApplyColorCheck;
-        private final JCheckBox lgApplyBoldCheck;
-        private final JCheckBox lgApplyItalicCheck;
-        private final JComboBox<String> lgFontCombo;
-        private final JSpinner lgSizeSpinner;
-        private final JButton lgColorBtn;
-        private Color lgColor = Color.YELLOW;
-        private final JToggleButton lgBoldBtn;
-        private final JToggleButton lgItalicBtn;
-        // Snapshot for "Undo Last Apply" — index -> previous SlideTextData for the items touched.
-        private java.util.Map<Integer, SlideTextData> lgLastSnapshot = null;
+        // ===== Layout Group: dialog-driven bulk-stamp of position/style across selected slide texts.
+        // Values live as plain fields here so the dialog can be opened/closed/reopened
+        // without losing the user's last picks. Writes into existing SlideTextData fields
+        // (x/y/font/size/color/style) — no new render path, so presets and propagation
+        // keep working unchanged.
+        private int     lgCols       = 2;
+        private int     lgAnchorX    = 10;
+        private int     lgAnchorY    = 55;
+        private int     lgColGap     = 30;
+        private int     lgRowGap     = 4;
+        private String  lgFillOrder  = "Row";    // "Row" (4,5 / 6,7 / 8,9) or "Column" (4,7 / 5,8 / 6,9)
+        private boolean lgApplyPos   = true;
+        private boolean lgApplyFont  = false;
+        private boolean lgApplySize  = false;
+        private boolean lgApplyColor = false;
+        private boolean lgApplyBold  = false;
+        private boolean lgApplyItalic= false;
+        private String  lgFont       = "Segoe UI";
+        private int     lgSize       = 32;
+        private Color   lgColor      = Color.YELLOW;
+        private boolean lgBold       = false;
+        private boolean lgItalic     = false;
         private final JComboBox<String> slideTextAlignCombo;
         private final JComboBox<String> slideTextEffectCombo;
         private final JSpinner slideTextEffectIntensitySpinner;
@@ -15683,13 +15683,10 @@ public class GifSlideShowApp extends JFrame {
             toolbar4a.setBackground(new Color(50, 95, 60));
             JPanel toolbar4b = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
             toolbar4b.setBackground(new Color(50, 95, 60));
-            // Layout Group toolbars (purple accent). Two rows so all controls
-            // stay visible: row 1 = layout knobs, row 2 = stamp toggles + style
-            // pickers + Apply/Undo buttons.
-            JPanel toolbar4lg1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
-            toolbar4lg1.setBackground(new Color(60, 50, 95));
-            JPanel toolbar4lg2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
-            toolbar4lg2.setBackground(new Color(60, 50, 95));
+            // Layout Group toolbar (purple accent). A single button opens a dialog
+            // with the text picker, grid knobs, fill order, and style stamp controls.
+            JPanel toolbar4lg = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
+            toolbar4lg.setBackground(new Color(60, 50, 95));
             JPanel toolbar4b2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
             toolbar4b2.setBackground(new Color(50, 95, 60));
             JPanel toolbar4b3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
@@ -16006,144 +16003,25 @@ public class GifSlideShowApp extends JFrame {
             toolbar4b.add(styledLabel("Shift:"));
             toolbar4b.add(slideTextShiftXSpinner);
 
-            // ===== Toolbar 4lg: Layout Group (bulk position + style for all visible texts) =====
+            // ===== Toolbar 4lg: single button that opens the Layout Group dialog =====
+            // Seed the group font from the first loaded font so the dialog opens with
+            // a sensible default if the user opens it before touching anything else.
+            if (loadedFontNames.length > 0) lgFont = loadedFontNames[0];
+
             final Color lgFg = new Color(200, 190, 240);
-            final java.util.function.Function<String, JLabel> lgLbl = (txt) -> {
-                JLabel L = styledLabel(txt);
-                L.setFont(new Font("Segoe UI", Font.BOLD, 11));
-                L.setForeground(lgFg);
-                return L;
-            };
+            JLabel lgTitleLbl = new JLabel("◧ Layout Group");
+            lgTitleLbl.setForeground(lgFg);
+            lgTitleLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
 
-            lgSkipSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 99, 1));
-            lgSkipSpinner.setPreferredSize(new Dimension(48, 24));
-            lgSkipSpinner.setToolTipText("Skip the first N VISIBLE texts (e.g. dialogue lines) before laying out the rest in columns");
+            JButton lgOpenBtn = new JButton("Open Layout Group…");
+            lgOpenBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            lgOpenBtn.setPreferredSize(new Dimension(180, 24));
+            lgOpenBtn.setFocusPainted(false);
+            lgOpenBtn.setToolTipText("Pick texts, arrange them in a grid (rows × columns), tweak position & style — live preview, Cancel reverts.");
+            lgOpenBtn.addActionListener(e -> openLayoutGroupDialog());
 
-            lgColsSpinner = new JSpinner(new SpinnerNumberModel(2, 1, 8, 1));
-            lgColsSpinner.setPreferredSize(new Dimension(44, 24));
-            lgColsSpinner.setToolTipText("Number of columns (left-to-right, row-major)");
-
-            lgAnchorXSpinner = new JSpinner(new SpinnerNumberModel(10, 0, 100, 1));
-            lgAnchorXSpinner.setPreferredSize(new Dimension(50, 24));
-            lgAnchorXSpinner.setToolTipText("Top-left X% of the group");
-
-            lgAnchorYSpinner = new JSpinner(new SpinnerNumberModel(55, 0, 100, 1));
-            lgAnchorYSpinner.setPreferredSize(new Dimension(50, 24));
-            lgAnchorYSpinner.setToolTipText("Top-left Y% of the group");
-
-            lgColGapSpinner = new JSpinner(new SpinnerNumberModel(30, 0, 100, 1));
-            lgColGapSpinner.setPreferredSize(new Dimension(50, 24));
-            lgColGapSpinner.setToolTipText("Horizontal distance between columns (% of frame width)");
-
-            lgRowGapSpinner = new JSpinner(new SpinnerNumberModel(4, 0, 50, 1));
-            lgRowGapSpinner.setPreferredSize(new Dimension(50, 24));
-            lgRowGapSpinner.setToolTipText("Vertical distance between rows (% of frame height)");
-
-            lgApplyPosCheck    = new JCheckBox("Pos", true);
-            lgApplyFontCheck   = new JCheckBox("Font", false);
-            lgApplySizeCheck   = new JCheckBox("Sz", false);
-            lgApplyColorCheck  = new JCheckBox("Color", false);
-            lgApplyBoldCheck   = new JCheckBox("B", false);
-            lgApplyItalicCheck = new JCheckBox("I", false);
-            for (JCheckBox cb : new JCheckBox[] {
-                    lgApplyPosCheck, lgApplyFontCheck, lgApplySizeCheck,
-                    lgApplyColorCheck, lgApplyBoldCheck, lgApplyItalicCheck }) {
-                cb.setBackground(new Color(60, 50, 95));
-                cb.setForeground(lgFg);
-                cb.setFocusPainted(false);
-                cb.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            }
-            lgApplyPosCheck.setToolTipText("Apply computed X/Y to each visible text in the range");
-            lgApplyFontCheck.setToolTipText("Apply the group font to each visible text");
-            lgApplySizeCheck.setToolTipText("Apply the group size to each visible text");
-            lgApplyColorCheck.setToolTipText("Apply the group color to each visible text");
-            lgApplyBoldCheck.setToolTipText("Apply Bold on/off to each visible text");
-            lgApplyItalicCheck.setToolTipText("Apply Italic on/off to each visible text");
-
-            lgFontCombo = new JComboBox<>(loadedFontNames.length > 0 ? loadedFontNames : new String[]{"Segoe UI"});
-            lgFontCombo.setPreferredSize(new Dimension(110, 24));
-            lgFontCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            lgFontCombo.setToolTipText("Group font (used when Font is checked)");
-
-            lgSizeSpinner = new JSpinner(new SpinnerNumberModel(32, 6, 400, 1));
-            lgSizeSpinner.setPreferredSize(new Dimension(50, 24));
-            lgSizeSpinner.setToolTipText("Group size (used when Sz is checked)");
-
-            lgColorBtn = new JButton("■");
-            lgColorBtn.setForeground(lgColor);
-            lgColorBtn.setFont(new Font("Segoe UI", Font.PLAIN, 18));
-            lgColorBtn.setPreferredSize(new Dimension(36, 24));
-            lgColorBtn.setFocusPainted(false);
-            lgColorBtn.setToolTipText("Group color (used when Color is checked)");
-            lgColorBtn.addActionListener(e -> pickColorLive(panel, "Layout Group Color", lgColor, c -> {
-                lgColor = c;
-                lgColorBtn.setForeground(c);
-            }));
-
-            lgBoldBtn = new JToggleButton("B");
-            lgBoldBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            lgBoldBtn.setPreferredSize(new Dimension(30, 24));
-            lgBoldBtn.setFocusPainted(false);
-            lgBoldBtn.setToolTipText("Group bold on/off (used when B is checked)");
-
-            lgItalicBtn = new JToggleButton("I");
-            lgItalicBtn.setFont(new Font("Segoe UI", Font.ITALIC, 11));
-            lgItalicBtn.setPreferredSize(new Dimension(30, 24));
-            lgItalicBtn.setFocusPainted(false);
-            lgItalicBtn.setToolTipText("Group italic on/off (used when I is checked)");
-
-            JButton lgApplyBtn = new JButton("Apply Group");
-            lgApplyBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            lgApplyBtn.setPreferredSize(new Dimension(110, 24));
-            lgApplyBtn.setFocusPainted(false);
-            lgApplyBtn.setToolTipText("Stamp the checked fields onto every visible text in the range, on THIS slide (auto-propagates from master)");
-            lgApplyBtn.addActionListener(e -> applyLayoutGroup(true));
-
-            JButton lgApplyAllBtn = new JButton("Apply→All Slides");
-            lgApplyAllBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            lgApplyAllBtn.setPreferredSize(new Dimension(140, 24));
-            lgApplyAllBtn.setFocusPainted(false);
-            lgApplyAllBtn.setToolTipText("Run the same group operation on every (unlocked) slide — each slide uses its OWN visible texts");
-            lgApplyAllBtn.addActionListener(e -> applyLayoutGroupToAllSlides());
-
-            JButton lgUndoBtn = new JButton("Undo Last");
-            lgUndoBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            lgUndoBtn.setPreferredSize(new Dimension(85, 24));
-            lgUndoBtn.setFocusPainted(false);
-            lgUndoBtn.setToolTipText("Restore the previous values of the texts touched by the most recent Apply on this slide");
-            lgUndoBtn.addActionListener(e -> undoLayoutGroup());
-
-            // Row 1: layout knobs
-            toolbar4lg1.add(lgLbl.apply("◧ Layout:"));
-            toolbar4lg1.add(lgLbl.apply("Skip:"));
-            toolbar4lg1.add(lgSkipSpinner);
-            toolbar4lg1.add(lgLbl.apply("Cols:"));
-            toolbar4lg1.add(lgColsSpinner);
-            toolbar4lg1.add(lgLbl.apply("AnchorX%:"));
-            toolbar4lg1.add(lgAnchorXSpinner);
-            toolbar4lg1.add(lgLbl.apply("Y%:"));
-            toolbar4lg1.add(lgAnchorYSpinner);
-            toolbar4lg1.add(lgLbl.apply("ColGap%:"));
-            toolbar4lg1.add(lgColGapSpinner);
-            toolbar4lg1.add(lgLbl.apply("RowGap%:"));
-            toolbar4lg1.add(lgRowGapSpinner);
-
-            // Row 2: which fields to stamp, the style pickers, and the action buttons
-            toolbar4lg2.add(lgLbl.apply("  Stamp:"));
-            toolbar4lg2.add(lgApplyPosCheck);
-            toolbar4lg2.add(lgApplyFontCheck);
-            toolbar4lg2.add(lgFontCombo);
-            toolbar4lg2.add(lgApplySizeCheck);
-            toolbar4lg2.add(lgSizeSpinner);
-            toolbar4lg2.add(lgApplyColorCheck);
-            toolbar4lg2.add(lgColorBtn);
-            toolbar4lg2.add(lgApplyBoldCheck);
-            toolbar4lg2.add(lgBoldBtn);
-            toolbar4lg2.add(lgApplyItalicCheck);
-            toolbar4lg2.add(lgItalicBtn);
-            toolbar4lg2.add(lgApplyBtn);
-            toolbar4lg2.add(lgApplyAllBtn);
-            toolbar4lg2.add(lgUndoBtn);
+            toolbar4lg.add(lgTitleLbl);
+            toolbar4lg.add(lgOpenBtn);
 
             // ===== Toolbar 4b2: BG Fill (opacity / color / padding / round / fill paint) =====
             final Color bgRowFg = new Color(140, 210, 160);
@@ -18626,8 +18504,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar4a);
             toolbarsPanel.add(toolbar4b);
-            toolbarsPanel.add(toolbar4lg1);
-            toolbarsPanel.add(toolbar4lg2);
+            toolbarsPanel.add(toolbar4lg);
             toolbarsPanel.add(toolbar4b2);
             toolbarsPanel.add(toolbar4b3);
             toolbarsPanel.add(toolbar4b4);
@@ -18864,95 +18741,57 @@ public class GifSlideShowApp extends JFrame {
             }
         }
 
-        // ===== Layout Group: bulk-stamp x/y/font/size/color/style across visible texts =====
-        // Snapshot of the values typed into the Layout Group toolbar. Reading these
-        // once into a plain struct means applyLayoutGroupCore is independent of any
-        // UI state, so it can be replayed on other rows during "Apply→All Slides".
-        private final class LayoutGroupConfig {
-            int skip, cols, anchorX, anchorY, colGap, rowGap;
-            boolean doPos, doFont, doSize, doColor, doBold, doItalic;
-            String font;
-            int size;
-            Color color;
-            boolean bold, italic;
-        }
+        // ===== Layout Group: open dialog, live-preview, OK keeps / Cancel reverts =====
 
-        private LayoutGroupConfig readLayoutGroupUI() {
-            LayoutGroupConfig c = new LayoutGroupConfig();
-            c.skip     = (int) lgSkipSpinner.getValue();
-            c.cols     = Math.max(1, (int) lgColsSpinner.getValue());
-            c.anchorX  = (int) lgAnchorXSpinner.getValue();
-            c.anchorY  = (int) lgAnchorYSpinner.getValue();
-            c.colGap   = (int) lgColGapSpinner.getValue();
-            c.rowGap   = (int) lgRowGapSpinner.getValue();
-            c.doPos    = lgApplyPosCheck.isSelected();
-            c.doFont   = lgApplyFontCheck.isSelected();
-            c.doSize   = lgApplySizeCheck.isSelected();
-            c.doColor  = lgApplyColorCheck.isSelected();
-            c.doBold   = lgApplyBoldCheck.isSelected();
-            c.doItalic = lgApplyItalicCheck.isSelected();
-            c.font     = (String) lgFontCombo.getSelectedItem();
-            c.size     = (int) lgSizeSpinner.getValue();
-            c.color    = lgColor;
-            c.bold     = lgBoldBtn.isSelected();
-            c.italic   = lgItalicBtn.isSelected();
-            return c;
-        }
-
-        /** Used by the "Apply Group" button. */
-        void applyLayoutGroup(boolean propagate) {
-            applyLayoutGroupCore(readLayoutGroupUI(), true, propagate);
-        }
-
-        /**
-         * Stamp the chosen fields onto every VISIBLE text on this slide, skipping
-         * the first cfg.skip visible items. Rewrites SlideTextData in-place so the
-         * existing render / preset / propagation paths are reused as-is.
-         *
-         * snapshotForUndo: when true, the previous values for the touched indices
-         * are stashed in lgLastSnapshot so Undo Last can restore them.
-         * propagate: when true and this is the master row, onFormatChanged() will
-         * broadcast the new field values to every other slide via the existing
-         * syncFormattingFromFirstSlide() path.
-         */
-        void applyLayoutGroupCore(LayoutGroupConfig cfg, boolean snapshotForUndo, boolean propagate) {
+        /** Stamp(s) the chosen fields onto the given text-row indices. Plain primitives
+         *  are passed in so the same routine can be driven by either the dialog (with
+         *  the user's live picks) or a preset replay. Writes into existing
+         *  SlideTextData fields, then calls onFormatChanged() so the master row's
+         *  values cascade to every other slide via the existing propagation path. */
+        void applyLayoutGroupCore(java.util.List<Integer> selected,
+                                  int cols, int anchorX, int anchorY,
+                                  int colGap, int rowGap, String fillOrder,
+                                  boolean doPos, boolean doFont, boolean doSize,
+                                  boolean doColor, boolean doBold, boolean doItalic,
+                                  String font, int size, Color color,
+                                  boolean bold, boolean italic,
+                                  boolean propagate) {
             if (isTitleGridSlide) return;
-            if (!cfg.doPos && !cfg.doFont && !cfg.doSize && !cfg.doColor && !cfg.doBold && !cfg.doItalic) {
-                return;
-            }
+            if (selected == null || selected.isEmpty()) return;
+            if (!doPos && !doFont && !doSize && !doColor && !doBold && !doItalic) return;
             // Flush whatever the user has typed into the visible per-text toolbars
             // back into slideTextItems first so we don't lose unsaved edits.
             saveCurrentSlideTextToItem();
 
-            java.util.List<Integer> visible = new java.util.ArrayList<>();
-            for (int i = 0; i < slideTextItems.size(); i++) {
-                if (slideTextItems.get(i).show) visible.add(i);
-            }
-            if (visible.size() <= cfg.skip) return;
-            java.util.List<Integer> range = visible.subList(cfg.skip, visible.size());
+            int count = selected.size();
+            int useCols = Math.max(1, cols);
+            int rows = (count + useCols - 1) / useCols;
+            boolean colMajor = "Column".equalsIgnoreCase(fillOrder);
 
-            if (snapshotForUndo) {
-                lgLastSnapshot = new java.util.HashMap<>();
-                for (int idx : range) lgLastSnapshot.put(idx, slideTextItems.get(idx));
-            }
-
-            for (int k = 0; k < range.size(); k++) {
-                int idx = range.get(k);
+            for (int k = 0; k < count; k++) {
+                int idx = selected.get(k);
+                if (idx < 0 || idx >= slideTextItems.size()) continue;
                 SlideTextData old = slideTextItems.get(idx);
 
                 int newX = old.x, newY = old.y;
-                if (cfg.doPos) {
-                    int col = k % cfg.cols;
-                    int row = k / cfg.cols;
-                    newX = clampPct(cfg.anchorX + col * cfg.colGap);
-                    newY = clampPct(cfg.anchorY + row * cfg.rowGap);
+                if (doPos) {
+                    int col, row;
+                    if (colMajor) {
+                        col = k / rows;
+                        row = k % rows;
+                    } else {
+                        col = k % useCols;
+                        row = k / useCols;
+                    }
+                    newX = clampPct(anchorX + col * colGap);
+                    newY = clampPct(anchorY + row * rowGap);
                 }
-                String newFont = cfg.doFont  ? cfg.font  : old.fontName;
-                int newSize    = cfg.doSize  ? cfg.size  : old.fontSize;
-                Color newColor = cfg.doColor ? cfg.color : old.color;
+                String newFont = doFont  ? font  : old.fontName;
+                int newSize    = doSize  ? size  : old.fontSize;
+                Color newColor = doColor ? color : old.color;
                 int newStyle = old.fontStyle;
-                if (cfg.doBold)   newStyle = cfg.bold   ? (newStyle | Font.BOLD)   : (newStyle & ~Font.BOLD);
-                if (cfg.doItalic) newStyle = cfg.italic ? (newStyle | Font.ITALIC) : (newStyle & ~Font.ITALIC);
+                if (doBold)   newStyle = bold   ? (newStyle | Font.BOLD)   : (newStyle & ~Font.BOLD);
+                if (doItalic) newStyle = italic ? (newStyle | Font.ITALIC) : (newStyle & ~Font.ITALIC);
 
                 SlideTextData fresh = new SlideTextData(
                         old.show, old.text, newFont, newSize, newStyle, newColor,
@@ -18969,8 +18808,6 @@ public class GifSlideShowApp extends JFrame {
                 slideTextItems.set(idx, fresh);
             }
 
-            // Refresh whichever text is showing in the per-text toolbar so the
-            // user sees the new x/y/font/etc. in the spinners they already know.
             if (currentSlideTextIndex >= 0 && currentSlideTextIndex < slideTextItems.size()) {
                 loadSlideTextFromItem(currentSlideTextIndex);
             }
@@ -18981,97 +18818,334 @@ public class GifSlideShowApp extends JFrame {
             }
         }
 
-        /**
-         * Run the layout group on every (unlocked, non-title-grid) slide using
-         * the master row's current UI config. Each slide is laid out against ITS
-         * OWN visible texts, so slides with different vocab counts still get a
-         * coherent grid. Suppresses the auto-propagate path so we don't double up.
-         */
-        void applyLayoutGroupToAllSlides() {
-            LayoutGroupConfig cfg = readLayoutGroupUI();
-            boolean was = isSyncingFormat;
-            isSyncingFormat = true;
-            try {
-                for (SlideRow row : slideRows) {
-                    if (row.isTitleGridSlide) continue;
-                    if (row != this && row.isLocked()) continue;
-                    row.applyLayoutGroupCore(cfg, row == this, false);
-                }
-            } finally {
-                isSyncingFormat = was;
-            }
-            schedulePreview();
-        }
-
-        /** Restore the values captured by the most recent applyLayoutGroupCore on this row. */
-        void undoLayoutGroup() {
-            if (lgLastSnapshot == null || lgLastSnapshot.isEmpty()) return;
-            saveCurrentSlideTextToItem();
-            for (java.util.Map.Entry<Integer, SlideTextData> e : lgLastSnapshot.entrySet()) {
-                int idx = e.getKey();
-                if (idx < 0 || idx >= slideTextItems.size()) continue;
-                slideTextItems.set(idx, e.getValue());
-            }
-            lgLastSnapshot = null;
-            if (currentSlideTextIndex >= 0 && currentSlideTextIndex < slideTextItems.size()) {
-                loadSlideTextFromItem(currentSlideTextIndex);
-            }
-            onFormatChanged();
-        }
-
         private static int clampPct(int v) {
             return v < 0 ? 0 : (v > 100 ? 100 : v);
         }
 
-        // Layout Group panel getters — used by savePreset to capture the master
-        // row's current knobs / checkboxes / style picks.
-        int     getLgSkip()       { return (int) lgSkipSpinner.getValue(); }
-        int     getLgCols()       { return (int) lgColsSpinner.getValue(); }
-        int     getLgAnchorX()    { return (int) lgAnchorXSpinner.getValue(); }
-        int     getLgAnchorY()    { return (int) lgAnchorYSpinner.getValue(); }
-        int     getLgColGap()     { return (int) lgColGapSpinner.getValue(); }
-        int     getLgRowGap()     { return (int) lgRowGapSpinner.getValue(); }
-        boolean isLgApplyPos()    { return lgApplyPosCheck.isSelected(); }
-        boolean isLgApplyFont()   { return lgApplyFontCheck.isSelected(); }
-        boolean isLgApplySize()   { return lgApplySizeCheck.isSelected(); }
-        boolean isLgApplyColor()  { return lgApplyColorCheck.isSelected(); }
-        boolean isLgApplyBold()   { return lgApplyBoldCheck.isSelected(); }
-        boolean isLgApplyItalic() { return lgApplyItalicCheck.isSelected(); }
-        String  getLgFont()       { return (String) lgFontCombo.getSelectedItem(); }
-        int     getLgSize()       { return (int) lgSizeSpinner.getValue(); }
+        // Layout Group getters — used by savePreset to capture the last-used knobs.
+        int     getLgCols()       { return lgCols; }
+        int     getLgAnchorX()    { return lgAnchorX; }
+        int     getLgAnchorY()    { return lgAnchorY; }
+        int     getLgColGap()     { return lgColGap; }
+        int     getLgRowGap()     { return lgRowGap; }
+        String  getLgFillOrder()  { return lgFillOrder; }
+        boolean isLgApplyPos()    { return lgApplyPos; }
+        boolean isLgApplyFont()   { return lgApplyFont; }
+        boolean isLgApplySize()   { return lgApplySize; }
+        boolean isLgApplyColor()  { return lgApplyColor; }
+        boolean isLgApplyBold()   { return lgApplyBold; }
+        boolean isLgApplyItalic() { return lgApplyItalic; }
+        String  getLgFont()       { return lgFont; }
+        int     getLgSize()       { return lgSize; }
         Color   getLgColor()      { return lgColor; }
-        boolean isLgBold()        { return lgBoldBtn.isSelected(); }
-        boolean isLgItalic()      { return lgItalicBtn.isSelected(); }
+        boolean isLgBold()        { return lgBold; }
+        boolean isLgItalic()      { return lgItalic; }
 
-        /** Push saved panel state into the Layout Group toolbar. Called by
-         *  loadPresetIntoRows on every row so any row can later become master
-         *  and start with the same knob values. Does NOT call applyLayoutGroup. */
-        void applyLayoutGroupPanelState(int skip, int cols, int anchorX, int anchorY,
-                                        int colGap, int rowGap,
+        /** Push saved per-row layout group state in from a preset (does NOT apply). */
+        void applyLayoutGroupPanelState(int cols, int anchorX, int anchorY,
+                                        int colGap, int rowGap, String fillOrder,
                                         boolean doPos, boolean doFont, boolean doSize,
                                         boolean doColor, boolean doBold, boolean doItalic,
                                         String font, int size, Color color,
                                         boolean bold, boolean italic) {
-            lgSkipSpinner.setValue(skip);
-            lgColsSpinner.setValue(Math.max(1, cols));
-            lgAnchorXSpinner.setValue(clampPct(anchorX));
-            lgAnchorYSpinner.setValue(clampPct(anchorY));
-            lgColGapSpinner.setValue(clampPct(colGap));
-            lgRowGapSpinner.setValue(Math.max(0, Math.min(50, rowGap)));
-            lgApplyPosCheck.setSelected(doPos);
-            lgApplyFontCheck.setSelected(doFont);
-            lgApplySizeCheck.setSelected(doSize);
-            lgApplyColorCheck.setSelected(doColor);
-            lgApplyBoldCheck.setSelected(doBold);
-            lgApplyItalicCheck.setSelected(doItalic);
-            if (font != null) lgFontCombo.setSelectedItem(font);
-            lgSizeSpinner.setValue(size);
-            if (color != null) {
-                lgColor = color;
-                lgColorBtn.setForeground(color);
+            lgCols       = Math.max(1, cols);
+            lgAnchorX    = clampPct(anchorX);
+            lgAnchorY    = clampPct(anchorY);
+            lgColGap     = clampPct(colGap);
+            lgRowGap     = Math.max(0, Math.min(50, rowGap));
+            lgFillOrder  = "Column".equalsIgnoreCase(fillOrder) ? "Column" : "Row";
+            lgApplyPos   = doPos;
+            lgApplyFont  = doFont;
+            lgApplySize  = doSize;
+            lgApplyColor = doColor;
+            lgApplyBold  = doBold;
+            lgApplyItalic= doItalic;
+            if (font != null) lgFont = font;
+            lgSize       = Math.max(6, size);
+            if (color != null) lgColor = color;
+            lgBold       = bold;
+            lgItalic     = italic;
+        }
+
+        /**
+         * Open the Layout Group dialog. Snapshots all slideTextItems on open;
+         * every change to the dialog re-stamps the selection via
+         * applyLayoutGroupCore(propagate=true) so the user sees live preview
+         * on the master + every propagated slide. OK keeps the changes;
+         * Cancel restores the snapshot and re-propagates.
+         */
+        private void openLayoutGroupDialog() {
+            if (isTitleGridSlide) return;
+            saveCurrentSlideTextToItem();
+
+            // Snapshot — SlideTextData is immutable so sharing refs is safe.
+            final java.util.List<SlideTextData> openSnapshot = new java.util.ArrayList<>(slideTextItems);
+
+            final Window owner = SwingUtilities.getWindowAncestor(panel);
+            final JDialog dlg = new JDialog(owner, "Layout Group", Dialog.ModalityType.MODELESS);
+            dlg.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+
+            // ---------- Text picker ----------
+            final java.util.List<JCheckBox> textChecks = new java.util.ArrayList<>();
+            JPanel picker = new JPanel();
+            picker.setLayout(new BoxLayout(picker, BoxLayout.Y_AXIS));
+            picker.setBackground(Color.WHITE);
+            for (int i = 0; i < slideTextItems.size(); i++) {
+                SlideTextData st = slideTextItems.get(i);
+                String content = st.text == null ? "" : st.text.replace('\n', ' ').trim();
+                if (content.length() > 50) content = content.substring(0, 47) + "…";
+                String visMark = st.show ? "" : "  (hidden)";
+                JCheckBox cb = new JCheckBox("Text " + (i + 1) + ": " + content + visMark, st.show);
+                cb.setBackground(Color.WHITE);
+                cb.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+                textChecks.add(cb);
+                picker.add(cb);
             }
-            lgBoldBtn.setSelected(bold);
-            lgItalicBtn.setSelected(italic);
+            JScrollPane pickerScroll = new JScrollPane(picker);
+            pickerScroll.setPreferredSize(new Dimension(480, 200));
+            pickerScroll.getVerticalScrollBar().setUnitIncrement(18);
+
+            JButton selAllBtn     = new JButton("All");
+            JButton selNoneBtn    = new JButton("None");
+            JButton selVisibleBtn = new JButton("Visible Only");
+            JPanel pickerBtns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+            pickerBtns.add(new JLabel("Quick select:"));
+            pickerBtns.add(selAllBtn);
+            pickerBtns.add(selNoneBtn);
+            pickerBtns.add(selVisibleBtn);
+
+            // ---------- Grid + Position ----------
+            final JSpinner colsSp = new JSpinner(new SpinnerNumberModel(lgCols, 1, 12, 1));
+            final JRadioButton rowMajorBtn = new JRadioButton("Row-major (4,5 / 6,7 …)", !"Column".equals(lgFillOrder));
+            final JRadioButton colMajorBtn = new JRadioButton("Column-major (4,7 / 5,8 …)", "Column".equals(lgFillOrder));
+            ButtonGroup fillGroup = new ButtonGroup();
+            fillGroup.add(rowMajorBtn);
+            fillGroup.add(colMajorBtn);
+
+            final JSpinner anchorXSp = new JSpinner(new SpinnerNumberModel(lgAnchorX, 0, 100, 1));
+            final JSpinner anchorYSp = new JSpinner(new SpinnerNumberModel(lgAnchorY, 0, 100, 1));
+            final JSpinner colGapSp  = new JSpinner(new SpinnerNumberModel(lgColGap,  0, 100, 1));
+            final JSpinner rowGapSp  = new JSpinner(new SpinnerNumberModel(lgRowGap,  0,  50, 1));
+
+            // ---------- Stamp / style ----------
+            final JCheckBox doPosCheck   = new JCheckBox("Position",        lgApplyPos);
+            final JCheckBox doFontCheck  = new JCheckBox("Font:",           lgApplyFont);
+            final JCheckBox doSizeCheck  = new JCheckBox("Size:",           lgApplySize);
+            final JCheckBox doColorCheck = new JCheckBox("Color:",          lgApplyColor);
+            final JCheckBox doBoldCheck  = new JCheckBox("Bold:",           lgApplyBold);
+            final JCheckBox doItalCheck  = new JCheckBox("Italic:",         lgApplyItalic);
+
+            final JComboBox<String> fontCombo = new JComboBox<>(
+                    loadedFontNames.length > 0 ? loadedFontNames : new String[]{"Segoe UI"});
+            fontCombo.setSelectedItem(lgFont);
+            final JSpinner sizeSp = new JSpinner(new SpinnerNumberModel(lgSize, 6, 400, 1));
+            final Color[] colorHolder = new Color[] { lgColor };
+            final JButton colorBtn = new JButton("■");
+            colorBtn.setForeground(lgColor);
+            colorBtn.setFont(new Font("Segoe UI", Font.PLAIN, 18));
+            colorBtn.setPreferredSize(new Dimension(40, 24));
+            final JToggleButton boldTgl   = new JToggleButton("B", lgBold);
+            boldTgl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            boldTgl.setPreferredSize(new Dimension(34, 24));
+            final JToggleButton italicTgl = new JToggleButton("I", lgItalic);
+            italicTgl.setFont(new Font("Segoe UI", Font.ITALIC, 11));
+            italicTgl.setPreferredSize(new Dimension(34, 24));
+
+            // ---------- Live preview wiring ----------
+            // Runs on every spinner / checkbox / combo / toggle change. Builds the
+            // current selected-indices list and replays the layout. propagate=true
+            // so the auto-cascade still drives every other slide's preview.
+            final Runnable livePreview = () -> {
+                java.util.List<Integer> selected = new java.util.ArrayList<>();
+                for (int i = 0; i < textChecks.size(); i++) {
+                    if (textChecks.get(i).isSelected()) selected.add(i);
+                }
+                // Start each live tick from the dialog-open snapshot so dragging a
+                // spinner doesn't compound on previous tick's output (e.g. when
+                // user unchecks Position the un-stamped fields revert correctly).
+                for (int i = 0; i < openSnapshot.size() && i < slideTextItems.size(); i++) {
+                    slideTextItems.set(i, openSnapshot.get(i));
+                }
+                applyLayoutGroupCore(selected,
+                        (int) colsSp.getValue(),
+                        (int) anchorXSp.getValue(),
+                        (int) anchorYSp.getValue(),
+                        (int) colGapSp.getValue(),
+                        (int) rowGapSp.getValue(),
+                        colMajorBtn.isSelected() ? "Column" : "Row",
+                        doPosCheck.isSelected(), doFontCheck.isSelected(),
+                        doSizeCheck.isSelected(), doColorCheck.isSelected(),
+                        doBoldCheck.isSelected(), doItalCheck.isSelected(),
+                        (String) fontCombo.getSelectedItem(),
+                        (int) sizeSp.getValue(),
+                        colorHolder[0],
+                        boldTgl.isSelected(), italicTgl.isSelected(),
+                        true);
+            };
+
+            javax.swing.event.ChangeListener spinnerCl = e -> livePreview.run();
+            java.awt.event.ActionListener actCl       = e -> livePreview.run();
+            java.awt.event.ItemListener itemCl        = e -> livePreview.run();
+
+            for (JCheckBox cb : textChecks) cb.addActionListener(actCl);
+            colsSp.addChangeListener(spinnerCl);
+            anchorXSp.addChangeListener(spinnerCl);
+            anchorYSp.addChangeListener(spinnerCl);
+            colGapSp.addChangeListener(spinnerCl);
+            rowGapSp.addChangeListener(spinnerCl);
+            rowMajorBtn.addActionListener(actCl);
+            colMajorBtn.addActionListener(actCl);
+            doPosCheck.addActionListener(actCl);
+            doFontCheck.addActionListener(actCl);
+            doSizeCheck.addActionListener(actCl);
+            doColorCheck.addActionListener(actCl);
+            doBoldCheck.addActionListener(actCl);
+            doItalCheck.addActionListener(actCl);
+            fontCombo.addItemListener(itemCl);
+            sizeSp.addChangeListener(spinnerCl);
+            boldTgl.addActionListener(actCl);
+            italicTgl.addActionListener(actCl);
+
+            colorBtn.addActionListener(e ->
+                    pickColorLive(dlg, "Layout Group Color", colorHolder[0], c -> {
+                        colorHolder[0] = c;
+                        colorBtn.setForeground(c);
+                        livePreview.run();
+                    }));
+
+            selAllBtn.addActionListener(e -> {
+                for (JCheckBox cb : textChecks) cb.setSelected(true);
+                livePreview.run();
+            });
+            selNoneBtn.addActionListener(e -> {
+                for (JCheckBox cb : textChecks) cb.setSelected(false);
+                livePreview.run();
+            });
+            selVisibleBtn.addActionListener(e -> {
+                for (int i = 0; i < textChecks.size(); i++) {
+                    textChecks.get(i).setSelected(i < slideTextItems.size() && slideTextItems.get(i).show);
+                }
+                livePreview.run();
+            });
+
+            // ---------- Layout the dialog ----------
+            JPanel root = new JPanel();
+            root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
+            root.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+
+            root.add(sectionLabel("1. Pick texts to include"));
+            root.add(pickerScroll);
+            root.add(pickerBtns);
+            root.add(Box.createVerticalStrut(8));
+
+            root.add(sectionLabel("2. Grid shape"));
+            JPanel grid2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+            grid2.add(new JLabel("Columns:"));
+            grid2.add(colsSp);
+            grid2.add(Box.createHorizontalStrut(14));
+            grid2.add(new JLabel("Fill order:"));
+            grid2.add(rowMajorBtn);
+            grid2.add(colMajorBtn);
+            root.add(grid2);
+            root.add(Box.createVerticalStrut(8));
+
+            root.add(sectionLabel("3. Position (group as a whole)"));
+            JPanel pos = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+            pos.add(new JLabel("Anchor X%:"));  pos.add(anchorXSp);
+            pos.add(new JLabel("Anchor Y%:"));  pos.add(anchorYSp);
+            pos.add(Box.createHorizontalStrut(14));
+            pos.add(new JLabel("Col gap %:"));  pos.add(colGapSp);
+            pos.add(new JLabel("Row gap %:"));  pos.add(rowGapSp);
+            root.add(pos);
+            root.add(Box.createVerticalStrut(8));
+
+            root.add(sectionLabel("4. Stamp these fields onto the selection"));
+            JPanel stamp = new JPanel(new GridBagLayout());
+            GridBagConstraints gc = new GridBagConstraints();
+            gc.insets = new Insets(2, 4, 2, 4);
+            gc.anchor = GridBagConstraints.WEST;
+            gc.gridx = 0; gc.gridy = 0; stamp.add(doPosCheck, gc);
+            gc.gridx = 0; gc.gridy = 1; stamp.add(doFontCheck, gc);
+            gc.gridx = 1;               stamp.add(fontCombo, gc);
+            gc.gridx = 0; gc.gridy = 2; stamp.add(doSizeCheck, gc);
+            gc.gridx = 1;               stamp.add(sizeSp, gc);
+            gc.gridx = 0; gc.gridy = 3; stamp.add(doColorCheck, gc);
+            gc.gridx = 1;               stamp.add(colorBtn, gc);
+            gc.gridx = 0; gc.gridy = 4; stamp.add(doBoldCheck, gc);
+            gc.gridx = 1;               stamp.add(boldTgl, gc);
+            gc.gridx = 0; gc.gridy = 5; stamp.add(doItalCheck, gc);
+            gc.gridx = 1;               stamp.add(italicTgl, gc);
+            root.add(stamp);
+
+            // ---------- Buttons ----------
+            JButton okBtn     = new JButton("OK");
+            JButton cancelBtn = new JButton("Cancel");
+            okBtn.addActionListener(e -> {
+                // Persist last-used picks to the row fields so reopening the
+                // dialog (or saving a preset) sees the same values.
+                lgCols       = (int) colsSp.getValue();
+                lgAnchorX    = (int) anchorXSp.getValue();
+                lgAnchorY    = (int) anchorYSp.getValue();
+                lgColGap     = (int) colGapSp.getValue();
+                lgRowGap     = (int) rowGapSp.getValue();
+                lgFillOrder  = colMajorBtn.isSelected() ? "Column" : "Row";
+                lgApplyPos   = doPosCheck.isSelected();
+                lgApplyFont  = doFontCheck.isSelected();
+                lgApplySize  = doSizeCheck.isSelected();
+                lgApplyColor = doColorCheck.isSelected();
+                lgApplyBold  = doBoldCheck.isSelected();
+                lgApplyItalic= doItalCheck.isSelected();
+                lgFont       = (String) fontCombo.getSelectedItem();
+                lgSize       = (int) sizeSp.getValue();
+                lgColor      = colorHolder[0];
+                lgBold       = boldTgl.isSelected();
+                lgItalic     = italicTgl.isSelected();
+                dlg.dispose();
+            });
+            Runnable revert = () -> {
+                for (int i = 0; i < openSnapshot.size() && i < slideTextItems.size(); i++) {
+                    slideTextItems.set(i, openSnapshot.get(i));
+                }
+                if (currentSlideTextIndex >= 0 && currentSlideTextIndex < slideTextItems.size()) {
+                    loadSlideTextFromItem(currentSlideTextIndex);
+                }
+                onFormatChanged();
+                dlg.dispose();
+            };
+            cancelBtn.addActionListener(e -> revert.run());
+            dlg.addWindowListener(new java.awt.event.WindowAdapter() {
+                @Override public void windowClosing(java.awt.event.WindowEvent e) { revert.run(); }
+            });
+
+            JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 6));
+            btnRow.add(cancelBtn);
+            btnRow.add(okBtn);
+
+            dlg.setLayout(new BorderLayout());
+            dlg.add(new JScrollPane(root,
+                    JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
+                    JScrollPane.HORIZONTAL_SCROLLBAR_NEVER), BorderLayout.CENTER);
+            dlg.add(btnRow, BorderLayout.SOUTH);
+
+            dlg.pack();
+            // Keep the dialog at a friendly height even if the picker is short.
+            Dimension d = dlg.getPreferredSize();
+            d.height = Math.min(d.height, 700);
+            dlg.setSize(Math.max(560, d.width), d.height);
+            dlg.setLocationRelativeTo(owner);
+            dlg.setVisible(true);
+
+            // Kick a first preview so the user sees the stored config without
+            // having to touch any spinner.
+            livePreview.run();
+        }
+
+        private JLabel sectionLabel(String txt) {
+            JLabel L = new JLabel(txt);
+            L.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            L.setForeground(new Color(60, 50, 95));
+            L.setBorder(BorderFactory.createEmptyBorder(4, 0, 2, 0));
+            return L;
         }
 
         List<SlideTextData> getSlideTextDataList() {
