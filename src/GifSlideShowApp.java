@@ -433,11 +433,30 @@ public class GifSlideShowApp extends JFrame {
         props.setProperty("layoutGroup.doColor",    String.valueOf(source.isLgApplyColor()));
         props.setProperty("layoutGroup.doBold",     String.valueOf(source.isLgApplyBold()));
         props.setProperty("layoutGroup.doItalic",   String.valueOf(source.isLgApplyItalic()));
+        props.setProperty("layoutGroup.doAlign",    String.valueOf(source.isLgApplyAlign()));
         props.setProperty("layoutGroup.font",       source.getLgFont());
         props.setProperty("layoutGroup.size",       String.valueOf(source.getLgSize()));
         props.setProperty("layoutGroup.color",      colorToHex(source.getLgColor()));
         props.setProperty("layoutGroup.bold",       String.valueOf(source.isLgBold()));
         props.setProperty("layoutGroup.italic",     String.valueOf(source.isLgItalic()));
+        props.setProperty("layoutGroup.align",      String.valueOf(source.getLgAlign()));
+        // Per-column override values + flags (size == cols)
+        int lgcN = source.getLgCols();
+        for (int c = 0; c < lgcN; c++) {
+            String pc = "layoutGroup.col" + c + ".";
+            props.setProperty(pc + "ovFont",  String.valueOf(source.getLgColOvFont().get(c)));
+            props.setProperty(pc + "font",    source.getLgColFonts().get(c));
+            props.setProperty(pc + "ovSize",  String.valueOf(source.getLgColOvSize().get(c)));
+            props.setProperty(pc + "size",    String.valueOf(source.getLgColSizes().get(c)));
+            props.setProperty(pc + "ovColor", String.valueOf(source.getLgColOvColor().get(c)));
+            props.setProperty(pc + "color",   colorToHex(source.getLgColColors().get(c)));
+            props.setProperty(pc + "ovBold",  String.valueOf(source.getLgColOvBold().get(c)));
+            props.setProperty(pc + "bold",    String.valueOf(source.getLgColBolds().get(c)));
+            props.setProperty(pc + "ovItal",  String.valueOf(source.getLgColOvItal().get(c)));
+            props.setProperty(pc + "italic",  String.valueOf(source.getLgColItals().get(c)));
+            props.setProperty(pc + "ovAlign", String.valueOf(source.getLgColOvAlign().get(c)));
+            props.setProperty(pc + "align",   String.valueOf(source.getLgColAligns().get(c)));
+        }
 
         // Quiz timer shared/visual settings (per-slide fields like the
         // "enabled" flag, correct option, and question audio file are NOT
@@ -767,12 +786,14 @@ public class GifSlideShowApp extends JFrame {
         boolean lgColC    = Boolean.parseBoolean(props.getProperty("layoutGroup.doColor",  "false"));
         boolean lgBoldC   = Boolean.parseBoolean(props.getProperty("layoutGroup.doBold",   "false"));
         boolean lgItalC   = Boolean.parseBoolean(props.getProperty("layoutGroup.doItalic", "false"));
+        boolean lgAlignC  = Boolean.parseBoolean(props.getProperty("layoutGroup.doAlign",  "false"));
         String  lgFont    = props.getProperty("layoutGroup.font",
                 loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI");
         int     lgSize    = parseIntOr(props.getProperty("layoutGroup.size"), 32);
         Color   lgCol     = hexToColor(props.getProperty("layoutGroup.color", "#FFFF00"));
         boolean lgBold    = Boolean.parseBoolean(props.getProperty("layoutGroup.bold",   "false"));
         boolean lgItal    = Boolean.parseBoolean(props.getProperty("layoutGroup.italic", "false"));
+        int     lgAlignV  = parseIntOr(props.getProperty("layoutGroup.align"), SwingConstants.CENTER);
 
         // Quiz timer shared/visual settings — read from preset (defaults
         // mirror QuizSlide field defaults so older presets still load).
@@ -921,8 +942,28 @@ public class GifSlideShowApp extends JFrame {
                 row.refreshQuizToolbarFromState();
                 row.applyLayoutGroupPanelState(lgCols, lgAnchorX, lgAnchorY,
                         lgColGap, lgRowGap, lgFillOrd,
-                        lgPos, lgFontC, lgSizeC, lgColC, lgBoldC, lgItalC,
-                        lgFont, lgSize, lgCol, lgBold, lgItal);
+                        lgPos, lgFontC, lgSizeC, lgColC, lgBoldC, lgItalC, lgAlignC,
+                        lgFont, lgSize, lgCol, lgBold, lgItal, lgAlignV);
+                // Per-column overrides
+                for (int c = 0; c < lgCols; c++) {
+                    String pc = "layoutGroup.col" + c + ".";
+                    Boolean ovF = parseBoolOr(props.getProperty(pc + "ovFont"),  null);
+                    String  cF  = props.getProperty(pc + "font");
+                    Boolean ovS = parseBoolOr(props.getProperty(pc + "ovSize"),  null);
+                    String  cSs = props.getProperty(pc + "size");
+                    Integer cS  = (cSs == null) ? null : parseIntOr(cSs, 32);
+                    Boolean ovC = parseBoolOr(props.getProperty(pc + "ovColor"), null);
+                    String  ccS = props.getProperty(pc + "color");
+                    Color   cC  = (ccS == null) ? null : hexToColor(ccS);
+                    Boolean ovB = parseBoolOr(props.getProperty(pc + "ovBold"),  null);
+                    Boolean cB  = parseBoolOr(props.getProperty(pc + "bold"),    null);
+                    Boolean ovI = parseBoolOr(props.getProperty(pc + "ovItal"),  null);
+                    Boolean cI  = parseBoolOr(props.getProperty(pc + "italic"),  null);
+                    Boolean ovA = parseBoolOr(props.getProperty(pc + "ovAlign"), null);
+                    String  cAs = props.getProperty(pc + "align");
+                    Integer cA  = (cAs == null) ? null : parseIntOr(cAs, SwingConstants.CENTER);
+                    row.setLgColumnOverride(c, ovF, cF, ovS, cS, ovC, cC, ovB, cB, ovI, cI, ovA, cA);
+                }
             }
         } finally {
             isSyncingFormat = false;
@@ -1095,6 +1136,11 @@ public class GifSlideShowApp extends JFrame {
         if (s == null || s.isEmpty()) return fallback;
         try { return Integer.parseInt(s.trim()); }
         catch (NumberFormatException e) { return fallback; }
+    }
+
+    private static Boolean parseBoolOr(String s, Boolean fallback) {
+        if (s == null || s.isEmpty()) return fallback;
+        return Boolean.parseBoolean(s.trim());
     }
 
     private static Color hexToColor(String hex) {
@@ -15067,11 +15113,28 @@ public class GifSlideShowApp extends JFrame {
         private boolean lgApplyColor = false;
         private boolean lgApplyBold  = false;
         private boolean lgApplyItalic= false;
+        private boolean lgApplyAlign = false;
         private String  lgFont       = "Segoe UI";
         private int     lgSize       = 32;
         private Color   lgColor      = Color.YELLOW;
         private boolean lgBold       = false;
         private boolean lgItalic     = false;
+        private int     lgAlign      = SwingConstants.CENTER;
+        // Per-column overrides (size == lgCols). Each "ov" flag enables the
+        // override for that column + field; when on, it beats the group-level
+        // stamp for items the grid places into that column.
+        private final java.util.List<String>  lgColFonts   = new java.util.ArrayList<>();
+        private final java.util.List<Integer> lgColSizes   = new java.util.ArrayList<>();
+        private final java.util.List<Color>   lgColColors  = new java.util.ArrayList<>();
+        private final java.util.List<Boolean> lgColBolds   = new java.util.ArrayList<>();
+        private final java.util.List<Boolean> lgColItals   = new java.util.ArrayList<>();
+        private final java.util.List<Integer> lgColAligns  = new java.util.ArrayList<>();
+        private final java.util.List<Boolean> lgColOvFont  = new java.util.ArrayList<>();
+        private final java.util.List<Boolean> lgColOvSize  = new java.util.ArrayList<>();
+        private final java.util.List<Boolean> lgColOvColor = new java.util.ArrayList<>();
+        private final java.util.List<Boolean> lgColOvBold  = new java.util.ArrayList<>();
+        private final java.util.List<Boolean> lgColOvItal  = new java.util.ArrayList<>();
+        private final java.util.List<Boolean> lgColOvAlign = new java.util.ArrayList<>();
         private final JComboBox<String> slideTextAlignCombo;
         private final JComboBox<String> slideTextEffectCombo;
         private final JSpinner slideTextEffectIntensitySpinner;
@@ -18743,60 +18806,87 @@ public class GifSlideShowApp extends JFrame {
 
         // ===== Layout Group: open dialog, live-preview, OK keeps / Cancel reverts =====
 
-        /** Stamp(s) the chosen fields onto the given text-row indices. Plain primitives
-         *  are passed in so the same routine can be driven by either the dialog (with
-         *  the user's live picks) or a preset replay. Writes into existing
-         *  SlideTextData fields, then calls onFormatChanged() so the master row's
-         *  values cascade to every other slide via the existing propagation path. */
+        /** Plain struct holding one Apply's worth of decisions. Built fresh on
+         *  every dialog live-preview tick (so dialog state is the source of truth)
+         *  and passed into applyLayoutGroupCore. Per-column lists are sized to
+         *  cols; null/short lists fall back to the group-level values. */
+        static final class LayoutGroupConfig {
+            int cols, anchorX, anchorY, colGap, rowGap;
+            String fillOrder = "Row";
+            boolean doPos, doFont, doSize, doColor, doBold, doItalic, doAlign;
+            String font;
+            int size;
+            Color color;
+            boolean bold, italic;
+            int alignment = SwingConstants.CENTER;
+            java.util.List<Boolean> colOvFont, colOvSize, colOvColor, colOvBold, colOvItal, colOvAlign;
+            java.util.List<String>  colFonts;
+            java.util.List<Integer> colSizes;
+            java.util.List<Color>   colColors;
+            java.util.List<Boolean> colBolds, colItals;
+            java.util.List<Integer> colAligns;
+        }
+
+        /** Stamp(s) the chosen fields onto the given text-row indices. Per-column
+         *  overrides (when their "ov" flag is on) beat the group-level stamps;
+         *  the group-level stamps in turn beat the existing per-text values. */
         void applyLayoutGroupCore(java.util.List<Integer> selected,
-                                  int cols, int anchorX, int anchorY,
-                                  int colGap, int rowGap, String fillOrder,
-                                  boolean doPos, boolean doFont, boolean doSize,
-                                  boolean doColor, boolean doBold, boolean doItalic,
-                                  String font, int size, Color color,
-                                  boolean bold, boolean italic,
-                                  boolean propagate) {
+                                  LayoutGroupConfig cfg, boolean propagate) {
             if (isTitleGridSlide) return;
-            if (selected == null || selected.isEmpty()) return;
-            if (!doPos && !doFont && !doSize && !doColor && !doBold && !doItalic) return;
+            if (selected == null || selected.isEmpty() || cfg == null) return;
+            // Skip work only when NEITHER group-level NOR any per-column override
+            // is on for any field. (We allow position-only or per-column-only.)
+            boolean anyGroup = cfg.doPos || cfg.doFont || cfg.doSize || cfg.doColor
+                    || cfg.doBold || cfg.doItalic || cfg.doAlign;
+            boolean anyCol = anyTrue(cfg.colOvFont) || anyTrue(cfg.colOvSize)
+                    || anyTrue(cfg.colOvColor) || anyTrue(cfg.colOvBold)
+                    || anyTrue(cfg.colOvItal) || anyTrue(cfg.colOvAlign);
+            if (!anyGroup && !anyCol) return;
+
             // Flush whatever the user has typed into the visible per-text toolbars
             // back into slideTextItems first so we don't lose unsaved edits.
             saveCurrentSlideTextToItem();
 
             int count = selected.size();
-            int useCols = Math.max(1, cols);
+            int useCols = Math.max(1, cfg.cols);
             int rows = (count + useCols - 1) / useCols;
-            boolean colMajor = "Column".equalsIgnoreCase(fillOrder);
+            boolean colMajor = "Column".equalsIgnoreCase(cfg.fillOrder);
 
             for (int k = 0; k < count; k++) {
                 int idx = selected.get(k);
                 if (idx < 0 || idx >= slideTextItems.size()) continue;
                 SlideTextData old = slideTextItems.get(idx);
 
-                int newX = old.x, newY = old.y;
-                if (doPos) {
-                    int col, row;
-                    if (colMajor) {
-                        col = k / rows;
-                        row = k % rows;
-                    } else {
-                        col = k % useCols;
-                        row = k / useCols;
-                    }
-                    newX = clampPct(anchorX + col * colGap);
-                    newY = clampPct(anchorY + row * rowGap);
+                int col, row;
+                if (colMajor) {
+                    col = k / Math.max(1, rows);
+                    row = k % Math.max(1, rows);
+                } else {
+                    col = k % useCols;
+                    row = k / useCols;
                 }
-                String newFont = doFont  ? font  : old.fontName;
-                int newSize    = doSize  ? size  : old.fontSize;
-                Color newColor = doColor ? color : old.color;
-                int newStyle = old.fontStyle;
-                if (doBold)   newStyle = bold   ? (newStyle | Font.BOLD)   : (newStyle & ~Font.BOLD);
-                if (doItalic) newStyle = italic ? (newStyle | Font.ITALIC) : (newStyle & ~Font.ITALIC);
+
+                int newX = old.x, newY = old.y;
+                if (cfg.doPos) {
+                    newX = clampPct(cfg.anchorX + col * cfg.colGap);
+                    newY = clampPct(cfg.anchorY + row * cfg.rowGap);
+                }
+
+                // Resolve each field with the override > group > existing chain.
+                String newFont   = pickStr (col, cfg.colOvFont,  cfg.colFonts,  cfg.doFont,  cfg.font,  old.fontName);
+                int    newSize   = pickInt (col, cfg.colOvSize,  cfg.colSizes,  cfg.doSize,  cfg.size,  old.fontSize);
+                Color  newColor  = pickClr (col, cfg.colOvColor, cfg.colColors, cfg.doColor, cfg.color, old.color);
+                int    newAlign  = pickInt (col, cfg.colOvAlign, cfg.colAligns, cfg.doAlign, cfg.alignment, old.alignment);
+                boolean newBold  = pickBool(col, cfg.colOvBold,  cfg.colBolds,  cfg.doBold,  cfg.bold,
+                                            (old.fontStyle & Font.BOLD) != 0);
+                boolean newItal  = pickBool(col, cfg.colOvItal,  cfg.colItals,  cfg.doItalic, cfg.italic,
+                                            (old.fontStyle & Font.ITALIC) != 0);
+                int newStyle = (newBold ? Font.BOLD : 0) | (newItal ? Font.ITALIC : 0);
 
                 SlideTextData fresh = new SlideTextData(
                         old.show, old.text, newFont, newSize, newStyle, newColor,
                         newX, newY, old.bgOpacity, old.bgColor,
-                        old.justify, old.widthPct, old.shiftX, old.alignment,
+                        old.justify, old.widthPct, old.shiftX, newAlign,
                         old.textEffect, old.textEffectIntensity,
                         old.highlightText, old.highlightColor, old.highlightStyle,
                         old.highlightTightness, old.underlineStyle, old.underlineText,
@@ -18818,6 +18908,74 @@ public class GifSlideShowApp extends JFrame {
             }
         }
 
+        private static boolean anyTrue(java.util.List<Boolean> xs) {
+            if (xs == null) return false;
+            for (Boolean b : xs) if (b != null && b) return true;
+            return false;
+        }
+        private static boolean ovActive(int col, java.util.List<Boolean> ov, java.util.List<?> vals) {
+            return ov != null && col >= 0 && col < ov.size() && Boolean.TRUE.equals(ov.get(col))
+                    && vals != null && col < vals.size() && vals.get(col) != null;
+        }
+        private static String pickStr(int col, java.util.List<Boolean> ov, java.util.List<String> vals,
+                                       boolean groupOn, String groupVal, String existing) {
+            if (ovActive(col, ov, vals)) return vals.get(col);
+            if (groupOn) return groupVal;
+            return existing;
+        }
+        private static int pickInt(int col, java.util.List<Boolean> ov, java.util.List<Integer> vals,
+                                    boolean groupOn, int groupVal, int existing) {
+            if (ovActive(col, ov, vals)) return vals.get(col);
+            if (groupOn) return groupVal;
+            return existing;
+        }
+        private static Color pickClr(int col, java.util.List<Boolean> ov, java.util.List<Color> vals,
+                                      boolean groupOn, Color groupVal, Color existing) {
+            if (ovActive(col, ov, vals)) return vals.get(col);
+            if (groupOn) return groupVal;
+            return existing;
+        }
+        private static boolean pickBool(int col, java.util.List<Boolean> ov, java.util.List<Boolean> vals,
+                                         boolean groupOn, boolean groupVal, boolean existing) {
+            if (ovActive(col, ov, vals)) return vals.get(col);
+            if (groupOn) return groupVal;
+            return existing;
+        }
+
+        /** Grow / shrink the per-column override arrays to match the current cols count. */
+        private void ensureColListSize(int newSize) {
+            String defaultFont = loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI";
+            while (lgColFonts.size() < newSize) {
+                lgColFonts.add(defaultFont);
+                lgColSizes.add(32);
+                lgColColors.add(Color.YELLOW);
+                lgColBolds.add(false);
+                lgColItals.add(false);
+                lgColAligns.add(SwingConstants.CENTER);
+                lgColOvFont.add(false);
+                lgColOvSize.add(false);
+                lgColOvColor.add(false);
+                lgColOvBold.add(false);
+                lgColOvItal.add(false);
+                lgColOvAlign.add(false);
+            }
+            while (lgColFonts.size() > newSize) {
+                int last = lgColFonts.size() - 1;
+                lgColFonts.remove(last);
+                lgColSizes.remove(last);
+                lgColColors.remove(last);
+                lgColBolds.remove(last);
+                lgColItals.remove(last);
+                lgColAligns.remove(last);
+                lgColOvFont.remove(last);
+                lgColOvSize.remove(last);
+                lgColOvColor.remove(last);
+                lgColOvBold.remove(last);
+                lgColOvItal.remove(last);
+                lgColOvAlign.remove(last);
+            }
+        }
+
         private static int clampPct(int v) {
             return v < 0 ? 0 : (v > 100 ? 100 : v);
         }
@@ -18835,19 +18993,34 @@ public class GifSlideShowApp extends JFrame {
         boolean isLgApplyColor()  { return lgApplyColor; }
         boolean isLgApplyBold()   { return lgApplyBold; }
         boolean isLgApplyItalic() { return lgApplyItalic; }
+        boolean isLgApplyAlign()  { return lgApplyAlign; }
         String  getLgFont()       { return lgFont; }
         int     getLgSize()       { return lgSize; }
         Color   getLgColor()      { return lgColor; }
         boolean isLgBold()        { return lgBold; }
         boolean isLgItalic()      { return lgItalic; }
+        int     getLgAlign()      { return lgAlign; }
+        java.util.List<String>  getLgColFonts()   { return lgColFonts; }
+        java.util.List<Integer> getLgColSizes()   { return lgColSizes; }
+        java.util.List<Color>   getLgColColors()  { return lgColColors; }
+        java.util.List<Boolean> getLgColBolds()   { return lgColBolds; }
+        java.util.List<Boolean> getLgColItals()   { return lgColItals; }
+        java.util.List<Integer> getLgColAligns()  { return lgColAligns; }
+        java.util.List<Boolean> getLgColOvFont()  { return lgColOvFont; }
+        java.util.List<Boolean> getLgColOvSize()  { return lgColOvSize; }
+        java.util.List<Boolean> getLgColOvColor() { return lgColOvColor; }
+        java.util.List<Boolean> getLgColOvBold()  { return lgColOvBold; }
+        java.util.List<Boolean> getLgColOvItal()  { return lgColOvItal; }
+        java.util.List<Boolean> getLgColOvAlign() { return lgColOvAlign; }
 
         /** Push saved per-row layout group state in from a preset (does NOT apply). */
         void applyLayoutGroupPanelState(int cols, int anchorX, int anchorY,
                                         int colGap, int rowGap, String fillOrder,
                                         boolean doPos, boolean doFont, boolean doSize,
                                         boolean doColor, boolean doBold, boolean doItalic,
+                                        boolean doAlign,
                                         String font, int size, Color color,
-                                        boolean bold, boolean italic) {
+                                        boolean bold, boolean italic, int align) {
             lgCols       = Math.max(1, cols);
             lgAnchorX    = clampPct(anchorX);
             lgAnchorY    = clampPct(anchorY);
@@ -18860,11 +19033,37 @@ public class GifSlideShowApp extends JFrame {
             lgApplyColor = doColor;
             lgApplyBold  = doBold;
             lgApplyItalic= doItalic;
+            lgApplyAlign = doAlign;
             if (font != null) lgFont = font;
             lgSize       = Math.max(6, size);
             if (color != null) lgColor = color;
             lgBold       = bold;
             lgItalic     = italic;
+            lgAlign      = align;
+            ensureColListSize(lgCols);
+        }
+
+        /** Replace one column's stored override values + flags. Called by preset load. */
+        void setLgColumnOverride(int col,
+                                  Boolean ovFont, String  font,
+                                  Boolean ovSize, Integer size,
+                                  Boolean ovColor, Color  color,
+                                  Boolean ovBold, Boolean bold,
+                                  Boolean ovItal, Boolean italic,
+                                  Boolean ovAlign, Integer align) {
+            ensureColListSize(Math.max(lgCols, col + 1));
+            if (ovFont  != null) lgColOvFont.set(col,  ovFont);
+            if (font    != null) lgColFonts.set(col,   font);
+            if (ovSize  != null) lgColOvSize.set(col,  ovSize);
+            if (size    != null) lgColSizes.set(col,   Math.max(6, size));
+            if (ovColor != null) lgColOvColor.set(col, ovColor);
+            if (color   != null) lgColColors.set(col,  color);
+            if (ovBold  != null) lgColOvBold.set(col,  ovBold);
+            if (bold    != null) lgColBolds.set(col,   bold);
+            if (ovItal  != null) lgColOvItal.set(col,  ovItal);
+            if (italic  != null) lgColItals.set(col,   italic);
+            if (ovAlign != null) lgColOvAlign.set(col, ovAlign);
+            if (align   != null) lgColAligns.set(col,  align);
         }
 
         /**
@@ -18927,13 +19126,14 @@ public class GifSlideShowApp extends JFrame {
             final JSpinner colGapSp  = new JSpinner(new SpinnerNumberModel(lgColGap,  0, 100, 1));
             final JSpinner rowGapSp  = new JSpinner(new SpinnerNumberModel(lgRowGap,  0,  50, 1));
 
-            // ---------- Stamp / style ----------
+            // ---------- Stamp / style (group level) ----------
             final JCheckBox doPosCheck   = new JCheckBox("Position",        lgApplyPos);
             final JCheckBox doFontCheck  = new JCheckBox("Font:",           lgApplyFont);
             final JCheckBox doSizeCheck  = new JCheckBox("Size:",           lgApplySize);
             final JCheckBox doColorCheck = new JCheckBox("Color:",          lgApplyColor);
             final JCheckBox doBoldCheck  = new JCheckBox("Bold:",           lgApplyBold);
             final JCheckBox doItalCheck  = new JCheckBox("Italic:",         lgApplyItalic);
+            final JCheckBox doAlignCheck = new JCheckBox("Align:",          lgApplyAlign);
 
             final JComboBox<String> fontCombo = new JComboBox<>(
                     loadedFontNames.length > 0 ? loadedFontNames : new String[]{"Segoe UI"});
@@ -18950,45 +19150,199 @@ public class GifSlideShowApp extends JFrame {
             final JToggleButton italicTgl = new JToggleButton("I", lgItalic);
             italicTgl.setFont(new Font("Segoe UI", Font.ITALIC, 11));
             italicTgl.setPreferredSize(new Dimension(34, 24));
+            final JComboBox<String> alignCombo = new JComboBox<>(new String[] { "Left", "Center", "Right" });
+            alignCombo.setSelectedIndex(lgAlign == SwingConstants.LEFT ? 0
+                    : (lgAlign == SwingConstants.RIGHT ? 2 : 1));
 
-            // ---------- Live preview wiring ----------
+            // ---------- Per-column overrides (built dynamically when Cols changes) ----------
+            // Each column row has Font/Size/Color/B/I/Align with an Override checkbox per field.
+            // The control references are tracked in parallel lists so livePreview can read them.
+            final java.util.List<JCheckBox>           ovFontChecks   = new java.util.ArrayList<>();
+            final java.util.List<JComboBox<String>>   colFontCombos  = new java.util.ArrayList<>();
+            final java.util.List<JCheckBox>           ovSizeChecks   = new java.util.ArrayList<>();
+            final java.util.List<JSpinner>            colSizeSps     = new java.util.ArrayList<>();
+            final java.util.List<JCheckBox>           ovColorChecks  = new java.util.ArrayList<>();
+            final java.util.List<JButton>             colColorBtns   = new java.util.ArrayList<>();
+            final java.util.List<Color[]>             colColorHolders= new java.util.ArrayList<>();
+            final java.util.List<JCheckBox>           ovBoldChecks   = new java.util.ArrayList<>();
+            final java.util.List<JToggleButton>       colBoldTgls    = new java.util.ArrayList<>();
+            final java.util.List<JCheckBox>           ovItalChecks   = new java.util.ArrayList<>();
+            final java.util.List<JToggleButton>       colItalTgls    = new java.util.ArrayList<>();
+            final java.util.List<JCheckBox>           ovAlignChecks  = new java.util.ArrayList<>();
+            final java.util.List<JComboBox<String>>   colAlignCombos = new java.util.ArrayList<>();
+            final JPanel colsContainer = new JPanel();
+            colsContainer.setLayout(new BoxLayout(colsContainer, BoxLayout.Y_AXIS));
+
+            // ---------- Live preview wiring (declared before rebuild so the rebuilt
+            //            controls can reference it in their listeners) ----------
+            final Runnable[] livePreviewHolder = new Runnable[1];
+            final Runnable livePreview = () -> livePreviewHolder[0].run();
+
+            // ---------- (Re)build the per-column rows for N columns ----------
+            final java.util.function.IntConsumer rebuildColRows = (nCols) -> {
+                ensureColListSize(nCols);
+                colsContainer.removeAll();
+                ovFontChecks.clear();   colFontCombos.clear();
+                ovSizeChecks.clear();   colSizeSps.clear();
+                ovColorChecks.clear();  colColorBtns.clear(); colColorHolders.clear();
+                ovBoldChecks.clear();   colBoldTgls.clear();
+                ovItalChecks.clear();   colItalTgls.clear();
+                ovAlignChecks.clear();  colAlignCombos.clear();
+
+                for (int c = 0; c < nCols; c++) {
+                    final int colIdx = c;
+                    JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+                    row.setBorder(BorderFactory.createTitledBorder("Column " + (c + 1)));
+
+                    JCheckBox ovF = new JCheckBox("Font", lgColOvFont.get(c));
+                    JComboBox<String> fCb = new JComboBox<>(
+                            loadedFontNames.length > 0 ? loadedFontNames : new String[]{"Segoe UI"});
+                    fCb.setSelectedItem(lgColFonts.get(c));
+                    fCb.setPreferredSize(new Dimension(140, 24));
+
+                    JCheckBox ovS = new JCheckBox("Sz", lgColOvSize.get(c));
+                    JSpinner sSp = new JSpinner(new SpinnerNumberModel(lgColSizes.get(c).intValue(), 6, 400, 1));
+                    sSp.setPreferredSize(new Dimension(60, 24));
+
+                    JCheckBox ovC = new JCheckBox("Color", lgColOvColor.get(c));
+                    final Color[] cHolder = new Color[] { lgColColors.get(c) };
+                    JButton cBtn = new JButton("■");
+                    cBtn.setForeground(cHolder[0]);
+                    cBtn.setFont(new Font("Segoe UI", Font.PLAIN, 18));
+                    cBtn.setPreferredSize(new Dimension(40, 24));
+                    cBtn.addActionListener(e ->
+                            pickColorLive(dlg, "Column " + (colIdx + 1) + " Color", cHolder[0], col2 -> {
+                                cHolder[0] = col2;
+                                cBtn.setForeground(col2);
+                                livePreview.run();
+                            }));
+
+                    JCheckBox ovB = new JCheckBox("B", lgColOvBold.get(c));
+                    JToggleButton bTgl = new JToggleButton("B", lgColBolds.get(c));
+                    bTgl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+                    bTgl.setPreferredSize(new Dimension(34, 24));
+
+                    JCheckBox ovI = new JCheckBox("I", lgColOvItal.get(c));
+                    JToggleButton iTgl = new JToggleButton("I", lgColItals.get(c));
+                    iTgl.setFont(new Font("Segoe UI", Font.ITALIC, 11));
+                    iTgl.setPreferredSize(new Dimension(34, 24));
+
+                    JCheckBox ovA = new JCheckBox("Align", lgColOvAlign.get(c));
+                    JComboBox<String> aCb = new JComboBox<>(new String[]{"Left", "Center", "Right"});
+                    aCb.setSelectedIndex(lgColAligns.get(c) == SwingConstants.LEFT ? 0
+                            : (lgColAligns.get(c) == SwingConstants.RIGHT ? 2 : 1));
+
+                    for (JCheckBox cb : new JCheckBox[]{ovF, ovS, ovC, ovB, ovI, ovA}) {
+                        cb.addActionListener(e -> livePreview.run());
+                    }
+                    fCb.addItemListener(e -> livePreview.run());
+                    sSp.addChangeListener(e -> livePreview.run());
+                    bTgl.addActionListener(e -> livePreview.run());
+                    iTgl.addActionListener(e -> livePreview.run());
+                    aCb.addItemListener(e -> livePreview.run());
+
+                    row.add(ovF); row.add(fCb);
+                    row.add(ovS); row.add(sSp);
+                    row.add(ovC); row.add(cBtn);
+                    row.add(ovB); row.add(bTgl);
+                    row.add(ovI); row.add(iTgl);
+                    row.add(ovA); row.add(aCb);
+
+                    colsContainer.add(row);
+
+                    ovFontChecks.add(ovF);    colFontCombos.add(fCb);
+                    ovSizeChecks.add(ovS);    colSizeSps.add(sSp);
+                    ovColorChecks.add(ovC);   colColorBtns.add(cBtn); colColorHolders.add(cHolder);
+                    ovBoldChecks.add(ovB);    colBoldTgls.add(bTgl);
+                    ovItalChecks.add(ovI);    colItalTgls.add(iTgl);
+                    ovAlignChecks.add(ovA);   colAlignCombos.add(aCb);
+                }
+                colsContainer.revalidate();
+                colsContainer.repaint();
+            };
+
+            // ---------- Live preview implementation ----------
             // Runs on every spinner / checkbox / combo / toggle change. Builds the
-            // current selected-indices list and replays the layout. propagate=true
-            // so the auto-cascade still drives every other slide's preview.
-            final Runnable livePreview = () -> {
+            // current selected-indices list + a LayoutGroupConfig (including all
+            // per-column overrides) and replays the layout. propagate=true so the
+            // auto-cascade still drives every other slide's preview.
+            livePreviewHolder[0] = () -> {
                 java.util.List<Integer> selected = new java.util.ArrayList<>();
                 for (int i = 0; i < textChecks.size(); i++) {
                     if (textChecks.get(i).isSelected()) selected.add(i);
                 }
                 // Start each live tick from the dialog-open snapshot so dragging a
-                // spinner doesn't compound on previous tick's output (e.g. when
-                // user unchecks Position the un-stamped fields revert correctly).
+                // spinner doesn't compound on previous tick's output.
                 for (int i = 0; i < openSnapshot.size() && i < slideTextItems.size(); i++) {
                     slideTextItems.set(i, openSnapshot.get(i));
                 }
-                applyLayoutGroupCore(selected,
-                        (int) colsSp.getValue(),
-                        (int) anchorXSp.getValue(),
-                        (int) anchorYSp.getValue(),
-                        (int) colGapSp.getValue(),
-                        (int) rowGapSp.getValue(),
-                        colMajorBtn.isSelected() ? "Column" : "Row",
-                        doPosCheck.isSelected(), doFontCheck.isSelected(),
-                        doSizeCheck.isSelected(), doColorCheck.isSelected(),
-                        doBoldCheck.isSelected(), doItalCheck.isSelected(),
-                        (String) fontCombo.getSelectedItem(),
-                        (int) sizeSp.getValue(),
-                        colorHolder[0],
-                        boldTgl.isSelected(), italicTgl.isSelected(),
-                        true);
+
+                LayoutGroupConfig cfg = new LayoutGroupConfig();
+                cfg.cols      = (int) colsSp.getValue();
+                cfg.anchorX   = (int) anchorXSp.getValue();
+                cfg.anchorY   = (int) anchorYSp.getValue();
+                cfg.colGap    = (int) colGapSp.getValue();
+                cfg.rowGap    = (int) rowGapSp.getValue();
+                cfg.fillOrder = colMajorBtn.isSelected() ? "Column" : "Row";
+                cfg.doPos     = doPosCheck.isSelected();
+                cfg.doFont    = doFontCheck.isSelected();
+                cfg.doSize    = doSizeCheck.isSelected();
+                cfg.doColor   = doColorCheck.isSelected();
+                cfg.doBold    = doBoldCheck.isSelected();
+                cfg.doItalic  = doItalCheck.isSelected();
+                cfg.doAlign   = doAlignCheck.isSelected();
+                cfg.font      = (String) fontCombo.getSelectedItem();
+                cfg.size      = (int) sizeSp.getValue();
+                cfg.color     = colorHolder[0];
+                cfg.bold      = boldTgl.isSelected();
+                cfg.italic    = italicTgl.isSelected();
+                cfg.alignment = comboToAlignment(alignCombo);
+
+                int n = ovFontChecks.size();
+                cfg.colOvFont  = new java.util.ArrayList<>(n);
+                cfg.colOvSize  = new java.util.ArrayList<>(n);
+                cfg.colOvColor = new java.util.ArrayList<>(n);
+                cfg.colOvBold  = new java.util.ArrayList<>(n);
+                cfg.colOvItal  = new java.util.ArrayList<>(n);
+                cfg.colOvAlign = new java.util.ArrayList<>(n);
+                cfg.colFonts   = new java.util.ArrayList<>(n);
+                cfg.colSizes   = new java.util.ArrayList<>(n);
+                cfg.colColors  = new java.util.ArrayList<>(n);
+                cfg.colBolds   = new java.util.ArrayList<>(n);
+                cfg.colItals   = new java.util.ArrayList<>(n);
+                cfg.colAligns  = new java.util.ArrayList<>(n);
+                for (int c = 0; c < n; c++) {
+                    cfg.colOvFont.add(ovFontChecks.get(c).isSelected());
+                    cfg.colOvSize.add(ovSizeChecks.get(c).isSelected());
+                    cfg.colOvColor.add(ovColorChecks.get(c).isSelected());
+                    cfg.colOvBold.add(ovBoldChecks.get(c).isSelected());
+                    cfg.colOvItal.add(ovItalChecks.get(c).isSelected());
+                    cfg.colOvAlign.add(ovAlignChecks.get(c).isSelected());
+                    cfg.colFonts.add((String) colFontCombos.get(c).getSelectedItem());
+                    cfg.colSizes.add((int) colSizeSps.get(c).getValue());
+                    cfg.colColors.add(colColorHolders.get(c)[0]);
+                    cfg.colBolds.add(colBoldTgls.get(c).isSelected());
+                    cfg.colItals.add(colItalTgls.get(c).isSelected());
+                    cfg.colAligns.add(comboToAlignment(colAlignCombos.get(c)));
+                }
+
+                applyLayoutGroupCore(selected, cfg, true);
             };
+
+            // Initial build of the per-column rows from the stored Cols value.
+            rebuildColRows.accept((int) colsSp.getValue());
+            // When Cols changes, rebuild the rows then re-preview.
+            colsSp.addChangeListener(e -> {
+                rebuildColRows.accept((int) colsSp.getValue());
+                livePreview.run();
+            });
 
             javax.swing.event.ChangeListener spinnerCl = e -> livePreview.run();
             java.awt.event.ActionListener actCl       = e -> livePreview.run();
             java.awt.event.ItemListener itemCl        = e -> livePreview.run();
 
             for (JCheckBox cb : textChecks) cb.addActionListener(actCl);
-            colsSp.addChangeListener(spinnerCl);
+            // colsSp already wired above (rebuilds per-column rows + previews)
             anchorXSp.addChangeListener(spinnerCl);
             anchorYSp.addChangeListener(spinnerCl);
             colGapSp.addChangeListener(spinnerCl);
@@ -19001,10 +19355,12 @@ public class GifSlideShowApp extends JFrame {
             doColorCheck.addActionListener(actCl);
             doBoldCheck.addActionListener(actCl);
             doItalCheck.addActionListener(actCl);
+            doAlignCheck.addActionListener(actCl);
             fontCombo.addItemListener(itemCl);
             sizeSp.addChangeListener(spinnerCl);
             boldTgl.addActionListener(actCl);
             italicTgl.addActionListener(actCl);
+            alignCombo.addItemListener(itemCl);
 
             colorBtn.addActionListener(e ->
                     pickColorLive(dlg, "Layout Group Color", colorHolder[0], c -> {
@@ -19075,7 +19431,13 @@ public class GifSlideShowApp extends JFrame {
             gc.gridx = 1;               stamp.add(boldTgl, gc);
             gc.gridx = 0; gc.gridy = 5; stamp.add(doItalCheck, gc);
             gc.gridx = 1;               stamp.add(italicTgl, gc);
+            gc.gridx = 0; gc.gridy = 6; stamp.add(doAlignCheck, gc);
+            gc.gridx = 1;               stamp.add(alignCombo, gc);
             root.add(stamp);
+            root.add(Box.createVerticalStrut(8));
+
+            root.add(sectionLabel("5. Per-column overrides (beat the stamps above)"));
+            root.add(colsContainer);
 
             // ---------- Buttons ----------
             JButton okBtn     = new JButton("OK");
@@ -19095,11 +19457,28 @@ public class GifSlideShowApp extends JFrame {
                 lgApplyColor = doColorCheck.isSelected();
                 lgApplyBold  = doBoldCheck.isSelected();
                 lgApplyItalic= doItalCheck.isSelected();
+                lgApplyAlign = doAlignCheck.isSelected();
                 lgFont       = (String) fontCombo.getSelectedItem();
                 lgSize       = (int) sizeSp.getValue();
                 lgColor      = colorHolder[0];
                 lgBold       = boldTgl.isSelected();
                 lgItalic     = italicTgl.isSelected();
+                lgAlign      = comboToAlignment(alignCombo);
+                ensureColListSize(lgCols);
+                for (int c = 0; c < ovFontChecks.size() && c < lgCols; c++) {
+                    lgColOvFont.set(c,  ovFontChecks.get(c).isSelected());
+                    lgColFonts.set(c,   (String) colFontCombos.get(c).getSelectedItem());
+                    lgColOvSize.set(c,  ovSizeChecks.get(c).isSelected());
+                    lgColSizes.set(c,   (int) colSizeSps.get(c).getValue());
+                    lgColOvColor.set(c, ovColorChecks.get(c).isSelected());
+                    lgColColors.set(c,  colColorHolders.get(c)[0]);
+                    lgColOvBold.set(c,  ovBoldChecks.get(c).isSelected());
+                    lgColBolds.set(c,   colBoldTgls.get(c).isSelected());
+                    lgColOvItal.set(c,  ovItalChecks.get(c).isSelected());
+                    lgColItals.set(c,   colItalTgls.get(c).isSelected());
+                    lgColOvAlign.set(c, ovAlignChecks.get(c).isSelected());
+                    lgColAligns.set(c,  comboToAlignment(colAlignCombos.get(c)));
+                }
                 dlg.dispose();
             });
             Runnable revert = () -> {
@@ -19147,6 +19526,14 @@ public class GifSlideShowApp extends JFrame {
             L.setForeground(new Color(60, 50, 95));
             L.setBorder(BorderFactory.createEmptyBorder(4, 0, 2, 0));
             return L;
+        }
+
+        private static int comboToAlignment(JComboBox<String> cb) {
+            switch (cb.getSelectedIndex()) {
+                case 0:  return SwingConstants.LEFT;
+                case 2:  return SwingConstants.RIGHT;
+                default: return SwingConstants.CENTER;
+            }
         }
 
         List<SlideTextData> getSlideTextDataList() {
