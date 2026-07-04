@@ -139,7 +139,7 @@ public class GifSlideShowApp extends JFrame {
         bulkTextBtn.addActionListener(e -> bulkImportText());
 
         JButton dictImportBtn = createStyledButton("Dict Import", new Color(50, 180, 160));
-        dictImportBtn.setToolTipText("Import CSV/TSV: each row=slide, each column=slide text (A→Text1, B→Text2...)");
+        dictImportBtn.setToolTipText("Import CSV/TSV: each row=slide, each column=slide text (A→Text1, B→Text2...). Optional headers: HL/UL/BOLD/ITALIC/COLOR, AUDIOLINK, AUDIO1.., X-AXIS/Y-AXIS/TEXT-SIZE, and TEXT1TIME/TEXT2TIME.. for appear,go timing per text (cell=\"appear,go\" in seconds; \"appear\" alone = never leaves).");
         dictImportBtn.addActionListener(e -> dictionaryImport());
 
         JButton quizImportBtn = createStyledButton("Quiz Import", new Color(180, 120, 200));
@@ -2023,6 +2023,9 @@ public class GifSlideShowApp extends JFrame {
                         + "Supports CSV (comma) and TSV (tab) delimited files.\n"
                         + "Tip: For Unicode/IPA characters, save from Excel as \"CSV UTF-8\" format.\n"
                         + "Optional columns: X-AXIS, Y-AXIS, TEXT-SIZE (comma-separated per text item).\n"
+                        + "TEXT1TIME, TEXT2TIME, ... → per-text appear,go timing (seconds).\n"
+                        + "  Put both in one cell, e.g. \"2,5\" (appears at 2s, goes at 5s).\n"
+                        + "  A single value like \"2\" means it appears then never leaves.\n"
                         + "(Title grid slides are skipped)",
                 "Dictionary Import", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
                 null, options, options[0]);
@@ -2116,7 +2119,7 @@ public class GifSlideShowApp extends JFrame {
 
         // Ask whether first row is a header
         int headerChoice = JOptionPane.showOptionDialog(this,
-                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting,\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.\nX-AXIS/Y-AXIS/TEXT-SIZE for position & size per text item.)",
+                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting,\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.\nX-AXIS/Y-AXIS/TEXT-SIZE for position & size per text item.\nTEXT1TIME/TEXT2TIME/... for appear,go timing per text item\n(cell = \"appear,go\" in seconds; \"appear\" alone = never leaves).)",
                 "Dictionary Import", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,
                 null, new String[]{"Yes, skip first row", "No, first row is data"}, "No, first row is data");
 
@@ -2132,6 +2135,8 @@ public class GifSlideShowApp extends JFrame {
         int textSizeColIndex = -1;
         // Multi-audio: AUDIO1, AUDIO2, AUDIOLINK1, AUDIOLINK2, etc.
         java.util.Map<Integer, Integer> audioColByTextIndex = new java.util.TreeMap<>();
+        // Texts Timer: TEXT1TIME, TEXT2TIME, … each cell = "appear,go" (seconds).
+        java.util.Map<Integer, Integer> timeColByTextIndex = new java.util.TreeMap<>();
         List<String> headerFields = null;
 
         List<String> dataLines;
@@ -2158,6 +2163,14 @@ public class GifSlideShowApp extends JFrame {
                     yAxisColIndex = c;
                 } else if (h.equals("TEXT-SIZE") || h.equals("TEXTSIZE") || h.equals("TEXT_SIZE") || h.equals("SIZE")) {
                     textSizeColIndex = c;
+                } else if (h.matches("TEXT\\d+TIME")) {
+                    // Texts-Timer columns: TEXT1TIME, TEXT2TIME, … map to text items.
+                    // Each cell is "appear,go" in seconds ("appear" alone = never leaves).
+                    String numPart = h.substring(4, h.length() - 4); // strip TEXT…TIME
+                    try {
+                        int textIdx = Integer.parseInt(numPart) - 1; // 1-based to 0-based
+                        if (textIdx >= 0) timeColByTextIndex.put(textIdx, c);
+                    } catch (NumberFormatException ignored) {}
                 } else if (h.matches("(AUDIOLINK|AUDIO|AUDIO_LINK)\\d+")) {
                     // Multi-audio columns: AUDIO1, AUDIO2, AUDIOLINK1, AUDIOLINK2, etc.
                     String numPart = h.replaceAll("^(AUDIOLINK|AUDIO_LINK|AUDIO)", "");
@@ -2189,12 +2202,13 @@ public class GifSlideShowApp extends JFrame {
 
         // Determine which columns are text columns (not HL/UL/BOLD/ITALIC/COLOR/AUDIOLINK)
         java.util.Set<Integer> audioColIndices = new java.util.HashSet<>(audioColByTextIndex.values());
+        java.util.Set<Integer> timeColIndices = new java.util.HashSet<>(timeColByTextIndex.values());
         List<Integer> textColIndices = new ArrayList<>();
         for (int c = 0; c < maxCols; c++) {
             if (c != hlColIndex && c != ulColIndex && c != boldColIndex
                     && c != italicColIndex && c != colorColIndex && c != audioLinkColIndex
                     && c != xAxisColIndex && c != yAxisColIndex && c != textSizeColIndex
-                    && !audioColIndices.contains(c)) {
+                    && !audioColIndices.contains(c) && !timeColIndices.contains(c)) {
                 textColIndices.add(c);
             }
         }
@@ -2356,6 +2370,37 @@ public class GifSlideShowApp extends JFrame {
                 }
             }
 
+            // Apply Texts-Timer columns (TEXT1TIME, TEXT2TIME, …). Each cell is
+            // "appear,go" in seconds; "appear" alone means the text never leaves.
+            // Applied LAST in the row so the earlier setters (which rebuild the
+            // SlideTextData) don't discard the timing we set in place here.
+            for (java.util.Map.Entry<Integer, Integer> entry : timeColByTextIndex.entrySet()) {
+                int textIdx = entry.getKey();
+                int colIdx = entry.getValue();
+                if (colIdx >= fields.size()) continue;
+                String cell = fields.get(colIdx).trim();
+                if (cell.isEmpty()) continue;
+                String[] parts = cell.split(",");
+                double appearSec;
+                try {
+                    appearSec = Double.parseDouble(parts[0].trim());
+                } catch (NumberFormatException ex) {
+                    continue; // skip unparseable appear time
+                }
+                if (appearSec < 0) appearSec = 0;
+                int appearMs = (int) Math.round(appearSec * 1000.0);
+                int goMs = -1; // "appear only" → never leaves
+                if (parts.length >= 2 && !parts[1].trim().isEmpty()) {
+                    try {
+                        double goSec = Double.parseDouble(parts[1].trim());
+                        // Only honor a go time that is actually after the appear
+                        // time; otherwise the text would never be visible.
+                        if (goSec > appearSec) goMs = (int) Math.round(goSec * 1000.0);
+                    } catch (NumberFormatException ignored) {}
+                }
+                slide.setSlideTextTimerAt(textIdx, appearMs, goMs);
+            }
+
             assigned++;
         }
 
@@ -2374,6 +2419,7 @@ public class GifSlideShowApp extends JFrame {
         if (xAxisColIndex >= 0) importMsg += "\nX-AXIS column detected — X positions imported per text item.";
         if (yAxisColIndex >= 0) importMsg += "\nY-AXIS column detected — Y positions imported per text item.";
         if (textSizeColIndex >= 0) importMsg += "\nTEXT-SIZE column detected — text sizes imported per text item.";
+        if (!timeColByTextIndex.isEmpty()) importMsg += "\nTEXTnTIME column(s) detected — appear/go timing imported per text item.";
         importMsg += "\nSlides: " + slideRows.size() + " total.";
         if (!missingAudioFiles.isEmpty()) {
             importMsg += "\n\nWARNING: " + missingAudioFiles.size() + " audio file(s) not found:";
@@ -19827,6 +19873,10 @@ public class GifSlideShowApp extends JFrame {
                         fmt.animEnabled, fmt.animPath, fmt.animDurationMs, fmt.animStartMs, fmt.animEasing,
                         fmt.tiltDegrees, fmt.letterSpacing, fmt.lineSpacing, fmt.opacity);
                 SlideTextData.copyBgStyle(fmt, applied);
+                // Texts-Timer timeline is per-slide (like HL/UL/audio), so keep
+                // this row's own timing instead of the master's after copyBgStyle.
+                applied.timerAppearMs = existing.timerAppearMs;
+                applied.timerDisappearMs = existing.timerDisappearMs;
                 slideTextItems.set(i, applied);
             }
             // For extra items beyond what the source has, apply formatting
@@ -19853,6 +19903,9 @@ public class GifSlideShowApp extends JFrame {
                             lastFmt.animEnabled, lastFmt.animPath, lastFmt.animDurationMs, lastFmt.animStartMs, lastFmt.animEasing,
                             lastFmt.tiltDegrees, lastFmt.letterSpacing, lastFmt.lineSpacing, lastFmt.opacity);
                     SlideTextData.copyBgStyle(lastFmt, applied);
+                    // Keep this row's own Texts-Timer timeline (per-slide).
+                    applied.timerAppearMs = existing.timerAppearMs;
+                    applied.timerDisappearMs = existing.timerDisappearMs;
                     slideTextItems.set(i, applied);
                 }
             }
@@ -19966,6 +20019,21 @@ public class GifSlideShowApp extends JFrame {
                     old.highlightTightness, old.underlineStyle, old.underlineText,
                     old.boldText, old.italicText, old.colorText, old.colorTextColor, old.xLeftAligned, old.odometer, old.odometerSpeed));
             if (currentSlideTextIndex == textIndex) loadSlideTextFromItem(textIndex);
+        }
+
+        /** Set the Texts-Timer appear/disappear times (in ms from slide start)
+         *  for a specific text item by index. A goMs &lt; 0 means "never leaves".
+         *  Mutates the item in place so it does not disturb any other field. */
+        void setSlideTextTimerAt(int textIndex, int appearMs, int goMs) {
+            while (slideTextItems.size() <= textIndex) {
+                slideTextItems.add(new SlideTextData(false, "",
+                        loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI",
+                        40, Font.PLAIN, Color.YELLOW, 50, 50, 0, Color.BLACK,
+                        false, 100, 0, SwingConstants.CENTER));
+            }
+            SlideTextData st = slideTextItems.get(textIndex);
+            st.timerAppearMs = Math.max(0, appearMs);
+            st.timerDisappearMs = goMs < 0 ? -1 : goMs;
         }
 
         /** Set the main overlay highlight text field for this slide. */
