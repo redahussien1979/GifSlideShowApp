@@ -12427,6 +12427,21 @@ public class GifSlideShowApp extends JFrame {
      *                 entries are sanitized away; identical ranges are merged by
      *                 taking the largest play count.
      */
+    /** Build a pitch-preserving audio time-stretch filter chain that plays audio
+     *  {@code slow}× slower (slow≥1). atempo only accepts 0.5–2.0 per instance,
+     *  so factors beyond 2× are reached by chaining. Returns a leading-comma
+     *  filter fragment, e.g. ",atempo=0.5000" or ",atempo=0.5,atempo=0.6667". */
+    private static String atempoChain(double slow) {
+        double tempo = 1.0 / slow; // target playback tempo in (0,1]
+        StringBuilder sb = new StringBuilder();
+        while (tempo < 0.5 - 1e-9) {
+            sb.append(",atempo=0.5");
+            tempo /= 0.5; // == tempo * 2
+        }
+        sb.append(",atempo=").append(String.format(java.util.Locale.US, "%.4f", tempo));
+        return sb.toString();
+    }
+
     private static void insertVideoRepeats(File video, java.util.List<int[]> rangesMs,
                                            int crf, File tempDir, boolean crossfade)
             throws IOException, InterruptedException {
@@ -12434,8 +12449,8 @@ public class GifSlideShowApp extends JFrame {
         double durSec = probeAudioDurationMs(video) / 1000.0; // format=duration works for video too
         if (durSec <= 0) return; // unknown length — can't safely build the trailing piece
 
-        // Sanitize: clamp to [0,dur], drop invalid / <20ms; carry play count.
-        // segs entries: {startSec, endSec, plays}.
+        // Sanitize: clamp to [0,dur], drop invalid / <20ms; carry play count + slow.
+        // segs entries: {startSec, endSec, plays, slowFactor}.
         java.util.List<double[]> segs = new java.util.ArrayList<>();
         for (int[] r : rangesMs) {
             if (r == null || r.length < 2) continue;
@@ -12444,11 +12459,13 @@ public class GifSlideShowApp extends JFrame {
             if (b - a < 0.02) continue;
             int plays = (r.length >= 3) ? r[2] : 2;
             plays = Math.max(2, Math.min(20, plays)); // sane bounds
-            segs.add(new double[]{ a, b, plays });
+            double slow = (r.length >= 4 ? r[3] : 100) / 100.0; // slowPct → factor
+            slow = Math.max(1.0, Math.min(4.0, slow));          // 1× (normal) … 4× slower
+            segs.add(new double[]{ a, b, plays, slow });
         }
         if (segs.isEmpty()) return;
         segs.sort((x, y) -> Double.compare(x[0], y[0]));
-        // Drop overlaps; merge identical ranges by keeping the largest play count.
+        // Drop overlaps; merge identical ranges by keeping the largest play/slow.
         java.util.List<double[]> clean = new java.util.ArrayList<>();
         double lastEnd = -1;
         for (double[] s : segs) {
@@ -12456,6 +12473,7 @@ public class GifSlideShowApp extends JFrame {
                 double[] prev = clean.get(clean.size() - 1);
                 if (Math.abs(prev[0] - s[0]) < 1e-6 && Math.abs(prev[1] - s[1]) < 1e-6) {
                     prev[2] = Math.max(prev[2], s[2]); // same range listed twice → max plays
+                    prev[3] = Math.max(prev[3], s[3]); // … and the larger slow factor
                     continue;
                 }
             }
@@ -12463,16 +12481,21 @@ public class GifSlideShowApp extends JFrame {
         }
         segs = clean;
 
-        // Ordered pieces covering [0,dur], with each chosen range repeated `plays` times.
+        // Ordered pieces covering [0,dur]. Each piece is {startSec, endSec, slow}.
+        // The first play of a range is normal speed; the extra (repeat) copies get
+        // the slow factor, so it "plays normally then replays in slow motion".
         java.util.List<double[]> pieces = new java.util.ArrayList<>();
         double cursor = 0;
         for (double[] s : segs) {
-            if (s[0] > cursor + 1e-6) pieces.add(new double[]{ cursor, s[0] }); // normal gap
+            if (s[0] > cursor + 1e-6) pieces.add(new double[]{ cursor, s[0], 1.0 }); // normal gap
             int plays = (int) s[2];
-            for (int p = 0; p < plays; p++) pieces.add(new double[]{ s[0], s[1] });
+            double slow = s[3];
+            for (int p = 0; p < plays; p++) {
+                pieces.add(new double[]{ s[0], s[1], (p == 0 ? 1.0 : slow) });
+            }
             cursor = s[1];
         }
-        if (durSec > cursor + 1e-6) pieces.add(new double[]{ cursor, durSec }); // tail
+        if (durSec > cursor + 1e-6) pieces.add(new double[]{ cursor, durSec, 1.0 }); // tail
         int k = pieces.size();
         if (k < 2) return; // nothing actually duplicated
 
@@ -12509,13 +12532,24 @@ public class GifSlideShowApp extends JFrame {
         for (int i = 0; i < k; i++) {
             String a = String.format(java.util.Locale.US, "%.3f", pieces.get(i)[0]);
             String b = String.format(java.util.Locale.US, "%.3f", pieces.get(i)[1]);
-            fc.append("[sv").append(i).append("]trim=").append(a).append(':').append(b)
-              .append(",setpts=PTS-STARTPTS[v").append(i).append("];");
+            double slow = pieces.get(i)[2];
+            boolean slowed = slow > 1.0 + 1e-6;
+            // Video: stretch presentation timestamps by `slow` for repeat copies.
+            fc.append("[sv").append(i).append("]trim=").append(a).append(':').append(b).append(',');
+            if (slowed) {
+                fc.append("setpts=").append(String.format(java.util.Locale.US, "%.4f", slow))
+                  .append("*(PTS-STARTPTS)");
+            } else {
+                fc.append("setpts=PTS-STARTPTS");
+            }
+            fc.append("[v").append(i).append("];");
             if (hasAudio) {
+                // Output duration of this piece after any slow-down (afade uses it).
+                double pieceDur = (pieces.get(i)[1] - pieces.get(i)[0]) * slow;
                 fc.append("[sa").append(i).append("]atrim=").append(a).append(':').append(b)
                   .append(",asetpts=PTS-STARTPTS");
+                if (slowed) fc.append(atempoChain(slow)); // time-stretch, pitch-preserving
                 if (fadeIn[i] || fadeOut[i]) {
-                    double pieceDur = pieces.get(i)[1] - pieces.get(i)[0];
                     double d = Math.min(0.012, pieceDur * 0.4); // keep 2*d <= pieceDur
                     String dStr = String.format(java.util.Locale.US, "%.3f", d);
                     if (fadeIn[i]) {
@@ -12573,7 +12607,8 @@ public class GifSlideShowApp extends JFrame {
         for (int[] r : s.videoRepeats) {
             if (r == null || r.length < 2) continue;
             int plays = (r.length >= 3) ? r[2] : 2;
-            out.add(new int[]{ r[0] + offsetMs, r[1] + offsetMs, plays });
+            int slowPct = (r.length >= 4) ? r[3] : 100;
+            out.add(new int[]{ r[0] + offsetMs, r[1] + offsetMs, plays, slowPct });
         }
         return out;
     }
@@ -19966,19 +20001,27 @@ public class GifSlideShowApp extends JFrame {
             for (int[] r : videoRepeats) {
                 if (r == null || r.length < 2) continue;
                 int plays = (r.length >= 3) ? r[2] : 2;
+                int slowPct = (r.length >= 4) ? r[3] : 100;
                 repeatSeed.append(timerMsToSecStr(r[0])).append(',').append(timerMsToSecStr(r[1]));
-                if (plays > 2) repeatSeed.append(',').append(plays);
+                if (plays > 2 || slowPct > 100) repeatSeed.append(',').append(plays);
+                if (slowPct > 100) {
+                    repeatSeed.append(',').append(slowPct % 100 == 0
+                            ? String.valueOf(slowPct / 100) : String.valueOf(slowPct / 100.0));
+                }
                 repeatSeed.append('\n');
             }
             JTextArea repeatArea = new JTextArea(repeatSeed.toString(), 4, 24);
             repeatArea.setFont(new Font("Consolas", Font.PLAIN, 12));
-            repeatArea.setToolTipText("One range per line: start,end[,times] in seconds. e.g. 6.539,7.659,3");
+            repeatArea.setToolTipText("One range per line: start,end[,times[,slow]] in seconds. "
+                    + "e.g. 6.539,7.659,2,2  (plays twice, the repeat at 2x slower)");
             JScrollPane repeatScroll = new JScrollPane(repeatArea);
             repeatScroll.setPreferredSize(new Dimension(460, 90));
             JLabel repeatHelp = new JLabel("<html><b>Repeat parts of the video</b> — one range per line as "
                     + "<code>start,end</code> in seconds (e.g. <code>6.539,7.659</code>). "
-                    + "Add a third number for how many times it plays, e.g. "
-                    + "<code>6.539,7.659,3</code> plays it 3&times;. This lengthens the video.</html>");
+                    + "Optional extras: <code>start,end,times,slow</code> — <b>times</b> = how many times it "
+                    + "plays (e.g. 3), <b>slow</b> = play the repeat(s) slower (2 = half speed). "
+                    + "So <code>6.539,7.659,2,2</code> plays it once normally then once at 2&times; slow. "
+                    + "This lengthens the video.</html>");
             repeatHelp.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             repeatHelp.setBorder(BorderFactory.createEmptyBorder(10, 2, 4, 2));
 
@@ -20088,7 +20131,28 @@ public class GifSlideShowApp extends JFrame {
                         }
                         if (plays > 20) plays = 20;
                     }
-                    repeats.add(new int[]{ (int) Math.round(sSec * 1000.0), (int) Math.round(eSec * 1000.0), plays });
+                    int slowPct = 100; // default: repeat plays at normal speed
+                    if (p.length >= 4 && !p[3].trim().isEmpty()) {
+                        double slow;
+                        try {
+                            slow = Double.parseDouble(p[3].trim());
+                        } catch (NumberFormatException ex) {
+                            JOptionPane.showMessageDialog(dlg,
+                                    "Repeat range \"" + line + "\": slow must be a number (1 = normal, 2 = half speed).",
+                                    "Texts Timer", JOptionPane.ERROR_MESSAGE);
+                            return;
+                        }
+                        if (slow < 1.0) {
+                            JOptionPane.showMessageDialog(dlg,
+                                    "Repeat range \"" + line + "\": slow must be 1 or more (1 = normal, 2 = 2x slower).",
+                                    "Texts Timer", JOptionPane.ERROR_MESSAGE);
+                            return;
+                        }
+                        if (slow > 4.0) slow = 4.0;
+                        slowPct = (int) Math.round(slow * 100.0);
+                    }
+                    repeats.add(new int[]{ (int) Math.round(sSec * 1000.0),
+                            (int) Math.round(eSec * 1000.0), plays, slowPct });
                 }
 
                 // Commit — timer fields are mutable, so set them in place.
@@ -21248,25 +21312,27 @@ public class GifSlideShowApp extends JFrame {
         File getSourceVideoFile() { return sourceVideoFile; }
 
         /** Snapshot of this slide's video "repeat part" ranges
-         *  ({startMs, endMs, plays}); {@code plays} defaults to 2. */
+         *  ({startMs, endMs, plays, slowPct}); plays defaults to 2, slowPct to 100. */
         java.util.List<int[]> getVideoRepeats() {
             java.util.List<int[]> copy = new java.util.ArrayList<>();
             for (int[] r : videoRepeats) {
                 int plays = (r.length >= 3) ? r[2] : 2;
-                copy.add(new int[]{ r[0], r[1], plays });
+                int slowPct = (r.length >= 4) ? r[3] : 100;
+                copy.add(new int[]{ r[0], r[1], plays, slowPct });
             }
             return copy;
         }
 
         /** Replace this slide's video "repeat part" ranges. Each entry is
-         *  {startMs, endMs} or {startMs, endMs, plays} (plays defaults to 2). */
+         *  {startMs, endMs[, plays[, slowPct]]} (plays→2, slowPct→100). */
         void setVideoRepeats(java.util.List<int[]> ranges) {
             videoRepeats.clear();
             if (ranges != null) {
                 for (int[] r : ranges) {
                     if (r != null && r.length >= 2) {
                         int plays = (r.length >= 3) ? r[2] : 2;
-                        videoRepeats.add(new int[]{ r[0], r[1], plays });
+                        int slowPct = (r.length >= 4) ? r[3] : 100;
+                        videoRepeats.add(new int[]{ r[0], r[1], plays, slowPct });
                     }
                 }
             }
