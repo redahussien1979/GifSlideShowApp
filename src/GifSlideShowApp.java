@@ -1039,10 +1039,8 @@ public class GifSlideShowApp extends JFrame {
                             dup++;
                         }
                         File pngOut = new File(outDir, name + ".png");
-                        File jpgOut = new File(outDir, name + ".jpg");
-                        publish("Saving " + name + " (PNG + JPG)...");
+                        publish("Saving " + name + " (PNG)...");
                         ImageIO.write(frames.get(i), "png", pngOut);
-                        writeHighQualityJpeg(frames.get(i), jpgOut, 0.95f);
                         savedCount++;
                         int pct = 80 + (int) ((i + 1.0) / frames.size() * 20);
                         SwingUtilities.invokeLater(() -> progressBar.setValue(pct));
@@ -1075,30 +1073,6 @@ public class GifSlideShowApp extends JFrame {
         };
         worker.execute();
         progressDialog.setVisible(true);
-    }
-
-    private static void writeHighQualityJpeg(BufferedImage img, File out, float quality) throws IOException {
-        BufferedImage rgb = img;
-        if (img.getType() != BufferedImage.TYPE_INT_RGB) {
-            rgb = new BufferedImage(img.getWidth(), img.getHeight(), BufferedImage.TYPE_INT_RGB);
-            Graphics2D g = rgb.createGraphics();
-            g.setColor(Color.BLACK);
-            g.fillRect(0, 0, rgb.getWidth(), rgb.getHeight());
-            g.drawImage(img, 0, 0, null);
-            g.dispose();
-        }
-        Iterator<ImageWriter> it = ImageIO.getImageWritersByFormatName("jpeg");
-        if (!it.hasNext()) throw new IOException("No JPEG writer available");
-        ImageWriter writer = it.next();
-        ImageWriteParam param = writer.getDefaultWriteParam();
-        param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
-        param.setCompressionQuality(quality);
-        try (ImageOutputStream ios = ImageIO.createImageOutputStream(out)) {
-            writer.setOutput(ios);
-            writer.write(null, new javax.imageio.IIOImage(rgb, null, null), param);
-        } finally {
-            writer.dispose();
-        }
     }
 
     private static String sanitizeFileName(String s) {
