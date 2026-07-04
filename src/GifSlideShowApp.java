@@ -8701,6 +8701,7 @@ public class GifSlideShowApp extends JFrame {
             slides.get(slides.size() - 1).slideNumberEffect = row.getSlideNumberEffect();
             slides.get(slides.size() - 1).sourceVideoVolume = row.getSourceVideoVolume();
             slides.get(slides.size() - 1).bgTransparency = row.getBgTransparency();
+            slides.get(slides.size() - 1).videoRepeats = row.getVideoRepeats();
             slides.get(slides.size() - 1).audioWordTimings = row.getSlideAudioWordTimingsList();
             slides.get(slides.size() - 1).audioKaraokeStyle = row.getSlideAudioKaraokeStyleList();
             slides.get(slides.size() - 1).audioKaraokeColor = row.getSlideAudioKaraokeColorList();
@@ -11443,6 +11444,32 @@ public class GifSlideShowApp extends JFrame {
                             }
                         }
 
+                        // Repeat chosen video part(s) on the finished, fully-composited
+                        // output. Each slide's slide-relative ranges are shifted to the
+                        // global timeline by that slide's start offset; the whole video
+                        // is then rebuilt with those spans doubled (seamless re-encode).
+                        boolean anyRepeat = false;
+                        for (SlideData s : slides) {
+                            if (s.videoRepeats != null && !s.videoRepeats.isEmpty()) { anyRepeat = true; break; }
+                        }
+                        if (anyRepeat) {
+                            publish("Repeating chosen video part(s)...");
+                            java.util.List<int[]> allRepeats = new java.util.ArrayList<>();
+                            double off = 0;
+                            double transSec = finalTransitionMs / 1000.0;
+                            for (int i = 0; i < slides.size(); i++) {
+                                SlideData s = slides.get(i);
+                                allRepeats.addAll(shiftedRepeats(s, (int) Math.round(off * 1000.0)));
+                                off += computeSlideDuration(s, duration) / 1000.0;
+                                if (scrollEnabled && i < slides.size() - 1) off += transSec;
+                            }
+                            try {
+                                insertVideoRepeats(finalOut, allRepeats, crf, tempDir);
+                            } catch (Exception rex) {
+                                publish("Repeat part failed: " + rex.getMessage());
+                            }
+                        }
+
                         SwingUtilities.invokeLater(() -> progressBar.setValue(90));
 
                         SwingUtilities.invokeLater(() -> progressBar.setValue(100));
@@ -12077,6 +12104,20 @@ public class GifSlideShowApp extends JFrame {
                                         videoW, videoH, s.videoOverlayX, s.videoOverlayY, s.videoOverlaySize, crf, tempDir,
                                         s.videoOverlayFill, s.videoOverlayBehind);
                             }
+
+                            // Repeat chosen part(s) of this slide's video — done last
+                            // so the duplicated span carries the source video, text
+                            // decorations and audio together (seamless). Slide-relative
+                            // times, since this file starts at the slide's own 0.
+                            if (s.videoRepeats != null && !s.videoRepeats.isEmpty()
+                                    && slideOutFile.exists()) {
+                                publish("Repeating chosen part(s) of slide " + (si + 1) + "...");
+                                try {
+                                    insertVideoRepeats(slideOutFile, s.videoRepeats, crf, tempDir);
+                                } catch (Exception rex) {
+                                    publish("Repeat part failed for slide " + (si + 1) + ": " + rex.getMessage());
+                                }
+                            }
                         } finally {
                             // Clean up temp directory
                             File[] tempFiles = tempDir.listFiles();
@@ -12364,6 +12405,127 @@ public class GifSlideShowApp extends JFrame {
         for (String a : cmd) System.err.println("  " + a);
         runFfmpeg(cmd);
         preOverlay.delete();
+    }
+
+    /**
+     * Rebuild {@code video} in place so that each {startMs,endMs} range (in this
+     * file's own timeline) plays twice back-to-back. The whole timeline is cut
+     * into ordered pieces — normal gaps plus each chosen range duplicated — and
+     * re-concatenated with a single re-encode, so the repeat is seamless (no
+     * black frames, freeze, or container-level seek glitches) and audio rides
+     * along with the picture. No-op when there are no valid ranges.
+     *
+     * @param rangesMs list of {startMs, endMs} ranges; unsorted / overlapping /
+     *                 out-of-range entries are sanitized away.
+     */
+    private static void insertVideoRepeats(File video, java.util.List<int[]> rangesMs,
+                                           int crf, File tempDir)
+            throws IOException, InterruptedException {
+        if (video == null || !video.exists() || rangesMs == null || rangesMs.isEmpty()) return;
+        double durSec = probeAudioDurationMs(video) / 1000.0; // format=duration works for video too
+        if (durSec <= 0) return; // unknown length — can't safely build the trailing piece
+
+        // Sanitize: clamp to [0,dur], drop invalid / <20ms, sort, drop overlaps.
+        java.util.List<double[]> segs = new java.util.ArrayList<>();
+        for (int[] r : rangesMs) {
+            if (r == null || r.length < 2) continue;
+            double a = Math.max(0, Math.min(r[0] / 1000.0, durSec));
+            double b = Math.max(0, Math.min(r[1] / 1000.0, durSec));
+            if (b - a < 0.02) continue;
+            segs.add(new double[]{ a, b });
+        }
+        if (segs.isEmpty()) return;
+        segs.sort((x, y) -> Double.compare(x[0], y[0]));
+        java.util.List<double[]> clean = new java.util.ArrayList<>();
+        double lastEnd = -1;
+        for (double[] s : segs) {
+            if (s[0] >= lastEnd - 1e-6) { clean.add(s); lastEnd = s[1]; }
+        }
+        segs = clean;
+
+        // Ordered pieces covering [0,dur], with each chosen range duplicated.
+        java.util.List<double[]> pieces = new java.util.ArrayList<>();
+        double cursor = 0;
+        for (double[] s : segs) {
+            if (s[0] > cursor + 1e-6) pieces.add(new double[]{ cursor, s[0] }); // normal gap
+            pieces.add(new double[]{ s[0], s[1] }); // original pass
+            pieces.add(new double[]{ s[0], s[1] }); // repeat
+            cursor = s[1];
+        }
+        if (durSec > cursor + 1e-6) pieces.add(new double[]{ cursor, durSec }); // tail
+        int k = pieces.size();
+        if (k < 2) return; // nothing actually duplicated
+
+        boolean hasAudio = probeHasAudio(video);
+
+        // Split the single input into k copies first (each filter output pad may
+        // only feed one consumer), then trim each copy to its piece and concat.
+        StringBuilder fc = new StringBuilder();
+        fc.append("[0:v]split=").append(k);
+        for (int i = 0; i < k; i++) fc.append("[sv").append(i).append(']');
+        fc.append(';');
+        if (hasAudio) {
+            fc.append("[0:a]asplit=").append(k);
+            for (int i = 0; i < k; i++) fc.append("[sa").append(i).append(']');
+            fc.append(';');
+        }
+        StringBuilder cat = new StringBuilder();
+        for (int i = 0; i < k; i++) {
+            String a = String.format(java.util.Locale.US, "%.3f", pieces.get(i)[0]);
+            String b = String.format(java.util.Locale.US, "%.3f", pieces.get(i)[1]);
+            fc.append("[sv").append(i).append("]trim=").append(a).append(':').append(b)
+              .append(",setpts=PTS-STARTPTS[v").append(i).append("];");
+            if (hasAudio) {
+                fc.append("[sa").append(i).append("]atrim=").append(a).append(':').append(b)
+                  .append(",asetpts=PTS-STARTPTS[a").append(i).append("];");
+            }
+            cat.append("[v").append(i).append(']');
+            if (hasAudio) cat.append("[a").append(i).append(']');
+        }
+        cat.append("concat=n=").append(k).append(":v=1:a=").append(hasAudio ? 1 : 0);
+        cat.append(hasAudio ? "[outv][outa]" : "[outv]");
+        fc.append(cat);
+
+        File out = new File(tempDir, "rpt_" + System.currentTimeMillis() + ".mp4");
+        java.util.List<String> cmd = new java.util.ArrayList<>();
+        cmd.add("ffmpeg"); cmd.add("-y");
+        cmd.add("-i"); cmd.add(video.getAbsolutePath());
+        cmd.add("-filter_complex"); cmd.add(fc.toString());
+        cmd.add("-map"); cmd.add("[outv]");
+        if (hasAudio) {
+            cmd.add("-map"); cmd.add("[outa]");
+            cmd.add("-c:a"); cmd.add("aac");
+            cmd.add("-b:a"); cmd.add("192k");
+        } else {
+            cmd.add("-an");
+        }
+        cmd.add("-c:v"); cmd.add("libx264");
+        cmd.add("-preset"); cmd.add("fast");
+        cmd.add("-crf"); cmd.add(String.valueOf(crf));
+        cmd.add("-pix_fmt"); cmd.add("yuv420p");
+        cmd.add("-movflags"); cmd.add("+faststart");
+        cmd.add(out.getAbsolutePath());
+        runFfmpeg(cmd);
+        if (out.exists() && out.length() > 0) {
+            video.delete();
+            if (!out.renameTo(video)) {
+                java.nio.file.Files.copy(out.toPath(), video.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                out.delete();
+            }
+        }
+    }
+
+    /** Collect a slide's video-repeat ranges as {startMs,endMs} pairs shifted by
+     *  {@code offsetMs} into a target timeline. Returns an empty list when none. */
+    private static java.util.List<int[]> shiftedRepeats(SlideData s, int offsetMs) {
+        java.util.List<int[]> out = new java.util.ArrayList<>();
+        if (s == null || s.videoRepeats == null) return out;
+        for (int[] r : s.videoRepeats) {
+            if (r == null || r.length < 2) continue;
+            out.add(new int[]{ r[0] + offsetMs, r[1] + offsetMs });
+        }
+        return out;
     }
 
     // ==================== GIF Encoding ====================
@@ -15033,6 +15195,11 @@ public class GifSlideShowApp extends JFrame {
         // Quiz config snapshot (timer + reveal). Set externally after construction
         // so we don't have to thread another arg through the giant ctor.
         QuizSlide quiz;
+        // Video "repeat part" ranges — each entry is {startMs, endMs} (relative to
+        // the start of this slide). During export the finished, fully-composited
+        // slide video has each range duplicated back-to-back so that part plays
+        // twice. Set externally after construction (like sourceVideoVolume).
+        List<int[]> videoRepeats;
 
         SlideData(BufferedImage image, String text, String fontName, int fontSize,
                   int fontStyle, Color fontColor, int alignment, boolean showPin, String displayMode,
@@ -15480,6 +15647,9 @@ public class GifSlideShowApp extends JFrame {
         // Set when the slide is populated via loadVideoAsSlide / setVideoSlideDirectly.
         private File sourceVideoFile;
         private int sourceVideoDurationMs = -1;
+        // "Repeat part" ranges for this slide's video — each entry is {startMs, endMs}.
+        // Edited in the Texts Timer dialog; each range plays twice in the export.
+        private final java.util.List<int[]> videoRepeats = new java.util.ArrayList<>();
 
 
 
@@ -19733,6 +19903,25 @@ public class GifSlideShowApp extends JFrame {
             help.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             help.setBorder(BorderFactory.createEmptyBorder(0, 2, 6, 2));
 
+            // ----- Repeat parts of the video -----
+            // Slide-level: each line is "start,end" in seconds; that part of the
+            // finished video plays twice back-to-back (seamless), extending length.
+            StringBuilder repeatSeed = new StringBuilder();
+            for (int[] r : videoRepeats) {
+                if (r == null || r.length < 2) continue;
+                repeatSeed.append(timerMsToSecStr(r[0])).append(',').append(timerMsToSecStr(r[1])).append('\n');
+            }
+            JTextArea repeatArea = new JTextArea(repeatSeed.toString(), 4, 24);
+            repeatArea.setFont(new Font("Consolas", Font.PLAIN, 12));
+            repeatArea.setToolTipText("One range per line: start,end in seconds. e.g. 6.539,7.659");
+            JScrollPane repeatScroll = new JScrollPane(repeatArea);
+            repeatScroll.setPreferredSize(new Dimension(460, 90));
+            JLabel repeatHelp = new JLabel("<html><b>Repeat parts of the video</b> — one range per line as "
+                    + "<code>start,end</code> in seconds (e.g. <code>6.539,7.659</code>). "
+                    + "Each range plays twice; this lengthens the video.</html>");
+            repeatHelp.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            repeatHelp.setBorder(BorderFactory.createEmptyBorder(10, 2, 4, 2));
+
             JButton clearBtn  = new JButton("Clear All");
             JButton cancelBtn = new JButton("Cancel");
             JButton okBtn     = new JButton("Apply");
@@ -19740,6 +19929,7 @@ public class GifSlideShowApp extends JFrame {
             clearBtn.addActionListener(e -> {
                 for (JTextField f : appearFields) f.setText("0");
                 for (JTextField f : goFields) f.setText("");
+                repeatArea.setText("");
             });
 
             okBtn.addActionListener(e -> {
@@ -19784,20 +19974,63 @@ public class GifSlideShowApp extends JFrame {
                     appearMs[i] = a;
                     goMs[i] = g;
                 }
+                // Parse + validate the repeat ranges before committing anything.
+                java.util.List<int[]> repeats = new java.util.ArrayList<>();
+                String[] lines = repeatArea.getText().split("\n");
+                for (String raw : lines) {
+                    String line = raw.trim();
+                    if (line.isEmpty()) continue;
+                    String[] p = line.split(",");
+                    if (p.length < 2 || p[0].trim().isEmpty() || p[1].trim().isEmpty()) {
+                        JOptionPane.showMessageDialog(dlg,
+                                "Repeat range \"" + line + "\" must be in the form start,end (seconds).",
+                                "Texts Timer", JOptionPane.ERROR_MESSAGE);
+                        return;
+                    }
+                    double sSec, eSec;
+                    try {
+                        sSec = Double.parseDouble(p[0].trim());
+                        eSec = Double.parseDouble(p[1].trim());
+                    } catch (NumberFormatException ex) {
+                        JOptionPane.showMessageDialog(dlg,
+                                "Repeat range \"" + line + "\" has a non-numeric value.",
+                                "Texts Timer", JOptionPane.ERROR_MESSAGE);
+                        return;
+                    }
+                    if (sSec < 0) sSec = 0;
+                    if (eSec <= sSec) {
+                        JOptionPane.showMessageDialog(dlg,
+                                "Repeat range \"" + line + "\": the end must be later than the start.",
+                                "Texts Timer", JOptionPane.ERROR_MESSAGE);
+                        return;
+                    }
+                    repeats.add(new int[]{ (int) Math.round(sSec * 1000.0), (int) Math.round(eSec * 1000.0) });
+                }
+
                 // Commit — timer fields are mutable, so set them in place.
                 for (int i = 0; i < n; i++) {
                     slideTextItems.get(i).timerAppearMs = appearMs[i];
                     slideTextItems.get(i).timerDisappearMs = goMs[i];
                 }
+                setVideoRepeats(repeats);
                 schedulePreview();
                 dlg.dispose();
             });
             cancelBtn.addActionListener(e -> dlg.dispose());
 
+            JPanel center = new JPanel();
+            center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
+            rowsScroll.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
+            repeatHelp.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
+            repeatScroll.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
+            center.add(rowsScroll);
+            center.add(repeatHelp);
+            center.add(repeatScroll);
+
             JPanel root = new JPanel(new BorderLayout());
             root.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
             root.add(help, BorderLayout.NORTH);
-            root.add(rowsScroll, BorderLayout.CENTER);
+            root.add(center, BorderLayout.CENTER);
 
             JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 6));
             btnRow.add(clearBtn);
@@ -20926,6 +21159,23 @@ public class GifSlideShowApp extends JFrame {
         }
 
         File getSourceVideoFile() { return sourceVideoFile; }
+
+        /** Snapshot of this slide's video "repeat part" ranges ({startMs, endMs}). */
+        java.util.List<int[]> getVideoRepeats() {
+            java.util.List<int[]> copy = new java.util.ArrayList<>();
+            for (int[] r : videoRepeats) copy.add(new int[]{ r[0], r[1] });
+            return copy;
+        }
+
+        /** Replace this slide's video "repeat part" ranges. */
+        void setVideoRepeats(java.util.List<int[]> ranges) {
+            videoRepeats.clear();
+            if (ranges != null) {
+                for (int[] r : ranges) {
+                    if (r != null && r.length >= 2) videoRepeats.add(new int[]{ r[0], r[1] });
+                }
+            }
+        }
         int getSourceVideoDurationMs() { return sourceVideoDurationMs; }
         int getSourceVideoVolume() { return (int) sourceVideoVolumeSpinner.getValue(); }
         int getBgTransparency() { return (int) bgTransparencySpinner.getValue(); }
