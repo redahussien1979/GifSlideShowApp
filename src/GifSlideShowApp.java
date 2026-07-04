@@ -7680,6 +7680,7 @@ public class GifSlideShowApp extends JFrame {
                                                 int bgX, int bgY, int bgW, int bgH,
                                                 double stScaleFactor) {
         int alpha = (int) (st.bgOpacity / 100.0 * 255);
+        alpha = Math.max(0, Math.min(255, alpha));
         Color bgc = st.bgColor != null ? st.bgColor : Color.BLACK;
         Color bgc2 = st.bgColor2 != null ? st.bgColor2 : new Color(60, 60, 60);
 
@@ -16363,9 +16364,9 @@ public class GifSlideShowApp extends JFrame {
             slideTextYSpinner.setToolTipText("Y position (% of height)");
             slideTextYSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
-            slideTextBgSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 100, 5));
+            slideTextBgSpinner = new JSpinner(new SpinnerNumberModel(0, -100, 200, 5));
             slideTextBgSpinner.setPreferredSize(new Dimension(50, 28));
-            slideTextBgSpinner.setToolTipText("Slide text background opacity (0=transparent, 100=solid)");
+            slideTextBgSpinner.setToolTipText("Slide text background opacity (0=transparent, 100=solid; values below 0 hide it, above 100 stay solid)");
             slideTextBgSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
             slideTextBgColorBtn = new JButton("\u25a0");
