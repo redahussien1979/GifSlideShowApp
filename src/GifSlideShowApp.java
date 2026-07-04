@@ -390,6 +390,8 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(p + "letterSpacing", String.valueOf(t.letterSpacing));
             props.setProperty(p + "lineSpacing", String.valueOf(t.lineSpacing));
             props.setProperty(p + "opacity", String.valueOf(t.opacity));
+            props.setProperty(p + "timerAppearMs", String.valueOf(t.timerAppearMs));
+            props.setProperty(p + "timerDisappearMs", String.valueOf(t.timerDisappearMs));
         }
 
         // Per-text audio highlight settings (FX, HL color, glow size).
@@ -739,6 +741,8 @@ public class GifSlideShowApp extends JFrame {
             loaded.bgOuterGlow       = Boolean.parseBoolean(props.getProperty(p + "bgOuterGlow", "false"));
             loaded.bgOuterGlowSize   = Integer.parseInt(props.getProperty(p + "bgOuterGlowSize", "8"));
             loaded.bgOuterGlowColor  = hexToColor(props.getProperty(p + "bgOuterGlowColor", "#FFDC78"));
+            loaded.timerAppearMs     = Integer.parseInt(props.getProperty(p + "timerAppearMs", "0"));
+            loaded.timerDisappearMs  = Integer.parseInt(props.getProperty(p + "timerDisappearMs", "-1"));
             slideTextFormats.add(loaded);
         }
 
@@ -10002,9 +10006,10 @@ public class GifSlideShowApp extends JFrame {
                                 }
                                 boolean hasMultiAudio = validAudioCount >= 2;
                                 boolean hasAudioAnim = anyAudioHlAnimates(s.audioHlEffects) || anyKaraokeTimings(s.audioWordTimings) || anyBulkPicAudioEffect(s.slidePictures);
-                                boolean needsAnimatedFx = hasAudioAnim || isQuizSlide(s);
+                                boolean hasTextTimer = anySlideTextTimer(s);
+                                boolean needsAnimatedFx = hasAudioAnim || isQuizSlide(s) || hasTextTimer;
 
-                                if (hasMultiAudio || isQuizSlide(s) || hasAudioAnim) {
+                                if (hasMultiAudio || isQuizSlide(s) || hasAudioAnim || hasTextTimer) {
                                     // Render dwell frames honoring per-segment audio highlight.
                                     // Pulse/Shake need animation → render every frame.
                                     // Other FX (Glow/Enlarge/Bold/Color/Underline/None) are
@@ -10144,6 +10149,7 @@ public class GifSlideShowApp extends JFrame {
                                     for (SlideTextData stx : s.slideTexts) {
                                         if (stx.show && stx.odometer) { hasAnim = true; break; }
                                         if (stx.show && stx.animEnabled) { hasAnim = true; break; }
+                                        if (stx.show && slideTextHasTimer(stx)) { hasAnim = true; break; }
                                         if (stx.show && stx.textEffect != null) {
                                             String fx = stx.textEffect;
                                             if (fx.equals("Water Ripple") || fx.equals("Fire") || fx.equals("Ice")
@@ -10441,6 +10447,7 @@ public class GifSlideShowApp extends JFrame {
                                         for (SlideTextData stx : s.slideTexts) {
                                             if (stx.show && stx.odometer) { hasAnimatedText = true; break; }
                                             if (stx.show && stx.animEnabled) { hasAnimatedText = true; break; }
+                                            if (stx.show && slideTextHasTimer(stx)) { hasAnimatedText = true; break; }
                                             if (stx.show && stx.textEffect != null) {
                                                 String fx = stx.textEffect;
                                                 if (fx.equals("Water Ripple") || fx.equals("Fire") || fx.equals("Ice")
@@ -10463,6 +10470,9 @@ public class GifSlideShowApp extends JFrame {
                                         publish("Rendering slide " + (i + 1) + " with " + slideFrames + " multi-audio animated frames...");
                                         for (int d = 0; d < slideFrames; d++) {
                                             long elapsedMs = (long)(d * 1000.0 / fps);
+                                            // Texts-Timer appear/disappear mask (runs before the HL
+                                            // clone below so the clone inherits quizHidden).
+                                            applyQuizHideMask(s.slideTexts, s.quiz, elapsedMs);
                                             int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
                                         activeAudioSegmentIdx.set(activeIdx);
                                             long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
@@ -10628,6 +10638,9 @@ public class GifSlideShowApp extends JFrame {
                                         publish("Rendering slide " + (i + 1) + " with " + slideFrames + " animated frames...");
                                         for (int d = 0; d < slideFrames; d++) {
                                             long elapsedMs = (long)(d * 1000.0 / fps);
+                                            // Texts-Timer appear/disappear mask for this frame (also
+                                            // resets quizHidden when no timer/quiz is active).
+                                            applyQuizHideMask(s.slideTexts, s.quiz, elapsedMs);
                                             // Keep the bulk-picture audio-effect gate in sync every frame,
                                             // even when there's no text highlight on this slide.
                                             activeAudioSegmentIdx.set(getActiveAudioTextIndex(s, elapsedMs));
@@ -11622,6 +11635,7 @@ public class GifSlideShowApp extends JFrame {
                                 for (SlideTextData stx : s.slideTexts) {
                                     if (stx.show && stx.odometer) { hasAnimatedText = true; break; }
                                     if (stx.show && stx.animEnabled) { hasAnimatedText = true; break; }
+                                    if (stx.show && slideTextHasTimer(stx)) { hasAnimatedText = true; break; }
                                     if (stx.show && stx.textEffect != null) {
                                         String fx = stx.textEffect;
                                         if (fx.equals("Water Ripple") || fx.equals("Fire") || fx.equals("Ice")
@@ -12945,26 +12959,66 @@ public class GifSlideShowApp extends JFrame {
      * renderFrame transforms paint the animation for free.
      */
     private static void applyQuizHideMask(List<SlideTextData> texts, QuizSlide quiz, long elapsedMs) {
+        applyQuizHideMask(texts, quiz, elapsedMs, true);
+    }
+
+    /**
+     * Same as {@link #applyQuizHideMask(List, QuizSlide, long)} but with an extra
+     * {@code applyTimer} switch. When true (every real render frame), the
+     * Texts-Timer appear/disappear timeline also feeds into {@code quizHidden}
+     * so a text stays invisible outside its window. The editor's static live
+     * preview passes false so all texts remain visible for positioning/styling
+     * regardless of their timeline.
+     */
+    private static void applyQuizHideMask(List<SlideTextData> texts, QuizSlide quiz, long elapsedMs,
+                                          boolean applyTimer) {
         if (texts == null) return;
-        if (quiz == null || !quiz.enabled) {
-            for (SlideTextData st : texts) {
-                st.quizHidden = false;
-                resetQuizRevealAnim(st);
-            }
-            return;
-        }
+        boolean quizActive = quiz != null && quiz.enabled;
         int size = texts.size();
         for (int i = 0; i < size; i++) {
             SlideTextData st = texts.get(i);
-            st.quizHidden = quiz.shouldHideText(i, elapsedMs, size);
-            if (quiz.isInRevealAnimWindow(i, elapsedMs, size)) {
-                double t = quiz.revealAnimProgress(elapsedMs);
-                double eased = QuizSlide.easeNamed(quiz.hideRevealEasing, t);
-                applyRevealAnimFields(st, quiz.hideRevealAnimation, t, eased);
+            boolean hidden = false;
+            // Texts Timer: hide before appear time and after (optional) go time.
+            if (applyTimer && !textTimerVisibleAt(st, elapsedMs)) hidden = true;
+            if (quizActive) {
+                if (quiz.shouldHideText(i, elapsedMs, size)) hidden = true;
+                if (quiz.isInRevealAnimWindow(i, elapsedMs, size)) {
+                    double t = quiz.revealAnimProgress(elapsedMs);
+                    double eased = QuizSlide.easeNamed(quiz.hideRevealEasing, t);
+                    applyRevealAnimFields(st, quiz.hideRevealAnimation, t, eased);
+                } else {
+                    resetQuizRevealAnim(st);
+                }
             } else {
                 resetQuizRevealAnim(st);
             }
+            st.quizHidden = hidden;
         }
+    }
+
+    /** True iff this text carries a non-default Texts-Timer timeline. */
+    private static boolean slideTextHasTimer(SlideTextData st) {
+        return st != null && (st.timerAppearMs > 0 || st.timerDisappearMs >= 0);
+    }
+
+    /** True iff any shown text on the slide has a timeline, so the slide must be
+     *  rendered frame-by-frame for the appear/disappear to take effect. */
+    private static boolean anySlideTextTimer(SlideData s) {
+        if (s == null || s.slideTexts == null) return false;
+        for (SlideTextData st : s.slideTexts) {
+            if (st != null && st.show && slideTextHasTimer(st)) return true;
+        }
+        return false;
+    }
+
+    /** Texts-Timer visibility test at a given elapsed time (ms from slide start):
+     *  visible once elapsed reaches the appear time, and (if a go time is set)
+     *  until elapsed reaches that go time. A go time of -1 means "never leaves". */
+    private static boolean textTimerVisibleAt(SlideTextData st, long elapsedMs) {
+        if (st == null) return true;
+        if (elapsedMs < st.timerAppearMs) return false;
+        if (st.timerDisappearMs >= 0 && elapsedMs >= st.timerDisappearMs) return false;
+        return true;
     }
 
     /** Reset the transient render fields applyRevealAnimFields stomps on. */
@@ -13743,6 +13797,7 @@ public class GifSlideShowApp extends JFrame {
                 if (!stx.show) continue;
                 if (stx.animEnabled) return true;
                 if (stx.odometer) return true;
+                if (slideTextHasTimer(stx)) return true;
                 String fx = stx.textEffect;
                 if (fx != null && (fx.equals("Water Ripple") || fx.equals("Fire") || fx.equals("Ice")
                         || fx.equals("Rainbow") || fx.equals("Typewriter")
@@ -14066,6 +14121,18 @@ public class GifSlideShowApp extends JFrame {
         // Independent of the audio-HL color so users can mix the two.
         Color karaokeColor = new Color(255, 220, 0, 220);
 
+        // ===== Texts Timer (toolbar 4lg "Texts Timer" dialog) =====
+        // A simple appear/disappear timeline for this text, measured in
+        // milliseconds from the start of the slide. Mutable + non-final with
+        // safe defaults so they ride along without touching the long chain of
+        // overloaded constructors (same approach as the BG-style block below).
+        //   timerAppearMs:    text stays hidden until elapsed >= this value.
+        //                     0 (default) = visible from the very start.
+        //   timerDisappearMs: text disappears once elapsed >= this value.
+        //                     -1 (default) = never disappears (stays to the end).
+        int timerAppearMs = 0;
+        int timerDisappearMs = -1;
+
         // ===== BG style (toolbars 4b2 / 4b3 / 4b4) =====
         // Defaults are mutable (not final) so they can persist via SlideTextData without
         // touching the long chain of overloaded constructors. Tight=50 reproduces the
@@ -14142,6 +14209,10 @@ public class GifSlideShowApp extends JFrame {
             dst.bgOuterGlow       = src.bgOuterGlow;
             dst.bgOuterGlowSize   = src.bgOuterGlowSize;
             dst.bgOuterGlowColor  = src.bgOuterGlowColor;
+            // Texts Timer timeline rides along too, so it survives the same
+            // rebuild / broadcast / HL-clone paths as the BG-style block.
+            dst.timerAppearMs     = src.timerAppearMs;
+            dst.timerDisappearMs  = src.timerDisappearMs;
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -16083,8 +16154,19 @@ public class GifSlideShowApp extends JFrame {
             lgOpenBtn.setToolTipText("Pick texts, arrange them in a grid (rows × columns), tweak position & style — live preview, Cancel reverts.");
             lgOpenBtn.addActionListener(e -> openLayoutGroupDialog());
 
+            // "Texts Timer" — opens a box listing every text with an Appear time
+            // and a Go (disappear) time. Leaving Go empty means the text never
+            // leaves once it appears.
+            JButton textsTimerBtn = new JButton("⏱ Texts Timer…");
+            textsTimerBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            textsTimerBtn.setPreferredSize(new Dimension(150, 24));
+            textsTimerBtn.setFocusPainted(false);
+            textsTimerBtn.setToolTipText("Set when each text appears and (optionally) when it goes. Leave the Go time empty to keep a text on screen once it appears.");
+            textsTimerBtn.addActionListener(e -> openTextsTimerDialog());
+
             toolbar4lg.add(lgTitleLbl);
             toolbar4lg.add(lgOpenBtn);
+            toolbar4lg.add(textsTimerBtn);
 
             // ===== Toolbar 4b2: BG Fill (opacity / color / padding / round / fill paint) =====
             final Color bgRowFg = new Color(140, 210, 160);
@@ -18646,8 +18728,8 @@ public class GifSlideShowApp extends JFrame {
                 case 2: alignment = SwingConstants.RIGHT; break;
                 default: alignment = SwingConstants.CENTER; break;
             }
-            boolean prevXLeftAligned = currentSlideTextIndex < slideTextItems.size()
-                    ? slideTextItems.get(currentSlideTextIndex).xLeftAligned : false;
+            SlideTextData prevItem = slideTextItems.get(currentSlideTextIndex);
+            boolean prevXLeftAligned = prevItem.xLeftAligned;
             double animDurSec = ((Number) slideTextAnimDurationSpinner.getValue()).doubleValue();
             double animStartSec = ((Number) slideTextAnimStartSpinner.getValue()).doubleValue();
             int animDurMs = (int) Math.round(animDurSec * 1000.0);
@@ -18707,6 +18789,11 @@ public class GifSlideShowApp extends JFrame {
             newItem.bgOuterGlow = slideTextBgGlowCheck.isSelected();
             newItem.bgOuterGlowSize = (int) slideTextBgGlowSpinner.getValue();
             newItem.bgOuterGlowColor = slideTextBgGlowColor;
+            // The Texts-Timer timeline is edited in its own dialog, not on the
+            // main toolbar, so carry it forward from the previous item instead of
+            // resetting it every time an unrelated property changes.
+            newItem.timerAppearMs = prevItem.timerAppearMs;
+            newItem.timerDisappearMs = prevItem.timerDisappearMs;
             slideTextItems.set(currentSlideTextIndex, newItem);
         }
 
@@ -19518,6 +19605,166 @@ public class GifSlideShowApp extends JFrame {
             // stay exactly as the user left it until they actively change
             // something in the dialog. Otherwise opening the dialog would
             // re-stamp positions using whatever the stored defaults are.
+        }
+
+        /** Format a millisecond value as a compact seconds string ("2", "2.5"). */
+        private static String timerMsToSecStr(int ms) {
+            double sec = ms / 1000.0;
+            if (sec == Math.rint(sec)) return String.valueOf((long) sec);
+            return String.valueOf(Math.round(sec * 100.0) / 100.0);
+        }
+
+        /**
+         * "Texts Timer" dialog — lists every text on the current slide with an
+         * Appear time and a Go (disappear) time, both in seconds from the start
+         * of the slide. Appear defaults to 0 (visible from the start); leaving
+         * the Go field empty means the text never disappears once it appears.
+         */
+        private void openTextsTimerDialog() {
+            if (isTitleGridSlide) return;
+            saveCurrentSlideTextToItem();
+
+            if (slideTextItems.isEmpty()) {
+                JOptionPane.showMessageDialog(panel, "There are no texts to time yet.",
+                        "Texts Timer", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+
+            final Window owner = SwingUtilities.getWindowAncestor(panel);
+            final JDialog dlg = new JDialog(owner, "Texts Timer", Dialog.ModalityType.APPLICATION_MODAL);
+            dlg.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+
+            final java.util.List<JTextField> appearFields = new java.util.ArrayList<>();
+            final java.util.List<JTextField> goFields     = new java.util.ArrayList<>();
+
+            JPanel rows = new JPanel(new GridBagLayout());
+            rows.setBackground(Color.WHITE);
+            GridBagConstraints gc = new GridBagConstraints();
+            gc.insets = new Insets(3, 6, 3, 6);
+            gc.anchor = GridBagConstraints.WEST;
+
+            // Header row
+            java.util.function.Function<String, JLabel> hdr = txt -> {
+                JLabel l = new JLabel(txt);
+                l.setFont(new Font("Segoe UI", Font.BOLD, 12));
+                return l;
+            };
+            gc.gridy = 0;
+            gc.gridx = 0; rows.add(hdr.apply("Text"), gc);
+            gc.gridx = 1; rows.add(hdr.apply("Appear (s)"), gc);
+            gc.gridx = 2; rows.add(hdr.apply("Go (s)"), gc);
+
+            for (int i = 0; i < slideTextItems.size(); i++) {
+                SlideTextData st = slideTextItems.get(i);
+                String content = st.text == null ? "" : st.text.replace('\n', ' ').trim();
+                if (content.isEmpty()) content = "(empty)";
+                if (content.length() > 40) content = content.substring(0, 37) + "…";
+                String visMark = st.show ? "" : "  (hidden)";
+
+                JLabel nameLbl = new JLabel("Text " + (i + 1) + ": " + content + visMark);
+                nameLbl.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+                if (!st.show) nameLbl.setForeground(Color.GRAY);
+
+                JTextField appear = new JTextField(timerMsToSecStr(st.timerAppearMs), 5);
+                JTextField go     = new JTextField(st.timerDisappearMs < 0 ? "" : timerMsToSecStr(st.timerDisappearMs), 5);
+                appear.setToolTipText("Seconds from the start of this slide before the text appears (0 = from the start).");
+                go.setToolTipText("Seconds from the start of this slide when the text disappears. Leave empty to keep it on screen.");
+                appearFields.add(appear);
+                goFields.add(go);
+
+                gc.gridy = i + 1;
+                gc.gridx = 0; rows.add(nameLbl, gc);
+                gc.gridx = 1; rows.add(appear, gc);
+                gc.gridx = 2; rows.add(go, gc);
+            }
+
+            JScrollPane rowsScroll = new JScrollPane(rows);
+            rowsScroll.setPreferredSize(new Dimension(460, Math.min(360, 40 + slideTextItems.size() * 30)));
+            rowsScroll.getVerticalScrollBar().setUnitIncrement(18);
+
+            JLabel help = new JLabel("<html>Times are in seconds from the start of this slide. "
+                    + "Leave <b>Go</b> empty to keep a text on screen once it appears.</html>");
+            help.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            help.setBorder(BorderFactory.createEmptyBorder(0, 2, 6, 2));
+
+            JButton clearBtn  = new JButton("Clear All");
+            JButton cancelBtn = new JButton("Cancel");
+            JButton okBtn     = new JButton("Apply");
+
+            clearBtn.addActionListener(e -> {
+                for (JTextField f : appearFields) f.setText("0");
+                for (JTextField f : goFields) f.setText("");
+            });
+
+            okBtn.addActionListener(e -> {
+                // Parse + validate every row first so a bad value cancels the
+                // whole Apply instead of committing a half-updated state.
+                int n = slideTextItems.size();
+                int[] appearMs = new int[n];
+                int[] goMs = new int[n];
+                for (int i = 0; i < n; i++) {
+                    String aStr = appearFields.get(i).getText().trim();
+                    String gStr = goFields.get(i).getText().trim();
+                    double aSec = 0.0;
+                    if (!aStr.isEmpty()) {
+                        try { aSec = Double.parseDouble(aStr); }
+                        catch (NumberFormatException ex) {
+                            JOptionPane.showMessageDialog(dlg,
+                                    "Text " + (i + 1) + ": \"" + aStr + "\" is not a valid Appear time.",
+                                    "Texts Timer", JOptionPane.ERROR_MESSAGE);
+                            return;
+                        }
+                    }
+                    if (aSec < 0) aSec = 0;
+                    int a = (int) Math.round(aSec * 1000.0);
+                    int g = -1;
+                    if (!gStr.isEmpty()) {
+                        double gSec;
+                        try { gSec = Double.parseDouble(gStr); }
+                        catch (NumberFormatException ex) {
+                            JOptionPane.showMessageDialog(dlg,
+                                    "Text " + (i + 1) + ": \"" + gStr + "\" is not a valid Go time.",
+                                    "Texts Timer", JOptionPane.ERROR_MESSAGE);
+                            return;
+                        }
+                        g = (int) Math.round(gSec * 1000.0);
+                        if (g <= a) {
+                            JOptionPane.showMessageDialog(dlg,
+                                    "Text " + (i + 1) + ": the Go time must be later than the Appear time.",
+                                    "Texts Timer", JOptionPane.ERROR_MESSAGE);
+                            return;
+                        }
+                    }
+                    appearMs[i] = a;
+                    goMs[i] = g;
+                }
+                // Commit — timer fields are mutable, so set them in place.
+                for (int i = 0; i < n; i++) {
+                    slideTextItems.get(i).timerAppearMs = appearMs[i];
+                    slideTextItems.get(i).timerDisappearMs = goMs[i];
+                }
+                schedulePreview();
+                dlg.dispose();
+            });
+            cancelBtn.addActionListener(e -> dlg.dispose());
+
+            JPanel root = new JPanel(new BorderLayout());
+            root.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+            root.add(help, BorderLayout.NORTH);
+            root.add(rowsScroll, BorderLayout.CENTER);
+
+            JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 6));
+            btnRow.add(clearBtn);
+            btnRow.add(cancelBtn);
+            btnRow.add(okBtn);
+
+            dlg.setLayout(new BorderLayout());
+            dlg.add(root, BorderLayout.CENTER);
+            dlg.add(btnRow, BorderLayout.SOUTH);
+            dlg.pack();
+            dlg.setSize(Math.max(480, dlg.getPreferredSize().width), dlg.getPreferredSize().height);
+            dlg.setLocationRelativeTo(owner);
+            dlg.setVisible(true);
         }
 
         private JLabel sectionLabel(String txt) {
@@ -20423,8 +20670,11 @@ public class GifSlideShowApp extends JFrame {
             // Hide the quiz's "delayed reveal" text in the editor preview so
             // the user sees the WYSIWYG pre-reveal state. The quiz preview
             // overlay below draws the timer at full seconds, i.e. elapsed=0,
-            // which is before the reveal moment.
-            applyQuizHideMask(getSlideTextDataList(), quiz, 0L);
+            // which is before the reveal moment. Pass applyTimer=false so the
+            // Texts-Timer timeline does NOT hide texts in the static editor
+            // preview — the user still needs to see and position every text
+            // regardless of when it appears/leaves in the exported video.
+            applyQuizHideMask(getSlideTextDataList(), quiz, 0L, false);
             BufferedImage preview = renderFrame(
                     frameImage, textArea.getText(),
                     getSelectedFont(), getFontSize(), getFontStyle(),
