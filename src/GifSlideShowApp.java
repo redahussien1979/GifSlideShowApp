@@ -12415,8 +12415,11 @@ public class GifSlideShowApp extends JFrame {
      * black frames, freeze, or container-level seek glitches) and audio rides
      * along with the picture. No-op when there are no valid ranges.
      *
-     * @param rangesMs list of {startMs, endMs} ranges; unsorted / overlapping /
-     *                 out-of-range entries are sanitized away.
+     * @param rangesMs list of {startMs, endMs} or {startMs, endMs, plays} ranges,
+     *                 where {@code plays} is how many times that part plays
+     *                 (default 2, min 2). Unsorted / overlapping / out-of-range
+     *                 entries are sanitized away; identical ranges are merged by
+     *                 taking the largest play count.
      */
     private static void insertVideoRepeats(File video, java.util.List<int[]> rangesMs,
                                            int crf, File tempDir)
@@ -12425,31 +12428,42 @@ public class GifSlideShowApp extends JFrame {
         double durSec = probeAudioDurationMs(video) / 1000.0; // format=duration works for video too
         if (durSec <= 0) return; // unknown length — can't safely build the trailing piece
 
-        // Sanitize: clamp to [0,dur], drop invalid / <20ms, sort, drop overlaps.
+        // Sanitize: clamp to [0,dur], drop invalid / <20ms; carry play count.
+        // segs entries: {startSec, endSec, plays}.
         java.util.List<double[]> segs = new java.util.ArrayList<>();
         for (int[] r : rangesMs) {
             if (r == null || r.length < 2) continue;
             double a = Math.max(0, Math.min(r[0] / 1000.0, durSec));
             double b = Math.max(0, Math.min(r[1] / 1000.0, durSec));
             if (b - a < 0.02) continue;
-            segs.add(new double[]{ a, b });
+            int plays = (r.length >= 3) ? r[2] : 2;
+            plays = Math.max(2, Math.min(20, plays)); // sane bounds
+            segs.add(new double[]{ a, b, plays });
         }
         if (segs.isEmpty()) return;
         segs.sort((x, y) -> Double.compare(x[0], y[0]));
+        // Drop overlaps; merge identical ranges by keeping the largest play count.
         java.util.List<double[]> clean = new java.util.ArrayList<>();
         double lastEnd = -1;
         for (double[] s : segs) {
+            if (!clean.isEmpty()) {
+                double[] prev = clean.get(clean.size() - 1);
+                if (Math.abs(prev[0] - s[0]) < 1e-6 && Math.abs(prev[1] - s[1]) < 1e-6) {
+                    prev[2] = Math.max(prev[2], s[2]); // same range listed twice → max plays
+                    continue;
+                }
+            }
             if (s[0] >= lastEnd - 1e-6) { clean.add(s); lastEnd = s[1]; }
         }
         segs = clean;
 
-        // Ordered pieces covering [0,dur], with each chosen range duplicated.
+        // Ordered pieces covering [0,dur], with each chosen range repeated `plays` times.
         java.util.List<double[]> pieces = new java.util.ArrayList<>();
         double cursor = 0;
         for (double[] s : segs) {
             if (s[0] > cursor + 1e-6) pieces.add(new double[]{ cursor, s[0] }); // normal gap
-            pieces.add(new double[]{ s[0], s[1] }); // original pass
-            pieces.add(new double[]{ s[0], s[1] }); // repeat
+            int plays = (int) s[2];
+            for (int p = 0; p < plays; p++) pieces.add(new double[]{ s[0], s[1] });
             cursor = s[1];
         }
         if (durSec > cursor + 1e-6) pieces.add(new double[]{ cursor, durSec }); // tail
@@ -12523,7 +12537,8 @@ public class GifSlideShowApp extends JFrame {
         if (s == null || s.videoRepeats == null) return out;
         for (int[] r : s.videoRepeats) {
             if (r == null || r.length < 2) continue;
-            out.add(new int[]{ r[0] + offsetMs, r[1] + offsetMs });
+            int plays = (r.length >= 3) ? r[2] : 2;
+            out.add(new int[]{ r[0] + offsetMs, r[1] + offsetMs, plays });
         }
         return out;
     }
@@ -19909,16 +19924,20 @@ public class GifSlideShowApp extends JFrame {
             StringBuilder repeatSeed = new StringBuilder();
             for (int[] r : videoRepeats) {
                 if (r == null || r.length < 2) continue;
-                repeatSeed.append(timerMsToSecStr(r[0])).append(',').append(timerMsToSecStr(r[1])).append('\n');
+                int plays = (r.length >= 3) ? r[2] : 2;
+                repeatSeed.append(timerMsToSecStr(r[0])).append(',').append(timerMsToSecStr(r[1]));
+                if (plays > 2) repeatSeed.append(',').append(plays);
+                repeatSeed.append('\n');
             }
             JTextArea repeatArea = new JTextArea(repeatSeed.toString(), 4, 24);
             repeatArea.setFont(new Font("Consolas", Font.PLAIN, 12));
-            repeatArea.setToolTipText("One range per line: start,end in seconds. e.g. 6.539,7.659");
+            repeatArea.setToolTipText("One range per line: start,end[,times] in seconds. e.g. 6.539,7.659,3");
             JScrollPane repeatScroll = new JScrollPane(repeatArea);
             repeatScroll.setPreferredSize(new Dimension(460, 90));
             JLabel repeatHelp = new JLabel("<html><b>Repeat parts of the video</b> — one range per line as "
                     + "<code>start,end</code> in seconds (e.g. <code>6.539,7.659</code>). "
-                    + "Each range plays twice; this lengthens the video.</html>");
+                    + "Add a third number for how many times it plays, e.g. "
+                    + "<code>6.539,7.659,3</code> plays it 3&times;. This lengthens the video.</html>");
             repeatHelp.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             repeatHelp.setBorder(BorderFactory.createEmptyBorder(10, 2, 4, 2));
 
@@ -19983,7 +20002,7 @@ public class GifSlideShowApp extends JFrame {
                     String[] p = line.split(",");
                     if (p.length < 2 || p[0].trim().isEmpty() || p[1].trim().isEmpty()) {
                         JOptionPane.showMessageDialog(dlg,
-                                "Repeat range \"" + line + "\" must be in the form start,end (seconds).",
+                                "Repeat range \"" + line + "\" must be in the form start,end[,times] (seconds).",
                                 "Texts Timer", JOptionPane.ERROR_MESSAGE);
                         return;
                     }
@@ -20004,7 +20023,25 @@ public class GifSlideShowApp extends JFrame {
                                 "Texts Timer", JOptionPane.ERROR_MESSAGE);
                         return;
                     }
-                    repeats.add(new int[]{ (int) Math.round(sSec * 1000.0), (int) Math.round(eSec * 1000.0) });
+                    int plays = 2; // default: plays twice
+                    if (p.length >= 3 && !p[2].trim().isEmpty()) {
+                        try {
+                            plays = Integer.parseInt(p[2].trim());
+                        } catch (NumberFormatException ex) {
+                            JOptionPane.showMessageDialog(dlg,
+                                    "Repeat range \"" + line + "\": times must be a whole number (2 or more).",
+                                    "Texts Timer", JOptionPane.ERROR_MESSAGE);
+                            return;
+                        }
+                        if (plays < 2) {
+                            JOptionPane.showMessageDialog(dlg,
+                                    "Repeat range \"" + line + "\": times must be 2 or more.",
+                                    "Texts Timer", JOptionPane.ERROR_MESSAGE);
+                            return;
+                        }
+                        if (plays > 20) plays = 20;
+                    }
+                    repeats.add(new int[]{ (int) Math.round(sSec * 1000.0), (int) Math.round(eSec * 1000.0), plays });
                 }
 
                 // Commit — timer fields are mutable, so set them in place.
@@ -21160,19 +21197,27 @@ public class GifSlideShowApp extends JFrame {
 
         File getSourceVideoFile() { return sourceVideoFile; }
 
-        /** Snapshot of this slide's video "repeat part" ranges ({startMs, endMs}). */
+        /** Snapshot of this slide's video "repeat part" ranges
+         *  ({startMs, endMs, plays}); {@code plays} defaults to 2. */
         java.util.List<int[]> getVideoRepeats() {
             java.util.List<int[]> copy = new java.util.ArrayList<>();
-            for (int[] r : videoRepeats) copy.add(new int[]{ r[0], r[1] });
+            for (int[] r : videoRepeats) {
+                int plays = (r.length >= 3) ? r[2] : 2;
+                copy.add(new int[]{ r[0], r[1], plays });
+            }
             return copy;
         }
 
-        /** Replace this slide's video "repeat part" ranges. */
+        /** Replace this slide's video "repeat part" ranges. Each entry is
+         *  {startMs, endMs} or {startMs, endMs, plays} (plays defaults to 2). */
         void setVideoRepeats(java.util.List<int[]> ranges) {
             videoRepeats.clear();
             if (ranges != null) {
                 for (int[] r : ranges) {
-                    if (r != null && r.length >= 2) videoRepeats.add(new int[]{ r[0], r[1] });
+                    if (r != null && r.length >= 2) {
+                        int plays = (r.length >= 3) ? r[2] : 2;
+                        videoRepeats.add(new int[]{ r[0], r[1], plays });
+                    }
                 }
             }
         }
