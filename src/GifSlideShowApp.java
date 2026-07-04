@@ -8702,6 +8702,7 @@ public class GifSlideShowApp extends JFrame {
             slides.get(slides.size() - 1).sourceVideoVolume = row.getSourceVideoVolume();
             slides.get(slides.size() - 1).bgTransparency = row.getBgTransparency();
             slides.get(slides.size() - 1).videoRepeats = row.getVideoRepeats();
+            slides.get(slides.size() - 1).videoRepeatCrossfade = row.isVideoRepeatCrossfade();
             slides.get(slides.size() - 1).audioWordTimings = row.getSlideAudioWordTimingsList();
             slides.get(slides.size() - 1).audioKaraokeStyle = row.getSlideAudioKaraokeStyleList();
             slides.get(slides.size() - 1).audioKaraokeColor = row.getSlideAudioKaraokeColorList();
@@ -11449,8 +11450,12 @@ public class GifSlideShowApp extends JFrame {
                         // global timeline by that slide's start offset; the whole video
                         // is then rebuilt with those spans doubled (seamless re-encode).
                         boolean anyRepeat = false;
+                        boolean repeatCrossfade = false;
                         for (SlideData s : slides) {
-                            if (s.videoRepeats != null && !s.videoRepeats.isEmpty()) { anyRepeat = true; break; }
+                            if (s.videoRepeats != null && !s.videoRepeats.isEmpty()) {
+                                anyRepeat = true;
+                                if (s.videoRepeatCrossfade) repeatCrossfade = true;
+                            }
                         }
                         if (anyRepeat) {
                             publish("Repeating chosen video part(s)...");
@@ -11464,7 +11469,7 @@ public class GifSlideShowApp extends JFrame {
                                 if (scrollEnabled && i < slides.size() - 1) off += transSec;
                             }
                             try {
-                                insertVideoRepeats(finalOut, allRepeats, crf, tempDir);
+                                insertVideoRepeats(finalOut, allRepeats, crf, tempDir, repeatCrossfade);
                             } catch (Exception rex) {
                                 publish("Repeat part failed: " + rex.getMessage());
                             }
@@ -12113,7 +12118,8 @@ public class GifSlideShowApp extends JFrame {
                                     && slideOutFile.exists()) {
                                 publish("Repeating chosen part(s) of slide " + (si + 1) + "...");
                                 try {
-                                    insertVideoRepeats(slideOutFile, s.videoRepeats, crf, tempDir);
+                                    insertVideoRepeats(slideOutFile, s.videoRepeats, crf, tempDir,
+                                            s.videoRepeatCrossfade);
                                 } catch (Exception rex) {
                                     publish("Repeat part failed for slide " + (si + 1) + ": " + rex.getMessage());
                                 }
@@ -12422,7 +12428,7 @@ public class GifSlideShowApp extends JFrame {
      *                 taking the largest play count.
      */
     private static void insertVideoRepeats(File video, java.util.List<int[]> rangesMs,
-                                           int crf, File tempDir)
+                                           int crf, File tempDir, boolean crossfade)
             throws IOException, InterruptedException {
         if (video == null || !video.exists() || rangesMs == null || rangesMs.isEmpty()) return;
         double durSec = probeAudioDurationMs(video) / 1000.0; // format=duration works for video too
@@ -12472,6 +12478,22 @@ public class GifSlideShowApp extends JFrame {
 
         boolean hasAudio = probeHasAudio(video);
 
+        // Per-piece audio de-click flags. A seam is "discontinuous" (a jump in the
+        // source timeline) only where a piece's end does not equal the next
+        // piece's start — i.e. exactly the loop-backs between repeated copies.
+        // We fade audio OUT at the end of the piece before such a seam and IN at
+        // the start of the piece after it. Fades ramp amplitude only (duration is
+        // preserved), so audio stays perfectly in sync with the clean video cut.
+        // Genuinely contiguous joins (gap→segment, last copy→tail) are left alone.
+        boolean[] fadeIn  = new boolean[k];
+        boolean[] fadeOut = new boolean[k];
+        if (crossfade && hasAudio) {
+            for (int i = 0; i < k; i++) {
+                if (i > 0     && Math.abs(pieces.get(i - 1)[1] - pieces.get(i)[0]) > 1e-6) fadeIn[i]  = true;
+                if (i < k - 1 && Math.abs(pieces.get(i)[1] - pieces.get(i + 1)[0]) > 1e-6) fadeOut[i] = true;
+            }
+        }
+
         // Split the single input into k copies first (each filter output pad may
         // only feed one consumer), then trim each copy to its piece and concat.
         StringBuilder fc = new StringBuilder();
@@ -12491,7 +12513,20 @@ public class GifSlideShowApp extends JFrame {
               .append(",setpts=PTS-STARTPTS[v").append(i).append("];");
             if (hasAudio) {
                 fc.append("[sa").append(i).append("]atrim=").append(a).append(':').append(b)
-                  .append(",asetpts=PTS-STARTPTS[a").append(i).append("];");
+                  .append(",asetpts=PTS-STARTPTS");
+                if (fadeIn[i] || fadeOut[i]) {
+                    double pieceDur = pieces.get(i)[1] - pieces.get(i)[0];
+                    double d = Math.min(0.012, pieceDur * 0.4); // keep 2*d <= pieceDur
+                    String dStr = String.format(java.util.Locale.US, "%.3f", d);
+                    if (fadeIn[i]) {
+                        fc.append(",afade=t=in:st=0:d=").append(dStr);
+                    }
+                    if (fadeOut[i]) {
+                        String stOut = String.format(java.util.Locale.US, "%.3f", Math.max(0, pieceDur - d));
+                        fc.append(",afade=t=out:st=").append(stOut).append(":d=").append(dStr);
+                    }
+                }
+                fc.append("[a").append(i).append("];");
             }
             cat.append("[v").append(i).append(']');
             if (hasAudio) cat.append("[a").append(i).append(']');
@@ -15215,6 +15250,10 @@ public class GifSlideShowApp extends JFrame {
         // slide video has each range duplicated back-to-back so that part plays
         // twice. Set externally after construction (like sourceVideoVolume).
         List<int[]> videoRepeats;
+        // When true, short (~12ms) audio fades are applied at each repeat seam so
+        // the loop-back does not click. Duration is preserved (fades ramp
+        // amplitude only), so audio stays in sync with the clean video cut.
+        boolean videoRepeatCrossfade = false;
 
         SlideData(BufferedImage image, String text, String fontName, int fontSize,
                   int fontStyle, Color fontColor, int alignment, boolean showPin, String displayMode,
@@ -15665,6 +15704,8 @@ public class GifSlideShowApp extends JFrame {
         // "Repeat part" ranges for this slide's video — each entry is {startMs, endMs}.
         // Edited in the Texts Timer dialog; each range plays twice in the export.
         private final java.util.List<int[]> videoRepeats = new java.util.ArrayList<>();
+        // When true, short audio fades de-click the repeat seams (see SlideData).
+        private boolean videoRepeatCrossfade = false;
 
 
 
@@ -19941,6 +19982,12 @@ public class GifSlideShowApp extends JFrame {
             repeatHelp.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             repeatHelp.setBorder(BorderFactory.createEmptyBorder(10, 2, 4, 2));
 
+            JCheckBox crossfadeCheck = new JCheckBox(
+                    "Crossfade audio at repeat joins (removes the click)", isVideoRepeatCrossfade());
+            crossfadeCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            crossfadeCheck.setToolTipText("Off = clean cut (exact copy, may click on continuous music). "
+                    + "On = a ~12 ms audio fade hides the click at each loop-back (duration unchanged).");
+
             JButton clearBtn  = new JButton("Clear All");
             JButton cancelBtn = new JButton("Cancel");
             JButton okBtn     = new JButton("Apply");
@@ -20050,6 +20097,7 @@ public class GifSlideShowApp extends JFrame {
                     slideTextItems.get(i).timerDisappearMs = goMs[i];
                 }
                 setVideoRepeats(repeats);
+                setVideoRepeatCrossfade(crossfadeCheck.isSelected());
                 schedulePreview();
                 dlg.dispose();
             });
@@ -20060,9 +20108,11 @@ public class GifSlideShowApp extends JFrame {
             rowsScroll.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
             repeatHelp.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
             repeatScroll.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
+            crossfadeCheck.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
             center.add(rowsScroll);
             center.add(repeatHelp);
             center.add(repeatScroll);
+            center.add(crossfadeCheck);
 
             JPanel root = new JPanel(new BorderLayout());
             root.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
@@ -21221,6 +21271,9 @@ public class GifSlideShowApp extends JFrame {
                 }
             }
         }
+
+        boolean isVideoRepeatCrossfade() { return videoRepeatCrossfade; }
+        void setVideoRepeatCrossfade(boolean on) { videoRepeatCrossfade = on; }
         int getSourceVideoDurationMs() { return sourceVideoDurationMs; }
         int getSourceVideoVolume() { return (int) sourceVideoVolumeSpinner.getValue(); }
         int getBgTransparency() { return (int) bgTransparencySpinner.getValue(); }
