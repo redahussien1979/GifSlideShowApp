@@ -340,6 +340,7 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(p + "bgOpacity", String.valueOf(t.bgOpacity));
             props.setProperty(p + "bgColor", colorToHex(t.bgColor));
             props.setProperty(p + "bgPaddingPct", String.valueOf(t.bgPaddingPct));
+            props.setProperty(p + "bgPaddingYPct", String.valueOf(t.bgPaddingYPct));
             props.setProperty(p + "bgRoundPct", String.valueOf(t.bgRoundPct));
             props.setProperty(p + "bgColor2", colorToHex(t.bgColor2 != null ? t.bgColor2 : new Color(60, 60, 60)));
             props.setProperty(p + "bgFillKind", t.bgFillKind != null ? t.bgFillKind : "Solid");
@@ -709,6 +710,7 @@ public class GifSlideShowApp extends JFrame {
                     Integer.parseInt(props.getProperty(p + "opacity", "100"))
             );
             loaded.bgPaddingPct      = Integer.parseInt(props.getProperty(p + "bgPaddingPct", "50"));
+            loaded.bgPaddingYPct     = Integer.parseInt(props.getProperty(p + "bgPaddingYPct", "50"));
             loaded.bgRoundPct        = Integer.parseInt(props.getProperty(p + "bgRoundPct", "10"));
             loaded.bgColor2          = hexToColor(props.getProperty(p + "bgColor2", "#3C3C3C"));
             // bgFillKind defaults to Solid; legacy bgGradient=true upgrades to Linear.
@@ -4343,11 +4345,13 @@ public class GifSlideShowApp extends JFrame {
                     }
                 }
 
-                // BG padding scales with bgPaddingPct: 50=baseline (6px,4px),
-                // 0=very tight (~1px,1px), 100=loose (~16px,12px).
-                double stBgPadScale = Math.max(0.05, st.bgPaddingPct / 50.0);
-                int stPadX = (int) Math.max(1, 6 * stScaleFactor * stBgPadScale);
-                int stPadY = (int) Math.max(1, 4 * stScaleFactor * stBgPadScale);
+                // BG padding scales independently on each axis: 50=baseline (6px,4px),
+                // 0=very tight (~1px,1px), 100=loose (~16px,12px). bgPaddingPct controls
+                // horizontal (width) padding; bgPaddingYPct controls vertical (height).
+                double stBgPadScaleX = Math.max(0.05, st.bgPaddingPct / 50.0);
+                double stBgPadScaleY = Math.max(0.05, st.bgPaddingYPct / 50.0);
+                int stPadX = (int) Math.max(1, 6 * stScaleFactor * stBgPadScaleX);
+                int stPadY = (int) Math.max(1, 4 * stScaleFactor * stBgPadScaleY);
 
                 int bgX = stCenterX - stMaxLineWidth / 2 - stPadX;
                 int bgY = stCenterY - totalTextHeight / 2 - stPadY;
@@ -14405,7 +14409,8 @@ public class GifSlideShowApp extends JFrame {
         // Defaults are mutable (not final) so they can persist via SlideTextData without
         // touching the long chain of overloaded constructors. Tight=50 reproduces the
         // pre-feature padding (6px,4px). Round=10 reproduces the pre-feature arc.
-        int bgPaddingPct = 50;       // 0..100 (0=very tight, 50=normal, 100=very loose)
+        int bgPaddingPct = 50;       // 0..100 horizontal (width) padding: 0=tight, 50=normal, 100=loose
+        int bgPaddingYPct = 50;      // 0..100 vertical (height) padding: 0=tight, 50=normal, 100=loose
         int bgRoundPct = 10;         // 0..100 (0=square corners, 100=fully rounded)
         Color bgColor2 = new Color(60, 60, 60);
 
@@ -14452,6 +14457,7 @@ public class GifSlideShowApp extends JFrame {
          *  and when cloning SlideTextData for the HL render pass. */
         static void copyBgStyle(SlideTextData src, SlideTextData dst) {
             dst.bgPaddingPct      = src.bgPaddingPct;
+            dst.bgPaddingYPct     = src.bgPaddingYPct;
             dst.bgRoundPct        = src.bgRoundPct;
             dst.bgColor2          = src.bgColor2;
             dst.bgFillKind        = src.bgFillKind;
@@ -15410,7 +15416,8 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner slideTextBgSpinner;
         // ===== BG style controls (toolbars 4b2 / 4b3 / 4b4) =====
         // 4b2 — Fill core
-        private final JSpinner slideTextBgTightSpinner;     // 0..100, padding around text
+        private final JSpinner slideTextBgTightSpinner;     // 0..100, horizontal (width) padding
+        private final JSpinner slideTextBgTightYSpinner;    // 0..100, vertical (height) padding
         private final JSpinner slideTextBgRoundSpinner;     // 0..100, corner radius
         private final JComboBox<String> slideTextBgFillCombo;  // Solid / Linear / Radial / Conic / Stripes / Checker / Dots / Lines
         private final JButton slideTextBgColor2Btn;
@@ -16462,8 +16469,13 @@ public class GifSlideShowApp extends JFrame {
 
             slideTextBgTightSpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 5));
             slideTextBgTightSpinner.setPreferredSize(new Dimension(50, 24));
-            slideTextBgTightSpinner.setToolTipText("BG padding around text (0=very tight, 50=normal, 100=loose)");
+            slideTextBgTightSpinner.setToolTipText("BG width padding (horizontal) — 0=very tight, 50=normal, 100=loose");
             slideTextBgTightSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextBgTightYSpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 5));
+            slideTextBgTightYSpinner.setPreferredSize(new Dimension(50, 24));
+            slideTextBgTightYSpinner.setToolTipText("BG height padding (vertical) — 0=very tight, 50=normal, 100=loose");
+            slideTextBgTightYSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
             slideTextBgRoundSpinner = new JSpinner(new SpinnerNumberModel(10, 0, 100, 5));
             slideTextBgRoundSpinner.setPreferredSize(new Dimension(50, 24));
@@ -16506,6 +16518,8 @@ public class GifSlideShowApp extends JFrame {
             toolbar4b2.add(slideTextBgColorBtn);
             toolbar4b2.add(mkLbl.apply("Tight:", bgRowFg));
             toolbar4b2.add(slideTextBgTightSpinner);
+            toolbar4b2.add(mkLbl.apply("Tall:", bgRowFg));
+            toolbar4b2.add(slideTextBgTightYSpinner);
             toolbar4b2.add(mkLbl.apply("Round:", bgRowFg));
             toolbar4b2.add(slideTextBgRoundSpinner);
             toolbar4b2.add(mkLbl.apply("Fill:", bgRowFg));
@@ -19046,6 +19060,7 @@ public class GifSlideShowApp extends JFrame {
                     (int) slideTextLineSpacingSpinner.getValue(),
                     (int) slideTextOpacitySpinner.getValue());
             newItem.bgPaddingPct = (int) slideTextBgTightSpinner.getValue();
+            newItem.bgPaddingYPct = (int) slideTextBgTightYSpinner.getValue();
             newItem.bgRoundPct = (int) slideTextBgRoundSpinner.getValue();
             newItem.bgColor2 = slideTextBgColor2;
             newItem.bgFillKind = (String) slideTextBgFillCombo.getSelectedItem();
@@ -19098,6 +19113,7 @@ public class GifSlideShowApp extends JFrame {
                 slideTextBgColor = item.bgColor;
                 slideTextBgColorBtn.setForeground(item.bgColor);
                 slideTextBgTightSpinner.setValue(item.bgPaddingPct);
+                slideTextBgTightYSpinner.setValue(item.bgPaddingYPct);
                 slideTextBgRoundSpinner.setValue(item.bgRoundPct);
                 slideTextBgColor2 = item.bgColor2 != null ? item.bgColor2 : new Color(60, 60, 60);
                 slideTextBgColor2Btn.setForeground(slideTextBgColor2);
