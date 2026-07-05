@@ -209,7 +209,7 @@ public class GifSlideShowApp extends JFrame {
         presetDeleteBtn.addActionListener(e -> deletePreset());
 
         JButton saveImagesBtn = createStyledButton("Save Images", new Color(120, 80, 180));
-        saveImagesBtn.setToolTipText("Save each slide as an HD PNG named after Text 1");
+        saveImagesBtn.setToolTipText("Choose a layout, then save slides as HD PNGs (single or several per image)");
         saveImagesBtn.addActionListener(e -> saveSlidesAsImages());
 
         botRow.add(presetLabel);
@@ -998,9 +998,31 @@ public class GifSlideShowApp extends JFrame {
 
     // ==================== Save Slides as Images ====================
 
+    // Layout arrangements for combining several slides onto one saved sheet.
+    private static final String ARRANGE_SINGLE = "Single (1 per image)";
+    private static final String ARRANGE_GRID   = "Auto grid";
+    private static final String ARRANGE_ROW     = "Single row (side by side)";
+    private static final String ARRANGE_COLUMN  = "Single column (stacked)";
+    private static final String ARRANGE_CUSTOM  = "Custom rows × columns";
+
+    // User choices from the Save Images options window.
+    private static class SaveImagesOptions {
+        String arrangement = ARRANGE_SINGLE;
+        int perSheet = 1;      // slides per saved sheet (ignored for CUSTOM, derived from rows*cols)
+        int rows = 1;          // used for CUSTOM
+        int cols = 1;          // used for CUSTOM
+        int scalePercent = 100; // scale applied to each slide cell (controls file size)
+        int gap = 0;           // pixels between cells
+        int margin = 0;        // pixels around the outer edge
+        Color background = Color.BLACK;
+    }
+
     private void saveSlidesAsImages() {
         List<SlideData> slides = collectSlides();
         if (slides == null) return;
+
+        SaveImagesOptions opts = showSaveImagesOptionsDialog(slides.size());
+        if (opts == null) return; // user cancelled
 
         File parent = new File(".").getAbsoluteFile().getParentFile();
         String stamp = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
@@ -1029,11 +1051,40 @@ public class GifSlideShowApp extends JFrame {
                     publish("Rendering at " + w + "×" + h + "...");
                     List<BufferedImage> frames = renderAllFrames(slides, w, h, progressBar, 80);
 
+                    // Resolve grid geometry from the chosen arrangement.
+                    int cols, rows;
+                    switch (opts.arrangement) {
+                        case ARRANGE_ROW:
+                            rows = 1; cols = Math.max(1, opts.perSheet); break;
+                        case ARRANGE_COLUMN:
+                            cols = 1; rows = Math.max(1, opts.perSheet); break;
+                        case ARRANGE_CUSTOM:
+                            rows = Math.max(1, opts.rows); cols = Math.max(1, opts.cols); break;
+                        case ARRANGE_GRID:
+                            cols = (int) Math.ceil(Math.sqrt(Math.max(1, opts.perSheet)));
+                            rows = (int) Math.ceil((double) Math.max(1, opts.perSheet) / cols);
+                            break;
+                        default: // ARRANGE_SINGLE
+                            cols = 1; rows = 1; break;
+                    }
+                    int perSheet = Math.max(1, rows * cols);
+
+                    int sheetCount = (frames.size() + perSheet - 1) / perSheet;
                     Set<String> usedNames = new HashSet<>();
-                    for (int i = 0; i < frames.size(); i++) {
-                        String text1 = slides.get(i).text;
+                    for (int s = 0; s < sheetCount; s++) {
+                        int start = s * perSheet;
+                        int end = Math.min(start + perSheet, frames.size());
+                        List<BufferedImage> group = frames.subList(start, end);
+
+                        BufferedImage sheet = (perSheet == 1)
+                                ? group.get(0)
+                                : composeSheet(group, rows, cols, w, h, opts);
+
+                        // Name the sheet after the first slide's Text 1.
+                        String text1 = slides.get(start).text;
                         String base = sanitizeFileName(text1);
-                        if (base.isEmpty()) base = "slide_" + (i + 1);
+                        if (base.isEmpty()) base = "slide_" + (start + 1);
+                        if (perSheet > 1) base = base + "_+" + (end - start - 1);
                         String name = base;
                         int dup = 2;
                         while (!usedNames.add(name.toLowerCase(Locale.ROOT))) {
@@ -1042,9 +1093,9 @@ public class GifSlideShowApp extends JFrame {
                         }
                         File pngOut = new File(outDir, name + ".png");
                         publish("Saving " + name + " (PNG)...");
-                        ImageIO.write(frames.get(i), "png", pngOut);
+                        ImageIO.write(sheet, "png", pngOut);
                         savedCount++;
-                        int pct = 80 + (int) ((i + 1.0) / frames.size() * 20);
+                        int pct = 80 + (int) ((s + 1.0) / sheetCount * 20);
                         SwingUtilities.invokeLater(() -> progressBar.setValue(pct));
                     }
                 } catch (Exception ex) {
@@ -1067,7 +1118,7 @@ public class GifSlideShowApp extends JFrame {
                             "Save Images", JOptionPane.ERROR_MESSAGE);
                 } else {
                     JOptionPane.showMessageDialog(GifSlideShowApp.this,
-                            "Saved " + savedCount + " image(s) at " + w + "×" + h + "\nFolder: "
+                            "Saved " + savedCount + " image(s)\nFolder: "
                                     + outDir.getAbsolutePath(),
                             "Save Images", JOptionPane.INFORMATION_MESSAGE);
                 }
@@ -1075,6 +1126,189 @@ public class GifSlideShowApp extends JFrame {
         };
         worker.execute();
         progressDialog.setVisible(true);
+    }
+
+    // Compose several full-frame slides into one grid sheet. Every frame is
+    // exactly w×h, so each grid cell shares the slide aspect ratio and the
+    // frame scales cleanly into it (no letterboxing). Empty trailing cells are
+    // left as the background color.
+    private BufferedImage composeSheet(List<BufferedImage> group, int rows, int cols,
+                                       int w, int h, SaveImagesOptions opts) {
+        double scale = Math.max(1, opts.scalePercent) / 100.0;
+        int cellW = Math.max(1, (int) Math.round(w * scale));
+        int cellH = Math.max(1, (int) Math.round(h * scale));
+        int gap = Math.max(0, opts.gap);
+        int margin = Math.max(0, opts.margin);
+
+        int sheetW = margin * 2 + cols * cellW + (cols - 1) * gap;
+        int sheetH = margin * 2 + rows * cellH + (rows - 1) * gap;
+
+        BufferedImage sheet = new BufferedImage(sheetW, sheetH, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g2 = sheet.createGraphics();
+        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        g2.setColor(opts.background != null ? opts.background : Color.BLACK);
+        g2.fillRect(0, 0, sheetW, sheetH);
+
+        for (int i = 0; i < group.size(); i++) {
+            int r = i / cols;
+            int c = i % cols;
+            int x = margin + c * (cellW + gap);
+            int y = margin + r * (cellH + gap);
+            g2.drawImage(group.get(i), x, y, cellW, cellH, null);
+        }
+        g2.dispose();
+        return sheet;
+    }
+
+    // Modal options window shown when "Save Images" is clicked. Returns the
+    // chosen options, or null if the user cancelled.
+    private SaveImagesOptions showSaveImagesOptionsDialog(int slideCount) {
+        final Color panelBg = new Color(45, 45, 50);
+        final Color fg = new Color(230, 230, 235);
+
+        JDialog dialog = new JDialog(this, "Save Images — Layout Options", true);
+        JPanel panel = new JPanel(new GridBagLayout());
+        panel.setBackground(panelBg);
+        panel.setBorder(BorderFactory.createEmptyBorder(18, 22, 18, 22));
+
+        GridBagConstraints gc = new GridBagConstraints();
+        gc.insets = new Insets(6, 6, 6, 6);
+        gc.anchor = GridBagConstraints.WEST;
+        gc.fill = GridBagConstraints.HORIZONTAL;
+
+        int rowIdx = 0;
+
+        // Arrangement selector
+        JComboBox<String> arrangeCombo = new JComboBox<>(new String[]{
+                ARRANGE_SINGLE, ARRANGE_ROW, ARRANGE_COLUMN, ARRANGE_GRID, ARRANGE_CUSTOM });
+
+        JSpinner perSheetSpinner = new JSpinner(new SpinnerNumberModel(
+                Math.min(2, Math.max(1, slideCount)), 1, Math.max(1, slideCount), 1));
+        JSpinner rowsSpinner = new JSpinner(new SpinnerNumberModel(1, 1, 20, 1));
+        JSpinner colsSpinner = new JSpinner(new SpinnerNumberModel(2, 1, 20, 1));
+        JSpinner scaleSpinner = new JSpinner(new SpinnerNumberModel(100, 10, 100, 5));
+        JSpinner gapSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 400, 2));
+        JSpinner marginSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 600, 2));
+
+        final Color[] bgColor = { Color.BLACK };
+        JButton bgButton = new JButton("   ");
+        bgButton.setBackground(bgColor[0]);
+        bgButton.setOpaque(true);
+        bgButton.setPreferredSize(new Dimension(60, 24));
+        bgButton.addActionListener(e -> {
+            Color chosen = JColorChooser.showDialog(dialog, "Background / Gap Color", bgColor[0]);
+            if (chosen != null) {
+                bgColor[0] = chosen;
+                bgButton.setBackground(chosen);
+            }
+        });
+
+        JLabel summary = new JLabel(" ");
+        summary.setForeground(new Color(150, 200, 150));
+
+        // Enable/disable dependent fields and refresh the summary line.
+        Runnable refresh = () -> {
+            String arr = (String) arrangeCombo.getSelectedItem();
+            boolean single = ARRANGE_SINGLE.equals(arr);
+            boolean custom = ARRANGE_CUSTOM.equals(arr);
+            perSheetSpinner.setEnabled(!single && !custom);
+            rowsSpinner.setEnabled(custom);
+            colsSpinner.setEnabled(custom);
+            gapSpinner.setEnabled(!single);
+            marginSpinner.setEnabled(!single);
+            bgButton.setEnabled(!single);
+
+            int cols, rows, per;
+            if (custom) {
+                rows = (Integer) rowsSpinner.getValue();
+                cols = (Integer) colsSpinner.getValue();
+                per = rows * cols;
+            } else if (single) {
+                rows = cols = per = 1;
+            } else {
+                per = (Integer) perSheetSpinner.getValue();
+                if (ARRANGE_ROW.equals(arr)) { rows = 1; cols = per; }
+                else if (ARRANGE_COLUMN.equals(arr)) { cols = 1; rows = per; }
+                else { cols = (int) Math.ceil(Math.sqrt(per)); rows = (int) Math.ceil((double) per / cols); }
+            }
+            int sheets = (slideCount + per - 1) / per;
+            summary.setText(rows + " × " + cols + " grid  •  " + per + " slides/image  •  "
+                    + sheets + " image" + (sheets == 1 ? "" : "s") + " total");
+        };
+        arrangeCombo.addActionListener(e -> refresh.run());
+        perSheetSpinner.addChangeListener(e -> refresh.run());
+        rowsSpinner.addChangeListener(e -> refresh.run());
+        colsSpinner.addChangeListener(e -> refresh.run());
+
+        // Lay out labelled rows.
+        gc.gridx = 0; gc.gridy = rowIdx; panel.add(styledLabel("Arrangement:", fg), gc);
+        gc.gridx = 1; panel.add(arrangeCombo, gc); rowIdx++;
+
+        gc.gridx = 0; gc.gridy = rowIdx; panel.add(styledLabel("Slides per image:", fg), gc);
+        gc.gridx = 1; panel.add(perSheetSpinner, gc); rowIdx++;
+
+        gc.gridx = 0; gc.gridy = rowIdx; panel.add(styledLabel("Custom rows:", fg), gc);
+        gc.gridx = 1; panel.add(rowsSpinner, gc); rowIdx++;
+
+        gc.gridx = 0; gc.gridy = rowIdx; panel.add(styledLabel("Custom columns:", fg), gc);
+        gc.gridx = 1; panel.add(colsSpinner, gc); rowIdx++;
+
+        gc.gridx = 0; gc.gridy = rowIdx; panel.add(styledLabel("Scale (%):", fg), gc);
+        gc.gridx = 1; panel.add(scaleSpinner, gc); rowIdx++;
+
+        gc.gridx = 0; gc.gridy = rowIdx; panel.add(styledLabel("Gap between (px):", fg), gc);
+        gc.gridx = 1; panel.add(gapSpinner, gc); rowIdx++;
+
+        gc.gridx = 0; gc.gridy = rowIdx; panel.add(styledLabel("Outer margin (px):", fg), gc);
+        gc.gridx = 1; panel.add(marginSpinner, gc); rowIdx++;
+
+        gc.gridx = 0; gc.gridy = rowIdx; panel.add(styledLabel("Background / gap color:", fg), gc);
+        gc.gridx = 1; panel.add(bgButton, gc); rowIdx++;
+
+        gc.gridx = 0; gc.gridy = rowIdx; gc.gridwidth = 2;
+        panel.add(summary, gc); gc.gridwidth = 1; rowIdx++;
+
+        // Buttons
+        final boolean[] confirmed = { false };
+        JButton saveBtn = createStyledButton("Save", new Color(80, 140, 60));
+        JButton cancelBtn = createStyledButton("Cancel", new Color(120, 120, 120));
+        saveBtn.addActionListener(e -> { confirmed[0] = true; dialog.dispose(); });
+        cancelBtn.addActionListener(e -> dialog.dispose());
+
+        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        btnRow.setBackground(panelBg);
+        btnRow.add(cancelBtn);
+        btnRow.add(saveBtn);
+        gc.gridx = 0; gc.gridy = rowIdx; gc.gridwidth = 2; gc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(btnRow, gc);
+
+        refresh.run();
+
+        dialog.setContentPane(panel);
+        dialog.pack();
+        dialog.setLocationRelativeTo(this);
+        dialog.setVisible(true);
+
+        if (!confirmed[0]) return null;
+
+        SaveImagesOptions opts = new SaveImagesOptions();
+        opts.arrangement = (String) arrangeCombo.getSelectedItem();
+        opts.perSheet = (Integer) perSheetSpinner.getValue();
+        opts.rows = (Integer) rowsSpinner.getValue();
+        opts.cols = (Integer) colsSpinner.getValue();
+        opts.scalePercent = (Integer) scaleSpinner.getValue();
+        opts.gap = (Integer) gapSpinner.getValue();
+        opts.margin = (Integer) marginSpinner.getValue();
+        opts.background = bgColor[0];
+        return opts;
+    }
+
+    private JLabel styledLabel(String text, Color fg) {
+        JLabel l = new JLabel(text);
+        l.setForeground(fg);
+        l.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        return l;
     }
 
     private static String sanitizeFileName(String s) {
