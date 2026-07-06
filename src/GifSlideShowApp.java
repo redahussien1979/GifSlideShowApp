@@ -14535,6 +14535,96 @@ public class GifSlideShowApp extends JFrame {
     static final String[] UNDERLINE_STYLES = { "None", "Straight", "Wavy", "Double", "Dotted", "Dashed", "Thick", "Zigzag",
             "Hand Sketch", "Hand Wave", "Hand Double", "Hand Loop", "Hand Scribble" };
 
+    /** A snapshot of a text's BG-box styling (toolbars 4b2/4b3/4b4). Used by the
+     *  Layout Group dialog to stamp one box look onto many texts (group-level or
+     *  per-column). Field defaults match SlideTextData's BG defaults. Note that
+     *  bgOpacity/bgColor are final on SlideTextData so they are applied via its
+     *  constructor; every other field is applied by {@link #applyMutableTo}. */
+    static final class BoxStyle {
+        int bgOpacity = 0;
+        Color bgColor = Color.BLACK;
+        int bgPaddingPct = 50;
+        int bgRoundPct = 10;
+        Color bgColor2 = new Color(60, 60, 60);
+        String bgFillKind = "Solid";
+        int bgFillAngle = 90;
+        int bgFillSpacing = 12;
+        String bgNoiseKind = "None";
+        int bgNoiseIntensity = 50;
+        int bgFrostedBlur = 0;
+        String bgShape = "Rounded";
+        boolean bgCornerTL = true, bgCornerTR = true, bgCornerBL = true, bgCornerBR = true;
+        String bgBorderStyle = "None";
+        int bgBorderWidth = 2;
+        Color bgBorderColor = Color.WHITE;
+        boolean bgShadow = false;
+        int bgShadowDx = 4, bgShadowDy = 4, bgShadowBlur = 8;
+        boolean bgInnerShadow = false;
+        int bgInnerShadowSize = 6;
+        boolean bgOuterGlow = false;
+        int bgOuterGlowSize = 8;
+        Color bgOuterGlowColor = Color.WHITE;
+
+        static BoxStyle from(SlideTextData t) {
+            BoxStyle b = new BoxStyle();
+            if (t == null) return b;
+            b.bgOpacity = t.bgOpacity;
+            b.bgColor = t.bgColor != null ? t.bgColor : Color.BLACK;
+            b.bgPaddingPct = t.bgPaddingPct;
+            b.bgRoundPct = t.bgRoundPct;
+            b.bgColor2 = t.bgColor2 != null ? t.bgColor2 : new Color(60, 60, 60);
+            b.bgFillKind = t.bgFillKind != null ? t.bgFillKind : "Solid";
+            b.bgFillAngle = t.bgFillAngle;
+            b.bgFillSpacing = t.bgFillSpacing;
+            b.bgNoiseKind = t.bgNoiseKind != null ? t.bgNoiseKind : "None";
+            b.bgNoiseIntensity = t.bgNoiseIntensity;
+            b.bgFrostedBlur = t.bgFrostedBlur;
+            b.bgShape = t.bgShape != null ? t.bgShape : "Rounded";
+            b.bgCornerTL = t.bgCornerTL; b.bgCornerTR = t.bgCornerTR;
+            b.bgCornerBL = t.bgCornerBL; b.bgCornerBR = t.bgCornerBR;
+            b.bgBorderStyle = t.bgBorderStyle != null ? t.bgBorderStyle : "None";
+            b.bgBorderWidth = t.bgBorderWidth;
+            b.bgBorderColor = t.bgBorderColor != null ? t.bgBorderColor : Color.WHITE;
+            b.bgShadow = t.bgShadow;
+            b.bgShadowDx = t.bgShadowDx; b.bgShadowDy = t.bgShadowDy; b.bgShadowBlur = t.bgShadowBlur;
+            b.bgInnerShadow = t.bgInnerShadow;
+            b.bgInnerShadowSize = t.bgInnerShadowSize;
+            b.bgOuterGlow = t.bgOuterGlow;
+            b.bgOuterGlowSize = t.bgOuterGlowSize;
+            b.bgOuterGlowColor = t.bgOuterGlowColor != null ? t.bgOuterGlowColor : Color.WHITE;
+            return b;
+        }
+
+        BoxStyle copy() {
+            BoxStyle b = new BoxStyle();
+            b.bgOpacity = bgOpacity; b.bgColor = bgColor;
+            b.bgPaddingPct = bgPaddingPct; b.bgRoundPct = bgRoundPct; b.bgColor2 = bgColor2;
+            b.bgFillKind = bgFillKind; b.bgFillAngle = bgFillAngle; b.bgFillSpacing = bgFillSpacing;
+            b.bgNoiseKind = bgNoiseKind; b.bgNoiseIntensity = bgNoiseIntensity; b.bgFrostedBlur = bgFrostedBlur;
+            b.bgShape = bgShape;
+            b.bgCornerTL = bgCornerTL; b.bgCornerTR = bgCornerTR; b.bgCornerBL = bgCornerBL; b.bgCornerBR = bgCornerBR;
+            b.bgBorderStyle = bgBorderStyle; b.bgBorderWidth = bgBorderWidth; b.bgBorderColor = bgBorderColor;
+            b.bgShadow = bgShadow; b.bgShadowDx = bgShadowDx; b.bgShadowDy = bgShadowDy; b.bgShadowBlur = bgShadowBlur;
+            b.bgInnerShadow = bgInnerShadow; b.bgInnerShadowSize = bgInnerShadowSize;
+            b.bgOuterGlow = bgOuterGlow; b.bgOuterGlowSize = bgOuterGlowSize; b.bgOuterGlowColor = bgOuterGlowColor;
+            return b;
+        }
+
+        /** Apply every BG field except bgOpacity/bgColor (which go through the
+         *  SlideTextData constructor). */
+        void applyMutableTo(SlideTextData t) {
+            t.bgPaddingPct = bgPaddingPct; t.bgRoundPct = bgRoundPct; t.bgColor2 = bgColor2;
+            t.bgFillKind = bgFillKind; t.bgFillAngle = bgFillAngle; t.bgFillSpacing = bgFillSpacing;
+            t.bgNoiseKind = bgNoiseKind; t.bgNoiseIntensity = bgNoiseIntensity; t.bgFrostedBlur = bgFrostedBlur;
+            t.bgShape = bgShape;
+            t.bgCornerTL = bgCornerTL; t.bgCornerTR = bgCornerTR; t.bgCornerBL = bgCornerBL; t.bgCornerBR = bgCornerBR;
+            t.bgBorderStyle = bgBorderStyle; t.bgBorderWidth = bgBorderWidth; t.bgBorderColor = bgBorderColor;
+            t.bgShadow = bgShadow; t.bgShadowDx = bgShadowDx; t.bgShadowDy = bgShadowDy; t.bgShadowBlur = bgShadowBlur;
+            t.bgInnerShadow = bgInnerShadow; t.bgInnerShadowSize = bgInnerShadowSize;
+            t.bgOuterGlow = bgOuterGlow; t.bgOuterGlowSize = bgOuterGlowSize; t.bgOuterGlowColor = bgOuterGlowColor;
+        }
+    }
+
     static class SlideTextData {
         final boolean show;
         final String text;
@@ -15717,6 +15807,14 @@ public class GifSlideShowApp extends JFrame {
         private final java.util.List<Boolean> lgColOvBold  = new java.util.ArrayList<>();
         private final java.util.List<Boolean> lgColOvItal  = new java.util.ArrayList<>();
         private final java.util.List<Boolean> lgColOvAlign = new java.util.ArrayList<>();
+        // ---- Layout Group "Box style" (BG box) state ----
+        // Group-level box stamp + per-column box overrides, mirroring the
+        // toolbar 4b2/4b3/4b4 controls. lgGroupBox is seeded from the current
+        // text the first time the dialog opens.
+        private boolean lgApplyBox = false;
+        private BoxStyle lgGroupBox = null;
+        private final java.util.List<Boolean>  lgColOvBox = new java.util.ArrayList<>();
+        private final java.util.List<BoxStyle> lgColBoxes = new java.util.ArrayList<>();
         private final JComboBox<String> slideTextAlignCombo;
         private final JComboBox<String> slideTextEffectCombo;
         private final JSpinner slideTextEffectIntensitySpinner;
@@ -19428,6 +19526,11 @@ public class GifSlideShowApp extends JFrame {
             java.util.List<Color>   colColors;
             java.util.List<Boolean> colBolds, colItals;
             java.util.List<Integer> colAligns;
+            // ---- Box (BG) style stamp ----
+            boolean doBgBox;
+            BoxStyle groupBox;
+            java.util.List<Boolean>  colOvBox;
+            java.util.List<BoxStyle> colBoxes;
         }
 
         /** Stamp(s) the chosen fields onto the given text-row indices. Per-column
@@ -19440,10 +19543,11 @@ public class GifSlideShowApp extends JFrame {
             // Skip work only when NEITHER group-level NOR any per-column override
             // is on for any field. (We allow position-only or per-column-only.)
             boolean anyGroup = cfg.doPos || cfg.doFont || cfg.doSize || cfg.doColor
-                    || cfg.doBold || cfg.doItalic || cfg.doAlign;
+                    || cfg.doBold || cfg.doItalic || cfg.doAlign || cfg.doBgBox;
             boolean anyCol = anyTrue(cfg.colOvFont) || anyTrue(cfg.colOvSize)
                     || anyTrue(cfg.colOvColor) || anyTrue(cfg.colOvBold)
-                    || anyTrue(cfg.colOvItal) || anyTrue(cfg.colOvAlign);
+                    || anyTrue(cfg.colOvItal) || anyTrue(cfg.colOvAlign)
+                    || anyTrue(cfg.colOvBox);
             if (!anyGroup && !anyCol) return;
 
             // Flush whatever the user has typed into the visible per-text toolbars
@@ -19486,9 +19590,23 @@ public class GifSlideShowApp extends JFrame {
                                             (old.fontStyle & Font.ITALIC) != 0);
                 int newStyle = (newBold ? Font.BOLD : 0) | (newItal ? Font.ITALIC : 0);
 
+                // Resolve the effective box style: a per-column box override beats
+                // the group-level box stamp, which beats the text's existing box.
+                BoxStyle effBox = null;
+                if (cfg.colOvBox != null && col >= 0 && col < cfg.colOvBox.size()
+                        && Boolean.TRUE.equals(cfg.colOvBox.get(col))
+                        && cfg.colBoxes != null && col < cfg.colBoxes.size()
+                        && cfg.colBoxes.get(col) != null) {
+                    effBox = cfg.colBoxes.get(col);
+                } else if (cfg.doBgBox && cfg.groupBox != null) {
+                    effBox = cfg.groupBox;
+                }
+                int   newBgOpacity = effBox != null ? effBox.bgOpacity : old.bgOpacity;
+                Color newBgColor   = effBox != null ? effBox.bgColor   : old.bgColor;
+
                 SlideTextData fresh = new SlideTextData(
                         old.show, old.text, newFont, newSize, newStyle, newColor,
-                        newX, newY, old.bgOpacity, old.bgColor,
+                        newX, newY, newBgOpacity, newBgColor,
                         old.justify, old.widthPct, old.shiftX, newAlign,
                         old.textEffect, old.textEffectIntensity,
                         old.highlightText, old.highlightColor, old.highlightStyle,
@@ -19498,6 +19616,7 @@ public class GifSlideShowApp extends JFrame {
                         old.animEnabled, old.animPath, old.animDurationMs, old.animStartMs, old.animEasing,
                         old.tiltDegrees, old.letterSpacing, old.lineSpacing, old.opacity);
                 SlideTextData.copyBgStyle(old, fresh);
+                if (effBox != null) effBox.applyMutableTo(fresh);
                 slideTextItems.set(idx, fresh);
             }
 
@@ -19561,6 +19680,8 @@ public class GifSlideShowApp extends JFrame {
                 lgColOvBold.add(false);
                 lgColOvItal.add(false);
                 lgColOvAlign.add(false);
+                lgColOvBox.add(false);
+                lgColBoxes.add(new BoxStyle());
             }
             while (lgColFonts.size() > newSize) {
                 int last = lgColFonts.size() - 1;
@@ -19576,6 +19697,8 @@ public class GifSlideShowApp extends JFrame {
                 lgColOvBold.remove(last);
                 lgColOvItal.remove(last);
                 lgColOvAlign.remove(last);
+                lgColOvBox.remove(last);
+                lgColBoxes.remove(last);
             }
         }
 
@@ -19669,6 +19792,189 @@ public class GifSlideShowApp extends JFrame {
             if (align   != null) lgColAligns.set(col,  align);
         }
 
+        /** Recursively enable/disable a component tree (used to grey out the box
+         *  panel when its "Apply" checkbox is off). */
+        private void setTreeEnabled(java.awt.Component c, boolean on) {
+            c.setEnabled(on);
+            if (c instanceof java.awt.Container) {
+                for (java.awt.Component child : ((java.awt.Container) c).getComponents()) {
+                    setTreeEnabled(child, on);
+                }
+            }
+        }
+
+        /** Build the full set of BG-box controls (the toolbar 4b2/4b3/4b4 controls),
+         *  bound to the given {@link BoxStyle}. Every change mutates {@code b} and
+         *  fires {@code onChange}. Reused by the group-level box section and by each
+         *  per-column box editor popup. */
+        private JComponent buildBoxControls(Window owner, BoxStyle b, Runnable onChange) {
+            JPanel wrap = new JPanel();
+            wrap.setLayout(new BoxLayout(wrap, BoxLayout.Y_AXIS));
+
+            java.util.function.BiFunction<String, Integer, JLabel> L = (txt, w) -> {
+                JLabel l = new JLabel(txt);
+                l.setFont(new Font("Segoe UI", Font.BOLD, 11));
+                return l;
+            };
+
+            // ---- Row 1: opacity / color / padding / round / fill ----
+            JPanel r1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            JSpinner opSp = new JSpinner(new SpinnerNumberModel(clampRange(b.bgOpacity, -100, 200), -100, 200, 5));
+            opSp.setPreferredSize(new Dimension(60, 24));
+            opSp.addChangeListener(e -> { b.bgOpacity = (int) opSp.getValue(); onChange.run(); });
+
+            JButton bgColBtn = swatchButton(b.bgColor);
+            bgColBtn.addActionListener(e -> pickColorLive(owner, "BG Color", b.bgColor, c -> {
+                b.bgColor = c; bgColBtn.setForeground(c); onChange.run();
+            }));
+
+            JSpinner tightSp = new JSpinner(new SpinnerNumberModel(clampRange(b.bgPaddingPct, 0, 100), 0, 100, 5));
+            tightSp.setPreferredSize(new Dimension(55, 24));
+            tightSp.addChangeListener(e -> { b.bgPaddingPct = (int) tightSp.getValue(); onChange.run(); });
+
+            JSpinner roundSp = new JSpinner(new SpinnerNumberModel(clampRange(b.bgRoundPct, 0, 100), 0, 100, 5));
+            roundSp.setPreferredSize(new Dimension(55, 24));
+            roundSp.addChangeListener(e -> { b.bgRoundPct = (int) roundSp.getValue(); onChange.run(); });
+
+            JComboBox<String> fillCb = new JComboBox<>(new String[]{
+                    "Solid", "Linear", "Radial", "Conic", "Stripes", "Checker", "Dots", "Lines"});
+            fillCb.setSelectedItem(b.bgFillKind);
+            fillCb.addActionListener(e -> { b.bgFillKind = (String) fillCb.getSelectedItem(); onChange.run(); });
+
+            JButton col2Btn = swatchButton(b.bgColor2);
+            col2Btn.addActionListener(e -> pickColorLive(owner, "Fill 2nd Color", b.bgColor2, c -> {
+                b.bgColor2 = c; col2Btn.setForeground(c); onChange.run();
+            }));
+
+            JSpinner angleSp = new JSpinner(new SpinnerNumberModel(clampRange(b.bgFillAngle, 0, 360), 0, 360, 15));
+            angleSp.setPreferredSize(new Dimension(60, 24));
+            angleSp.addChangeListener(e -> { b.bgFillAngle = (int) angleSp.getValue(); onChange.run(); });
+
+            JSpinner gapSp = new JSpinner(new SpinnerNumberModel(clampRange(b.bgFillSpacing, 2, 80), 2, 80, 1));
+            gapSp.setPreferredSize(new Dimension(55, 24));
+            gapSp.addChangeListener(e -> { b.bgFillSpacing = (int) gapSp.getValue(); onChange.run(); });
+
+            r1.add(L.apply("BG%:", 0)); r1.add(opSp); r1.add(bgColBtn);
+            r1.add(L.apply("Tight:", 0)); r1.add(tightSp);
+            r1.add(L.apply("Round:", 0)); r1.add(roundSp);
+            r1.add(L.apply("Fill:", 0)); r1.add(fillCb); r1.add(col2Btn);
+            r1.add(L.apply("Angle:", 0)); r1.add(angleSp);
+            r1.add(L.apply("Gap:", 0)); r1.add(gapSp);
+
+            // ---- Row 2: shape / corners / border ----
+            JPanel r2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            JComboBox<String> shapeCb = new JComboBox<>(new String[]{
+                    "Rounded", "Pill", "Bubble", "Tag", "Sticker", "Hexagon", "Parallelogram"});
+            shapeCb.setSelectedItem(b.bgShape);
+            shapeCb.addActionListener(e -> { b.bgShape = (String) shapeCb.getSelectedItem(); onChange.run(); });
+
+            JToggleButton tl = cornerToggle("TL", b.bgCornerTL);
+            JToggleButton tr = cornerToggle("TR", b.bgCornerTR);
+            JToggleButton bl = cornerToggle("BL", b.bgCornerBL);
+            JToggleButton br = cornerToggle("BR", b.bgCornerBR);
+            tl.addActionListener(e -> { b.bgCornerTL = tl.isSelected(); onChange.run(); });
+            tr.addActionListener(e -> { b.bgCornerTR = tr.isSelected(); onChange.run(); });
+            bl.addActionListener(e -> { b.bgCornerBL = bl.isSelected(); onChange.run(); });
+            br.addActionListener(e -> { b.bgCornerBR = br.isSelected(); onChange.run(); });
+
+            JComboBox<String> borderCb = new JComboBox<>(new String[]{"None", "Solid", "Double", "Dashed"});
+            borderCb.setSelectedItem(b.bgBorderStyle);
+            borderCb.addActionListener(e -> { b.bgBorderStyle = (String) borderCb.getSelectedItem(); onChange.run(); });
+
+            JSpinner borderWSp = new JSpinner(new SpinnerNumberModel(clampRange(b.bgBorderWidth, 1, 30), 1, 30, 1));
+            borderWSp.setPreferredSize(new Dimension(50, 24));
+            borderWSp.addChangeListener(e -> { b.bgBorderWidth = (int) borderWSp.getValue(); onChange.run(); });
+
+            JButton borderColBtn = swatchButton(b.bgBorderColor);
+            borderColBtn.addActionListener(e -> pickColorLive(owner, "Border Color", b.bgBorderColor, c -> {
+                b.bgBorderColor = c; borderColBtn.setForeground(c); onChange.run();
+            }));
+
+            r2.add(L.apply("Shape:", 0)); r2.add(shapeCb);
+            r2.add(L.apply("Corners:", 0)); r2.add(tl); r2.add(tr); r2.add(bl); r2.add(br);
+            r2.add(L.apply("Border:", 0)); r2.add(borderCb);
+            r2.add(L.apply("W:", 0)); r2.add(borderWSp); r2.add(borderColBtn);
+
+            // ---- Row 3: texture & shadow & glow ----
+            JPanel r3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            JComboBox<String> noiseCb = new JComboBox<>(new String[]{"None", "Grain", "Paper", "TV", "Halftone"});
+            noiseCb.setSelectedItem(b.bgNoiseKind);
+            noiseCb.addActionListener(e -> { b.bgNoiseKind = (String) noiseCb.getSelectedItem(); onChange.run(); });
+
+            JSpinner intSp = new JSpinner(new SpinnerNumberModel(clampRange(b.bgNoiseIntensity, 0, 100), 0, 100, 5));
+            intSp.setPreferredSize(new Dimension(55, 24));
+            intSp.addChangeListener(e -> { b.bgNoiseIntensity = (int) intSp.getValue(); onChange.run(); });
+
+            JSpinner frostSp = new JSpinner(new SpinnerNumberModel(clampRange(b.bgFrostedBlur, 0, 30), 0, 30, 1));
+            frostSp.setPreferredSize(new Dimension(50, 24));
+            frostSp.addChangeListener(e -> { b.bgFrostedBlur = (int) frostSp.getValue(); onChange.run(); });
+
+            JCheckBox shadowChk = new JCheckBox("Shadow", b.bgShadow);
+            shadowChk.addActionListener(e -> { b.bgShadow = shadowChk.isSelected(); onChange.run(); });
+            JSpinner dxSp = new JSpinner(new SpinnerNumberModel(clampRange(b.bgShadowDx, -40, 40), -40, 40, 1));
+            dxSp.setPreferredSize(new Dimension(48, 24));
+            dxSp.addChangeListener(e -> { b.bgShadowDx = (int) dxSp.getValue(); onChange.run(); });
+            JSpinner dySp = new JSpinner(new SpinnerNumberModel(clampRange(b.bgShadowDy, -40, 40), -40, 40, 1));
+            dySp.setPreferredSize(new Dimension(48, 24));
+            dySp.addChangeListener(e -> { b.bgShadowDy = (int) dySp.getValue(); onChange.run(); });
+            JSpinner blurSp = new JSpinner(new SpinnerNumberModel(clampRange(b.bgShadowBlur, 0, 60), 0, 60, 1));
+            blurSp.setPreferredSize(new Dimension(48, 24));
+            blurSp.addChangeListener(e -> { b.bgShadowBlur = (int) blurSp.getValue(); onChange.run(); });
+
+            JCheckBox innerChk = new JCheckBox("Inner", b.bgInnerShadow);
+            innerChk.addActionListener(e -> { b.bgInnerShadow = innerChk.isSelected(); onChange.run(); });
+            JSpinner innerSp = new JSpinner(new SpinnerNumberModel(clampRange(b.bgInnerShadowSize, 1, 40), 1, 40, 1));
+            innerSp.setPreferredSize(new Dimension(48, 24));
+            innerSp.addChangeListener(e -> { b.bgInnerShadowSize = (int) innerSp.getValue(); onChange.run(); });
+
+            JCheckBox glowChk = new JCheckBox("Glow", b.bgOuterGlow);
+            glowChk.addActionListener(e -> { b.bgOuterGlow = glowChk.isSelected(); onChange.run(); });
+            JSpinner glowSp = new JSpinner(new SpinnerNumberModel(clampRange(b.bgOuterGlowSize, 1, 60), 1, 60, 1));
+            glowSp.setPreferredSize(new Dimension(48, 24));
+            glowSp.addChangeListener(e -> { b.bgOuterGlowSize = (int) glowSp.getValue(); onChange.run(); });
+            JButton glowColBtn = swatchButton(b.bgOuterGlowColor);
+            glowColBtn.addActionListener(e -> pickColorLive(owner, "Outer Glow Color", b.bgOuterGlowColor, c -> {
+                b.bgOuterGlowColor = c; glowColBtn.setForeground(c); onChange.run();
+            }));
+
+            r3.add(L.apply("Noise:", 0)); r3.add(noiseCb);
+            r3.add(L.apply("Int:", 0)); r3.add(intSp);
+            r3.add(L.apply("Frost:", 0)); r3.add(frostSp);
+            r3.add(shadowChk);
+            r3.add(L.apply("dx:", 0)); r3.add(dxSp);
+            r3.add(L.apply("dy:", 0)); r3.add(dySp);
+            r3.add(L.apply("blur:", 0)); r3.add(blurSp);
+            r3.add(innerChk); r3.add(innerSp);
+            r3.add(glowChk); r3.add(glowSp); r3.add(glowColBtn);
+
+            wrap.add(r1);
+            wrap.add(r2);
+            wrap.add(r3);
+            return wrap;
+        }
+
+        private JButton swatchButton(Color c) {
+            JButton btn = new JButton("■");
+            btn.setForeground(c != null ? c : Color.BLACK);
+            btn.setFont(new Font("Segoe UI", Font.PLAIN, 16));
+            btn.setPreferredSize(new Dimension(34, 24));
+            btn.setFocusPainted(false);
+            return btn;
+        }
+
+        private JToggleButton cornerToggle(String label, boolean on) {
+            JToggleButton t = new JToggleButton(label, on);
+            t.setFont(new Font("Segoe UI", Font.BOLD, 10));
+            t.setPreferredSize(new Dimension(34, 24));
+            t.setFocusPainted(false);
+            t.setMargin(new Insets(0, 0, 0, 0));
+            return t;
+        }
+
+        private static int clampRange(int v, int lo, int hi) {
+            return v < lo ? lo : (v > hi ? hi : v);
+        }
+
         /**
          * Open the Layout Group dialog. Snapshots all slideTextItems on open;
          * every change to the dialog re-stamps the selection via
@@ -19757,6 +20063,18 @@ public class GifSlideShowApp extends JFrame {
             alignCombo.setSelectedIndex(lgAlign == SwingConstants.LEFT ? 0
                     : (lgAlign == SwingConstants.RIGHT ? 2 : 1));
 
+            // ---------- Box style (group-level BG box stamp) ----------
+            // Seed from the current text so the controls reflect the box the user
+            // has been working with; remembered per-row across reopens via lgGroupBox.
+            SlideTextData boxSeed = null;
+            if (currentSlideTextIndex >= 0 && currentSlideTextIndex < slideTextItems.size()) {
+                boxSeed = slideTextItems.get(currentSlideTextIndex);
+            } else if (!slideTextItems.isEmpty()) {
+                boxSeed = slideTextItems.get(0);
+            }
+            final BoxStyle groupBox = (lgGroupBox != null) ? lgGroupBox.copy() : BoxStyle.from(boxSeed);
+            final JCheckBox doBoxCheck = new JCheckBox("Apply box style to selection", lgApplyBox);
+
             // ---------- Per-column overrides (built dynamically when Cols changes) ----------
             // Each column row has Font/Size/Color/B/I/Align with an Override checkbox per field.
             // The control references are tracked in parallel lists so livePreview can read them.
@@ -19773,6 +20091,9 @@ public class GifSlideShowApp extends JFrame {
             final java.util.List<JToggleButton>       colItalTgls    = new java.util.ArrayList<>();
             final java.util.List<JCheckBox>           ovAlignChecks  = new java.util.ArrayList<>();
             final java.util.List<JComboBox<String>>   colAlignCombos = new java.util.ArrayList<>();
+            // Per-column box overrides: one "Box" checkbox + an editable BoxStyle per column.
+            final java.util.List<JCheckBox>           ovBoxChecks    = new java.util.ArrayList<>();
+            final java.util.List<BoxStyle>            colBoxHolders  = new java.util.ArrayList<>();
             final JPanel colsContainer = new JPanel();
             colsContainer.setLayout(new BoxLayout(colsContainer, BoxLayout.Y_AXIS));
 
@@ -19791,6 +20112,7 @@ public class GifSlideShowApp extends JFrame {
                 ovBoldChecks.clear();   colBoldTgls.clear();
                 ovItalChecks.clear();   colItalTgls.clear();
                 ovAlignChecks.clear();  colAlignCombos.clear();
+                ovBoxChecks.clear();    colBoxHolders.clear();
 
                 for (int c = 0; c < nCols; c++) {
                     final int colIdx = c;
@@ -19835,7 +20157,30 @@ public class GifSlideShowApp extends JFrame {
                     aCb.setSelectedIndex(lgColAligns.get(c) == SwingConstants.LEFT ? 0
                             : (lgColAligns.get(c) == SwingConstants.RIGHT ? 2 : 1));
 
-                    for (JCheckBox cb : new JCheckBox[]{ovF, ovS, ovC, ovB, ovI, ovA}) {
+                    // Per-column box override: a checkbox + a popup editor holding a
+                    // full BoxStyle for this column.
+                    JCheckBox ovBox = new JCheckBox("Box", lgColOvBox.get(c));
+                    final BoxStyle colBox = lgColBoxes.get(c).copy();
+                    JButton editBoxBtn = new JButton("Box…");
+                    editBoxBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+                    editBoxBtn.setToolTipText("Edit this column's box style (used when its Box checkbox is on)");
+                    editBoxBtn.addActionListener(e -> {
+                        JDialog boxDlg = new JDialog(dlg, "Column " + (colIdx + 1) + " — Box Style",
+                                Dialog.ModalityType.APPLICATION_MODAL);
+                        JComponent bp = buildBoxControls(boxDlg, colBox, livePreview);
+                        JButton closeBtn = new JButton("Close");
+                        closeBtn.addActionListener(ev -> boxDlg.dispose());
+                        JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+                        south.add(closeBtn);
+                        boxDlg.setLayout(new BorderLayout());
+                        boxDlg.add(bp, BorderLayout.CENTER);
+                        boxDlg.add(south, BorderLayout.SOUTH);
+                        boxDlg.pack();
+                        boxDlg.setLocationRelativeTo(dlg);
+                        boxDlg.setVisible(true);
+                    });
+
+                    for (JCheckBox cb : new JCheckBox[]{ovF, ovS, ovC, ovB, ovI, ovA, ovBox}) {
                         cb.addActionListener(e -> livePreview.run());
                     }
                     fCb.addItemListener(e -> livePreview.run());
@@ -19850,6 +20195,7 @@ public class GifSlideShowApp extends JFrame {
                     row.add(ovB); row.add(bTgl);
                     row.add(ovI); row.add(iTgl);
                     row.add(ovA); row.add(aCb);
+                    row.add(ovBox); row.add(editBoxBtn);
 
                     colsContainer.add(row);
 
@@ -19859,6 +20205,7 @@ public class GifSlideShowApp extends JFrame {
                     ovBoldChecks.add(ovB);    colBoldTgls.add(bTgl);
                     ovItalChecks.add(ovI);    colItalTgls.add(iTgl);
                     ovAlignChecks.add(ovA);   colAlignCombos.add(aCb);
+                    ovBoxChecks.add(ovBox);   colBoxHolders.add(colBox);
                 }
                 colsContainer.revalidate();
                 colsContainer.repaint();
@@ -19900,6 +20247,8 @@ public class GifSlideShowApp extends JFrame {
                 cfg.bold      = boldTgl.isSelected();
                 cfg.italic    = italicTgl.isSelected();
                 cfg.alignment = comboToAlignment(alignCombo);
+                cfg.doBgBox   = doBoxCheck.isSelected();
+                cfg.groupBox  = groupBox;
 
                 int n = ovFontChecks.size();
                 cfg.colOvFont  = new java.util.ArrayList<>(n);
@@ -19914,6 +20263,8 @@ public class GifSlideShowApp extends JFrame {
                 cfg.colBolds   = new java.util.ArrayList<>(n);
                 cfg.colItals   = new java.util.ArrayList<>(n);
                 cfg.colAligns  = new java.util.ArrayList<>(n);
+                cfg.colOvBox   = new java.util.ArrayList<>(n);
+                cfg.colBoxes   = new java.util.ArrayList<>(n);
                 for (int c = 0; c < n; c++) {
                     cfg.colOvFont.add(ovFontChecks.get(c).isSelected());
                     cfg.colOvSize.add(ovSizeChecks.get(c).isSelected());
@@ -19927,6 +20278,8 @@ public class GifSlideShowApp extends JFrame {
                     cfg.colBolds.add(colBoldTgls.get(c).isSelected());
                     cfg.colItals.add(colItalTgls.get(c).isSelected());
                     cfg.colAligns.add(comboToAlignment(colAlignCombos.get(c)));
+                    cfg.colOvBox.add(c < ovBoxChecks.size() && ovBoxChecks.get(c).isSelected());
+                    cfg.colBoxes.add(c < colBoxHolders.size() ? colBoxHolders.get(c) : null);
                 }
 
                 applyLayoutGroupCore(selected, cfg, true);
@@ -19987,6 +20340,12 @@ public class GifSlideShowApp extends JFrame {
                 livePreview.run();
             });
 
+            // ---------- Box style panel (group-level) ----------
+            final JComponent boxPanel = buildBoxControls(dlg, groupBox, livePreview);
+            final Runnable syncBoxEnabled = () -> setTreeEnabled(boxPanel, doBoxCheck.isSelected());
+            doBoxCheck.addActionListener(e -> { syncBoxEnabled.run(); livePreview.run(); });
+            syncBoxEnabled.run();
+
             // ---------- Layout the dialog ----------
             JPanel root = new JPanel();
             root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
@@ -20041,6 +20400,11 @@ public class GifSlideShowApp extends JFrame {
 
             root.add(sectionLabel("5. Per-column overrides (beat the stamps above)"));
             root.add(colsContainer);
+            root.add(Box.createVerticalStrut(8));
+
+            root.add(sectionLabel("6. Box style (BG) — stamped onto the whole selection"));
+            root.add(doBoxCheck);
+            root.add(boxPanel);
 
             // ---------- Buttons ----------
             JButton okBtn     = new JButton("OK");
@@ -20081,7 +20445,12 @@ public class GifSlideShowApp extends JFrame {
                     lgColItals.set(c,   colItalTgls.get(c).isSelected());
                     lgColOvAlign.set(c, ovAlignChecks.get(c).isSelected());
                     lgColAligns.set(c,  comboToAlignment(colAlignCombos.get(c)));
+                    if (c < ovBoxChecks.size()) lgColOvBox.set(c, ovBoxChecks.get(c).isSelected());
+                    if (c < colBoxHolders.size()) lgColBoxes.set(c, colBoxHolders.get(c).copy());
                 }
+                // Box style stamp (group-level) — remember for the next open.
+                lgApplyBox = doBoxCheck.isSelected();
+                lgGroupBox = groupBox.copy();
                 dlg.dispose();
             });
             Runnable revert = () -> {
