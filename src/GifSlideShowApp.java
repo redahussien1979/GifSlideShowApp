@@ -459,7 +459,12 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(pc + "italic",  String.valueOf(source.getLgColItals().get(c)));
             props.setProperty(pc + "ovAlign", String.valueOf(source.getLgColOvAlign().get(c)));
             props.setProperty(pc + "align",   String.valueOf(source.getLgColAligns().get(c)));
+            props.setProperty(pc + "ovBox",   String.valueOf(source.getLgColOvBox().get(c)));
+            writeBoxStyle(props, pc + "box.", source.getLgColBoxes().get(c));
         }
+        // Layout Group box-style dialog knobs (group-level).
+        props.setProperty("layoutGroup.applyBox", String.valueOf(source.isLgApplyBox()));
+        writeBoxStyle(props, "layoutGroup.groupBox.", source.getLgGroupBox());
 
         // Quiz timer shared/visual settings (per-slide fields like the
         // "enabled" flag, correct option, and question audio file are NOT
@@ -800,6 +805,8 @@ public class GifSlideShowApp extends JFrame {
         boolean lgBold    = Boolean.parseBoolean(props.getProperty("layoutGroup.bold",   "false"));
         boolean lgItal    = Boolean.parseBoolean(props.getProperty("layoutGroup.italic", "false"));
         int     lgAlignV  = parseIntOr(props.getProperty("layoutGroup.align"), SwingConstants.CENTER);
+        boolean lgApplyBoxV = Boolean.parseBoolean(props.getProperty("layoutGroup.applyBox", "false"));
+        BoxStyle lgGroupBoxV = readBoxStyle(props, "layoutGroup.groupBox.");
 
         // Quiz timer shared/visual settings — read from preset (defaults
         // mirror QuizSlide field defaults so older presets still load).
@@ -950,6 +957,7 @@ public class GifSlideShowApp extends JFrame {
                         lgColGap, lgRowGap, lgFillOrd,
                         lgPos, lgFontC, lgSizeC, lgColC, lgBoldC, lgItalC, lgAlignC,
                         lgFont, lgSize, lgCol, lgBold, lgItal, lgAlignV);
+                row.applyLayoutGroupBoxState(lgApplyBoxV, lgGroupBoxV);
                 // Per-column overrides
                 for (int c = 0; c < lgCols; c++) {
                     String pc = "layoutGroup.col" + c + ".";
@@ -969,6 +977,9 @@ public class GifSlideShowApp extends JFrame {
                     String  cAs = props.getProperty(pc + "align");
                     Integer cA  = (cAs == null) ? null : parseIntOr(cAs, SwingConstants.CENTER);
                     row.setLgColumnOverride(c, ovF, cF, ovS, cS, ovC, cC, ovB, cB, ovI, cI, ovA, cA);
+                    Boolean ovBox = parseBoolOr(props.getProperty(pc + "ovBox"), null);
+                    BoxStyle cBox = readBoxStyle(props, pc + "box.");
+                    row.setLgColumnBox(c, ovBox, cBox);
                 }
             }
         } finally {
@@ -1372,6 +1383,77 @@ public class GifSlideShowApp extends JFrame {
             }
         } catch (NumberFormatException ignored) {}
         return Color.WHITE;
+    }
+
+    // Serialize / restore a Layout Group BoxStyle (dialog knobs) to a preset.
+    // The *applied* box already rides in each text's slideText*.bg* props; these
+    // just remember the dialog's last-used box so reopening pre-fills correctly.
+    private static void writeBoxStyle(java.util.Properties props, String p, BoxStyle b) {
+        if (b == null) b = new BoxStyle();
+        props.setProperty(p + "bgOpacity",        String.valueOf(b.bgOpacity));
+        props.setProperty(p + "bgColor",          colorToHex(b.bgColor != null ? b.bgColor : Color.BLACK));
+        props.setProperty(p + "bgPaddingPct",     String.valueOf(b.bgPaddingPct));
+        props.setProperty(p + "bgRoundPct",       String.valueOf(b.bgRoundPct));
+        props.setProperty(p + "bgColor2",         colorToHex(b.bgColor2 != null ? b.bgColor2 : new Color(60, 60, 60)));
+        props.setProperty(p + "bgFillKind",       b.bgFillKind != null ? b.bgFillKind : "Solid");
+        props.setProperty(p + "bgFillAngle",      String.valueOf(b.bgFillAngle));
+        props.setProperty(p + "bgFillSpacing",    String.valueOf(b.bgFillSpacing));
+        props.setProperty(p + "bgNoiseKind",      b.bgNoiseKind != null ? b.bgNoiseKind : "None");
+        props.setProperty(p + "bgNoiseIntensity", String.valueOf(b.bgNoiseIntensity));
+        props.setProperty(p + "bgFrostedBlur",    String.valueOf(b.bgFrostedBlur));
+        props.setProperty(p + "bgShape",          b.bgShape != null ? b.bgShape : "Rounded");
+        props.setProperty(p + "bgCornerTL",       String.valueOf(b.bgCornerTL));
+        props.setProperty(p + "bgCornerTR",       String.valueOf(b.bgCornerTR));
+        props.setProperty(p + "bgCornerBL",       String.valueOf(b.bgCornerBL));
+        props.setProperty(p + "bgCornerBR",       String.valueOf(b.bgCornerBR));
+        props.setProperty(p + "bgBorderStyle",    b.bgBorderStyle != null ? b.bgBorderStyle : "None");
+        props.setProperty(p + "bgBorderWidth",    String.valueOf(b.bgBorderWidth));
+        props.setProperty(p + "bgBorderColor",    colorToHex(b.bgBorderColor != null ? b.bgBorderColor : Color.WHITE));
+        props.setProperty(p + "bgShadow",         String.valueOf(b.bgShadow));
+        props.setProperty(p + "bgShadowDx",       String.valueOf(b.bgShadowDx));
+        props.setProperty(p + "bgShadowDy",       String.valueOf(b.bgShadowDy));
+        props.setProperty(p + "bgShadowBlur",     String.valueOf(b.bgShadowBlur));
+        props.setProperty(p + "bgInnerShadow",    String.valueOf(b.bgInnerShadow));
+        props.setProperty(p + "bgInnerShadowSize",String.valueOf(b.bgInnerShadowSize));
+        props.setProperty(p + "bgOuterGlow",      String.valueOf(b.bgOuterGlow));
+        props.setProperty(p + "bgOuterGlowSize",  String.valueOf(b.bgOuterGlowSize));
+        props.setProperty(p + "bgOuterGlowColor", colorToHex(b.bgOuterGlowColor != null ? b.bgOuterGlowColor : Color.WHITE));
+    }
+
+    /** Read a BoxStyle written by {@link #writeBoxStyle}, or null if the preset
+     *  carried none at this prefix (so the seed-from-current-text default stays). */
+    private static BoxStyle readBoxStyle(java.util.Properties props, String p) {
+        if (props.getProperty(p + "bgFillKind") == null) return null;
+        BoxStyle b = new BoxStyle();
+        b.bgOpacity        = parseIntOr(props.getProperty(p + "bgOpacity"), b.bgOpacity);
+        b.bgColor          = hexToColor(props.getProperty(p + "bgColor", colorToHex(b.bgColor)));
+        b.bgPaddingPct     = parseIntOr(props.getProperty(p + "bgPaddingPct"), b.bgPaddingPct);
+        b.bgRoundPct       = parseIntOr(props.getProperty(p + "bgRoundPct"), b.bgRoundPct);
+        b.bgColor2         = hexToColor(props.getProperty(p + "bgColor2", colorToHex(b.bgColor2)));
+        b.bgFillKind       = props.getProperty(p + "bgFillKind", b.bgFillKind);
+        b.bgFillAngle      = parseIntOr(props.getProperty(p + "bgFillAngle"), b.bgFillAngle);
+        b.bgFillSpacing    = parseIntOr(props.getProperty(p + "bgFillSpacing"), b.bgFillSpacing);
+        b.bgNoiseKind      = props.getProperty(p + "bgNoiseKind", b.bgNoiseKind);
+        b.bgNoiseIntensity = parseIntOr(props.getProperty(p + "bgNoiseIntensity"), b.bgNoiseIntensity);
+        b.bgFrostedBlur    = parseIntOr(props.getProperty(p + "bgFrostedBlur"), b.bgFrostedBlur);
+        b.bgShape          = props.getProperty(p + "bgShape", b.bgShape);
+        b.bgCornerTL       = Boolean.parseBoolean(props.getProperty(p + "bgCornerTL", "true"));
+        b.bgCornerTR       = Boolean.parseBoolean(props.getProperty(p + "bgCornerTR", "true"));
+        b.bgCornerBL       = Boolean.parseBoolean(props.getProperty(p + "bgCornerBL", "true"));
+        b.bgCornerBR       = Boolean.parseBoolean(props.getProperty(p + "bgCornerBR", "true"));
+        b.bgBorderStyle    = props.getProperty(p + "bgBorderStyle", b.bgBorderStyle);
+        b.bgBorderWidth    = parseIntOr(props.getProperty(p + "bgBorderWidth"), b.bgBorderWidth);
+        b.bgBorderColor    = hexToColor(props.getProperty(p + "bgBorderColor", colorToHex(b.bgBorderColor)));
+        b.bgShadow         = Boolean.parseBoolean(props.getProperty(p + "bgShadow", "false"));
+        b.bgShadowDx       = parseIntOr(props.getProperty(p + "bgShadowDx"), b.bgShadowDx);
+        b.bgShadowDy       = parseIntOr(props.getProperty(p + "bgShadowDy"), b.bgShadowDy);
+        b.bgShadowBlur     = parseIntOr(props.getProperty(p + "bgShadowBlur"), b.bgShadowBlur);
+        b.bgInnerShadow    = Boolean.parseBoolean(props.getProperty(p + "bgInnerShadow", "false"));
+        b.bgInnerShadowSize= parseIntOr(props.getProperty(p + "bgInnerShadowSize"), b.bgInnerShadowSize);
+        b.bgOuterGlow      = Boolean.parseBoolean(props.getProperty(p + "bgOuterGlow", "false"));
+        b.bgOuterGlowSize  = parseIntOr(props.getProperty(p + "bgOuterGlowSize"), b.bgOuterGlowSize);
+        b.bgOuterGlowColor = hexToColor(props.getProperty(p + "bgOuterGlowColor", colorToHex(b.bgOuterGlowColor)));
+        return b;
     }
 
     // Live-preview color picker: re-renders on each chooser change; OK commits with broadcast,
@@ -19754,6 +19836,26 @@ public class GifSlideShowApp extends JFrame {
         java.util.List<Boolean> getLgColOvBold()  { return lgColOvBold; }
         java.util.List<Boolean> getLgColOvItal()  { return lgColOvItal; }
         java.util.List<Boolean> getLgColOvAlign() { return lgColOvAlign; }
+        // Box-style dialog knobs (for preset save/restore).
+        boolean isLgApplyBox()   { return lgApplyBox; }
+        BoxStyle getLgGroupBox() { return lgGroupBox != null ? lgGroupBox : new BoxStyle(); }
+        java.util.List<Boolean>  getLgColOvBox()  { return lgColOvBox; }
+        java.util.List<BoxStyle> getLgColBoxes()  { return lgColBoxes; }
+
+        /** Restore the group-level box knobs from a preset (does NOT apply to texts —
+         *  the applied box already rides along in each text's BG block). Leaves the
+         *  seed-from-current-text behavior intact when the preset carried no box. */
+        void applyLayoutGroupBoxState(boolean applyBox, BoxStyle groupBox) {
+            lgApplyBox = applyBox;
+            if (groupBox != null) lgGroupBox = groupBox.copy();
+        }
+
+        /** Restore one column's box override flag + style from a preset. */
+        void setLgColumnBox(int col, Boolean ovBox, BoxStyle box) {
+            ensureColListSize(Math.max(lgCols, col + 1));
+            if (ovBox != null) lgColOvBox.set(col, ovBox);
+            if (box   != null) lgColBoxes.set(col, box.copy());
+        }
 
         /** Push saved per-row layout group state in from a preset (does NOT apply). */
         void applyLayoutGroupPanelState(int cols, int anchorX, int anchorY,
