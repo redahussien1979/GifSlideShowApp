@@ -20835,9 +20835,25 @@ public class GifSlideShowApp extends JFrame {
             crossfadeCheck.setToolTipText("Off = clean cut (exact copy, may click on continuous music). "
                     + "On = a ~12 ms audio fade hides the click at each loop-back (duration unchanged).");
 
+            JButton applyAllBtn = new JButton("Effect → all texts");
             JButton clearBtn  = new JButton("Clear All");
             JButton cancelBtn = new JButton("Cancel");
             JButton okBtn     = new JButton("Apply");
+
+            // Copy the first text's Effect / Ease / Anim (ms) down to every row,
+            // so a consistent entrance can be set once instead of row by row.
+            applyAllBtn.setToolTipText("Copy Text 1's Effect, Ease and Anim (ms) to every text below.");
+            applyAllBtn.addActionListener(e -> {
+                if (effectCombos.isEmpty()) return;
+                String eff  = (String) effectCombos.get(0).getSelectedItem();
+                String ease = (String) easeCombos.get(0).getSelectedItem();
+                String dur  = durFields.get(0).getText();
+                for (int i = 1; i < effectCombos.size(); i++) {
+                    effectCombos.get(i).setSelectedItem(eff);   // fires the ease/dur enable toggle
+                    easeCombos.get(i).setSelectedItem(ease);
+                    durFields.get(i).setText(dur);
+                }
+            });
 
             clearBtn.addActionListener(e -> {
                 for (JTextField f : appearFields) f.setText("0");
@@ -21016,16 +21032,21 @@ public class GifSlideShowApp extends JFrame {
             root.add(help, BorderLayout.NORTH);
             root.add(center, BorderLayout.CENTER);
 
-            JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 6));
-            btnRow.add(clearBtn);
-            btnRow.add(cancelBtn);
-            btnRow.add(okBtn);
+            JPanel btnLeft = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6));
+            btnLeft.add(applyAllBtn);
+            JPanel btnRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 6));
+            btnRight.add(clearBtn);
+            btnRight.add(cancelBtn);
+            btnRight.add(okBtn);
+            JPanel btnRow = new JPanel(new BorderLayout());
+            btnRow.add(btnLeft, BorderLayout.WEST);
+            btnRow.add(btnRight, BorderLayout.EAST);
 
             dlg.setLayout(new BorderLayout());
             dlg.add(root, BorderLayout.CENTER);
             dlg.add(btnRow, BorderLayout.SOUTH);
             dlg.pack();
-            dlg.setSize(Math.max(480, dlg.getPreferredSize().width), dlg.getPreferredSize().height);
+            dlg.setSize(Math.max(880, dlg.getPreferredSize().width), dlg.getPreferredSize().height);
             dlg.setLocationRelativeTo(owner);
             dlg.setVisible(true);
         }
