@@ -393,6 +393,9 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(p + "opacity", String.valueOf(t.opacity));
             props.setProperty(p + "timerAppearMs", String.valueOf(t.timerAppearMs));
             props.setProperty(p + "timerDisappearMs", String.valueOf(t.timerDisappearMs));
+            props.setProperty(p + "timerAppearEffect", t.timerAppearEffect == null ? "None" : t.timerAppearEffect);
+            props.setProperty(p + "timerAppearEasing", t.timerAppearEasing == null ? "Ease Out" : t.timerAppearEasing);
+            props.setProperty(p + "timerAppearDurMs", String.valueOf(t.timerAppearDurMs));
         }
 
         // Per-text audio highlight settings (FX, HL color, glow size).
@@ -750,6 +753,9 @@ public class GifSlideShowApp extends JFrame {
             loaded.bgOuterGlowColor  = hexToColor(props.getProperty(p + "bgOuterGlowColor", "#FFDC78"));
             loaded.timerAppearMs     = Integer.parseInt(props.getProperty(p + "timerAppearMs", "0"));
             loaded.timerDisappearMs  = Integer.parseInt(props.getProperty(p + "timerDisappearMs", "-1"));
+            loaded.timerAppearEffect = props.getProperty(p + "timerAppearEffect", "None");
+            loaded.timerAppearEasing = props.getProperty(p + "timerAppearEasing", "Ease Out");
+            loaded.timerAppearDurMs  = Integer.parseInt(props.getProperty(p + "timerAppearDurMs", "500"));
             slideTextFormats.add(loaded);
         }
 
@@ -13568,25 +13574,61 @@ public class GifSlideShowApp extends JFrame {
             boolean hidden = false;
             // Texts Timer: hide before appear time and after (optional) go time.
             if (applyTimer && !textTimerVisibleAt(st, elapsedMs)) hidden = true;
+            boolean quizAnimating = false;
             if (quizActive) {
                 if (quiz.shouldHideText(i, elapsedMs, size)) hidden = true;
                 if (quiz.isInRevealAnimWindow(i, elapsedMs, size)) {
                     double t = quiz.revealAnimProgress(elapsedMs);
                     double eased = QuizSlide.easeNamed(quiz.hideRevealEasing, t);
                     applyRevealAnimFields(st, quiz.hideRevealAnimation, t, eased);
+                    quizAnimating = true;
+                }
+            }
+            // Texts-Timer entrance effect. Independent of the Quiz reveal; it
+            // reuses the same render fields, so only apply it when the Quiz
+            // isn't already animating this text. Runs from the appear time
+            // through appear + duration, then settles to the resting state.
+            if (!quizAnimating) {
+                if (applyTimer && !hidden && textTimerEntranceActive(st, elapsedMs)) {
+                    double t = textTimerEntranceProgress(st, elapsedMs);
+                    double eased = QuizSlide.easeNamed(st.timerAppearEasing, t);
+                    applyRevealAnimFields(st, st.timerAppearEffect, t, eased);
                 } else {
                     resetQuizRevealAnim(st);
                 }
-            } else {
-                resetQuizRevealAnim(st);
             }
             st.quizHidden = hidden;
         }
     }
 
-    /** True iff this text carries a non-default Texts-Timer timeline. */
+    /** True iff this text carries a non-default Texts-Timer timeline. An entrance
+     *  effect counts too: even with appear=0 the slide must render frame-by-frame
+     *  so the animation actually plays. */
     private static boolean slideTextHasTimer(SlideTextData st) {
-        return st != null && (st.timerAppearMs > 0 || st.timerDisappearMs >= 0);
+        return st != null && (st.timerAppearMs > 0 || st.timerDisappearMs >= 0
+                || slideTextHasAppearEffect(st));
+    }
+
+    /** True iff this text has a real Texts-Timer entrance effect configured. */
+    private static boolean slideTextHasAppearEffect(SlideTextData st) {
+        return st != null && st.timerAppearEffect != null
+                && !st.timerAppearEffect.equals("None")
+                && st.timerAppearDurMs > 0;
+    }
+
+    /** True iff (elapsed) falls inside this text's entrance-animation window,
+     *  i.e. from its appear time until appear + duration. */
+    private static boolean textTimerEntranceActive(SlideTextData st, long elapsedMs) {
+        if (!slideTextHasAppearEffect(st)) return false;
+        return elapsedMs >= st.timerAppearMs
+                && elapsedMs < (long) st.timerAppearMs + st.timerAppearDurMs;
+    }
+
+    /** Linear 0..1 progress through the entrance window (0 at appear time). */
+    private static double textTimerEntranceProgress(SlideTextData st, long elapsedMs) {
+        if (st.timerAppearDurMs <= 0) return 1.0;
+        double t = (elapsedMs - st.timerAppearMs) / (double) st.timerAppearDurMs;
+        return t < 0 ? 0 : (t > 1 ? 1 : t);
     }
 
     /** True iff any shown text on the slide has a timeline, so the slide must be
@@ -14811,6 +14853,18 @@ public class GifSlideShowApp extends JFrame {
         int timerAppearMs = 0;
         int timerDisappearMs = -1;
 
+        // ===== Texts Timer entrance effect =====
+        // How the text animates into view at its appear time. Reuses the same
+        // reveal-animation engine as the Quiz hide/reveal feature
+        // (applyRevealAnimFields), so the render side already knows how to draw
+        // every one of these. Safe defaults = old behavior (hard cut).
+        //   timerAppearEffect: animation name ("None" = instant, no transition).
+        //   timerAppearEasing: easing curve applied over the entrance window.
+        //   timerAppearDurMs:  how long the entrance animation lasts (ms).
+        String timerAppearEffect = "None";
+        String timerAppearEasing = "Ease Out";
+        int    timerAppearDurMs  = 500;
+
         // ===== BG style (toolbars 4b2 / 4b3 / 4b4) =====
         // Defaults are mutable (not final) so they can persist via SlideTextData without
         // touching the long chain of overloaded constructors. Tight=50 reproduces the
@@ -14893,6 +14947,9 @@ public class GifSlideShowApp extends JFrame {
             // rebuild / broadcast / HL-clone paths as the BG-style block.
             dst.timerAppearMs     = src.timerAppearMs;
             dst.timerDisappearMs  = src.timerDisappearMs;
+            dst.timerAppearEffect = src.timerAppearEffect;
+            dst.timerAppearEasing = src.timerAppearEasing;
+            dst.timerAppearDurMs  = src.timerAppearDurMs;
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -19505,6 +19562,9 @@ public class GifSlideShowApp extends JFrame {
             // resetting it every time an unrelated property changes.
             newItem.timerAppearMs = prevItem.timerAppearMs;
             newItem.timerDisappearMs = prevItem.timerDisappearMs;
+            newItem.timerAppearEffect = prevItem.timerAppearEffect;
+            newItem.timerAppearEasing = prevItem.timerAppearEasing;
+            newItem.timerAppearDurMs = prevItem.timerAppearDurMs;
             slideTextItems.set(currentSlideTextIndex, newItem);
         }
 
@@ -20600,7 +20660,7 @@ public class GifSlideShowApp extends JFrame {
             // Keep the dialog at a friendly height even if the picker is short.
             Dimension d = dlg.getPreferredSize();
             d.height = Math.min(d.height, 700);
-            dlg.setSize(Math.max(560, d.width), d.height);
+            dlg.setSize(Math.max(880, d.width), d.height);
             dlg.setLocationRelativeTo(owner);
             dlg.setVisible(true);
 
@@ -20639,6 +20699,18 @@ public class GifSlideShowApp extends JFrame {
 
             final java.util.List<JTextField> appearFields = new java.util.ArrayList<>();
             final java.util.List<JTextField> goFields     = new java.util.ArrayList<>();
+            final java.util.List<JComboBox<String>> effectCombos = new java.util.ArrayList<>();
+            final java.util.List<JComboBox<String>> easeCombos   = new java.util.ArrayList<>();
+            final java.util.List<JTextField> durFields = new java.util.ArrayList<>();
+
+            // Entrance-effect choices — same set the Quiz reveal already renders,
+            // so applyRevealAnimFields knows how to draw every one.
+            final String[] APPEAR_EFFECTS = {
+                    "None", "Fade", "Slide In Top", "Slide In Bottom",
+                    "Slide In Left", "Slide In Right",
+                    "Scale Up", "Zoom Out", "Bounce", "Rotate In", "Pop" };
+            final String[] APPEAR_EASINGS = {
+                    "Linear", "Ease In", "Ease Out", "Ease In Out", "Bounce" };
 
             JPanel rows = new JPanel(new GridBagLayout());
             rows.setBackground(Color.WHITE);
@@ -20656,6 +20728,9 @@ public class GifSlideShowApp extends JFrame {
             gc.gridx = 0; rows.add(hdr.apply("Text"), gc);
             gc.gridx = 1; rows.add(hdr.apply("Appear (s)"), gc);
             gc.gridx = 2; rows.add(hdr.apply("Go (s)"), gc);
+            gc.gridx = 3; rows.add(hdr.apply("Effect"), gc);
+            gc.gridx = 4; rows.add(hdr.apply("Ease"), gc);
+            gc.gridx = 5; rows.add(hdr.apply("Anim (ms)"), gc);
 
             for (int i = 0; i < slideTextItems.size(); i++) {
                 SlideTextData st = slideTextItems.get(i);
@@ -20675,18 +20750,51 @@ public class GifSlideShowApp extends JFrame {
                 appearFields.add(appear);
                 goFields.add(go);
 
+                JComboBox<String> effectCombo = new JComboBox<>(APPEAR_EFFECTS);
+                effectCombo.setSelectedItem(st.timerAppearEffect == null ? "None" : st.timerAppearEffect);
+                effectCombo.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+                effectCombo.setToolTipText("How the text animates into view when it appears. \"None\" = instant (no transition).");
+
+                JComboBox<String> easeCombo = new JComboBox<>(APPEAR_EASINGS);
+                easeCombo.setSelectedItem(st.timerAppearEasing == null ? "Ease Out" : st.timerAppearEasing);
+                easeCombo.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+                easeCombo.setToolTipText("Easing curve for the entrance animation. \"Ease Out\" looks the most natural.");
+
+                JTextField dur = new JTextField(String.valueOf(st.timerAppearDurMs), 5);
+                dur.setToolTipText("How long the entrance animation lasts, in milliseconds (e.g. 500). Range 100–3000.");
+
+                // Ease/duration only matter when an effect is chosen — grey them
+                // out for "None" so the row reads cleanly.
+                java.awt.event.ActionListener effToggle = ev -> {
+                    boolean on = !"None".equals(effectCombo.getSelectedItem());
+                    easeCombo.setEnabled(on);
+                    dur.setEnabled(on);
+                };
+                effectCombo.addActionListener(effToggle);
+                effToggle.actionPerformed(null);
+
+                effectCombos.add(effectCombo);
+                easeCombos.add(easeCombo);
+                durFields.add(dur);
+
                 gc.gridy = i + 1;
                 gc.gridx = 0; rows.add(nameLbl, gc);
                 gc.gridx = 1; rows.add(appear, gc);
                 gc.gridx = 2; rows.add(go, gc);
+                gc.gridx = 3; rows.add(effectCombo, gc);
+                gc.gridx = 4; rows.add(easeCombo, gc);
+                gc.gridx = 5; rows.add(dur, gc);
             }
 
             JScrollPane rowsScroll = new JScrollPane(rows);
-            rowsScroll.setPreferredSize(new Dimension(460, Math.min(360, 40 + slideTextItems.size() * 30)));
+            rowsScroll.setPreferredSize(new Dimension(820, Math.min(360, 40 + slideTextItems.size() * 32)));
             rowsScroll.getVerticalScrollBar().setUnitIncrement(18);
 
             JLabel help = new JLabel("<html>Times are in seconds from the start of this slide. "
-                    + "Leave <b>Go</b> empty to keep a text on screen once it appears.</html>");
+                    + "Leave <b>Go</b> empty to keep a text on screen once it appears.<br>"
+                    + "<b>Effect</b> animates the text into view when it appears — "
+                    + "<b>Ease</b> and <b>Anim (ms)</b> shape that animation "
+                    + "(a subtle Fade or Slide In at ~500&nbsp;ms looks the most professional).</html>");
             help.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             help.setBorder(BorderFactory.createEmptyBorder(0, 2, 6, 2));
 
@@ -20734,6 +20842,9 @@ public class GifSlideShowApp extends JFrame {
             clearBtn.addActionListener(e -> {
                 for (JTextField f : appearFields) f.setText("0");
                 for (JTextField f : goFields) f.setText("");
+                for (JComboBox<String> c : effectCombos) c.setSelectedItem("None");
+                for (JComboBox<String> c : easeCombos)   c.setSelectedItem("Ease Out");
+                for (JTextField f : durFields) f.setText("500");
                 repeatArea.setText("");
             });
 
@@ -20743,6 +20854,9 @@ public class GifSlideShowApp extends JFrame {
                 int n = slideTextItems.size();
                 int[] appearMs = new int[n];
                 int[] goMs = new int[n];
+                String[] effectVal = new String[n];
+                String[] easeVal   = new String[n];
+                int[] durMs = new int[n];
                 for (int i = 0; i < n; i++) {
                     String aStr = appearFields.get(i).getText().trim();
                     String gStr = goFields.get(i).getText().trim();
@@ -20778,6 +20892,26 @@ public class GifSlideShowApp extends JFrame {
                     }
                     appearMs[i] = a;
                     goMs[i] = g;
+
+                    // Entrance effect for this row.
+                    String eff = (String) effectCombos.get(i).getSelectedItem();
+                    String ease = (String) easeCombos.get(i).getSelectedItem();
+                    int dMs = 500;
+                    String dStr = durFields.get(i).getText().trim();
+                    if (!dStr.isEmpty()) {
+                        try { dMs = (int) Math.round(Double.parseDouble(dStr)); }
+                        catch (NumberFormatException ex) {
+                            JOptionPane.showMessageDialog(dlg,
+                                    "Text " + (i + 1) + ": \"" + dStr + "\" is not a valid animation duration (ms).",
+                                    "Texts Timer", JOptionPane.ERROR_MESSAGE);
+                            return;
+                        }
+                    }
+                    if (dMs < 100) dMs = 100;
+                    if (dMs > 3000) dMs = 3000;
+                    effectVal[i] = eff == null ? "None" : eff;
+                    easeVal[i]   = ease == null ? "Ease Out" : ease;
+                    durMs[i]     = dMs;
                 }
                 // Parse + validate the repeat ranges before committing anything.
                 java.util.List<int[]> repeats = new java.util.ArrayList<>();
@@ -20855,6 +20989,9 @@ public class GifSlideShowApp extends JFrame {
                 for (int i = 0; i < n; i++) {
                     slideTextItems.get(i).timerAppearMs = appearMs[i];
                     slideTextItems.get(i).timerDisappearMs = goMs[i];
+                    slideTextItems.get(i).timerAppearEffect = effectVal[i];
+                    slideTextItems.get(i).timerAppearEasing = easeVal[i];
+                    slideTextItems.get(i).timerAppearDurMs = durMs[i];
                 }
                 setVideoRepeats(repeats);
                 setVideoRepeatCrossfade(crossfadeCheck.isSelected());
@@ -20957,6 +21094,9 @@ public class GifSlideShowApp extends JFrame {
                 // this row's own timing instead of the master's after copyBgStyle.
                 applied.timerAppearMs = existing.timerAppearMs;
                 applied.timerDisappearMs = existing.timerDisappearMs;
+                applied.timerAppearEffect = existing.timerAppearEffect;
+                applied.timerAppearEasing = existing.timerAppearEasing;
+                applied.timerAppearDurMs = existing.timerAppearDurMs;
                 slideTextItems.set(i, applied);
             }
             // For extra items beyond what the source has, apply formatting
@@ -20986,6 +21126,9 @@ public class GifSlideShowApp extends JFrame {
                     // Keep this row's own Texts-Timer timeline (per-slide).
                     applied.timerAppearMs = existing.timerAppearMs;
                     applied.timerDisappearMs = existing.timerDisappearMs;
+                    applied.timerAppearEffect = existing.timerAppearEffect;
+                    applied.timerAppearEasing = existing.timerAppearEasing;
+                    applied.timerAppearDurMs = existing.timerAppearDurMs;
                     slideTextItems.set(i, applied);
                 }
             }
