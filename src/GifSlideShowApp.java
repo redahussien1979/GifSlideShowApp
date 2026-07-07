@@ -9004,6 +9004,7 @@ public class GifSlideShowApp extends JFrame {
             slides.get(slides.size() - 1).bgTransparency = row.getBgTransparency();
             slides.get(slides.size() - 1).videoRepeats = row.getVideoRepeats();
             slides.get(slides.size() - 1).videoRepeatCrossfade = row.isVideoRepeatCrossfade();
+            slides.get(slides.size() - 1).videoGlobalSlowPct = row.getVideoGlobalSlowPct();
             slides.get(slides.size() - 1).audioWordTimings = row.getSlideAudioWordTimingsList();
             slides.get(slides.size() - 1).audioKaraokeStyle = row.getSlideAudioKaraokeStyleList();
             slides.get(slides.size() - 1).audioKaraokeColor = row.getSlideAudioKaraokeColorList();
@@ -11776,6 +11777,22 @@ public class GifSlideShowApp extends JFrame {
                             }
                         }
 
+                        // Slow the ENTIRE finished video (optional). Applied last so
+                        // it also stretches any repeated spans. Pitch-preserving audio.
+                        int globalSlowPct = 100;
+                        for (SlideData s : slides) {
+                            if (s.videoGlobalSlowPct > globalSlowPct) globalSlowPct = s.videoGlobalSlowPct;
+                        }
+                        if (globalSlowPct > 100) {
+                            double slowF = globalSlowPct / 100.0;
+                            publish(String.format(java.util.Locale.US, "Slowing whole video to %.2g× ...", slowF));
+                            try {
+                                applyGlobalSlow(finalOut, slowF, crf, tempDir);
+                            } catch (Exception gex) {
+                                publish("Slow whole video failed: " + gex.getMessage());
+                            }
+                        }
+
                         SwingUtilities.invokeLater(() -> progressBar.setValue(90));
 
                         SwingUtilities.invokeLater(() -> progressBar.setValue(100));
@@ -12888,6 +12905,52 @@ public class GifSlideShowApp extends JFrame {
         cmd.add("-crf"); cmd.add(String.valueOf(crf));
         cmd.add("-pix_fmt"); cmd.add("yuv420p");
         cmd.add("-movflags"); cmd.add("+faststart");
+        cmd.add(out.getAbsolutePath());
+        runFfmpeg(cmd);
+        if (out.exists() && out.length() > 0) {
+            video.delete();
+            if (!out.renameTo(video)) {
+                java.nio.file.Files.copy(out.toPath(), video.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                out.delete();
+            }
+        }
+    }
+
+    /** Slow the ENTIRE finished video by {@code slow}× (slow≥1). The picture is
+     *  stretched with setpts and the audio is time-stretched with a
+     *  pitch-preserving atempo chain, so the sound keeps its natural pitch and
+     *  quality — only the pacing changes. Re-encodes in place (replaces the
+     *  input file), mirroring insertVideoRepeats. A slow of 1× is a no-op. */
+    private static void applyGlobalSlow(File video, double slow, int crf, File tempDir)
+            throws IOException, InterruptedException {
+        if (video == null || !video.exists() || slow <= 1.0 + 1e-9) return;
+        boolean hasAudio = probeHasAudio(video);
+
+        StringBuilder fc = new StringBuilder();
+        fc.append("[0:v]setpts=")
+          .append(String.format(java.util.Locale.US, "%.4f", slow))
+          .append("*PTS[v]");
+        if (hasAudio) {
+            // atempoChain returns a leading-comma fragment (",atempo=…"); as a
+            // standalone filter graph we drop that leading comma.
+            fc.append(";[0:a]").append(atempoChain(slow).substring(1)).append("[a]");
+        }
+
+        File out = new File(tempDir, "gslow_" + System.currentTimeMillis() + ".mp4");
+        java.util.List<String> cmd = new java.util.ArrayList<>();
+        cmd.add("ffmpeg"); cmd.add("-y");
+        cmd.add("-i"); cmd.add(video.getAbsolutePath());
+        cmd.add("-filter_complex"); cmd.add(fc.toString());
+        cmd.add("-map"); cmd.add("[v]");
+        if (hasAudio) { cmd.add("-map"); cmd.add("[a]"); }
+        cmd.add("-c:v"); cmd.add("libx264");
+        cmd.add("-preset"); cmd.add("medium");
+        cmd.add("-crf"); cmd.add(String.valueOf(crf));
+        cmd.add("-pix_fmt"); cmd.add("yuv420p");
+        cmd.add("-movflags"); cmd.add("+faststart");
+        if (hasAudio) { cmd.add("-c:a"); cmd.add("aac"); cmd.add("-b:a"); cmd.add("192k"); }
+        else          { cmd.add("-an"); }
         cmd.add(out.getAbsolutePath());
         runFfmpeg(cmd);
         if (out.exists() && out.length() > 0) {
@@ -15733,6 +15796,10 @@ public class GifSlideShowApp extends JFrame {
         // the loop-back does not click. Duration is preserved (fades ramp
         // amplitude only), so audio stays in sync with the clean video cut.
         boolean videoRepeatCrossfade = false;
+        // Slow the WHOLE finished video by this percent (100 = normal speed,
+        // 150 = 1.5× slower, …). Applied as a final pitch-preserving pass on the
+        // exported MP4. Set externally after construction (like videoRepeats).
+        int videoGlobalSlowPct = 100;
 
         SlideData(BufferedImage image, String text, String fontName, int fontSize,
                   int fontStyle, Color fontColor, int alignment, boolean showPin, String displayMode,
@@ -16194,6 +16261,9 @@ public class GifSlideShowApp extends JFrame {
         private final java.util.List<int[]> videoRepeats = new java.util.ArrayList<>();
         // When true, short audio fades de-click the repeat seams (see SlideData).
         private boolean videoRepeatCrossfade = false;
+        // Slow the whole finished video by this percent (100 = normal). Edited in
+        // the Texts Timer dialog; applied as a final pass on the exported MP4.
+        private int videoGlobalSlowPct = 100;
 
 
 
@@ -20817,14 +20887,17 @@ public class GifSlideShowApp extends JFrame {
             JTextArea repeatArea = new JTextArea(repeatSeed.toString(), 4, 24);
             repeatArea.setFont(new Font("Consolas", Font.PLAIN, 12));
             repeatArea.setToolTipText("One range per line: start,end[,times[,slow]] in seconds. "
-                    + "e.g. 6.539,7.659,2,2  (plays twice, the repeat at 2x slower)");
+                    + "slow can be any decimal, e.g. 1.1, 1.25, 1.5, 2. "
+                    + "e.g. 6.539,7.659,2,1.3  (plays twice, the repeat at 1.3× slower)");
             JScrollPane repeatScroll = new JScrollPane(repeatArea);
             repeatScroll.setPreferredSize(new Dimension(460, 90));
             JLabel repeatHelp = new JLabel("<html><b>Repeat parts of the video</b> — one range per line as "
                     + "<code>start,end</code> in seconds (e.g. <code>6.539,7.659</code>). "
                     + "Optional extras: <code>start,end,times,slow</code> — <b>times</b> = how many times it "
-                    + "plays (e.g. 3), <b>slow</b> = play the repeat(s) slower (2 = half speed). "
-                    + "So <code>6.539,7.659,2,2</code> plays it once normally then once at 2&times; slow. "
+                    + "plays (whole number, e.g. 3), <b>slow</b> = play the repeat(s) slower. "
+                    + "<b>slow can be any decimal</b> — <code>1.1</code>, <code>1.25</code>, <code>1.5</code>, "
+                    + "<code>2</code> (2 = half speed), up to 4. "
+                    + "So <code>6.539,7.659,2,1.3</code> plays it once normally then once at 1.3&times; slow. "
                     + "This lengthens the video.</html>");
             repeatHelp.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             repeatHelp.setBorder(BorderFactory.createEmptyBorder(10, 2, 4, 2));
@@ -20834,6 +20907,27 @@ public class GifSlideShowApp extends JFrame {
             crossfadeCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             crossfadeCheck.setToolTipText("Off = clean cut (exact copy, may click on continuous music). "
                     + "On = a ~12 ms audio fade hides the click at each loop-back (duration unchanged).");
+
+            // ----- Slow the entire video -----
+            // Whole-video pitch-preserving slow-down, applied as a final pass on
+            // the exported MP4. 1.0 = normal speed; the audio keeps its pitch.
+            JPanel slowAllPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+            slowAllPanel.setBackground(Color.WHITE);
+            JLabel slowAllLbl = new JLabel("Slow the ENTIRE video:");
+            slowAllLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            JSpinner slowAllSpinner = new JSpinner(new SpinnerNumberModel(
+                    Math.max(1.0, Math.min(8.0, getVideoGlobalSlowPct() / 100.0)),
+                    1.0, 8.0, 0.1));
+            slowAllSpinner.setPreferredSize(new Dimension(70, 24));
+            JSpinner.NumberEditor slowAllEd = new JSpinner.NumberEditor(slowAllSpinner, "0.0");
+            slowAllSpinner.setEditor(slowAllEd);
+            slowAllSpinner.setToolTipText("1.0 = normal speed. 1.5 = 1.5× slower, 2 = half speed, etc. "
+                    + "Applies to the whole finished video. Audio keeps its natural pitch and quality.");
+            JLabel slowAllX = new JLabel("×  (1.0 = normal, e.g. 1.1, 1.5, 2)");
+            slowAllX.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slowAllPanel.add(slowAllLbl);
+            slowAllPanel.add(slowAllSpinner);
+            slowAllPanel.add(slowAllX);
 
             JButton applyAllBtn = new JButton("Effect → all texts");
             JButton clearBtn  = new JButton("Clear All");
@@ -20862,6 +20956,7 @@ public class GifSlideShowApp extends JFrame {
                 for (JComboBox<String> c : easeCombos)   c.setSelectedItem("Ease Out");
                 for (JTextField f : durFields) f.setText("500");
                 repeatArea.setText("");
+                slowAllSpinner.setValue(1.0);
             });
 
             okBtn.addActionListener(e -> {
@@ -21011,6 +21106,8 @@ public class GifSlideShowApp extends JFrame {
                 }
                 setVideoRepeats(repeats);
                 setVideoRepeatCrossfade(crossfadeCheck.isSelected());
+                double slowAll = ((Number) slowAllSpinner.getValue()).doubleValue();
+                setVideoGlobalSlowPct((int) Math.round(slowAll * 100.0));
                 schedulePreview();
                 dlg.dispose();
             });
@@ -21022,10 +21119,13 @@ public class GifSlideShowApp extends JFrame {
             repeatHelp.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
             repeatScroll.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
             crossfadeCheck.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
+            slowAllPanel.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
+            slowAllPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, slowAllPanel.getPreferredSize().height));
             center.add(rowsScroll);
             center.add(repeatHelp);
             center.add(repeatScroll);
             center.add(crossfadeCheck);
+            center.add(slowAllPanel);
 
             JPanel root = new JPanel(new BorderLayout());
             root.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
@@ -22200,6 +22300,8 @@ public class GifSlideShowApp extends JFrame {
 
         boolean isVideoRepeatCrossfade() { return videoRepeatCrossfade; }
         void setVideoRepeatCrossfade(boolean on) { videoRepeatCrossfade = on; }
+        int getVideoGlobalSlowPct() { return videoGlobalSlowPct; }
+        void setVideoGlobalSlowPct(int pct) { videoGlobalSlowPct = Math.max(100, Math.min(800, pct)); }
         int getSourceVideoDurationMs() { return sourceVideoDurationMs; }
         int getSourceVideoVolume() { return (int) sourceVideoVolumeSpinner.getValue(); }
         int getBgTransparency() { return (int) bgTransparencySpinner.getValue(); }
