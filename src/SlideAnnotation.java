@@ -70,7 +70,12 @@ public class SlideAnnotation {
 
     // ---- catalogs (for UI dropdowns) --------------------------------------
     public static String[] kinds()          { return new String[]{KIND_LINE, KIND_ARROW, KIND_SHAPE}; }
-    public static String[] lineSubtypes()   { return new String[]{"Straight", "Dashed", "Dotted", "Double", "Underline", "Divider"}; }
+    public static String[] lineSubtypes()   { return new String[]{
+            // clean
+            "Straight", "Dashed", "Dotted", "Double", "Divider",
+            // premium hand-drawn / ink
+            "Sketch", "Sketch Double", "Brush", "Marker", "Highlighter",
+            "Calligraphy", "Taper", "Wavy", "Zigzag", "Scribble", "Underline" }; }
     public static String[] arrowSubtypes()  { return new String[]{"Straight", "Curved", "Hand-Drawn", "Double", "Block"}; }
     public static String[] shapeSubtypes()  { return new String[]{
             // rounded / basic
@@ -483,7 +488,8 @@ public class SlideAnnotation {
     // ----- lines ------------------------------------------------------------
     private void drawLine(Graphics2D g, double half, double sw, double revealT) {
         double x0 = -half, x1 = -half + (2 * half) * revealT;
-        switch (subtype == null ? "Straight" : subtype) {
+        String st = subtype == null ? "Straight" : subtype;
+        switch (st) {
             case "Dashed":
                 g.setStroke(new BasicStroke((float) sw, BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND,
                         10f, new float[]{(float) (sw * 3), (float) (sw * 2.2)}, 0f));
@@ -499,13 +505,6 @@ public class SlideAnnotation {
                 line(g, x0, -sw * 0.9, x1, -sw * 0.9);
                 line(g, x0, sw * 0.9, x1, sw * 0.9);
                 break;
-            case "Underline":
-                g.setStroke(new BasicStroke((float) (sw * 2.6), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                Color c = g.getColor();
-                if (c != null) g.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(),
-                        Math.min(255, (int) (c.getAlpha() * 0.55))));
-                line(g, x0, 0, x1, 0);
-                break;
             case "Divider":
                 g.setStroke(roundStroke(sw));
                 double gap = sw * 2.2;
@@ -516,11 +515,158 @@ public class SlideAnnotation {
                 }
                 if (x1 > gap) line(g, gap, 0, x1, 0);
                 break;
+
+            // ---- premium hand-drawn / ink strokes ----
+            case "Sketch":
+                strokeSpine(g, spine(st, half, sw, revealT, 0.0), sw * 0.95);
+                break;
+            case "Sketch Double": {
+                // two overlaid ink passes → authentic hand-drawn line
+                Color c0 = g.getColor();
+                if (c0 != null) g.setColor(withAlpha(c0, 0.82));
+                strokeSpine(g, spine(st, half, sw, revealT, 0.0), sw * 0.9);
+                strokeSpine(g, spine(st, half, sw, revealT, 3.7), sw * 0.8);
+                break;
+            }
+            case "Wavy":
+                strokeSpine(g, spine(st, half, sw, revealT, 0.0), sw);
+                break;
+            case "Zigzag":
+            case "Scribble":
+                strokeSpine(g, spine(st, half, sw, revealT, 0.0), sw * 0.95);
+                break;
+
+            // ---- tapered ink ribbons (filled, variable width) ----
+            case "Brush":       fillRibbon(g, st, half, sw, revealT, 1.0); break;
+            case "Marker":      fillRibbon(g, st, half, sw, revealT, 1.0); break;
+            case "Taper":       fillRibbon(g, st, half, sw, revealT, 1.0); break;
+            case "Calligraphy": fillRibbon(g, st, half, sw, revealT, 1.0); break;
+            case "Highlighter": {
+                Color c0 = g.getColor();
+                if (c0 != null) g.setColor(withAlpha(c0, 0.42));
+                fillRibbon(g, st, half, sw, revealT, 1.0);
+                break;
+            }
+            case "Underline": {   // premium translucent marker sweep
+                Color c0 = g.getColor();
+                if (c0 != null) g.setColor(withAlpha(c0, 0.5));
+                fillRibbon(g, "Marker", half, sw * 1.1, revealT, 1.0);
+                break;
+            }
+
             default: // Straight
                 g.setStroke(roundStroke(sw));
                 line(g, x0, 0, x1, 0);
                 break;
         }
+    }
+
+    private static Color withAlpha(Color c, double f) {
+        return new Color(c.getRed(), c.getGreen(), c.getBlue(),
+                Math.max(0, Math.min(255, (int) (c.getAlpha() * f))));
+    }
+
+    /**
+     * Build a stroke centre-line ("spine") from -half toward +half, revealed up
+     * to {@code revealT}. The perpendicular offset is a deterministic function of
+     * the arc parameter (never of time/frame), so hand-drawn wobble stays rock
+     * stable across video frames instead of shimmering.
+     */
+    private double[][] spine(String style, double half, double sw, double revealT, double phase) {
+        double rev = Math.max(0.02, revealT);
+        int n = Math.max(2, (int) (60 * rev));
+        double[][] p = new double[n][2];
+        double amp;
+        for (int i = 0; i < n; i++) {
+            double t = (double) i / (n - 1);          // 0..1 along the drawn part
+            double s = t * rev;                        // 0..rev absolute arc param
+            double x = -half + 2 * half * s;
+            double env = Math.sin(Math.PI * Math.min(1.0, t));   // clean-ish endpoints
+            double y;
+            switch (style) {
+                case "Wavy":
+                    y = half * 0.09 * Math.sin(s * Math.PI * 5.0);
+                    break;
+                case "Zigzag":
+                    y = half * 0.08 * tri(s * 6.0);
+                    break;
+                case "Scribble":
+                    y = half * 0.06 * tri(s * 13.0);
+                    break;
+                default: // Sketch family: subtle multi-frequency ink wobble
+                    amp = sw * 0.85;
+                    y = amp * (Math.sin(s * 21.0 + phase) * 0.55
+                             + Math.sin(s * 47.0 + phase * 1.7) * 0.28) * env
+                      + sw * 0.5 * Math.sin(s * 3.1 + phase) * 0.4;   // slow drift
+                    break;
+            }
+            p[i][0] = x; p[i][1] = y;
+        }
+        return p;
+    }
+
+    /** Triangle wave in [-1,1] with unit period. */
+    private static double tri(double u) {
+        double f = u - Math.floor(u);
+        return 4 * Math.abs(f - 0.5) - 1;
+    }
+
+    private void strokeSpine(Graphics2D g, double[][] pts, double sw) {
+        g.setStroke(roundStroke(sw));
+        Path2D.Double p = new Path2D.Double();
+        for (int i = 0; i < pts.length; i++) {
+            if (i == 0) p.moveTo(pts[i][0], pts[i][1]); else p.lineTo(pts[i][0], pts[i][1]);
+        }
+        g.draw(p);
+    }
+
+    /**
+     * Fill a variable-width ink ribbon along a (slightly hand-drawn) spine. The
+     * half-width profile gives each style its character: Brush swells in the
+     * middle and tapers to fine ends; Taper grows thin→thick; Calligraphy
+     * thickens/thins by stroke angle (nib); Marker is an even felt-tip.
+     */
+    private void fillRibbon(Graphics2D g, String style, double half, double sw, double revealT, double phase) {
+        // gentle hand curve so Calligraphy/Brush read as real strokes even when "straight"
+        double curve = ("Marker".equals(style)) ? 0 : half * 0.05;
+        int n = Math.max(2, (int) (60 * Math.max(0.02, revealT)));
+        double rev = Math.max(0.02, revealT);
+        double nib = Math.toRadians(40);
+        double[][] c = new double[n][2];       // spine
+        for (int i = 0; i < n; i++) {
+            double t = (double) i / (n - 1);
+            double s = t * rev;
+            c[i][0] = -half + 2 * half * s;
+            c[i][1] = curve * Math.sin(s * Math.PI) + sw * 0.35 * Math.sin(s * 6.0 + phase)
+                    * ("Brush".equals(style) || "Calligraphy".equals(style) ? 1 : 0);
+        }
+        Path2D.Double left = new Path2D.Double();
+        java.util.ArrayList<double[]> right = new java.util.ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            double t = (double) i / (n - 1);
+            // local tangent
+            int a = Math.max(0, i - 1), b = Math.min(n - 1, i + 1);
+            double tx = c[b][0] - c[a][0], ty = c[b][1] - c[a][1];
+            double tl = Math.hypot(tx, ty); if (tl < 1e-6) tl = 1;
+            double nx = -ty / tl, ny = tx / tl;    // unit normal
+            double hw;
+            switch (style) {
+                case "Taper":       hw = sw * (0.18 + 1.7 * t); break;
+                case "Brush":       hw = sw * (0.12 + 1.5 * Math.pow(Math.sin(Math.PI * t), 0.55)); break;
+                case "Calligraphy": {
+                    double ang = Math.atan2(ty, tx);
+                    hw = sw * (0.28 + 1.5 * Math.abs(Math.sin(ang - nib))); break;
+                }
+                case "Marker": default: hw = sw * 1.25; break;   // even felt-tip
+            }
+            double lx = c[i][0] + nx * hw, ly = c[i][1] + ny * hw;
+            double rx = c[i][0] - nx * hw, ry = c[i][1] - ny * hw;
+            if (i == 0) left.moveTo(lx, ly); else left.lineTo(lx, ly);
+            right.add(new double[]{rx, ry});
+        }
+        for (int i = right.size() - 1; i >= 0; i--) left.lineTo(right.get(i)[0], right.get(i)[1]);
+        left.closePath();
+        g.fill(left);
     }
 
     // ----- arrows -----------------------------------------------------------
