@@ -24,6 +24,7 @@ public class SlideAnnotation {
 
     public static final String KIND_LINE = "Line";
     public static final String KIND_ARROW = "Arrow";
+    public static final String KIND_SHAPE = "Shape";
 
     /** How long the entrance animation runs, in ms. */
     private static final double ENTRANCE_MS = 650.0;
@@ -40,6 +41,7 @@ public class SlideAnnotation {
     public boolean gradient = false;
     public double strokeWidthPct = 0.55;  // stroke width as % of min(frame w,h)
     public boolean shadow = true;
+    public boolean filled = true;         // Shape kind: fill (true) vs outline (false)
     public int appearMs = 0;
     public int durationMs = 0;        // 0 = stay until the slide ends
     public String entrance = "Draw-In";
@@ -56,15 +58,19 @@ public class SlideAnnotation {
         a.color2 = color2; a.gradient = gradient; a.strokeWidthPct = strokeWidthPct;
         a.shadow = shadow; a.appearMs = appearMs; a.durationMs = durationMs;
         a.entrance = entrance; a.idle = idle; a.groupId = groupId; a.text = text;
+        a.filled = filled;
         return a;
     }
 
     // ---- catalogs (for UI dropdowns) --------------------------------------
-    public static String[] kinds()          { return new String[]{KIND_LINE, KIND_ARROW}; }
+    public static String[] kinds()          { return new String[]{KIND_LINE, KIND_ARROW, KIND_SHAPE}; }
     public static String[] lineSubtypes()   { return new String[]{"Straight", "Dashed", "Dotted", "Double", "Underline", "Divider"}; }
     public static String[] arrowSubtypes()  { return new String[]{"Straight", "Curved", "Hand-Drawn", "Double", "Block"}; }
+    public static String[] shapeSubtypes()  { return new String[]{"Circle", "Ring", "Rectangle", "Star", "Heart", "Badge"}; }
     public static String[] subtypesFor(String kind) {
-        return KIND_LINE.equals(kind) ? lineSubtypes() : arrowSubtypes();
+        if (KIND_LINE.equals(kind)) return lineSubtypes();
+        if (KIND_SHAPE.equals(kind)) return shapeSubtypes();
+        return arrowSubtypes();
     }
     public static String[] entranceModes()  { return new String[]{"None", "Draw-In", "Pop", "Fly-In", "Fade", "Grow"}; }
     public static String[] idleModes()      { return new String[]{"None", "Pulse", "Bob", "Spin", "Wobble", "Glow"}; }
@@ -174,9 +180,81 @@ public class SlideAnnotation {
     private void drawShape(Graphics2D g, double half, double sw, double revealT, Color col) {
         if (KIND_LINE.equals(kind)) {
             drawLine(g, half, sw, revealT);
+        } else if (KIND_SHAPE.equals(kind)) {
+            drawDecoShape(g, half, sw, revealT);
         } else {
             drawArrow(g, half, sw, revealT);
         }
+    }
+
+    // ----- decorative shapes -----------------------------------------------
+    // For closed shapes revealT is interpreted as a grow-from-centre factor so a
+    // "Draw-In" entrance blossoms outward; Pop/Grow/Fly-In/Fade compose on top.
+    private void drawDecoShape(Graphics2D g, double half, double sw, double revealT) {
+        double R = Math.max(0.5, half * Math.max(0.0001, revealT));
+        String st = subtype == null ? "Circle" : subtype;
+        java.awt.Shape shp;
+        boolean forceOutline = false;
+        switch (st) {
+            case "Ring": {
+                // Always an outline circle with a bold stroke.
+                shp = new java.awt.geom.Ellipse2D.Double(-R, -R, 2 * R, 2 * R);
+                forceOutline = true;
+                sw = Math.max(sw, half * 0.14);
+                break;
+            }
+            case "Rectangle": {
+                double hw = R, hh = R * 0.66, arc = Math.min(hw, hh) * 0.5;
+                shp = new java.awt.geom.RoundRectangle2D.Double(-hw, -hh, 2 * hw, 2 * hh, arc, arc);
+                break;
+            }
+            case "Star":  shp = starPath(R, R * 0.42, 5); break;
+            case "Heart": shp = heartPath(R); break;
+            case "Badge": shp = starPath(R, R * 0.80, 12); break;   // scalloped medal/seal
+            default:      shp = new java.awt.geom.Ellipse2D.Double(-R, -R, 2 * R, 2 * R); break; // Circle
+        }
+        if (filled && !forceOutline) {
+            g.fill(shp);
+            if ("Badge".equals(st)) {
+                // subtle inner ring for a finished medal look
+                Graphics2D ig = (Graphics2D) g.create();
+                ig.setStroke(roundStroke(Math.max(1.5, sw * 0.8)));
+                ig.setColor(new Color(255, 255, 255, 150));
+                double ir = R * 0.6;
+                ig.draw(new java.awt.geom.Ellipse2D.Double(-ir, -ir, 2 * ir, 2 * ir));
+                ig.dispose();
+            }
+        } else {
+            g.setStroke(roundStroke(sw));
+            g.draw(shp);
+        }
+    }
+
+    private static Path2D starPath(double outer, double inner, int points) {
+        Path2D.Double p = new Path2D.Double();
+        double step = Math.PI / points;
+        double a = -Math.PI / 2;   // start at top
+        for (int i = 0; i < points * 2; i++) {
+            double rad = (i % 2 == 0) ? outer : inner;
+            double x = Math.cos(a) * rad, y = Math.sin(a) * rad;
+            if (i == 0) p.moveTo(x, y); else p.lineTo(x, y);
+            a += step;
+        }
+        p.closePath();
+        return p;
+    }
+
+    private static Path2D heartPath(double R) {
+        // Heart centred on origin, spanning roughly [-R,R]. Two lobes + point.
+        Path2D.Double p = new Path2D.Double();
+        double s = R / 16.0;
+        p.moveTo(0, 6 * s);
+        p.curveTo(-2 * s, 1 * s, -8 * s, -1 * s, -8 * s, -6 * s);
+        p.curveTo(-8 * s, -11 * s, -2 * s, -12 * s, 0, -7 * s);
+        p.curveTo(2 * s, -12 * s, 8 * s, -11 * s, 8 * s, -6 * s);
+        p.curveTo(8 * s, -1 * s, 2 * s, 1 * s, 0, 6 * s);
+        p.closePath();
+        return p;
     }
 
     // ----- lines ------------------------------------------------------------

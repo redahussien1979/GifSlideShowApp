@@ -20860,6 +20860,8 @@ public class GifSlideShowApp extends JFrame {
             final JButton color2Btn = new JButton("■");
             final JCheckBox gradientCheck = new JCheckBox("Gradient");
             final JCheckBox shadowCheck   = new JCheckBox("Shadow");
+            final JCheckBox fillCheck     = new JCheckBox("Fill");
+            fillCheck.setToolTipText("Shapes only: filled vs outline (ignored for Lines/Arrows).");
             final JComboBox<String> entranceCombo = new JComboBox<>(SlideAnnotation.entranceModes());
             final JComboBox<String> idleCombo     = new JComboBox<>(SlideAnnotation.idleModes());
             final JTextField appearField = new JTextField(4);
@@ -20877,7 +20879,7 @@ public class GifSlideShowApp extends JFrame {
                 SlideAnnotation a = list.getSelectedValue();
                 boolean has = a != null;
                 for (Component c : new Component[]{kindCombo, subtypeCombo, xSpin, ySpin, sizeSpin,
-                        rotSpin, strokeSpin, colorBtn, color2Btn, gradientCheck, shadowCheck,
+                        rotSpin, strokeSpin, colorBtn, color2Btn, gradientCheck, shadowCheck, fillCheck,
                         entranceCombo, idleCombo, appearField, durField}) {
                     c.setEnabled(has);
                 }
@@ -20895,6 +20897,7 @@ public class GifSlideShowApp extends JFrame {
                 color2Btn.setForeground(a.color2);
                 gradientCheck.setSelected(a.gradient);
                 shadowCheck.setSelected(a.shadow);
+                fillCheck.setSelected(a.filled);
                 entranceCombo.setSelectedItem(a.entrance);
                 idleCombo.setSelectedItem(a.idle);
                 appearField.setText(timerMsToSecStr(a.appearMs));
@@ -20914,6 +20917,7 @@ public class GifSlideShowApp extends JFrame {
                 a.strokeWidthPct = ((Number) strokeSpin.getValue()).doubleValue();
                 a.gradient = gradientCheck.isSelected();
                 a.shadow = shadowCheck.isSelected();
+                a.filled = fillCheck.isSelected();
                 a.entrance = (String) entranceCombo.getSelectedItem();
                 a.idle = (String) idleCombo.getSelectedItem();
                 a.appearMs = Math.max(0, secStrToMs(appearField.getText(), 0));
@@ -20932,6 +20936,7 @@ public class GifSlideShowApp extends JFrame {
             }
             gradientCheck.addActionListener(e -> commit.run());
             shadowCheck.addActionListener(e -> commit.run());
+            fillCheck.addActionListener(e -> commit.run());
             appearField.addActionListener(e -> commit.run());
             durField.addActionListener(e -> commit.run());
             appearField.addFocusListener(new java.awt.event.FocusAdapter() {
@@ -20962,6 +20967,7 @@ public class GifSlideShowApp extends JFrame {
             final DefaultListModel<String> catModel = new DefaultListModel<>();
             for (String st : SlideAnnotation.lineSubtypes())  catModel.addElement("Line · " + st);
             for (String st : SlideAnnotation.arrowSubtypes()) catModel.addElement("Arrow · " + st);
+            for (String st : SlideAnnotation.shapeSubtypes()) catModel.addElement("Shape · " + st);
             final JList<String> catalog = new JList<>(catModel);
             catalog.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
             catalog.setVisibleRowCount(6);
@@ -21067,7 +21073,7 @@ public class GifSlideShowApp extends JFrame {
             row.accept("Position X / Y %", new Component[]{xSpin, ySpin});
             row.accept("Size % / Rotate°", new Component[]{sizeSpin, rotSpin});
             row.accept("Thickness %", new Component[]{strokeSpin});
-            row.accept("Colors", new Component[]{colorBtn, color2Btn, gradientCheck, shadowCheck});
+            row.accept("Colors", new Component[]{colorBtn, color2Btn, gradientCheck, shadowCheck, fillCheck});
             row.accept("Entrance / Idle", new Component[]{entranceCombo, idleCombo});
             row.accept("Appear (s) / Stay (s)", new Component[]{appearField, durField});
 
