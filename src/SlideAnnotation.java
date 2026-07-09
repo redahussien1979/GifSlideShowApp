@@ -34,7 +34,8 @@ public class SlideAnnotation {
     public String subtype = "Straight";
     public double xPct = 50;          // center X as % of frame width
     public double yPct = 50;          // center Y as % of frame height
-    public double sizePct = 22;       // length as % of frame width
+    public double sizePct = 22;       // WIDTH (Line/Arrow length) as % of frame width
+    public double heightPct = 0;      // Shape HEIGHT as % of frame width; 0 = auto/natural
     public double rotationDeg = 0;    // 0 = pointing right; grows clockwise
     public Color color = new Color(255, 76, 76);
     public Color color2 = new Color(255, 186, 60);
@@ -54,7 +55,7 @@ public class SlideAnnotation {
     public SlideAnnotation copy() {
         SlideAnnotation a = new SlideAnnotation();
         a.kind = kind; a.subtype = subtype; a.xPct = xPct; a.yPct = yPct;
-        a.sizePct = sizePct; a.rotationDeg = rotationDeg; a.color = color;
+        a.sizePct = sizePct; a.heightPct = heightPct; a.rotationDeg = rotationDeg; a.color = color;
         a.color2 = color2; a.gradient = gradient; a.strokeWidthPct = strokeWidthPct;
         a.shadow = shadow; a.appearMs = appearMs; a.durationMs = durationMs;
         a.entrance = entrance; a.idle = idle; a.groupId = groupId; a.text = text;
@@ -138,7 +139,10 @@ public class SlideAnnotation {
 
         double cx = xPct / 100.0 * W + flyDx;
         double cy = yPct / 100.0 * H + flyDy + idleDy;
-        double length = Math.max(6, sizePct / 100.0 * W);
+        double width = Math.max(6, sizePct / 100.0 * W);
+        // Natural height keeps each shape's default proportions when heightPct==0.
+        double naturalH = (KIND_SHAPE.equals(kind) && "Rectangle".equals(subtype)) ? width * 0.66 : width;
+        double height = heightPct > 0 ? Math.max(6, heightPct / 100.0 * W) : naturalH;
         double sw = Math.max(2.0, strokeWidthPct / 100.0 * Math.min(W, H) * entScale * idleScale);
 
         Graphics2D g = (Graphics2D) gRoot.create();
@@ -152,8 +156,9 @@ public class SlideAnnotation {
             tf.scale(entScale * idleScale, entScale * idleScale);
             g.transform(tf);
 
-            // Local frame: shape spans [-length/2 .. +length/2] along +X, centered at origin.
-            double half = length / 2.0;
+            // Local frame: shape spans [-halfW..halfW] × [-halfH..halfH], centered at origin.
+            double halfW = width / 2.0;
+            double halfH = height / 2.0;
 
             if (shadow || glow > 0) {
                 Graphics2D sg = (Graphics2D) g.create();
@@ -161,57 +166,59 @@ public class SlideAnnotation {
                 sg.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, Math.min(1f, sa)));
                 sg.translate(glow > 0 ? 0 : sw * 0.5, glow > 0 ? 0 : sw * 0.6);
                 sg.setColor(new Color(0, 0, 0));
-                drawShape(sg, half, sw * (glow > 0 ? 1.7 : 1.0), revealT, new Color(0, 0, 0));
+                drawShape(sg, halfW, halfH, sw * (glow > 0 ? 1.7 : 1.0), revealT, new Color(0, 0, 0));
                 sg.dispose();
             }
 
             if (gradient) {
-                g.setPaint(new GradientPaint((float) -half, 0, color, (float) half, 0, color2));
+                g.setPaint(new GradientPaint((float) -halfW, 0, color, (float) halfW, 0, color2));
             } else {
                 g.setPaint(color);
             }
-            drawShape(g, half, sw, revealT, color);
+            drawShape(g, halfW, halfH, sw, revealT, color);
         } finally {
             g.dispose();
         }
     }
 
-    /** Draw the shape in local space along +X, from -half to +half. */
-    private void drawShape(Graphics2D g, double half, double sw, double revealT, Color col) {
+    /** Draw the shape in local space, bounded by [-halfW..halfW] × [-halfH..halfH]. */
+    private void drawShape(Graphics2D g, double halfW, double halfH, double sw, double revealT, Color col) {
         if (KIND_LINE.equals(kind)) {
-            drawLine(g, half, sw, revealT);
+            drawLine(g, halfW, sw, revealT);          // 1-D: height not used
         } else if (KIND_SHAPE.equals(kind)) {
-            drawDecoShape(g, half, sw, revealT);
+            drawDecoShape(g, halfW, halfH, sw, revealT);
         } else {
-            drawArrow(g, half, sw, revealT);
+            drawArrow(g, halfW, sw, revealT);          // 1-D: height not used
         }
     }
 
     // ----- decorative shapes -----------------------------------------------
     // For closed shapes revealT is interpreted as a grow-from-centre factor so a
     // "Draw-In" entrance blossoms outward; Pop/Grow/Fly-In/Fade compose on top.
-    private void drawDecoShape(Graphics2D g, double half, double sw, double revealT) {
-        double R = Math.max(0.5, half * Math.max(0.0001, revealT));
+    private void drawDecoShape(Graphics2D g, double halfW, double halfH, double sw, double revealT) {
+        double t = Math.max(0.0001, revealT);
+        double rx = Math.max(0.5, halfW * t);
+        double ry = Math.max(0.5, halfH * t);
         String st = subtype == null ? "Circle" : subtype;
         java.awt.Shape shp;
         boolean forceOutline = false;
         switch (st) {
             case "Ring": {
-                // Always an outline circle with a bold stroke.
-                shp = new java.awt.geom.Ellipse2D.Double(-R, -R, 2 * R, 2 * R);
+                // Always an outline ellipse with a bold stroke.
+                shp = new java.awt.geom.Ellipse2D.Double(-rx, -ry, 2 * rx, 2 * ry);
                 forceOutline = true;
-                sw = Math.max(sw, half * 0.14);
+                sw = Math.max(sw, Math.min(halfW, halfH) * 0.28);
                 break;
             }
             case "Rectangle": {
-                double hw = R, hh = R * 0.66, arc = Math.min(hw, hh) * 0.5;
-                shp = new java.awt.geom.RoundRectangle2D.Double(-hw, -hh, 2 * hw, 2 * hh, arc, arc);
+                double arc = Math.min(rx, ry) * 0.5;
+                shp = new java.awt.geom.RoundRectangle2D.Double(-rx, -ry, 2 * rx, 2 * ry, arc, arc);
                 break;
             }
-            case "Star":  shp = starPath(R, R * 0.42, 5); break;
-            case "Heart": shp = heartPath(R); break;
-            case "Badge": shp = starPath(R, R * 0.80, 12); break;   // scalloped medal/seal
-            default:      shp = new java.awt.geom.Ellipse2D.Double(-R, -R, 2 * R, 2 * R); break; // Circle
+            case "Star":  shp = starPath(rx, ry, rx * 0.42, ry * 0.42, 5); break;
+            case "Heart": shp = heartPath(rx, ry); break;
+            case "Badge": shp = starPath(rx, ry, rx * 0.80, ry * 0.80, 12); break; // scalloped seal
+            default:      shp = new java.awt.geom.Ellipse2D.Double(-rx, -ry, 2 * rx, 2 * ry); break; // Circle
         }
         if (filled && !forceOutline) {
             g.fill(shp);
@@ -220,8 +227,8 @@ public class SlideAnnotation {
                 Graphics2D ig = (Graphics2D) g.create();
                 ig.setStroke(roundStroke(Math.max(1.5, sw * 0.8)));
                 ig.setColor(new Color(255, 255, 255, 150));
-                double ir = R * 0.6;
-                ig.draw(new java.awt.geom.Ellipse2D.Double(-ir, -ir, 2 * ir, 2 * ir));
+                double irx = rx * 0.6, iry = ry * 0.6;
+                ig.draw(new java.awt.geom.Ellipse2D.Double(-irx, -iry, 2 * irx, 2 * iry));
                 ig.dispose();
             }
         } else {
@@ -230,13 +237,15 @@ public class SlideAnnotation {
         }
     }
 
-    private static Path2D starPath(double outer, double inner, int points) {
+    // Elliptical star/seal: outer radii (ox,oy), inner radii (ix,iy), N points.
+    private static Path2D starPath(double ox, double oy, double ix, double iy, int points) {
         Path2D.Double p = new Path2D.Double();
         double step = Math.PI / points;
         double a = -Math.PI / 2;   // start at top
         for (int i = 0; i < points * 2; i++) {
-            double rad = (i % 2 == 0) ? outer : inner;
-            double x = Math.cos(a) * rad, y = Math.sin(a) * rad;
+            boolean outer = (i % 2 == 0);
+            double x = Math.cos(a) * (outer ? ox : ix);
+            double y = Math.sin(a) * (outer ? oy : iy);
             if (i == 0) p.moveTo(x, y); else p.lineTo(x, y);
             a += step;
         }
@@ -244,15 +253,15 @@ public class SlideAnnotation {
         return p;
     }
 
-    private static Path2D heartPath(double R) {
-        // Heart centred on origin, spanning roughly [-R,R]. Two lobes + point.
+    // Heart fitted to the box [-hw..hw] × [-hh..hh]. Two lobes + point.
+    private static Path2D heartPath(double hw, double hh) {
         Path2D.Double p = new Path2D.Double();
-        double s = R / 16.0;
-        p.moveTo(0, 6 * s);
-        p.curveTo(-2 * s, 1 * s, -8 * s, -1 * s, -8 * s, -6 * s);
-        p.curveTo(-8 * s, -11 * s, -2 * s, -12 * s, 0, -7 * s);
-        p.curveTo(2 * s, -12 * s, 8 * s, -11 * s, 8 * s, -6 * s);
-        p.curveTo(8 * s, -1 * s, 2 * s, 1 * s, 0, 6 * s);
+        double sx = hw / 8.0, sy = hh / 9.0;   // model spans x[-8..8], y[-12..6]
+        p.moveTo(0, 6 * sy);
+        p.curveTo(-2 * sx, 1 * sy, -8 * sx, -1 * sy, -8 * sx, -6 * sy);
+        p.curveTo(-8 * sx, -11 * sy, -2 * sx, -12 * sy, 0, -7 * sy);
+        p.curveTo(2 * sx, -12 * sy, 8 * sx, -11 * sy, 8 * sx, -6 * sy);
+        p.curveTo(8 * sx, -1 * sy, 2 * sx, 1 * sy, 0, 6 * sy);
         p.closePath();
         return p;
     }

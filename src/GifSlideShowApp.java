@@ -20853,7 +20853,9 @@ public class GifSlideShowApp extends JFrame {
             final JComboBox<String> subtypeCombo = new JComboBox<>(SlideAnnotation.arrowSubtypes());
             final JSpinner xSpin   = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
             final JSpinner ySpin   = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
-            final JSpinner sizeSpin= new JSpinner(new SpinnerNumberModel(22, 2, 200, 1));
+            final JSpinner sizeSpin  = new JSpinner(new SpinnerNumberModel(22, 2, 200, 1));
+            final JSpinner heightSpin= new JSpinner(new SpinnerNumberModel(0, 0, 200, 1));
+            heightSpin.setToolTipText("Shape height as % of frame width. 0 = auto (keep the shape's natural proportion). Ignored for Lines/Arrows.");
             final JSpinner rotSpin = new JSpinner(new SpinnerNumberModel(0, -180, 180, 5));
             final JSpinner strokeSpin = new JSpinner(new SpinnerNumberModel(0.55, 0.1, 5.0, 0.05));
             final JButton colorBtn  = new JButton("■");
@@ -20879,8 +20881,8 @@ public class GifSlideShowApp extends JFrame {
                 SlideAnnotation a = list.getSelectedValue();
                 boolean has = a != null;
                 for (Component c : new Component[]{kindCombo, subtypeCombo, xSpin, ySpin, sizeSpin,
-                        rotSpin, strokeSpin, colorBtn, color2Btn, gradientCheck, shadowCheck, fillCheck,
-                        entranceCombo, idleCombo, appearField, durField}) {
+                        heightSpin, rotSpin, strokeSpin, colorBtn, color2Btn, gradientCheck, shadowCheck,
+                        fillCheck, entranceCombo, idleCombo, appearField, durField}) {
                     c.setEnabled(has);
                 }
                 if (!has) return;
@@ -20891,6 +20893,7 @@ public class GifSlideShowApp extends JFrame {
                 xSpin.setValue((int) Math.round(a.xPct));
                 ySpin.setValue((int) Math.round(a.yPct));
                 sizeSpin.setValue((int) Math.round(a.sizePct));
+                heightSpin.setValue((int) Math.round(a.heightPct));
                 rotSpin.setValue((int) Math.round(a.rotationDeg));
                 strokeSpin.setValue(a.strokeWidthPct);
                 colorBtn.setForeground(a.color);
@@ -20913,6 +20916,7 @@ public class GifSlideShowApp extends JFrame {
                 a.xPct = ((Number) xSpin.getValue()).doubleValue();
                 a.yPct = ((Number) ySpin.getValue()).doubleValue();
                 a.sizePct = ((Number) sizeSpin.getValue()).doubleValue();
+                a.heightPct = ((Number) heightSpin.getValue()).doubleValue();
                 a.rotationDeg = ((Number) rotSpin.getValue()).doubleValue();
                 a.strokeWidthPct = ((Number) strokeSpin.getValue()).doubleValue();
                 a.gradient = gradientCheck.isSelected();
@@ -20931,7 +20935,7 @@ public class GifSlideShowApp extends JFrame {
                     subtypeCombo, entranceCombo, idleCombo))) {
                 cb.addActionListener(e -> commit.run());
             }
-            for (JSpinner sp : new JSpinner[]{xSpin, ySpin, sizeSpin, rotSpin, strokeSpin}) {
+            for (JSpinner sp : new JSpinner[]{xSpin, ySpin, sizeSpin, heightSpin, rotSpin, strokeSpin}) {
                 sp.addChangeListener(e -> commit.run());
             }
             gradientCheck.addActionListener(e -> commit.run());
@@ -21071,8 +21075,8 @@ public class GifSlideShowApp extends JFrame {
             };
             row.accept("Kind / Type", new Component[]{kindCombo, subtypeCombo});
             row.accept("Position X / Y %", new Component[]{xSpin, ySpin});
-            row.accept("Size % / Rotate°", new Component[]{sizeSpin, rotSpin});
-            row.accept("Thickness %", new Component[]{strokeSpin});
+            row.accept("Width / Height %", new Component[]{sizeSpin, heightSpin});
+            row.accept("Rotate° / Thickness %", new Component[]{rotSpin, strokeSpin});
             row.accept("Colors", new Component[]{colorBtn, color2Btn, gradientCheck, shadowCheck, fillCheck});
             row.accept("Entrance / Idle", new Component[]{entranceCombo, idleCombo});
             row.accept("Appear (s) / Stay (s)", new Component[]{appearField, durField});
