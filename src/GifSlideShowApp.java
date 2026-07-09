@@ -20864,6 +20864,15 @@ public class GifSlideShowApp extends JFrame {
             final JCheckBox shadowCheck   = new JCheckBox("Shadow");
             final JCheckBox fillCheck     = new JCheckBox("Fill");
             fillCheck.setToolTipText("Shapes only: filled vs outline (ignored for Lines/Arrows).");
+            final JSpinner cornerSpin  = new JSpinner(new SpinnerNumberModel(0, 0, 50, 5));
+            cornerSpin.setToolTipText("Round the corners/points of polygons, stars, hearts (0 = sharp).");
+            final JSpinner opacitySpin = new JSpinner(new SpinnerNumberModel(100, 0, 100, 5));
+            opacitySpin.setToolTipText("Overall opacity 0–100.");
+            final JButton borderColorBtn = new JButton("■");
+            borderColorBtn.setPreferredSize(new Dimension(40, 22));
+            borderColorBtn.setToolTipText("Shape border colour (drawn on top of the fill). Right-click to remove the border.");
+            final JSpinner borderWidthSpin = new JSpinner(new SpinnerNumberModel(0.0, 0.0, 5.0, 0.1));
+            borderWidthSpin.setToolTipText("Border thickness %; 0 = no border.");
             final JComboBox<String> entranceCombo = new JComboBox<>(SlideAnnotation.entranceModes());
             final JComboBox<String> idleCombo     = new JComboBox<>(SlideAnnotation.idleModes());
             final JTextField appearField = new JTextField(4);
@@ -20882,7 +20891,8 @@ public class GifSlideShowApp extends JFrame {
                 boolean has = a != null;
                 for (Component c : new Component[]{kindCombo, subtypeCombo, xSpin, ySpin, sizeSpin,
                         heightSpin, rotSpin, strokeSpin, colorBtn, color2Btn, gradientCheck, shadowCheck,
-                        fillCheck, entranceCombo, idleCombo, appearField, durField}) {
+                        fillCheck, cornerSpin, opacitySpin, borderColorBtn, borderWidthSpin,
+                        entranceCombo, idleCombo, appearField, durField}) {
                     c.setEnabled(has);
                 }
                 if (!has) return;
@@ -20901,6 +20911,10 @@ public class GifSlideShowApp extends JFrame {
                 gradientCheck.setSelected(a.gradient);
                 shadowCheck.setSelected(a.shadow);
                 fillCheck.setSelected(a.filled);
+                cornerSpin.setValue((int) Math.round(a.cornerPct));
+                opacitySpin.setValue(a.opacity);
+                borderColorBtn.setForeground(a.borderColor != null ? a.borderColor : Color.GRAY);
+                borderWidthSpin.setValue(a.borderWidthPct);
                 entranceCombo.setSelectedItem(a.entrance);
                 idleCombo.setSelectedItem(a.idle);
                 appearField.setText(timerMsToSecStr(a.appearMs));
@@ -20922,6 +20936,14 @@ public class GifSlideShowApp extends JFrame {
                 a.gradient = gradientCheck.isSelected();
                 a.shadow = shadowCheck.isSelected();
                 a.filled = fillCheck.isSelected();
+                a.cornerPct = ((Number) cornerSpin.getValue()).doubleValue();
+                a.opacity = ((Number) opacitySpin.getValue()).intValue();
+                a.borderWidthPct = ((Number) borderWidthSpin.getValue()).doubleValue();
+                // Auto-assign a border colour when width is dialled up with none set.
+                if (a.borderWidthPct > 0 && a.borderColor == null) {
+                    a.borderColor = Color.WHITE;
+                    borderColorBtn.setForeground(Color.WHITE);
+                }
                 a.entrance = (String) entranceCombo.getSelectedItem();
                 a.idle = (String) idleCombo.getSelectedItem();
                 a.appearMs = Math.max(0, secStrToMs(appearField.getText(), 0));
@@ -20935,12 +20957,34 @@ public class GifSlideShowApp extends JFrame {
                     subtypeCombo, entranceCombo, idleCombo))) {
                 cb.addActionListener(e -> commit.run());
             }
-            for (JSpinner sp : new JSpinner[]{xSpin, ySpin, sizeSpin, heightSpin, rotSpin, strokeSpin}) {
+            for (JSpinner sp : new JSpinner[]{xSpin, ySpin, sizeSpin, heightSpin, rotSpin, strokeSpin,
+                    cornerSpin, opacitySpin, borderWidthSpin}) {
                 sp.addChangeListener(e -> commit.run());
             }
             gradientCheck.addActionListener(e -> commit.run());
             shadowCheck.addActionListener(e -> commit.run());
             fillCheck.addActionListener(e -> commit.run());
+            borderColorBtn.addActionListener(e -> {
+                SlideAnnotation a = list.getSelectedValue();
+                if (a == null) return;
+                pickColorLive(panel, "Border Color", a.borderColor != null ? a.borderColor : Color.WHITE, c -> {
+                    a.borderColor = c; borderColorBtn.setForeground(c);
+                    if (a.borderWidthPct <= 0) { a.borderWidthPct = 0.5; borderWidthSpin.setValue(0.5); }
+                    onFormatChanged();
+                });
+            });
+            borderColorBtn.addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override public void mousePressed(java.awt.event.MouseEvent e) {
+                    if (SwingUtilities.isRightMouseButton(e)) {
+                        SlideAnnotation a = list.getSelectedValue();
+                        if (a == null) return;
+                        a.borderColor = null; a.borderWidthPct = 0;
+                        borderColorBtn.setForeground(Color.GRAY);
+                        updating[0] = true; borderWidthSpin.setValue(0.0); updating[0] = false;
+                        onFormatChanged();
+                    }
+                }
+            });
             appearField.addActionListener(e -> commit.run());
             durField.addActionListener(e -> commit.run());
             appearField.addFocusListener(new java.awt.event.FocusAdapter() {
@@ -21078,6 +21122,8 @@ public class GifSlideShowApp extends JFrame {
             row.accept("Width / Height %", new Component[]{sizeSpin, heightSpin});
             row.accept("Rotate° / Thickness %", new Component[]{rotSpin, strokeSpin});
             row.accept("Colors", new Component[]{colorBtn, color2Btn, gradientCheck, shadowCheck, fillCheck});
+            row.accept("Border color / width", new Component[]{borderColorBtn, borderWidthSpin});
+            row.accept("Round % / Opacity", new Component[]{cornerSpin, opacitySpin});
             row.accept("Entrance / Idle", new Component[]{entranceCombo, idleCombo});
             row.accept("Appear (s) / Stay (s)", new Component[]{appearField, durField});
 

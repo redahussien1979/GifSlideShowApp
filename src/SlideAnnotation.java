@@ -43,6 +43,10 @@ public class SlideAnnotation {
     public double strokeWidthPct = 0.55;  // stroke width as % of min(frame w,h)
     public boolean shadow = true;
     public boolean filled = true;         // Shape kind: fill (true) vs outline (false)
+    public double cornerPct = 0;          // vertex rounding, % of shape min-dim (0 = sharp)
+    public Color borderColor = null;      // Shape: outline drawn on top of fill (null = none)
+    public double borderWidthPct = 0;     // border thickness, % of min(frame w,h); 0 = none
+    public int opacity = 100;             // 0..100 overall opacity
     public int appearMs = 0;
     public int durationMs = 0;        // 0 = stay until the slide ends
     public String entrance = "Draw-In";
@@ -59,7 +63,8 @@ public class SlideAnnotation {
         a.color2 = color2; a.gradient = gradient; a.strokeWidthPct = strokeWidthPct;
         a.shadow = shadow; a.appearMs = appearMs; a.durationMs = durationMs;
         a.entrance = entrance; a.idle = idle; a.groupId = groupId; a.text = text;
-        a.filled = filled;
+        a.filled = filled; a.cornerPct = cornerPct; a.borderColor = borderColor;
+        a.borderWidthPct = borderWidthPct; a.opacity = opacity;
         return a;
     }
 
@@ -67,7 +72,19 @@ public class SlideAnnotation {
     public static String[] kinds()          { return new String[]{KIND_LINE, KIND_ARROW, KIND_SHAPE}; }
     public static String[] lineSubtypes()   { return new String[]{"Straight", "Dashed", "Dotted", "Double", "Underline", "Divider"}; }
     public static String[] arrowSubtypes()  { return new String[]{"Straight", "Curved", "Hand-Drawn", "Double", "Block"}; }
-    public static String[] shapeSubtypes()  { return new String[]{"Circle", "Ring", "Rectangle", "Star", "Heart", "Badge"}; }
+    public static String[] shapeSubtypes()  { return new String[]{
+            // rounded / basic
+            "Circle", "Ring", "Rectangle", "Squircle", "Pill", "Blob", "Teardrop",
+            // polygons
+            "Triangle", "Diamond", "Pentagon", "Hexagon", "Octagon", "Chevron",
+            // stars
+            "Star", "Star 4", "Star 6", "Star 8", "Rounded Star", "Sparkle", "Burst",
+            // hearts
+            "Heart", "Heart Plump",
+            // symbols
+            "Check", "Cross", "Plus", "Lightning", "Crown", "Shield", "Pin", "Gear",
+            // banners / seals
+            "Badge", "Rosette", "Banner", "Sunburst" }; }
     public static String[] subtypesFor(String kind) {
         if (KIND_LINE.equals(kind)) return lineSubtypes();
         if (KIND_SHAPE.equals(kind)) return shapeSubtypes();
@@ -140,15 +157,16 @@ public class SlideAnnotation {
         double cx = xPct / 100.0 * W + flyDx;
         double cy = yPct / 100.0 * H + flyDy + idleDy;
         double width = Math.max(6, sizePct / 100.0 * W);
-        // Natural height keeps each shape's default proportions when heightPct==0.
-        double naturalH = (KIND_SHAPE.equals(kind) && "Rectangle".equals(subtype)) ? width * 0.66 : width;
-        double height = heightPct > 0 ? Math.max(6, heightPct / 100.0 * W) : naturalH;
+        double height = heightPct > 0 ? Math.max(6, heightPct / 100.0 * W) : naturalHeight(width);
         double sw = Math.max(2.0, strokeWidthPct / 100.0 * Math.min(W, H) * entScale * idleScale);
+        double borderPx = (borderColor != null && borderWidthPct > 0)
+                ? Math.max(1.0, borderWidthPct / 100.0 * Math.min(W, H) * entScale * idleScale) : 0;
 
         Graphics2D g = (Graphics2D) gRoot.create();
         try {
-            if (entAlpha < 1.0) {
-                g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) entAlpha));
+            double finalAlpha = clamp(entAlpha * (opacity / 100.0), 0, 1);
+            if (finalAlpha < 1.0) {
+                g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) finalAlpha));
             }
             AffineTransform tf = new AffineTransform();
             tf.translate(cx, cy);
@@ -166,7 +184,7 @@ public class SlideAnnotation {
                 sg.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, Math.min(1f, sa)));
                 sg.translate(glow > 0 ? 0 : sw * 0.5, glow > 0 ? 0 : sw * 0.6);
                 sg.setColor(new Color(0, 0, 0));
-                drawShape(sg, halfW, halfH, sw * (glow > 0 ? 1.7 : 1.0), revealT, new Color(0, 0, 0));
+                drawShape(sg, halfW, halfH, sw * (glow > 0 ? 1.7 : 1.0), revealT, 0);
                 sg.dispose();
             }
 
@@ -175,18 +193,29 @@ public class SlideAnnotation {
             } else {
                 g.setPaint(color);
             }
-            drawShape(g, halfW, halfH, sw, revealT, color);
+            drawShape(g, halfW, halfH, sw, revealT, borderPx);
         } finally {
             g.dispose();
         }
     }
 
+    /** Natural (auto) height for the current subtype when heightPct==0. */
+    private double naturalHeight(double width) {
+        if (!KIND_SHAPE.equals(kind)) return width;
+        switch (subtype == null ? "" : subtype) {
+            case "Rectangle": case "Pill": case "Banner": return width * 0.60;
+            case "Chevron":   return width * 0.85;
+            case "Shield": case "Pin": case "Teardrop":   return width * 1.15;
+            default: return width;
+        }
+    }
+
     /** Draw the shape in local space, bounded by [-halfW..halfW] × [-halfH..halfH]. */
-    private void drawShape(Graphics2D g, double halfW, double halfH, double sw, double revealT, Color col) {
+    private void drawShape(Graphics2D g, double halfW, double halfH, double sw, double revealT, double borderPx) {
         if (KIND_LINE.equals(kind)) {
             drawLine(g, halfW, sw, revealT);          // 1-D: height not used
         } else if (KIND_SHAPE.equals(kind)) {
-            drawDecoShape(g, halfW, halfH, sw, revealT);
+            drawDecoShape(g, halfW, halfH, sw, revealT, borderPx);
         } else {
             drawArrow(g, halfW, sw, revealT);          // 1-D: height not used
         }
@@ -195,41 +224,86 @@ public class SlideAnnotation {
     // ----- decorative shapes -----------------------------------------------
     // For closed shapes revealT is interpreted as a grow-from-centre factor so a
     // "Draw-In" entrance blossoms outward; Pop/Grow/Fly-In/Fade compose on top.
-    private void drawDecoShape(Graphics2D g, double halfW, double halfH, double sw, double revealT) {
+    private void drawDecoShape(Graphics2D g, double halfW, double halfH, double sw, double revealT, double borderPx) {
         double t = Math.max(0.0001, revealT);
         double rx = Math.max(0.5, halfW * t);
         double ry = Math.max(0.5, halfH * t);
+        double mn = Math.min(rx, ry);
+        double corner = cornerPct / 100.0 * mn;   // vertex-rounding radius in px
         String st = subtype == null ? "Circle" : subtype;
-        java.awt.Shape shp;
+
+        java.awt.Shape shp = ellipse(rx, ry);   // default; overwritten below
+        java.awt.Shape innerDetail = null;   // e.g. medal inner ring / pin hole
         boolean forceOutline = false;
+        double[][] pts = null;               // polygon/star families (roundable)
+
         switch (st) {
-            case "Ring": {
-                // Always an outline ellipse with a bold stroke.
-                shp = new java.awt.geom.Ellipse2D.Double(-rx, -ry, 2 * rx, 2 * ry);
-                forceOutline = true;
-                sw = Math.max(sw, Math.min(halfW, halfH) * 0.28);
-                break;
-            }
-            case "Rectangle": {
-                double arc = Math.min(rx, ry) * 0.5;
-                shp = new java.awt.geom.RoundRectangle2D.Double(-rx, -ry, 2 * rx, 2 * ry, arc, arc);
-                break;
-            }
-            case "Star":  shp = starPath(rx, ry, rx * 0.42, ry * 0.42, 5); break;
-            case "Heart": shp = heartPath(rx, ry); break;
-            case "Badge": shp = starPath(rx, ry, rx * 0.80, ry * 0.80, 12); break; // scalloped seal
-            default:      shp = new java.awt.geom.Ellipse2D.Double(-rx, -ry, 2 * rx, 2 * ry); break; // Circle
+            case "Ring":
+                shp = ellipse(rx, ry); forceOutline = true; sw = Math.max(sw, mn * 0.28); break;
+            case "Rectangle":
+                shp = rounded(rx, ry, cornerPct > 0 ? corner : mn * 0.28); break;
+            case "Squircle":
+                shp = rounded(rx, ry, mn * 0.55); break;
+            case "Pill":
+                shp = rounded(rx, ry, Math.min(rx, ry)); break;
+            case "Blob":
+                shp = blobPath(rx, ry); break;
+            case "Teardrop":
+                shp = teardropPath(rx, ry); break;
+            case "Triangle": pts = regularPoly(3, rx, ry, -90); break;
+            case "Diamond":  pts = regularPoly(4, rx, ry, -90); break;
+            case "Pentagon": pts = regularPoly(5, rx, ry, -90); break;
+            case "Hexagon":  pts = regularPoly(6, rx, ry, 0);   break;
+            case "Octagon":  pts = regularPoly(8, rx, ry, 22.5);break;
+            case "Chevron":  shp = chevronPath(rx, ry); break;
+            case "Star":     pts = starPts(5, rx, ry, 0.42); break;
+            case "Star 4":   pts = starPts(4, rx, ry, 0.42); break;
+            case "Star 6":   pts = starPts(6, rx, ry, 0.50); break;
+            case "Star 8":   pts = starPts(8, rx, ry, 0.55); break;
+            case "Rounded Star": pts = starPts(5, rx, ry, 0.45); corner = Math.max(corner, mn * 0.16); break;
+            case "Sparkle":  pts = starPts(4, rx, ry, 0.16); break;
+            case "Burst":    pts = starPts(10, rx, ry, 0.55); break;
+            case "Heart":       shp = heartPath(rx, ry, false); break;
+            case "Heart Plump": shp = heartPath(rx, ry, true);  break;
+            case "Check":    pts = checkPts(rx, ry); break;
+            case "Cross":    pts = plusPts(rx, ry, 0.34, 45); break;
+            case "Plus":     pts = plusPts(rx, ry, 0.34, 0);  break;
+            case "Lightning":shp = boltPath(rx, ry); break;
+            case "Crown":    shp = crownPath(rx, ry); break;
+            case "Shield":   shp = shieldPath(rx, ry); break;
+            case "Pin":      shp = pinPath(rx, ry); innerDetail =
+                    new java.awt.geom.Ellipse2D.Double(-rx * 0.32, -ry * 0.5 - rx * 0.32,
+                            rx * 0.64, rx * 0.64); break;
+            case "Gear":     shp = gearPath(rx, ry); innerDetail =
+                    new java.awt.geom.Ellipse2D.Double(-mn * 0.28, -mn * 0.28, mn * 0.56, mn * 0.56); break;
+            case "Badge":    pts = starPts(12, rx, ry, 0.80);
+                    innerDetail = new java.awt.geom.Ellipse2D.Double(-rx * 0.6, -ry * 0.6, rx * 1.2, ry * 1.2); break;
+            case "Rosette":  pts = starPts(16, rx, ry, 0.82);
+                    innerDetail = new java.awt.geom.Ellipse2D.Double(-rx * 0.55, -ry * 0.55, rx * 1.1, ry * 1.1); break;
+            case "Banner":   shp = bannerPath(rx, ry); break;
+            case "Sunburst": pts = starPts(16, rx, ry, 0.35); break;
+            default:         shp = ellipse(rx, ry); break;   // Circle
         }
+        if (pts != null) shp = (corner > 0.5) ? roundedPath(pts, corner) : polyToPath(pts);
+
         if (filled && !forceOutline) {
             g.fill(shp);
-            if ("Badge".equals(st)) {
-                // subtle inner ring for a finished medal look
+            // subtle white inner ring for medal/seal/gear/pin
+            if (innerDetail != null) {
                 Graphics2D ig = (Graphics2D) g.create();
-                ig.setStroke(roundStroke(Math.max(1.5, sw * 0.8)));
-                ig.setColor(new Color(255, 255, 255, 150));
-                double irx = rx * 0.6, iry = ry * 0.6;
-                ig.draw(new java.awt.geom.Ellipse2D.Double(-irx, -iry, 2 * irx, 2 * iry));
+                boolean hole = "Pin".equals(st) || "Gear".equals(st);
+                if (hole) { ig.setColor(new Color(255, 255, 255, 235)); ig.fill(innerDetail); }
+                else { ig.setStroke(roundStroke(Math.max(1.5, sw * 0.8)));
+                       ig.setColor(new Color(255, 255, 255, 150)); ig.draw(innerDetail); }
                 ig.dispose();
+            }
+            // outline + fill: draw the border on top of the fill
+            if (borderColor != null && borderPx > 0) {
+                Graphics2D bg = (Graphics2D) g.create();
+                bg.setStroke(roundStroke(borderPx));
+                bg.setColor(borderColor);
+                bg.draw(shp);
+                bg.dispose();
             }
         } else {
             g.setStroke(roundStroke(sw));
@@ -237,33 +311,173 @@ public class SlideAnnotation {
         }
     }
 
-    // Elliptical star/seal: outer radii (ox,oy), inner radii (ix,iy), N points.
-    private static Path2D starPath(double ox, double oy, double ix, double iy, int points) {
-        Path2D.Double p = new Path2D.Double();
-        double step = Math.PI / points;
-        double a = -Math.PI / 2;   // start at top
+    // ---- geometry helpers --------------------------------------------------
+    private static java.awt.Shape ellipse(double rx, double ry) {
+        return new java.awt.geom.Ellipse2D.Double(-rx, -ry, 2 * rx, 2 * ry);
+    }
+    private static java.awt.Shape rounded(double rx, double ry, double arc) {
+        arc = Math.max(0, Math.min(arc, Math.min(rx, ry)));
+        return new java.awt.geom.RoundRectangle2D.Double(-rx, -ry, 2 * rx, 2 * ry, 2 * arc, 2 * arc);
+    }
+    private static double[][] regularPoly(int n, double rx, double ry, double offDeg) {
+        double[][] p = new double[n][2];
+        double off = Math.toRadians(offDeg);
+        for (int i = 0; i < n; i++) {
+            double a = off + i * 2 * Math.PI / n;
+            p[i][0] = Math.cos(a) * rx; p[i][1] = Math.sin(a) * ry;
+        }
+        return p;
+    }
+    private static double[][] starPts(int points, double ox, double oy, double innerRatio) {
+        double[][] p = new double[points * 2][2];
+        double step = Math.PI / points, a = -Math.PI / 2;
         for (int i = 0; i < points * 2; i++) {
             boolean outer = (i % 2 == 0);
-            double x = Math.cos(a) * (outer ? ox : ix);
-            double y = Math.sin(a) * (outer ? oy : iy);
-            if (i == 0) p.moveTo(x, y); else p.lineTo(x, y);
-            a += step;
+            double kx = outer ? ox : ox * innerRatio, ky = outer ? oy : oy * innerRatio;
+            p[i][0] = Math.cos(a) * kx; p[i][1] = Math.sin(a) * ky; a += step;
+        }
+        return p;
+    }
+    // "+" (or rotated to "×") as a 12-point polygon; arm = arm half-thickness ratio.
+    private static double[][] plusPts(double rx, double ry, double arm, double rotDeg) {
+        double ax = rx * arm, ay = ry * arm;
+        double[][] base = {
+                {-ax,-ry},{ax,-ry},{ax,-ay},{rx,-ay},{rx,ay},{ax,ay},
+                {ax,ry},{-ax,ry},{-ax,ay},{-rx,ay},{-rx,-ay},{-ax,-ay}};
+        if (rotDeg == 0) return base;
+        double c = Math.cos(Math.toRadians(rotDeg)), s = Math.sin(Math.toRadians(rotDeg));
+        for (double[] q : base) { double x = q[0]*c - q[1]*s, y = q[0]*s + q[1]*c; q[0]=x; q[1]=y; }
+        return base;
+    }
+    private static double[][] checkPts(double rx, double ry) {
+        // A tick fitted to the box; thickness scales with the shape.
+        double w = Math.min(rx, ry) * 0.42;
+        return new double[][]{
+                {-rx*0.55, 0.02*ry}, {-rx*0.18, ry*0.55}, {rx*0.62, -ry*0.55},
+                {rx*0.62 - w*0.2, -ry*0.55 + w}, {-rx*0.18, ry*0.55 - w*0.6}, {-rx*0.55 + w, 0.02*ry - w*0.2}};
+    }
+    private static Path2D polyToPath(double[][] pts) {
+        Path2D.Double p = new Path2D.Double();
+        for (int i = 0; i < pts.length; i++) {
+            if (i == 0) p.moveTo(pts[i][0], pts[i][1]); else p.lineTo(pts[i][0], pts[i][1]);
+        }
+        p.closePath();
+        return p;
+    }
+    // Round every vertex of a closed polygon by radius r (clamped per-edge).
+    private static Path2D roundedPath(double[][] pts, double r) {
+        int n = pts.length;
+        Path2D.Double p = new Path2D.Double();
+        for (int i = 0; i < n; i++) {
+            double[] cur = pts[i], prev = pts[(i - 1 + n) % n], next = pts[(i + 1) % n];
+            double d1x = prev[0]-cur[0], d1y = prev[1]-cur[1];
+            double d2x = next[0]-cur[0], d2y = next[1]-cur[1];
+            double l1 = Math.hypot(d1x, d1y), l2 = Math.hypot(d2x, d2y);
+            if (l1 < 1e-6 || l2 < 1e-6) { if (i==0) p.moveTo(cur[0],cur[1]); else p.lineTo(cur[0],cur[1]); continue; }
+            double rr = Math.min(r, Math.min(l1, l2) * 0.5);
+            double p1x = cur[0] + d1x/l1*rr, p1y = cur[1] + d1y/l1*rr;
+            double p2x = cur[0] + d2x/l2*rr, p2y = cur[1] + d2y/l2*rr;
+            if (i == 0) p.moveTo(p1x, p1y); else p.lineTo(p1x, p1y);
+            p.quadTo(cur[0], cur[1], p2x, p2y);
         }
         p.closePath();
         return p;
     }
 
-    // Heart fitted to the box [-hw..hw] × [-hh..hh]. Two lobes + point.
-    private static Path2D heartPath(double hw, double hh) {
+    private static Path2D heartPath(double hw, double hh, boolean plump) {
         Path2D.Double p = new Path2D.Double();
-        double sx = hw / 8.0, sy = hh / 9.0;   // model spans x[-8..8], y[-12..6]
+        double sx = hw / 8.0, sy = hh / 9.0;
+        double lobe = plump ? 13.5 : 11.0;      // how high the lobes bulge
+        double wide = plump ? 9.0 : 8.0;
         p.moveTo(0, 6 * sy);
-        p.curveTo(-2 * sx, 1 * sy, -8 * sx, -1 * sy, -8 * sx, -6 * sy);
-        p.curveTo(-8 * sx, -11 * sy, -2 * sx, -12 * sy, 0, -7 * sy);
-        p.curveTo(2 * sx, -12 * sy, 8 * sx, -11 * sy, 8 * sx, -6 * sy);
-        p.curveTo(8 * sx, -1 * sy, 2 * sx, 1 * sy, 0, 6 * sy);
+        p.curveTo(-2 * sx, 1 * sy, -wide * sx, -1 * sy, -wide * sx, -6 * sy);
+        p.curveTo(-wide * sx, -lobe * sy, -2 * sx, -12 * sy, 0, -7 * sy);
+        p.curveTo(2 * sx, -12 * sy, wide * sx, -lobe * sy, wide * sx, -6 * sy);
+        p.curveTo(wide * sx, -1 * sy, 2 * sx, 1 * sy, 0, 6 * sy);
         p.closePath();
         return p;
+    }
+    private static Path2D blobPath(double rx, double ry) {
+        double[] mul = {1.0, 0.86, 1.06, 0.9, 1.08, 0.84, 1.02};
+        int n = mul.length;
+        double[][] pts = new double[n][2];
+        for (int i = 0; i < n; i++) {
+            double a = -Math.PI/2 + i * 2*Math.PI/n;
+            pts[i][0] = Math.cos(a) * rx * mul[i];
+            pts[i][1] = Math.sin(a) * ry * mul[i];
+        }
+        return roundedPath(pts, Math.min(rx, ry) * 0.6);
+    }
+    private static Path2D teardropPath(double rx, double ry) {
+        Path2D.Double p = new Path2D.Double();
+        p.moveTo(0, -ry);
+        p.curveTo(rx * 1.1, -ry * 0.2, rx, ry * 0.55, 0, ry);
+        p.curveTo(-rx, ry * 0.55, -rx * 1.1, -ry * 0.2, 0, -ry);
+        p.closePath();
+        return p;
+    }
+    private static Path2D chevronPath(double rx, double ry) {
+        double w = rx * 0.9;
+        return polyToPath(new double[][]{
+                {-rx, -ry}, {-rx + w, -ry}, {rx, 0}, {-rx + w, ry}, {-rx, ry}, {rx - w, 0}});
+    }
+    private static Path2D boltPath(double rx, double ry) {
+        return polyToPath(new double[][]{
+                {rx*0.15,-ry}, {-rx*0.55,ry*0.12}, {-rx*0.05,ry*0.12},
+                {-rx*0.25,ry}, {rx*0.55,-ry*0.18}, {rx*0.05,-ry*0.18}});
+    }
+    private static Path2D crownPath(double rx, double ry) {
+        return polyToPath(new double[][]{
+                {-rx, ry*0.6}, {-rx, -ry}, {-rx*0.4, -ry*0.05}, {0, -ry*0.9},
+                {rx*0.4, -ry*0.05}, {rx, -ry}, {rx, ry*0.6}});
+    }
+    private static Path2D shieldPath(double rx, double ry) {
+        Path2D.Double p = new Path2D.Double();
+        double a = rx * 0.32;
+        p.moveTo(-rx + a, -ry);
+        p.lineTo(rx - a, -ry);
+        p.quadTo(rx, -ry, rx, -ry + a);
+        p.lineTo(rx, ry * 0.15);
+        p.quadTo(rx, ry * 0.75, 0, ry);
+        p.quadTo(-rx, ry * 0.75, -rx, ry * 0.15);
+        p.lineTo(-rx, -ry + a);
+        p.quadTo(-rx, -ry, -rx + a, -ry);
+        p.closePath();
+        return p;
+    }
+    private static Path2D pinPath(double rx, double ry) {
+        Path2D.Double p = new Path2D.Double();
+        p.moveTo(0, ry);
+        p.curveTo(rx * 0.25, ry * 0.25, rx, -ry * 0.15, rx, -ry * 0.5);
+        p.curveTo(rx, -ry, -rx, -ry, -rx, -ry * 0.5);
+        p.curveTo(-rx, -ry * 0.15, -rx * 0.25, ry * 0.25, 0, ry);
+        p.closePath();
+        return p;
+    }
+    private static Path2D gearPath(double rx, double ry) {
+        int teeth = 8;
+        double outerX = rx, outerY = ry, innerX = rx * 0.74, innerY = ry * 0.74;
+        Path2D.Double p = new Path2D.Double();
+        double step = 2 * Math.PI / teeth;
+        double half = step * 0.28;   // tooth angular half-width
+        for (int i = 0; i < teeth; i++) {
+            double c = -Math.PI/2 + i * step;
+            double[] a = {c - half, c + half, c + step/2 - half, c + step/2 + half};
+            double[] xr = {outerX, outerX, innerX, innerX};
+            double[] yr = {outerY, outerY, innerY, innerY};
+            for (int k = 0; k < 4; k++) {
+                double x = Math.cos(a[k]) * xr[k], y = Math.sin(a[k]) * yr[k];
+                if (i == 0 && k == 0) p.moveTo(x, y); else p.lineTo(x, y);
+            }
+        }
+        p.closePath();
+        return p;
+    }
+    private static Path2D bannerPath(double rx, double ry) {
+        double notch = rx * 0.22;
+        return polyToPath(new double[][]{
+                {-rx, -ry}, {rx, -ry}, {rx - notch, 0}, {rx, ry},
+                {-rx, ry}, {-rx + notch, 0}});
     }
 
     // ----- lines ------------------------------------------------------------
