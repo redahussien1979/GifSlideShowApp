@@ -8998,6 +8998,7 @@ public class GifSlideShowApp extends JFrame {
             // can paint the countdown / reveal overlay per frame.
             slides.get(slides.size() - 1).quiz = row.getQuiz() != null
                     ? row.getQuiz().copy() : null;
+            slides.get(slides.size() - 1).slideAnnotations = row.getSlideAnnotationList();
             slides.get(slides.size() - 1).slideNumberStyle = row.getSlideNumberStyle();
             slides.get(slides.size() - 1).slideNumberEffect = row.getSlideNumberEffect();
             slides.get(slides.size() - 1).sourceVideoVolume = row.getSourceVideoVolume();
@@ -10357,9 +10358,10 @@ public class GifSlideShowApp extends JFrame {
                                 boolean hasMultiAudio = validAudioCount >= 2;
                                 boolean hasAudioAnim = anyAudioHlAnimates(s.audioHlEffects) || anyKaraokeTimings(s.audioWordTimings) || anyBulkPicAudioEffect(s.slidePictures);
                                 boolean hasTextTimer = anySlideTextTimer(s);
-                                boolean needsAnimatedFx = hasAudioAnim || isQuizSlide(s) || hasTextTimer;
+                                boolean hasAnno = hasAnnotations(s);
+                                boolean needsAnimatedFx = hasAudioAnim || isQuizSlide(s) || hasTextTimer || hasAnno;
 
-                                if (hasMultiAudio || isQuizSlide(s) || hasAudioAnim || hasTextTimer) {
+                                if (hasMultiAudio || isQuizSlide(s) || hasAudioAnim || hasTextTimer || hasAnno) {
                                     // Render dwell frames honoring per-segment audio highlight.
                                     // Pulse/Shake need animation → render every frame.
                                     // Other FX (Glow/Enlarge/Bold/Color/Underline/None) are
@@ -10405,6 +10407,7 @@ public class GifSlideShowApp extends JFrame {
                                                     s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, df,
                                                     s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures, s.bgTransparency);
                                             paintQuizOverlay(frame, s, elapsedMs);
+                                            paintAnnotationsOverlay(frame, s, elapsedMs);
                                             ImageIO.write(frame, "png", frameFile);
                                             lastWrittenName = frameName;
                                             lastActive = activeIdx;
@@ -10437,6 +10440,7 @@ public class GifSlideShowApp extends JFrame {
                                                         s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures, s.bgTransparency);
                                             }
                                             paintQuizOverlay(frame, s, elapsedMs);
+                                            paintAnnotationsOverlay(frame, s, elapsedMs);
                                             ImageIO.write(frame, "png", frameFile);
                                             lastWrittenName = frameName;
                                             lastActive = activeIdx;
@@ -10515,6 +10519,8 @@ public class GifSlideShowApp extends JFrame {
                                 // Quiz slides need per-frame rendering for the countdown timer
                                 // and reveal flash, so push them into the ANIMATED PATH.
                                 if (isQuizSlide(s)) { anyAnimatedFx = true; break; }
+                                // Annotations animate per-frame → force the ANIMATED PATH.
+                                if (hasAnnotations(s)) { anyAnimatedFx = true; break; }
                             }
 
                             if (!anyAnimatedFx) {
@@ -10781,6 +10787,7 @@ public class GifSlideShowApp extends JFrame {
                                                     s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
                                                     s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures, s.bgTransparency);
                                             paintQuizOverlay(frame, s, elapsedMs);
+                                            paintAnnotationsOverlay(frame, s, elapsedMs);
                                             writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
                                             frameIndex++;
                                         }
@@ -10792,7 +10799,7 @@ public class GifSlideShowApp extends JFrame {
                                     boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxRaised > 0 || (s.fxOther > 0 && !"None".equals(s.fxOtherKind));
                                     // Audio-highlight Pulse/Shake animate per-frame too.
                                     boolean hasAudioHlAnim = anyAudioHlAnimates(s.audioHlEffects) || anyKaraokeTimings(s.audioWordTimings);
-                                    boolean hasAnimatedText = hasAudioHlAnim || anyBulkPicAudioEffect(s.slidePictures);
+                                    boolean hasAnimatedText = hasAudioHlAnim || anyBulkPicAudioEffect(s.slidePictures) || hasAnnotations(s);
                                     if (!hasAnimatedText && s.slideTexts != null) {
                                         for (SlideTextData stx : s.slideTexts) {
                                             if (stx.show && stx.odometer) { hasAnimatedText = true; break; }
@@ -12026,7 +12033,7 @@ public class GifSlideShowApp extends JFrame {
                             boolean hasAnimatedFx = s.fxGrain > 0 || s.fxWaterRipple > 0 || s.fxGlitch > 0 || s.fxShake > 0 || s.fxScanline > 0 || s.fxRaised > 0 || (s.fxOther > 0 && !"None".equals(s.fxOtherKind));
                             // Audio-highlight Pulse/Shake animate per-frame too.
                             boolean hasAudioHlAnim = anyAudioHlAnimates(s.audioHlEffects) || anyKaraokeTimings(s.audioWordTimings);
-                            boolean hasAnimatedText = hasAudioHlAnim || anyBulkPicAudioEffect(s.slidePictures);
+                            boolean hasAnimatedText = hasAudioHlAnim || anyBulkPicAudioEffect(s.slidePictures) || hasAnnotations(s);
                             if (!hasAnimatedText && s.slideTexts != null) {
                                 for (SlideTextData stx : s.slideTexts) {
                                     if (stx.show && stx.odometer) { hasAnimatedText = true; break; }
@@ -12294,6 +12301,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
                                                 s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures, s.bgTransparency);
                                         paintQuizOverlay(frame, s, elapsedMs);
+                                        paintAnnotationsOverlay(frame, s, elapsedMs);
                                         writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
                                     }
                                 } else if (hasAnimatedFx && !hasAnimatedText) {
@@ -12370,6 +12378,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
                                                 s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures, s.bgTransparency);
                                         paintQuizOverlay(frame, s, elapsedMs);
+                                        paintAnnotationsOverlay(frame, s, elapsedMs);
                                         writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
                                     }
                                 }
@@ -13601,6 +13610,21 @@ public class GifSlideShowApp extends JFrame {
         QuizSlide.applyOverlay(frame, s.quiz, elapsedMs, s.slideTexts);
     }
 
+    /** True when this slide carries any animated vector annotations. */
+    private static boolean hasAnnotations(SlideData s) {
+        return s != null && s.slideAnnotations != null && !s.slideAnnotations.isEmpty();
+    }
+
+    /**
+     * Composite this slide's animated Line/Arrow annotations onto an already
+     * rendered frame. No-op when the slide has none. Mirrors paintQuizOverlay:
+     * a self-contained post-pass so renderFrame's signature stays untouched.
+     */
+    private static void paintAnnotationsOverlay(BufferedImage frame, SlideData s, long elapsedMs) {
+        if (frame == null || !hasAnnotations(s)) return;
+        SlideAnnotation.paintAll(frame, s.slideAnnotations, elapsedMs, false);
+    }
+
     /**
      * Flip {@code quizHidden} on every slide text BEFORE renderFrame runs so
      * the quiz's chosen "delayed reveal text" stays out of the rendered frame
@@ -14484,6 +14508,7 @@ public class GifSlideShowApp extends JFrame {
      * a single looped PNG or a rendered PNG sequence at the output frame rate.
      */
     private static boolean hasAnimatedDecoration(SlideData s) {
+        if (hasAnnotations(s)) return true;
         if (anyBulkPicAudioEffect(s.slidePictures)) return true;
         if (s.slideTexts != null) {
             for (SlideTextData stx : s.slideTexts) {
@@ -14614,6 +14639,7 @@ public class GifSlideShowApp extends JFrame {
             // Bake the quiz countdown timer into the decoration overlay so
             // it appears over the source video (no-op for non-quiz slides).
             paintQuizOverlay(img, s, elapsedMs);
+            paintAnnotationsOverlay(img, s, elapsedMs);
             File out = new File(outDir, String.format("%05d.png", f + 1));
             ImageIO.write(img, "png", out);
         }
@@ -15787,6 +15813,10 @@ public class GifSlideShowApp extends JFrame {
         // Quiz config snapshot (timer + reveal). Set externally after construction
         // so we don't have to thread another arg through the giant ctor.
         QuizSlide quiz;
+        // Animated vector annotations (Lines / Arrows). Set externally after
+        // construction (like quiz) so no arg is threaded through the giant ctor.
+        // Composited per-frame by paintAnnotationsOverlay(...).
+        List<SlideAnnotation> slideAnnotations = new ArrayList<>();
         // Video "repeat part" ranges — each entry is {startMs, endMs} (relative to
         // the start of this slide). During export the finished, fully-composited
         // slide video has each range duplicated back-to-back so that part plays
@@ -16191,6 +16221,8 @@ public class GifSlideShowApp extends JFrame {
 
         // Slide picture overlay items
         private final List<SlidePictureData> slidePictureItems = new ArrayList<>();
+        // Animated vector annotations (Lines / Arrows) belonging to this slide.
+        private final List<SlideAnnotation> slideAnnotationItems = new ArrayList<>();
         private int currentSlidePictureIndex = 0;
         private boolean isLoadingSlidePicture = false;
         private final JComboBox<String> slidePicSelector;
@@ -16994,9 +17026,28 @@ public class GifSlideShowApp extends JFrame {
             textsTimerBtn.setToolTipText("Set when each text appears and (optionally) when it goes. Leave the Go time empty to keep a text on screen once it appears.");
             textsTimerBtn.addActionListener(e -> openTextsTimerDialog());
 
+            // "Shapes" — animated vector annotations (Lines / Arrows) with per-shape
+            // timing, position, colour and entrance + idle animation.
+            JButton shapesBtn = new JButton("◈ Shapes…");
+            shapesBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            shapesBtn.setPreferredSize(new Dimension(110, 24));
+            shapesBtn.setFocusPainted(false);
+            shapesBtn.setToolTipText("Add animated Lines & Arrows onto this slide — pick several at once, each with its own colour, position and entrance/idle animation.");
+            shapesBtn.addActionListener(e -> openShapesDialog());
+
+            // "Shapes Timer" — one screen to set every shape's appear time / duration.
+            JButton shapesTimerBtn = new JButton("◈ Shapes Timer…");
+            shapesTimerBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            shapesTimerBtn.setPreferredSize(new Dimension(140, 24));
+            shapesTimerBtn.setFocusPainted(false);
+            shapesTimerBtn.setToolTipText("Set when each shape appears and how long it stays. Duration 0 = stay until the slide ends.");
+            shapesTimerBtn.addActionListener(e -> openShapesTimerDialog());
+
             toolbar4lg.add(lgTitleLbl);
             toolbar4lg.add(lgOpenBtn);
             toolbar4lg.add(textsTimerBtn);
+            toolbar4lg.add(shapesBtn);
+            toolbar4lg.add(shapesTimerBtn);
 
             // ===== Toolbar 4b2: BG Fill (opacity / color / padding / round / fill paint) =====
             final Color bgRowFg = new Color(140, 210, 160);
@@ -20747,6 +20798,379 @@ public class GifSlideShowApp extends JFrame {
             return String.valueOf(Math.round(sec * 100.0) / 100.0);
         }
 
+        /** Parse a seconds string ("2", "2.5") to ms; returns fallback on blank/bad. */
+        private static int secStrToMs(String s, int fallback) {
+            if (s == null) return fallback;
+            s = s.trim();
+            if (s.isEmpty()) return fallback;
+            try { return (int) Math.round(Double.parseDouble(s) * 1000.0); }
+            catch (NumberFormatException ex) { return fallback; }
+        }
+
+        private String annoLabel(int idx, SlideAnnotation a) {
+            String dur = a.durationMs > 0 ? (timerMsToSecStr(a.durationMs) + "s") : "∞";
+            return (idx + 1) + ".  " + a.kind + " · " + a.subtype
+                    + "   @(" + (int) a.xPct + "," + (int) a.yPct + ")"
+                    + "   in " + timerMsToSecStr(a.appearMs) + "s / " + dur;
+        }
+
+        /**
+         * "Shapes" dialog — manage this slide's animated Line/Arrow annotations.
+         * Multi-select shapes from the catalog to add several at once; each added
+         * shape is an independent entry with its own position, colour, timing and
+         * entrance + idle animation. Live preview updates as you edit.
+         */
+        private void openShapesDialog() {
+            if (isTitleGridSlide) {
+                JOptionPane.showMessageDialog(panel, "Shapes aren't available on title-grid slides.",
+                        "Shapes", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            final Window owner = SwingUtilities.getWindowAncestor(panel);
+            final JDialog dlg = new JDialog(owner, "Shapes — Lines & Arrows",
+                    Dialog.ModalityType.APPLICATION_MODAL);
+            dlg.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+
+            final boolean[] updating = {false};
+
+            // ---- current shapes list --------------------------------------
+            final DefaultListModel<SlideAnnotation> model = new DefaultListModel<>();
+            for (SlideAnnotation a : slideAnnotationItems) model.addElement(a);
+            final JList<SlideAnnotation> list = new JList<>(model);
+            list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+            list.setVisibleRowCount(10);
+            list.setCellRenderer(new DefaultListCellRenderer() {
+                @Override public Component getListCellRendererComponent(
+                        JList<?> l, Object v, int i, boolean sel, boolean foc) {
+                    super.getListCellRendererComponent(l, v, i, sel, foc);
+                    setText(annoLabel(i, (SlideAnnotation) v));
+                    return this;
+                }
+            });
+
+            // ---- editor fields (populated from the selected shape) --------
+            final JComboBox<String> kindCombo    = new JComboBox<>(SlideAnnotation.kinds());
+            final JComboBox<String> subtypeCombo = new JComboBox<>(SlideAnnotation.arrowSubtypes());
+            final JSpinner xSpin   = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
+            final JSpinner ySpin   = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
+            final JSpinner sizeSpin= new JSpinner(new SpinnerNumberModel(22, 2, 200, 1));
+            final JSpinner rotSpin = new JSpinner(new SpinnerNumberModel(0, -180, 180, 5));
+            final JSpinner strokeSpin = new JSpinner(new SpinnerNumberModel(0.55, 0.1, 5.0, 0.05));
+            final JButton colorBtn  = new JButton("■");
+            final JButton color2Btn = new JButton("■");
+            final JCheckBox gradientCheck = new JCheckBox("Gradient");
+            final JCheckBox shadowCheck   = new JCheckBox("Shadow");
+            final JComboBox<String> entranceCombo = new JComboBox<>(SlideAnnotation.entranceModes());
+            final JComboBox<String> idleCombo     = new JComboBox<>(SlideAnnotation.idleModes());
+            final JTextField appearField = new JTextField(4);
+            final JTextField durField    = new JTextField(4);
+
+            final Runnable[] syncSubtypes = {null};
+            syncSubtypes[0] = () -> {
+                String kind = (String) kindCombo.getSelectedItem();
+                Object cur = subtypeCombo.getSelectedItem();
+                subtypeCombo.setModel(new DefaultComboBoxModel<>(SlideAnnotation.subtypesFor(kind)));
+                if (cur != null) subtypeCombo.setSelectedItem(cur);
+            };
+
+            final Runnable loadSelected = () -> {
+                SlideAnnotation a = list.getSelectedValue();
+                boolean has = a != null;
+                for (Component c : new Component[]{kindCombo, subtypeCombo, xSpin, ySpin, sizeSpin,
+                        rotSpin, strokeSpin, colorBtn, color2Btn, gradientCheck, shadowCheck,
+                        entranceCombo, idleCombo, appearField, durField}) {
+                    c.setEnabled(has);
+                }
+                if (!has) return;
+                updating[0] = true;
+                kindCombo.setSelectedItem(a.kind);
+                syncSubtypes[0].run();
+                subtypeCombo.setSelectedItem(a.subtype);
+                xSpin.setValue((int) Math.round(a.xPct));
+                ySpin.setValue((int) Math.round(a.yPct));
+                sizeSpin.setValue((int) Math.round(a.sizePct));
+                rotSpin.setValue((int) Math.round(a.rotationDeg));
+                strokeSpin.setValue(a.strokeWidthPct);
+                colorBtn.setForeground(a.color);
+                color2Btn.setForeground(a.color2);
+                gradientCheck.setSelected(a.gradient);
+                shadowCheck.setSelected(a.shadow);
+                entranceCombo.setSelectedItem(a.entrance);
+                idleCombo.setSelectedItem(a.idle);
+                appearField.setText(timerMsToSecStr(a.appearMs));
+                durField.setText(a.durationMs > 0 ? timerMsToSecStr(a.durationMs) : "");
+                updating[0] = false;
+            };
+
+            final Runnable commit = () -> {
+                SlideAnnotation a = list.getSelectedValue();
+                if (a == null || updating[0]) return;
+                a.kind = (String) kindCombo.getSelectedItem();
+                a.subtype = (String) subtypeCombo.getSelectedItem();
+                a.xPct = ((Number) xSpin.getValue()).doubleValue();
+                a.yPct = ((Number) ySpin.getValue()).doubleValue();
+                a.sizePct = ((Number) sizeSpin.getValue()).doubleValue();
+                a.rotationDeg = ((Number) rotSpin.getValue()).doubleValue();
+                a.strokeWidthPct = ((Number) strokeSpin.getValue()).doubleValue();
+                a.gradient = gradientCheck.isSelected();
+                a.shadow = shadowCheck.isSelected();
+                a.entrance = (String) entranceCombo.getSelectedItem();
+                a.idle = (String) idleCombo.getSelectedItem();
+                a.appearMs = Math.max(0, secStrToMs(appearField.getText(), 0));
+                a.durationMs = Math.max(0, secStrToMs(durField.getText(), 0));
+                list.repaint();
+                onFormatChanged();
+            };
+
+            kindCombo.addActionListener(e -> { if (!updating[0]) { syncSubtypes[0].run(); commit.run(); } });
+            for (JComboBox<String> cb : new java.util.ArrayList<>(java.util.Arrays.asList(
+                    subtypeCombo, entranceCombo, idleCombo))) {
+                cb.addActionListener(e -> commit.run());
+            }
+            for (JSpinner sp : new JSpinner[]{xSpin, ySpin, sizeSpin, rotSpin, strokeSpin}) {
+                sp.addChangeListener(e -> commit.run());
+            }
+            gradientCheck.addActionListener(e -> commit.run());
+            shadowCheck.addActionListener(e -> commit.run());
+            appearField.addActionListener(e -> commit.run());
+            durField.addActionListener(e -> commit.run());
+            appearField.addFocusListener(new java.awt.event.FocusAdapter() {
+                @Override public void focusLost(java.awt.event.FocusEvent e) { commit.run(); } });
+            durField.addFocusListener(new java.awt.event.FocusAdapter() {
+                @Override public void focusLost(java.awt.event.FocusEvent e) { commit.run(); } });
+
+            colorBtn.setPreferredSize(new Dimension(40, 22));
+            colorBtn.addActionListener(e -> {
+                SlideAnnotation a = list.getSelectedValue();
+                if (a == null) return;
+                pickColorLive(panel, "Shape Color", a.color, c -> {
+                    a.color = c; colorBtn.setForeground(c); onFormatChanged();
+                });
+            });
+            color2Btn.setPreferredSize(new Dimension(40, 22));
+            color2Btn.addActionListener(e -> {
+                SlideAnnotation a = list.getSelectedValue();
+                if (a == null) return;
+                pickColorLive(panel, "Shape 2nd Color (gradient)", a.color2, c -> {
+                    a.color2 = c; color2Btn.setForeground(c); onFormatChanged();
+                });
+            });
+
+            list.addListSelectionListener(e -> { if (!e.getValueIsAdjusting()) loadSelected.run(); });
+
+            // ---- catalog to add from (multi-select) -----------------------
+            final DefaultListModel<String> catModel = new DefaultListModel<>();
+            for (String st : SlideAnnotation.lineSubtypes())  catModel.addElement("Line · " + st);
+            for (String st : SlideAnnotation.arrowSubtypes()) catModel.addElement("Arrow · " + st);
+            final JList<String> catalog = new JList<>(catModel);
+            catalog.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+            catalog.setVisibleRowCount(6);
+
+            final Runnable addSelected = () -> {
+                java.util.List<String> picks = catalog.getSelectedValuesList();
+                if (picks.isEmpty()) {
+                    JOptionPane.showMessageDialog(dlg,
+                            "Pick one or more shapes from the catalog first (Ctrl/Shift-click for several).",
+                            "Add Shapes", JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+                int firstNew = model.size();
+                int n = 0;
+                for (String p : picks) {
+                    int dot = p.indexOf('·');
+                    SlideAnnotation a = new SlideAnnotation();
+                    a.kind = p.substring(0, dot).trim();
+                    a.subtype = p.substring(dot + 1).trim();
+                    // Fan out a little so stacked adds don't perfectly overlap.
+                    a.xPct = 50 + (n % 3 - 1) * 12;
+                    a.yPct = 50 + (n / 3) * 12;
+                    slideAnnotationItems.add(a);
+                    model.addElement(a);
+                    n++;
+                }
+                list.setSelectedIndex(firstNew);
+                list.repaint();
+                onFormatChanged();
+            };
+
+            // ---- action buttons -------------------------------------------
+            JButton addBtn = new JButton("＋ Add Selected");
+            addBtn.addActionListener(e -> addSelected.run());
+            JButton dupBtn = new JButton("Duplicate");
+            dupBtn.addActionListener(e -> {
+                int i = list.getSelectedIndex();
+                if (i < 0) return;
+                SlideAnnotation copy = slideAnnotationItems.get(i).copy();
+                copy.xPct = Math.min(100, copy.xPct + 6);
+                copy.yPct = Math.min(100, copy.yPct + 6);
+                slideAnnotationItems.add(i + 1, copy);
+                model.add(i + 1, copy);
+                list.setSelectedIndex(i + 1);
+                onFormatChanged();
+            });
+            JButton removeBtn = new JButton("Remove");
+            removeBtn.addActionListener(e -> {
+                int i = list.getSelectedIndex();
+                if (i < 0) return;
+                slideAnnotationItems.remove(i);
+                model.remove(i);
+                if (!model.isEmpty()) list.setSelectedIndex(Math.min(i, model.size() - 1));
+                else loadSelected.run();
+                onFormatChanged();
+            });
+            JButton upBtn = new JButton("↑");
+            upBtn.setToolTipText("Move up (drawn earlier / underneath)");
+            upBtn.addActionListener(e -> {
+                int i = list.getSelectedIndex();
+                if (i <= 0) return;
+                SlideAnnotation a = slideAnnotationItems.remove(i);
+                slideAnnotationItems.add(i - 1, a);
+                model.remove(i); model.add(i - 1, a);
+                list.setSelectedIndex(i - 1);
+                onFormatChanged();
+            });
+            JButton downBtn = new JButton("↓");
+            downBtn.setToolTipText("Move down (drawn later / on top)");
+            downBtn.addActionListener(e -> {
+                int i = list.getSelectedIndex();
+                if (i < 0 || i >= model.size() - 1) return;
+                SlideAnnotation a = slideAnnotationItems.remove(i);
+                slideAnnotationItems.add(i + 1, a);
+                model.remove(i); model.add(i + 1, a);
+                list.setSelectedIndex(i + 1);
+                onFormatChanged();
+            });
+            JButton closeBtn = new JButton("Close");
+            closeBtn.addActionListener(e -> dlg.dispose());
+
+            // ---- layout ---------------------------------------------------
+            JPanel editor = new JPanel(new GridBagLayout());
+            editor.setBorder(BorderFactory.createTitledBorder("Selected shape"));
+            // mutable row index used by the row(...) helper below
+            final int[] rr = {0};
+            java.util.function.BiConsumer<String, Component[]> row = (label, comps) -> {
+                GridBagConstraints gl = new GridBagConstraints();
+                gl.insets = new Insets(3, 5, 3, 5);
+                gl.anchor = GridBagConstraints.WEST;
+                gl.gridx = 0; gl.gridy = rr[0];
+                editor.add(new JLabel(label), gl);
+                JPanel line = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+                for (Component c : comps) line.add(c);
+                GridBagConstraints gv = new GridBagConstraints();
+                gv.insets = new Insets(1, 5, 1, 5);
+                gv.anchor = GridBagConstraints.WEST;
+                gv.gridx = 1; gv.gridy = rr[0];
+                editor.add(line, gv);
+                rr[0]++;
+            };
+            row.accept("Kind / Type", new Component[]{kindCombo, subtypeCombo});
+            row.accept("Position X / Y %", new Component[]{xSpin, ySpin});
+            row.accept("Size % / Rotate°", new Component[]{sizeSpin, rotSpin});
+            row.accept("Thickness %", new Component[]{strokeSpin});
+            row.accept("Colors", new Component[]{colorBtn, color2Btn, gradientCheck, shadowCheck});
+            row.accept("Entrance / Idle", new Component[]{entranceCombo, idleCombo});
+            row.accept("Appear (s) / Stay (s)", new Component[]{appearField, durField});
+
+            JPanel leftBtns = new JPanel(new GridLayout(0, 1, 3, 3));
+            leftBtns.add(dupBtn); leftBtns.add(removeBtn);
+            leftBtns.add(upBtn); leftBtns.add(downBtn);
+
+            JPanel listPanel = new JPanel(new BorderLayout(4, 4));
+            listPanel.setBorder(BorderFactory.createTitledBorder("Shapes on this slide"));
+            listPanel.add(new JScrollPane(list), BorderLayout.CENTER);
+            listPanel.add(leftBtns, BorderLayout.EAST);
+
+            JPanel addPanel = new JPanel(new BorderLayout(4, 4));
+            addPanel.setBorder(BorderFactory.createTitledBorder("Add shapes (Ctrl/Shift-click for several)"));
+            addPanel.add(new JScrollPane(catalog), BorderLayout.CENTER);
+            addPanel.add(addBtn, BorderLayout.SOUTH);
+
+            JPanel left = new JPanel(new BorderLayout(6, 6));
+            left.add(listPanel, BorderLayout.CENTER);
+            left.add(addPanel, BorderLayout.SOUTH);
+
+            JPanel main = new JPanel(new BorderLayout(8, 8));
+            main.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+            main.add(left, BorderLayout.WEST);
+            main.add(editor, BorderLayout.CENTER);
+            JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+            south.add(closeBtn);
+            main.add(south, BorderLayout.SOUTH);
+
+            if (!model.isEmpty()) list.setSelectedIndex(0);
+            else loadSelected.run();
+
+            dlg.setContentPane(main);
+            dlg.pack();
+            dlg.setLocationRelativeTo(owner);
+            dlg.setVisible(true);
+        }
+
+        /**
+         * "Shapes Timer" dialog — one screen listing every shape on the slide with
+         * its Appear time and Stay duration (seconds). Duration blank/0 = stay until
+         * the slide ends. Mirrors the Texts Timer.
+         */
+        private void openShapesTimerDialog() {
+            if (isTitleGridSlide) return;
+            if (slideAnnotationItems.isEmpty()) {
+                JOptionPane.showMessageDialog(panel,
+                        "There are no shapes to time yet. Add some with the “◈ Shapes…” button first.",
+                        "Shapes Timer", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            final Window owner = SwingUtilities.getWindowAncestor(panel);
+            final JDialog dlg = new JDialog(owner, "Shapes Timer", Dialog.ModalityType.APPLICATION_MODAL);
+            dlg.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+
+            JPanel rows = new JPanel(new GridBagLayout());
+            GridBagConstraints gc = new GridBagConstraints();
+            gc.insets = new Insets(3, 6, 3, 6);
+            gc.anchor = GridBagConstraints.WEST;
+
+            gc.gridx = 0; gc.gridy = 0; rows.add(new JLabel("Shape"), gc);
+            gc.gridx = 1; rows.add(new JLabel("Appear (s)"), gc);
+            gc.gridx = 2; rows.add(new JLabel("Stay (s, blank=∞)"), gc);
+
+            final java.util.List<JTextField> appearFields = new java.util.ArrayList<>();
+            final java.util.List<JTextField> durFields = new java.util.ArrayList<>();
+            for (int i = 0; i < slideAnnotationItems.size(); i++) {
+                SlideAnnotation a = slideAnnotationItems.get(i);
+                gc.gridy = i + 1;
+                gc.gridx = 0; rows.add(new JLabel((i + 1) + ".  " + a.kind + " · " + a.subtype), gc);
+                JTextField af = new JTextField(timerMsToSecStr(a.appearMs), 5);
+                JTextField df = new JTextField(a.durationMs > 0 ? timerMsToSecStr(a.durationMs) : "", 5);
+                appearFields.add(af); durFields.add(df);
+                gc.gridx = 1; rows.add(af, gc);
+                gc.gridx = 2; rows.add(df, gc);
+            }
+
+            JButton ok = new JButton("Apply");
+            ok.addActionListener(e -> {
+                for (int i = 0; i < slideAnnotationItems.size(); i++) {
+                    SlideAnnotation a = slideAnnotationItems.get(i);
+                    a.appearMs = Math.max(0, secStrToMs(appearFields.get(i).getText(), a.appearMs));
+                    a.durationMs = Math.max(0, secStrToMs(durFields.get(i).getText(), 0));
+                }
+                onFormatChanged();
+                dlg.dispose();
+            });
+            JButton cancel = new JButton("Cancel");
+            cancel.addActionListener(e -> dlg.dispose());
+
+            JPanel main = new JPanel(new BorderLayout(8, 8));
+            main.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+            main.add(new JScrollPane(rows), BorderLayout.CENTER);
+            JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+            south.add(cancel); south.add(ok);
+            main.add(south, BorderLayout.SOUTH);
+
+            dlg.setContentPane(main);
+            dlg.pack();
+            dlg.setLocationRelativeTo(owner);
+            dlg.setVisible(true);
+        }
+
         /**
          * "Texts Timer" dialog — lists every text on the current slide with an
          * Appear time and a Go (disappear) time, both in seconds from the start
@@ -21782,6 +22206,13 @@ public class GifSlideShowApp extends JFrame {
             return out;
         }
 
+        /** Deep copy of this slide's annotations, for the export pipeline. */
+        List<SlideAnnotation> getSlideAnnotationList() {
+            List<SlideAnnotation> out = new ArrayList<>(slideAnnotationItems.size());
+            for (SlideAnnotation a : slideAnnotationItems) out.add(a.copy());
+            return out;
+        }
+
         List<SlidePictureData> getSlidePictureDataList() {
             saveCurrentSlidePictureToItem();
             List<SlidePictureData> result = new ArrayList<>(slidePictureItems);
@@ -22122,6 +22553,21 @@ public class GifSlideShowApp extends JFrame {
                 copyG.dispose();
                 preview = argbPreview;
                 QuizSlide.applyPreviewOverlay(preview, quiz, getSlideTextDataList());
+            }
+
+            // Annotation preview: draw Lines/Arrows at their settled state (timing
+            // ignored) so they can be positioned and styled in the editor.
+            if (!slideAnnotationItems.isEmpty()) {
+                int pw = preview.getWidth();
+                int ph = preview.getHeight();
+                if (preview.getType() != BufferedImage.TYPE_INT_ARGB) {
+                    BufferedImage argbPreview = new BufferedImage(pw, ph, BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D copyG = argbPreview.createGraphics();
+                    copyG.drawImage(preview, 0, 0, null);
+                    copyG.dispose();
+                    preview = argbPreview;
+                }
+                SlideAnnotation.paintAll(preview, slideAnnotationItems, 0L, true);
             }
 
             // Draw video overlay indicator if this slide has a video overlay
