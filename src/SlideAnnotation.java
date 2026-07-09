@@ -1,8 +1,12 @@
 import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.Color;
+import java.awt.Composite;
 import java.awt.Graphics2D;
 import java.awt.GradientPaint;
+import java.awt.LinearGradientPaint;
+import java.awt.Paint;
+import java.awt.RadialGradientPaint;
 import java.awt.RenderingHints;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Path2D;
@@ -40,6 +44,11 @@ public class SlideAnnotation {
     public Color color = new Color(255, 76, 76);
     public Color color2 = new Color(255, 186, 60);
     public boolean gradient = false;
+    public String gradientType = "Linear";   // Linear | Radial | Sheen
+    public double gradientAngle = 0;          // degrees, for Linear/Sheen
+    public boolean glowOn = false;            // premium soft outer glow
+    public int glowPct = 60;                  // glow strength/spread 0..100
+    public Color glowColor = null;            // null = use the shape's own colour
     public double strokeWidthPct = 0.55;  // stroke width as % of min(frame w,h)
     public boolean shadow = true;
     public boolean filled = true;         // Shape kind: fill (true) vs outline (false)
@@ -61,6 +70,8 @@ public class SlideAnnotation {
         a.kind = kind; a.subtype = subtype; a.xPct = xPct; a.yPct = yPct;
         a.sizePct = sizePct; a.heightPct = heightPct; a.rotationDeg = rotationDeg; a.color = color;
         a.color2 = color2; a.gradient = gradient; a.strokeWidthPct = strokeWidthPct;
+        a.gradientType = gradientType; a.gradientAngle = gradientAngle;
+        a.glowOn = glowOn; a.glowPct = glowPct; a.glowColor = glowColor;
         a.shadow = shadow; a.appearMs = appearMs; a.durationMs = durationMs;
         a.entrance = entrance; a.idle = idle; a.groupId = groupId; a.text = text;
         a.filled = filled; a.cornerPct = cornerPct; a.borderColor = borderColor;
@@ -193,8 +204,13 @@ public class SlideAnnotation {
                 sg.dispose();
             }
 
+            // Premium soft outer glow: real blurred silhouette tinted in the glow colour.
+            if (glowOn && glowPct > 0) {
+                paintGlow(g, halfW, halfH, sw, revealT);
+            }
+
             if (gradient) {
-                g.setPaint(new GradientPaint((float) -halfW, 0, color, (float) halfW, 0, color2));
+                g.setPaint(makeGradient(halfW, halfH));
             } else {
                 g.setPaint(color);
             }
@@ -203,6 +219,111 @@ public class SlideAnnotation {
             g.dispose();
         }
     }
+
+    /** Build the fill paint for a gradient shape (Linear angled / Radial / Sheen). */
+    private Paint makeGradient(double halfW, double halfH) {
+        double ext = Math.max(1.0, Math.max(halfW, halfH));
+        if ("Radial".equals(gradientType)) {
+            return new RadialGradientPaint(new Point2D.Double(0, 0), (float) ext,
+                    new float[]{0f, 1f}, new Color[]{color, color2});
+        }
+        double ang = Math.toRadians(gradientAngle);
+        float x1 = (float) (-Math.cos(ang) * ext), y1 = (float) (-Math.sin(ang) * ext);
+        float x2 = (float) (Math.cos(ang) * ext),  y2 = (float) (Math.sin(ang) * ext);
+        if (x1 == x2 && y1 == y2) x2 += 0.01f;
+        if ("Sheen".equals(gradientType)) {
+            return new LinearGradientPaint(new Point2D.Float(x1, y1), new Point2D.Float(x2, y2),
+                    new float[]{0f, 0.5f, 1f}, new Color[]{color, color2, color});
+        }
+        return new GradientPaint(x1, y1, color, x2, y2, color2);
+    }
+
+    /**
+     * Premium soft outer glow. The shape's silhouette is rendered into a small
+     * offscreen buffer, its coverage (alpha) is box-blurred to a smooth feather,
+     * then tinted in the glow colour and composited behind the shape. Because it
+     * blurs coverage rather than stacking outlines, the result is a true soft
+     * halo with no banding — and it works for filled shapes, outlines and lines.
+     */
+    private void paintGlow(Graphics2D g, double halfW, double halfH, double sw, double revealT) {
+        Color gc = glowColor != null ? glowColor : color;
+        double radius = 2 + (glowPct / 100.0) * (0.35 * Math.max(halfW, halfH) + sw * 2 + 6);
+        double xext, yext;
+        if (KIND_SHAPE.equals(kind)) { xext = halfW; yext = halfH; }
+        else if (KIND_ARROW.equals(kind)) { xext = halfW; yext = Math.max(sw * 2.5, halfW * 0.6); }
+        else { xext = halfW; yext = Math.max(sw * 2.5, halfH); }
+        double pad = radius * 2 + sw * 2 + 4;
+        double bx0 = -xext - pad, by0 = -yext - pad;
+        int W = (int) Math.ceil(2 * (xext + pad)), H = (int) Math.ceil(2 * (yext + pad));
+        if (W <= 1 || H <= 1 || (long) W * H > 6_000_000L) return;   // guard huge buffers
+
+        BufferedImage buf = new BufferedImage(W, H, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D bg = buf.createGraphics();
+        bg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        bg.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+        bg.translate(-bx0, -by0);
+        bg.setColor(gc);
+        bg.setPaint(gc);
+        drawShape(bg, halfW, halfH, sw, revealT, 0);
+        bg.dispose();
+
+        BufferedImage halo = blurAlphaTinted(buf, Math.max(1, (int) Math.round(radius)), gc);
+        Composite oc = g.getComposite();
+        // two passes thicken the core so the glow reads clearly
+        g.drawImage(halo, (int) Math.floor(bx0), (int) Math.floor(by0), null);
+        g.drawImage(halo, (int) Math.floor(bx0), (int) Math.floor(by0), null);
+        g.setComposite(oc);
+    }
+
+    /** Box-blur the alpha channel of {@code src} and re-tint every pixel with {@code tint}. */
+    private static BufferedImage blurAlphaTinted(BufferedImage src, int r, Color tint) {
+        int w = src.getWidth(), h = src.getHeight();
+        int[] px = src.getRGB(0, 0, w, h, null, 0, w);
+        float[] a = new float[w * h];
+        for (int i = 0; i < px.length; i++) a[i] = (px[i] >>> 24) & 0xff;
+        float[] tmp = new float[w * h];
+        for (int pass = 0; pass < 2; pass++) {
+            boxBlur1D(a, tmp, w, h, r, true);   // horizontal → tmp
+            boxBlur1D(tmp, a, w, h, r, false);  // vertical  → a
+        }
+        int rgb = tint.getRGB() & 0x00FFFFFF;
+        int[] out = new int[w * h];
+        for (int i = 0; i < out.length; i++) {
+            int al = (int) Math.min(255f, a[i] * 1.25f);
+            out[i] = (al << 24) | rgb;
+        }
+        BufferedImage o = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        o.setRGB(0, 0, w, h, out, 0, w);
+        return o;
+    }
+
+    // Separable moving-average blur of one channel. horizontal=true blurs rows.
+    private static void boxBlur1D(float[] in, float[] out, int w, int h, int r, boolean horizontal) {
+        int win = 2 * r + 1;
+        if (horizontal) {
+            for (int y = 0; y < h; y++) {
+                int base = y * w;
+                float sum = 0;
+                for (int x = -r; x <= r; x++) sum += in[base + clampI(x, 0, w - 1)];
+                for (int x = 0; x < w; x++) {
+                    out[base + x] = sum / win;
+                    int add = clampI(x + r + 1, 0, w - 1), sub = clampI(x - r, 0, w - 1);
+                    sum += in[base + add] - in[base + sub];
+                }
+            }
+        } else {
+            for (int x = 0; x < w; x++) {
+                float sum = 0;
+                for (int y = -r; y <= r; y++) sum += in[clampI(y, 0, h - 1) * w + x];
+                for (int y = 0; y < h; y++) {
+                    out[y * w + x] = sum / win;
+                    int add = clampI(y + r + 1, 0, h - 1), sub = clampI(y - r, 0, h - 1);
+                    sum += in[add * w + x] - in[sub * w + x];
+                }
+            }
+        }
+    }
+    private static int clampI(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
     /** Natural (auto) height for the current subtype when heightPct==0. */
     private double naturalHeight(double width) {

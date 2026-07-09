@@ -20873,6 +20873,17 @@ public class GifSlideShowApp extends JFrame {
             borderColorBtn.setToolTipText("Shape border colour (drawn on top of the fill). Right-click to remove the border.");
             final JSpinner borderWidthSpin = new JSpinner(new SpinnerNumberModel(0.0, 0.0, 5.0, 0.1));
             borderWidthSpin.setToolTipText("Border thickness %; 0 = no border.");
+            final JComboBox<String> gradTypeCombo = new JComboBox<>(new String[]{"Linear", "Radial", "Sheen"});
+            gradTypeCombo.setToolTipText("Gradient style (only when Gradient is on). Sheen = glossy streak.");
+            final JSpinner gradAngleSpin = new JSpinner(new SpinnerNumberModel(0, 0, 360, 15));
+            gradAngleSpin.setToolTipText("Gradient angle for Linear/Sheen.");
+            final JCheckBox glowCheck = new JCheckBox("Glow");
+            glowCheck.setToolTipText("Premium soft outer glow (neon halo).");
+            final JSpinner glowSpin = new JSpinner(new SpinnerNumberModel(60, 0, 100, 5));
+            glowSpin.setToolTipText("Glow strength / spread.");
+            final JButton glowColorBtn = new JButton("■");
+            glowColorBtn.setPreferredSize(new Dimension(40, 22));
+            glowColorBtn.setToolTipText("Glow colour. Right-click to use the shape's own colour.");
             final JComboBox<String> entranceCombo = new JComboBox<>(SlideAnnotation.entranceModes());
             final JComboBox<String> idleCombo     = new JComboBox<>(SlideAnnotation.idleModes());
             final JTextField appearField = new JTextField(4);
@@ -20892,6 +20903,7 @@ public class GifSlideShowApp extends JFrame {
                 for (Component c : new Component[]{kindCombo, subtypeCombo, xSpin, ySpin, sizeSpin,
                         heightSpin, rotSpin, strokeSpin, colorBtn, color2Btn, gradientCheck, shadowCheck,
                         fillCheck, cornerSpin, opacitySpin, borderColorBtn, borderWidthSpin,
+                        gradTypeCombo, gradAngleSpin, glowCheck, glowSpin, glowColorBtn,
                         entranceCombo, idleCombo, appearField, durField}) {
                     c.setEnabled(has);
                 }
@@ -20915,6 +20927,11 @@ public class GifSlideShowApp extends JFrame {
                 opacitySpin.setValue(a.opacity);
                 borderColorBtn.setForeground(a.borderColor != null ? a.borderColor : Color.GRAY);
                 borderWidthSpin.setValue(a.borderWidthPct);
+                gradTypeCombo.setSelectedItem(a.gradientType);
+                gradAngleSpin.setValue((int) Math.round(a.gradientAngle));
+                glowCheck.setSelected(a.glowOn);
+                glowSpin.setValue(a.glowPct);
+                glowColorBtn.setForeground(a.glowColor != null ? a.glowColor : Color.GRAY);
                 entranceCombo.setSelectedItem(a.entrance);
                 idleCombo.setSelectedItem(a.idle);
                 appearField.setText(timerMsToSecStr(a.appearMs));
@@ -20944,6 +20961,10 @@ public class GifSlideShowApp extends JFrame {
                     a.borderColor = Color.WHITE;
                     borderColorBtn.setForeground(Color.WHITE);
                 }
+                a.gradientType = (String) gradTypeCombo.getSelectedItem();
+                a.gradientAngle = ((Number) gradAngleSpin.getValue()).doubleValue();
+                a.glowOn = glowCheck.isSelected();
+                a.glowPct = ((Number) glowSpin.getValue()).intValue();
                 a.entrance = (String) entranceCombo.getSelectedItem();
                 a.idle = (String) idleCombo.getSelectedItem();
                 a.appearMs = Math.max(0, secStrToMs(appearField.getText(), 0));
@@ -20958,12 +20979,33 @@ public class GifSlideShowApp extends JFrame {
                 cb.addActionListener(e -> commit.run());
             }
             for (JSpinner sp : new JSpinner[]{xSpin, ySpin, sizeSpin, heightSpin, rotSpin, strokeSpin,
-                    cornerSpin, opacitySpin, borderWidthSpin}) {
+                    cornerSpin, opacitySpin, borderWidthSpin, gradAngleSpin, glowSpin}) {
                 sp.addChangeListener(e -> commit.run());
             }
             gradientCheck.addActionListener(e -> commit.run());
             shadowCheck.addActionListener(e -> commit.run());
             fillCheck.addActionListener(e -> commit.run());
+            gradTypeCombo.addActionListener(e -> commit.run());
+            glowCheck.addActionListener(e -> commit.run());
+            glowColorBtn.addActionListener(e -> {
+                SlideAnnotation a = list.getSelectedValue();
+                if (a == null) return;
+                pickColorLive(panel, "Glow Color", a.glowColor != null ? a.glowColor : a.color, c -> {
+                    a.glowColor = c; glowColorBtn.setForeground(c);
+                    if (!a.glowOn) { a.glowOn = true; updating[0] = true; glowCheck.setSelected(true); updating[0] = false; }
+                    onFormatChanged();
+                });
+            });
+            glowColorBtn.addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override public void mousePressed(java.awt.event.MouseEvent e) {
+                    if (SwingUtilities.isRightMouseButton(e)) {
+                        SlideAnnotation a = list.getSelectedValue();
+                        if (a == null) return;
+                        a.glowColor = null; glowColorBtn.setForeground(Color.GRAY);
+                        onFormatChanged();
+                    }
+                }
+            });
             borderColorBtn.addActionListener(e -> {
                 SlideAnnotation a = list.getSelectedValue();
                 if (a == null) return;
@@ -21123,6 +21165,8 @@ public class GifSlideShowApp extends JFrame {
             row.accept("Rotate° / Thickness %", new Component[]{rotSpin, strokeSpin});
             row.accept("Colors", new Component[]{colorBtn, color2Btn, gradientCheck, shadowCheck, fillCheck});
             row.accept("Border color / width", new Component[]{borderColorBtn, borderWidthSpin});
+            row.accept("Gradient type / angle", new Component[]{gradTypeCombo, gradAngleSpin});
+            row.accept("Glow / % / color", new Component[]{glowCheck, glowSpin, glowColorBtn});
             row.accept("Round % / Opacity", new Component[]{cornerSpin, opacitySpin});
             row.accept("Entrance / Idle", new Component[]{entranceCombo, idleCombo});
             row.accept("Appear (s) / Stay (s)", new Component[]{appearField, durField});
