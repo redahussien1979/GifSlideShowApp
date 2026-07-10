@@ -21239,9 +21239,43 @@ public class GifSlideShowApp extends JFrame {
                 loadSelected.run();
             };
 
+            // ---- quick presets: drop a ready-made group of shapes in one click ---
+            // Lays the given shape subtypes out as a centred horizontal row so they
+            // read like the reaction strip / Do's-Don'ts pair in one action.
+            final java.util.function.BiConsumer<String[], double[]> addRow = (subs, cfg) -> {
+                if (subs.length == 0) return;
+                int firstNew = model.size();
+                double size = cfg[0], y = cfg[1];
+                double spacing = size * 1.18;
+                double startX = 50 - spacing * (subs.length - 1) / 2.0;
+                for (int i = 0; i < subs.length; i++) {
+                    SlideAnnotation a = new SlideAnnotation();
+                    a.kind = SlideAnnotation.KIND_SHAPE;
+                    a.subtype = subs[i];
+                    a.initForSubtype();
+                    a.sizePct = size;
+                    a.xPct = Math.max(6, Math.min(94, startX + i * spacing));
+                    a.yPct = y;
+                    slideAnnotationItems.add(a);
+                    model.addElement(a);
+                }
+                list.setSelectedIndex(firstNew);
+                list.repaint();
+                onFormatChanged();
+                loadSelected.run();
+            };
+            final String[] ALL_REACTIONS = {
+                    "Like", "Love", "Dislike", "Check Badge", "Cross Badge", "Star Badge"};
+
             // ---- action buttons -------------------------------------------
             JButton addBtn = new JButton("＋ Add Selected");
             addBtn.addActionListener(e -> addSelected.run());
+            JButton addReactionsBtn = new JButton("＋ All reactions");
+            addReactionsBtn.setToolTipText("Drop all six premium reaction badges as a centred row.");
+            addReactionsBtn.addActionListener(e -> addRow.accept(ALL_REACTIONS, new double[]{13, 50}));
+            JButton addDoDontBtn = new JButton("＋ Do's & Don'ts");
+            addDoDontBtn.setToolTipText("Drop the Do's and Don'ts label cards side by side.");
+            addDoDontBtn.addActionListener(e -> addRow.accept(new String[]{"Do Card", "Dont Card"}, new double[]{30, 50}));
             JButton dupBtn = new JButton("Duplicate");
             dupBtn.addActionListener(e -> {
                 int i = list.getSelectedIndex();
@@ -21335,7 +21369,13 @@ public class GifSlideShowApp extends JFrame {
             JPanel addPanel = new JPanel(new BorderLayout(4, 4));
             addPanel.setBorder(BorderFactory.createTitledBorder("Add shapes (Ctrl/Shift-click for several)"));
             addPanel.add(new JScrollPane(catalog), BorderLayout.CENTER);
-            addPanel.add(addBtn, BorderLayout.SOUTH);
+            JPanel addBtns = new JPanel(new GridLayout(0, 1, 2, 2));
+            addBtns.add(addBtn);
+            JPanel presetBtns = new JPanel(new GridLayout(1, 0, 3, 0));
+            presetBtns.add(addReactionsBtn);
+            presetBtns.add(addDoDontBtn);
+            addBtns.add(presetBtns);
+            addPanel.add(addBtns, BorderLayout.SOUTH);
 
             JPanel left = new JPanel(new BorderLayout(6, 6));
             left.add(listPanel, BorderLayout.CENTER);
