@@ -2,6 +2,7 @@ import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Composite;
+import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.GradientPaint;
 import java.awt.LinearGradientPaint;
@@ -9,8 +10,12 @@ import java.awt.Paint;
 import java.awt.RadialGradientPaint;
 import java.awt.RenderingHints;
 import java.awt.geom.AffineTransform;
+import java.awt.geom.Area;
+import java.awt.geom.Ellipse2D;
 import java.awt.geom.Path2D;
 import java.awt.geom.Point2D;
+import java.awt.geom.Rectangle2D;
+import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.util.List;
 
@@ -29,6 +34,7 @@ public class SlideAnnotation {
     public static final String KIND_LINE = "Line";
     public static final String KIND_ARROW = "Arrow";
     public static final String KIND_SHAPE = "Shape";
+    public static final String KIND_IMAGE = "Image";
 
     /** How long the entrance animation runs, in ms. */
     private static final double ENTRANCE_MS = 650.0;
@@ -61,7 +67,13 @@ public class SlideAnnotation {
     public String entrance = "Draw-In";
     public String idle = "None";
     public int groupId = -1;          // reserved for grouping (Phase later)
-    public String text = "";          // reserved for callouts (Phase later)
+    public String text = "";          // label text for cards / callouts
+
+    // ---- image kind --------------------------------------------------------
+    /** Source path of an imported picture (Image kind). Kept for the list label. */
+    public String imagePath = "";
+    /** Decoded picture for the Image kind; not persisted, re-loaded from imagePath. */
+    public transient BufferedImage image = null;
 
     public SlideAnnotation() {}
 
@@ -76,11 +88,12 @@ public class SlideAnnotation {
         a.entrance = entrance; a.idle = idle; a.groupId = groupId; a.text = text;
         a.filled = filled; a.cornerPct = cornerPct; a.borderColor = borderColor;
         a.borderWidthPct = borderWidthPct; a.opacity = opacity;
+        a.imagePath = imagePath; a.image = image;
         return a;
     }
 
     // ---- catalogs (for UI dropdowns) --------------------------------------
-    public static String[] kinds()          { return new String[]{KIND_LINE, KIND_ARROW, KIND_SHAPE}; }
+    public static String[] kinds()          { return new String[]{KIND_LINE, KIND_ARROW, KIND_SHAPE, KIND_IMAGE}; }
     public static String[] lineSubtypes()   { return new String[]{
             // clean
             "Straight", "Dashed", "Dotted", "Double", "Divider",
@@ -100,14 +113,66 @@ public class SlideAnnotation {
             // symbols
             "Check", "Cross", "Plus", "Lightning", "Crown", "Shield", "Pin", "Gear",
             // banners / seals
-            "Badge", "Rosette", "Banner", "Sunburst" }; }
+            "Badge", "Rosette", "Banner", "Sunburst",
+            // premium glossy reactions (3-D badge + white icon)
+            "Like", "Dislike", "Love", "Check Badge", "Cross Badge", "Star Badge",
+            // premium Do's / Don'ts label cards (icon + text)
+            "Do Card", "Dont Card" }; }
+
+    /** Premium reaction badges: a glossy 3-D disc with a white icon. */
+    public static boolean isReaction(String st) {
+        if (st == null) return false;
+        switch (st) {
+            case "Like": case "Dislike": case "Love":
+            case "Check Badge": case "Cross Badge": case "Star Badge": return true;
+            default: return false;
+        }
+    }
+    /** Premium Do's / Don'ts style label cards (rounded card + icon circle + text). */
+    public static boolean isCard(String st) {
+        return "Do Card".equals(st) || "Dont Card".equals(st);
+    }
+
+    public static String[] imageSubtypes()  { return new String[]{"Picture"}; }
     public static String[] subtypesFor(String kind) {
         if (KIND_LINE.equals(kind)) return lineSubtypes();
         if (KIND_SHAPE.equals(kind)) return shapeSubtypes();
+        if (KIND_IMAGE.equals(kind)) return imageSubtypes();
         return arrowSubtypes();
     }
     public static String[] entranceModes()  { return new String[]{"None", "Draw-In", "Pop", "Fly-In", "Fade", "Grow"}; }
     public static String[] idleModes()      { return new String[]{"None", "Pulse", "Bob", "Spin", "Wobble", "Glow"}; }
+
+    /**
+     * Apply premium defaults for the freshly-chosen {@code kind}/{@code subtype}
+     * (brand colours, entrance, glow, text). Called once when a shape is created
+     * from the catalog so reactions and cards look right out of the box.
+     */
+    public void initForSubtype() {
+        if (KIND_IMAGE.equals(kind)) {
+            sizePct = 26; shadow = true; filled = true; entrance = "Fade";
+            return;
+        }
+        if (!KIND_SHAPE.equals(kind)) return;
+        String st = subtype == null ? "" : subtype;
+        if (isReaction(st)) {
+            entrance = "Pop"; shadow = true; filled = true;
+            switch (st) {
+                case "Like":        color = new Color(0x1877F2); break;   // facebook blue
+                case "Dislike":     color = new Color(0xE0304B); break;
+                case "Love":        color = new Color(0xF5304E); break;
+                case "Check Badge": color = new Color(0x2FBF5B); break;   // green
+                case "Cross Badge": color = new Color(0xE23B3B); break;   // red
+                case "Star Badge":  color = new Color(0xF5B301); break;   // amber
+                default: break;
+            }
+        } else if (isCard(st)) {
+            entrance = "Pop"; shadow = true; filled = true;
+            sizePct = 34;
+            if ("Do Card".equals(st)) { color = new Color(0x27C24C); text = "Do's"; }
+            else                      { color = new Color(0xE43B3B); text = "Don'ts"; }
+        }
+    }
 
     // ---- compositing entry point ------------------------------------------
     /**
@@ -200,7 +265,7 @@ public class SlideAnnotation {
                 sg.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, Math.min(1f, sa)));
                 sg.translate(glow > 0 ? 0 : sw * 0.5, glow > 0 ? 0 : sw * 0.6);
                 sg.setColor(new Color(0, 0, 0));
-                drawShape(sg, halfW, halfH, sw * (glow > 0 ? 1.7 : 1.0), revealT, 0);
+                drawSilhouette(sg, halfW, halfH, sw * (glow > 0 ? 1.7 : 1.0), revealT);
                 sg.dispose();
             }
 
@@ -264,7 +329,7 @@ public class SlideAnnotation {
         bg.translate(-bx0, -by0);
         bg.setColor(gc);
         bg.setPaint(gc);
-        drawShape(bg, halfW, halfH, sw, revealT, 0);
+        drawSilhouette(bg, halfW, halfH, sw, revealT);
         bg.dispose();
 
         BufferedImage halo = blurAlphaTinted(buf, Math.max(1, (int) Math.round(radius)), gc);
@@ -327,8 +392,16 @@ public class SlideAnnotation {
 
     /** Natural (auto) height for the current subtype when heightPct==0. */
     private double naturalHeight(double width) {
+        if (KIND_IMAGE.equals(kind)) {
+            if (image != null && image.getWidth() > 0) {
+                return width * image.getHeight() / (double) image.getWidth();
+            }
+            return width * 0.66;
+        }
         if (!KIND_SHAPE.equals(kind)) return width;
-        switch (subtype == null ? "" : subtype) {
+        String st = subtype == null ? "" : subtype;
+        if (isCard(st)) return width * 0.46;   // wide label card
+        switch (st) {
             case "Rectangle": case "Pill": case "Banner": return width * 0.60;
             case "Chevron":   return width * 0.85;
             case "Shield": case "Pin": case "Teardrop":   return width * 1.15;
@@ -338,13 +411,43 @@ public class SlideAnnotation {
 
     /** Draw the shape in local space, bounded by [-halfW..halfW] × [-halfH..halfH]. */
     private void drawShape(Graphics2D g, double halfW, double halfH, double sw, double revealT, double borderPx) {
-        if (KIND_LINE.equals(kind)) {
+        if (KIND_IMAGE.equals(kind)) {
+            drawImageAnn(g, halfW, halfH, revealT);
+        } else if (KIND_LINE.equals(kind)) {
             drawLine(g, halfW, sw, revealT);          // 1-D: height not used
         } else if (KIND_SHAPE.equals(kind)) {
+            String st = subtype == null ? "" : subtype;
+            if (isReaction(st))   { drawReactionBadge(g, halfW, halfH, revealT); return; }
+            if (isCard(st))       { drawCard(g, halfW, halfH, revealT); return; }
             drawDecoShape(g, halfW, halfH, sw, revealT, borderPx);
         } else {
             drawArrow(g, halfW, sw, revealT);          // 1-D: height not used
         }
+    }
+
+    /**
+     * Solid silhouette used for the drop shadow and the glow halo. For most kinds
+     * this is just the shape itself; images and reaction badges use a simple
+     * filled bound so the shadow/glow reads as a clean card behind the artwork.
+     */
+    private void drawSilhouette(Graphics2D g, double halfW, double halfH, double sw, double revealT) {
+        if (KIND_IMAGE.equals(kind)) {
+            double t = Math.max(0.0001, revealT);
+            g.fill(rounded(halfW * t, halfH * t, Math.min(halfW, halfH) * 0.06));
+            return;
+        }
+        if (KIND_SHAPE.equals(kind) && isReaction(subtype)) {
+            double t = Math.max(0.0001, revealT);
+            double r = Math.min(halfW, halfH) * t;
+            g.fill(new Ellipse2D.Double(-r, -r, 2 * r, 2 * r));
+            return;
+        }
+        if (KIND_SHAPE.equals(kind) && isCard(subtype)) {
+            double t = Math.max(0.0001, revealT);
+            g.fill(rounded(halfW * t, halfH * t, Math.min(halfW, halfH) * t * 0.32));
+            return;
+        }
+        drawShape(g, halfW, halfH, sw, revealT, 0);
     }
 
     // ----- decorative shapes -----------------------------------------------
@@ -435,6 +538,235 @@ public class SlideAnnotation {
             g.setStroke(roundStroke(sw));
             g.draw(shp);
         }
+    }
+
+    // ===== premium: images, reaction badges, Do's/Don'ts cards =============
+
+    /** Draw an imported picture, grown from centre by {@code revealT}. */
+    private void drawImageAnn(Graphics2D g, double halfW, double halfH, double revealT) {
+        double t = Math.max(0.0001, revealT);
+        double w = 2 * halfW * t, h = 2 * halfH * t;
+        if (image == null) {
+            // Placeholder frame so the slot is visible until a picture is chosen.
+            g.setColor(new Color(120, 130, 140));
+            g.setStroke(new BasicStroke((float) Math.max(2, Math.min(halfW, halfH) * 0.06),
+                    BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
+                    10f, new float[]{(float) (halfW * 0.14), (float) (halfW * 0.10)}, 0f));
+            g.draw(rounded(halfW * t, halfH * t, Math.min(halfW, halfH) * 0.08));
+            return;
+        }
+        Graphics2D ig = (Graphics2D) g.create();
+        ig.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        ig.drawImage(image, (int) Math.round(-w / 2), (int) Math.round(-h / 2),
+                (int) Math.round(w), (int) Math.round(h), null);
+        ig.dispose();
+        // optional border on top of the picture
+        if (borderColor != null && borderWidthPct > 0) {
+            double bpx = Math.max(1.0, borderWidthPct / 100.0 * Math.max(w, h));
+            g.setStroke(roundStroke(bpx));
+            g.setColor(borderColor);
+            g.draw(rounded(halfW * t, halfH * t, Math.min(halfW, halfH) * 0.04));
+        }
+    }
+
+    /**
+     * Premium reaction badge: a glossy 3-D disc (radial shade + top sheen + rim)
+     * with a crisp white icon (thumb, heart, tick, cross, star). The disc colour
+     * is the shape's {@code color}, so users restyle it with the same controls.
+     */
+    private void drawReactionBadge(Graphics2D g, double halfW, double halfH, double revealT) {
+        double t = Math.max(0.0001, revealT);
+        double R = Math.min(halfW, halfH) * t;
+        if (R < 1) return;
+        Color base = color != null ? color : new Color(0x1877F2);
+        Paint savePaint = g.getPaint();
+
+        java.awt.Shape disc = new Ellipse2D.Double(-R, -R, 2 * R, 2 * R);
+        // body: radial from a lit top-left to a slightly darker rim → 3-D volume
+        g.setPaint(new RadialGradientPaint(
+                new Point2D.Double(-R * 0.32, -R * 0.38), (float) (R * 1.55),
+                new float[]{0f, 0.55f, 1f},
+                new Color[]{lighten(base, 0.34f), base, darken(base, 0.18f)}));
+        g.fill(disc);
+
+        // glossy top sheen, clipped to the disc
+        Graphics2D sg = (Graphics2D) g.create();
+        sg.clip(disc);
+        sg.setPaint(new GradientPaint(
+                0f, (float) (-R), new Color(255, 255, 255, 150),
+                0f, (float) (-R * 0.05), new Color(255, 255, 255, 0)));
+        sg.fill(new Ellipse2D.Double(-R * 0.82, -R * 0.98, R * 1.64, R * 1.15));
+        sg.dispose();
+
+        // soft inner rim to seat the button
+        g.setPaint(new Color(255, 255, 255, 60));
+        g.setStroke(roundStroke(Math.max(1.0, R * 0.05)));
+        g.draw(new Ellipse2D.Double(-R * 0.93, -R * 0.93, R * 1.86, R * 1.86));
+
+        // white icon
+        g.setPaint(Color.WHITE);
+        java.awt.Shape glyph = reactionGlyph(subtype);
+        double iconHalf = R * 0.56;
+        fillCentered(g, glyph, iconHalf, 0, 0);
+
+        g.setPaint(savePaint);
+    }
+
+    /** Raw (un-scaled) white-icon silhouette for a reaction subtype. */
+    private java.awt.Shape reactionGlyph(String st) {
+        switch (st == null ? "" : st) {
+            case "Like":        return thumbPath(false);
+            case "Dislike":     return thumbPath(true);
+            case "Love":        return heartPath(80, 80, true);
+            case "Check Badge": return polyToPath(checkPts(80, 80));
+            case "Cross Badge": return thickCross();
+            case "Star Badge":  return polyToPath(starPts(5, 80, 80, 0.45));
+            default:            return thumbPath(false);
+        }
+    }
+
+    /**
+     * Premium Do's / Don'ts card: a rounded colour card with a white inner keyline,
+     * a white icon-circle poking over the top-left corner, and the label text.
+     */
+    private void drawCard(Graphics2D g, double halfW, double halfH, double revealT) {
+        double t = Math.max(0.0001, revealT);
+        double hw = halfW * t, hh = halfH * t;
+        if (hw < 2 || hh < 2) return;
+        boolean isDo = "Do Card".equals(subtype);
+        Color base = color != null ? color : (isDo ? new Color(0x27C24C) : new Color(0xE43B3B));
+        Paint savePaint = g.getPaint();
+        java.awt.Stroke saveStroke = g.getStroke();
+
+        double arc = hh * 0.42;
+        RoundRectangle2D card = new RoundRectangle2D.Double(-hw, -hh, 2 * hw, 2 * hh, 2 * arc, 2 * arc);
+        // card body with a gentle vertical gradient for depth
+        g.setPaint(new GradientPaint(0f, (float) -hh, lighten(base, 0.12f),
+                0f, (float) hh, darken(base, 0.10f)));
+        g.fill(card);
+        // white inset keyline (the framed look from the sample)
+        double inset = hh * 0.14;
+        g.setPaint(Color.WHITE);
+        g.setStroke(roundStroke(Math.max(1.5, hh * 0.09)));
+        g.draw(new RoundRectangle2D.Double(-hw + inset, -hh + inset,
+                2 * (hw - inset), 2 * (hh - inset), 2 * (arc * 0.7), 2 * (arc * 0.7)));
+
+        // icon circle seated on the left, vertically centred, poking slightly above
+        double cr = hh * 0.74;
+        double ccx = -hw + cr + inset * 0.4;
+        double ccy = -hh * 0.08;
+        g.setPaint(Color.WHITE);
+        g.fill(new Ellipse2D.Double(ccx - cr, ccy - cr, 2 * cr, 2 * cr));
+        g.setPaint(base);
+        g.setStroke(roundStroke(Math.max(1.5, cr * 0.16)));
+        g.draw(new Ellipse2D.Double(ccx - cr * 0.92, ccy - cr * 0.92, cr * 1.84, cr * 1.84));
+        // coloured icon inside the circle
+        Graphics2D icg = (Graphics2D) g.create();
+        icg.translate(ccx, ccy);
+        icg.setPaint(base);
+        fillCentered(icg, isDo ? thumbPath(false) : thumbPath(true), cr * 0.58, 0, 0);
+        icg.dispose();
+
+        // label text, white, centred in the free area to the right of the circle
+        String label = (text != null && !text.trim().isEmpty()) ? text.trim() : (isDo ? "Do's" : "Don'ts");
+        double textLeft = ccx + cr + inset * 0.6;
+        double textRight = hw - inset * 1.2;
+        drawCardLabel(g, label, (textLeft + textRight) / 2.0, 0,
+                textRight - textLeft, 2 * hh * 0.58);
+
+        g.setPaint(savePaint);
+        g.setStroke(saveStroke);
+    }
+
+    /** Draw a white bold label centred at (cx,cy), auto-sized to fit maxW × maxH. */
+    private void drawCardLabel(Graphics2D g, String s, double cx, double cy, double maxW, double maxH) {
+        if (s == null || s.isEmpty() || maxW < 4) return;
+        Graphics2D tg = (Graphics2D) g.create();
+        tg.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+                RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        double fs = maxH * 0.62;
+        Font f = new Font("SansSerif", Font.BOLD, 100);
+        Rectangle2D b;
+        // shrink font until the label fits the available width
+        for (int guard = 0; guard < 40; guard++) {
+            f = f.deriveFont((float) fs);
+            b = tg.getFontMetrics(f).getStringBounds(s, tg);
+            if (b.getWidth() <= maxW || fs <= 6) break;
+            fs *= 0.92;
+        }
+        tg.setFont(f);
+        java.awt.FontMetrics fm = tg.getFontMetrics(f);
+        b = fm.getStringBounds(s, tg);
+        float tx = (float) (cx - b.getWidth() / 2.0);
+        // vertical centre: baseline sits (ascent-descent)/2 below the mid-line
+        float ty = (float) (cy + (fm.getAscent() - fm.getDescent()) / 2.0);
+        tg.setColor(Color.WHITE);
+        tg.drawString(s, tx, ty);
+        tg.dispose();
+    }
+
+    // ----- reaction glyph geometry -----------------------------------------
+    /** A bold, rounded X (cross) as a filled silhouette. */
+    private static java.awt.Shape thickCross() {
+        RoundRectangle2D bar = new RoundRectangle2D.Double(-46, -12, 92, 24, 16, 16);
+        Area a = new Area(AffineTransform.getRotateInstance(Math.toRadians(45))
+                .createTransformedShape(bar));
+        a.add(new Area(AffineTransform.getRotateInstance(Math.toRadians(-45))
+                .createTransformedShape(bar)));
+        return a;
+    }
+    /**
+     * A clean thumbs-up silhouette built from rounded blocks: a vertical thumb on
+     * the upper-left, the folded-fingers fist to its right, and the wrist/back-of-
+     * hand column below the thumb. Designed in a ~[-40..48] box, screen y-down;
+     * {@code down} rotates it 180° for a thumbs-down. Centred by {@link #fillCentered}.
+     */
+    private static java.awt.Shape thumbPath(boolean down) {
+        Area a = new Area();
+        // fist: the four folded fingers, a rounded near-square on the right
+        a.add(new Area(new RoundRectangle2D.Double(-4, -12, 50, 56, 18, 18)));
+        // thumb: a vertical rounded bar rising from the top-left of the fist
+        a.add(new Area(new RoundRectangle2D.Double(-26, -46, 30, 44, 15, 15)));
+        // back-of-hand / wrist column joining the thumb down to the base
+        a.add(new Area(new RoundRectangle2D.Double(-26, -14, 30, 58, 12, 12)));
+        // knuckle hints: shallow gaps between the fingers along the fist top
+        Area gaps = new Area();
+        for (double gx = 8; gx <= 34; gx += 13) {
+            gaps.add(new Area(new RoundRectangle2D.Double(gx, -12, 3.5, 22, 2, 2)));
+        }
+        a.subtract(gaps);
+        if (down) {
+            a.transform(AffineTransform.getScaleInstance(-1, -1));   // rotate 180° → thumbs-down
+        }
+        return a;
+    }
+
+    /**
+     * Uniformly scale {@code shp} so its larger dimension spans 2·{@code half},
+     * centre it at ({@code ox},{@code oy}) and fill it. Keeps glyphs crisp and
+     * centred regardless of the raw coordinates they were authored in.
+     */
+    private static void fillCentered(Graphics2D g, java.awt.Shape shp, double half, double ox, double oy) {
+        Rectangle2D b = shp.getBounds2D();
+        double dim = Math.max(b.getWidth(), b.getHeight());
+        if (dim < 1e-6) return;
+        double s = (2 * half) / dim;
+        AffineTransform tf = new AffineTransform();
+        tf.translate(ox, oy);
+        tf.scale(s, s);
+        tf.translate(-(b.getX() + b.getWidth() / 2.0), -(b.getY() + b.getHeight() / 2.0));
+        g.fill(tf.createTransformedShape(shp));
+    }
+
+    private static Color lighten(Color c, float f) {
+        return new Color(
+                (int) Math.min(255, c.getRed()   + (255 - c.getRed())   * f),
+                (int) Math.min(255, c.getGreen() + (255 - c.getGreen()) * f),
+                (int) Math.min(255, c.getBlue()  + (255 - c.getBlue())  * f), c.getAlpha());
+    }
+    private static Color darken(Color c, float f) {
+        return new Color((int) (c.getRed() * (1 - f)), (int) (c.getGreen() * (1 - f)),
+                (int) (c.getBlue() * (1 - f)), c.getAlpha());
     }
 
     // ---- geometry helpers --------------------------------------------------

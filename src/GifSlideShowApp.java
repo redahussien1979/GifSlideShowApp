@@ -20905,7 +20905,15 @@ public class GifSlideShowApp extends JFrame {
 
         private String annoLabel(int idx, SlideAnnotation a) {
             String dur = a.durationMs > 0 ? (timerMsToSecStr(a.durationMs) + "s") : "∞";
-            return (idx + 1) + ".  " + a.kind + " · " + a.subtype
+            String name = a.subtype;
+            if (SlideAnnotation.KIND_IMAGE.equals(a.kind)) {
+                String base = (a.imagePath != null && !a.imagePath.isEmpty())
+                        ? new java.io.File(a.imagePath).getName() : "(no file)";
+                name = base;
+            } else if (SlideAnnotation.isCard(a.subtype) && a.text != null && !a.text.trim().isEmpty()) {
+                name = a.subtype + " “" + a.text.trim() + "”";
+            }
+            return (idx + 1) + ".  " + a.kind + " · " + name
                     + "   @(" + (int) a.xPct + "," + (int) a.yPct + ")"
                     + "   in " + timerMsToSecStr(a.appearMs) + "s / " + dur;
         }
@@ -20984,6 +20992,10 @@ public class GifSlideShowApp extends JFrame {
             final JComboBox<String> idleCombo     = new JComboBox<>(SlideAnnotation.idleModes());
             final JTextField appearField = new JTextField(4);
             final JTextField durField    = new JTextField(4);
+            final JTextField textField   = new JTextField(12);
+            textField.setToolTipText("Label text for Do's/Don'ts cards (defaults to Do's / Don'ts). Ignored by other shapes.");
+            final JButton imageBtn = new JButton("Load image…");
+            imageBtn.setToolTipText("Pick a picture file for an Image shape.");
 
             final Runnable[] syncSubtypes = {null};
             syncSubtypes[0] = () -> {
@@ -21000,9 +21012,10 @@ public class GifSlideShowApp extends JFrame {
                         heightSpin, rotSpin, strokeSpin, colorBtn, color2Btn, gradientCheck, shadowCheck,
                         fillCheck, cornerSpin, opacitySpin, borderColorBtn, borderWidthSpin,
                         gradTypeCombo, gradAngleSpin, glowCheck, glowSpin, glowColorBtn,
-                        entranceCombo, idleCombo, appearField, durField}) {
+                        entranceCombo, idleCombo, appearField, durField, textField}) {
                     c.setEnabled(has);
                 }
+                imageBtn.setEnabled(has && SlideAnnotation.KIND_IMAGE.equals(a.kind));
                 if (!has) return;
                 updating[0] = true;
                 kindCombo.setSelectedItem(a.kind);
@@ -21032,6 +21045,7 @@ public class GifSlideShowApp extends JFrame {
                 idleCombo.setSelectedItem(a.idle);
                 appearField.setText(timerMsToSecStr(a.appearMs));
                 durField.setText(a.durationMs > 0 ? timerMsToSecStr(a.durationMs) : "");
+                textField.setText(a.text != null ? a.text : "");
                 updating[0] = false;
             };
 
@@ -21065,6 +21079,7 @@ public class GifSlideShowApp extends JFrame {
                 a.idle = (String) idleCombo.getSelectedItem();
                 a.appearMs = Math.max(0, secStrToMs(appearField.getText(), 0));
                 a.durationMs = Math.max(0, secStrToMs(durField.getText(), 0));
+                a.text = textField.getText();
                 list.repaint();
                 onFormatChanged();
             };
@@ -21129,6 +21144,38 @@ public class GifSlideShowApp extends JFrame {
                 @Override public void focusLost(java.awt.event.FocusEvent e) { commit.run(); } });
             durField.addFocusListener(new java.awt.event.FocusAdapter() {
                 @Override public void focusLost(java.awt.event.FocusEvent e) { commit.run(); } });
+            textField.addActionListener(e -> commit.run());
+            textField.addFocusListener(new java.awt.event.FocusAdapter() {
+                @Override public void focusLost(java.awt.event.FocusEvent e) { commit.run(); } });
+
+            // Load a picture into an Image-kind annotation and refresh the preview.
+            final java.util.function.Consumer<SlideAnnotation> chooseImage = (a) -> {
+                if (a == null) return;
+                JFileChooser fc = new JFileChooser();
+                if (a.imagePath != null && !a.imagePath.isEmpty()) {
+                    File pf = new File(a.imagePath).getParentFile();
+                    if (pf != null && pf.isDirectory()) fc.setCurrentDirectory(pf);
+                }
+                fc.setDialogTitle("Choose a picture");
+                fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                        "Images (png, jpg, gif, bmp, webp, avif, heic)",
+                        "png", "jpg", "jpeg", "gif", "bmp", "webp", "avif", "heif", "heic"));
+                if (fc.showOpenDialog(dlg) != JFileChooser.APPROVE_OPTION) return;
+                File f = fc.getSelectedFile();
+                try {
+                    BufferedImage img = loadImageFile(f);
+                    if (img == null) throw new IOException("Unsupported or unreadable image.");
+                    a.image = img;
+                    a.imagePath = f.getAbsolutePath();
+                    a.heightPct = 0;   // keep the picture's natural aspect
+                    list.repaint();
+                    onFormatChanged();
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(dlg, "Couldn't load that image:\n" + ex.getMessage(),
+                            "Load image", JOptionPane.ERROR_MESSAGE);
+                }
+            };
+            imageBtn.addActionListener(e -> chooseImage.accept(list.getSelectedValue()));
 
             colorBtn.setPreferredSize(new Dimension(40, 22));
             colorBtn.addActionListener(e -> {
@@ -21154,6 +21201,7 @@ public class GifSlideShowApp extends JFrame {
             for (String st : SlideAnnotation.lineSubtypes())  catModel.addElement("Line · " + st);
             for (String st : SlideAnnotation.arrowSubtypes()) catModel.addElement("Arrow · " + st);
             for (String st : SlideAnnotation.shapeSubtypes()) catModel.addElement("Shape · " + st);
+            for (String st : SlideAnnotation.imageSubtypes()) catModel.addElement("Image · " + st);
             final JList<String> catalog = new JList<>(catModel);
             catalog.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
             catalog.setVisibleRowCount(6);
@@ -21168,21 +21216,27 @@ public class GifSlideShowApp extends JFrame {
                 }
                 int firstNew = model.size();
                 int n = 0;
+                java.util.List<SlideAnnotation> newImages = new java.util.ArrayList<>();
                 for (String p : picks) {
                     int dot = p.indexOf('·');
                     SlideAnnotation a = new SlideAnnotation();
                     a.kind = p.substring(0, dot).trim();
                     a.subtype = p.substring(dot + 1).trim();
+                    a.initForSubtype();   // premium brand colours / defaults for reactions, cards, images
                     // Fan out a little so stacked adds don't perfectly overlap.
                     a.xPct = 50 + (n % 3 - 1) * 12;
                     a.yPct = 50 + (n / 3) * 12;
                     slideAnnotationItems.add(a);
                     model.addElement(a);
+                    if (SlideAnnotation.KIND_IMAGE.equals(a.kind)) newImages.add(a);
                     n++;
                 }
                 list.setSelectedIndex(firstNew);
                 list.repaint();
                 onFormatChanged();
+                // Prompt to pick a picture for each freshly-added Image slot.
+                for (SlideAnnotation a : newImages) chooseImage.accept(a);
+                loadSelected.run();
             };
 
             // ---- action buttons -------------------------------------------
@@ -21266,6 +21320,8 @@ public class GifSlideShowApp extends JFrame {
             row.accept("Round % / Opacity", new Component[]{cornerSpin, opacitySpin});
             row.accept("Entrance / Idle", new Component[]{entranceCombo, idleCombo});
             row.accept("Appear (s) / Stay (s)", new Component[]{appearField, durField});
+            row.accept("Card text", new Component[]{textField});
+            row.accept("Picture", new Component[]{imageBtn});
 
             JPanel leftBtns = new JPanel(new GridLayout(0, 1, 3, 3));
             leftBtns.add(dupBtn); leftBtns.add(removeBtn);
