@@ -581,6 +581,9 @@ public class GifSlideShowApp extends JFrame {
             }
         }
 
+        // Animated shapes (reactions, cards, images, lines/arrows) on the slide.
+        writeAnnotations(props, source.getSlideAnnotationList());
+
         File file = new File(PRESETS_DIR, name + ".preset");
         try (FileOutputStream fos = new FileOutputStream(file)) {
             props.store(fos, "GifSlideShowApp Preset: " + name);
@@ -934,11 +937,16 @@ public class GifSlideShowApp extends JFrame {
             tmpl.afterRevealEvents.add(e);
         }
 
+        // Animated shapes (reactions, cards, images, lines/arrows). Null when the
+        // preset predates this feature — in that case existing shapes are kept.
+        List<SlideAnnotation> presetShapes = readAnnotations(props);
+
         // Apply to all non-title-grid slides
         isSyncingFormat = true;
         try {
             for (SlideRow row : targets) {
                 if (row.isTitleGridSlide) continue;
+                if (presetShapes != null) row.applySlideAnnotations(presetShapes);
                 row.applyFormatting(fontName, fontSize, fontStyle, fontColor, alignment, showPin, displayMode,
                         subtitleY, subtitleBgOpacity, sourceVideoVolume,
                         bgTransparency,
@@ -1465,6 +1473,12 @@ public class GifSlideShowApp extends JFrame {
         catch (NumberFormatException e) { return fallback; }
     }
 
+    private static double parseDoubleOr(String s, double fallback) {
+        if (s == null || s.isEmpty()) return fallback;
+        try { return Double.parseDouble(s.trim()); }
+        catch (NumberFormatException e) { return fallback; }
+    }
+
     private static Boolean parseBoolOr(String s, Boolean fallback) {
         if (s == null || s.isEmpty()) return fallback;
         return Boolean.parseBoolean(s.trim());
@@ -1485,6 +1499,101 @@ public class GifSlideShowApp extends JFrame {
             }
         } catch (NumberFormatException ignored) {}
         return Color.WHITE;
+    }
+
+    // ---- Shapes (SlideAnnotation) preset serialization --------------------
+    // Persist the slide's animated shapes — including the premium reactions,
+    // Do's/Don'ts cards and imported pictures — into a preset. Images are stored
+    // by file path and re-loaded on Load Preset. Nullable colours are written
+    // only when set, so absence == "use the shape's own colour / no border".
+    private static void writeAnnotations(Properties props, List<SlideAnnotation> anns) {
+        int n = anns == null ? 0 : anns.size();
+        props.setProperty("shapeCount", String.valueOf(n));
+        for (int i = 0; i < n; i++) {
+            SlideAnnotation a = anns.get(i);
+            if (a == null) continue;
+            String p = "shape." + i + ".";
+            props.setProperty(p + "kind",         a.kind    != null ? a.kind    : "Shape");
+            props.setProperty(p + "subtype",      a.subtype != null ? a.subtype : "");
+            props.setProperty(p + "x",            String.valueOf(a.xPct));
+            props.setProperty(p + "y",            String.valueOf(a.yPct));
+            props.setProperty(p + "w",            String.valueOf(a.sizePct));
+            props.setProperty(p + "h",            String.valueOf(a.heightPct));
+            props.setProperty(p + "rot",          String.valueOf(a.rotationDeg));
+            props.setProperty(p + "color",        colorToHex(a.color  != null ? a.color  : Color.WHITE));
+            props.setProperty(p + "color2",       colorToHex(a.color2 != null ? a.color2 : Color.WHITE));
+            props.setProperty(p + "gradient",     String.valueOf(a.gradient));
+            props.setProperty(p + "gradientType", a.gradientType != null ? a.gradientType : "Linear");
+            props.setProperty(p + "gradientAngle",String.valueOf(a.gradientAngle));
+            props.setProperty(p + "glowOn",       String.valueOf(a.glowOn));
+            props.setProperty(p + "glowPct",      String.valueOf(a.glowPct));
+            if (a.glowColor != null) props.setProperty(p + "glowColor", colorToHex(a.glowColor));
+            props.setProperty(p + "stroke",       String.valueOf(a.strokeWidthPct));
+            props.setProperty(p + "shadow",       String.valueOf(a.shadow));
+            props.setProperty(p + "filled",       String.valueOf(a.filled));
+            props.setProperty(p + "corner",       String.valueOf(a.cornerPct));
+            if (a.borderColor != null) props.setProperty(p + "borderColor", colorToHex(a.borderColor));
+            props.setProperty(p + "borderWidth",  String.valueOf(a.borderWidthPct));
+            props.setProperty(p + "opacity",      String.valueOf(a.opacity));
+            props.setProperty(p + "appearMs",     String.valueOf(a.appearMs));
+            props.setProperty(p + "durationMs",   String.valueOf(a.durationMs));
+            props.setProperty(p + "entrance",     a.entrance != null ? a.entrance : "None");
+            props.setProperty(p + "idle",         a.idle     != null ? a.idle     : "None");
+            props.setProperty(p + "text",         a.text      != null ? a.text      : "");
+            props.setProperty(p + "imagePath",    a.imagePath != null ? a.imagePath : "");
+        }
+    }
+
+    // Rebuild the shape list from a preset. Returns null when the preset predates
+    // this feature (no shapeCount key) so Load Preset leaves existing shapes alone
+    // instead of wiping them.
+    private static List<SlideAnnotation> readAnnotations(Properties props) {
+        if (props.getProperty("shapeCount") == null) return null;
+        int n = parseIntOr(props.getProperty("shapeCount"), 0);
+        List<SlideAnnotation> out = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            String p = "shape." + i + ".";
+            if (props.getProperty(p + "kind") == null) continue;
+            SlideAnnotation a = new SlideAnnotation();
+            a.kind         = props.getProperty(p + "kind", "Shape");
+            a.subtype      = props.getProperty(p + "subtype", "");
+            a.xPct         = parseDoubleOr(props.getProperty(p + "x"), 50);
+            a.yPct         = parseDoubleOr(props.getProperty(p + "y"), 50);
+            a.sizePct      = parseDoubleOr(props.getProperty(p + "w"), 22);
+            a.heightPct    = parseDoubleOr(props.getProperty(p + "h"), 0);
+            a.rotationDeg  = parseDoubleOr(props.getProperty(p + "rot"), 0);
+            a.color        = hexToColor(props.getProperty(p + "color", "#FFFFFF"));
+            a.color2       = hexToColor(props.getProperty(p + "color2", "#FFFFFF"));
+            a.gradient     = Boolean.parseBoolean(props.getProperty(p + "gradient", "false"));
+            a.gradientType = props.getProperty(p + "gradientType", "Linear");
+            a.gradientAngle= parseDoubleOr(props.getProperty(p + "gradientAngle"), 0);
+            a.glowOn       = Boolean.parseBoolean(props.getProperty(p + "glowOn", "false"));
+            a.glowPct      = parseIntOr(props.getProperty(p + "glowPct"), 60);
+            String gc      = props.getProperty(p + "glowColor");
+            a.glowColor    = (gc == null || gc.isEmpty()) ? null : hexToColor(gc);
+            a.strokeWidthPct = parseDoubleOr(props.getProperty(p + "stroke"), 0.55);
+            a.shadow       = Boolean.parseBoolean(props.getProperty(p + "shadow", "true"));
+            a.filled       = Boolean.parseBoolean(props.getProperty(p + "filled", "true"));
+            a.cornerPct    = parseDoubleOr(props.getProperty(p + "corner"), 0);
+            String bc      = props.getProperty(p + "borderColor");
+            a.borderColor  = (bc == null || bc.isEmpty()) ? null : hexToColor(bc);
+            a.borderWidthPct = parseDoubleOr(props.getProperty(p + "borderWidth"), 0);
+            a.opacity      = parseIntOr(props.getProperty(p + "opacity"), 100);
+            a.appearMs     = parseIntOr(props.getProperty(p + "appearMs"), 0);
+            a.durationMs   = parseIntOr(props.getProperty(p + "durationMs"), 0);
+            a.entrance     = props.getProperty(p + "entrance", "None");
+            a.idle         = props.getProperty(p + "idle", "None");
+            a.text         = props.getProperty(p + "text", "");
+            a.imagePath    = props.getProperty(p + "imagePath", "");
+            if (SlideAnnotation.KIND_IMAGE.equals(a.kind) && a.imagePath != null && !a.imagePath.isEmpty()) {
+                try {
+                    File f = new File(a.imagePath);
+                    if (f.isFile()) a.image = loadImageFile(f);
+                } catch (Exception ignored) { /* missing file → placeholder */ }
+            }
+            out.add(a);
+        }
+        return out;
     }
 
     // Serialize / restore a Layout Group BoxStyle (dialog knobs) to a preset.
@@ -21239,9 +21348,43 @@ public class GifSlideShowApp extends JFrame {
                 loadSelected.run();
             };
 
+            // ---- quick presets: drop a ready-made group of shapes in one click ---
+            // Lays the given shape subtypes out as a centred horizontal row so they
+            // read like the reaction strip / Do's-Don'ts pair in one action.
+            final java.util.function.BiConsumer<String[], double[]> addRow = (subs, cfg) -> {
+                if (subs.length == 0) return;
+                int firstNew = model.size();
+                double size = cfg[0], y = cfg[1];
+                double spacing = size * 1.18;
+                double startX = 50 - spacing * (subs.length - 1) / 2.0;
+                for (int i = 0; i < subs.length; i++) {
+                    SlideAnnotation a = new SlideAnnotation();
+                    a.kind = SlideAnnotation.KIND_SHAPE;
+                    a.subtype = subs[i];
+                    a.initForSubtype();
+                    a.sizePct = size;
+                    a.xPct = Math.max(6, Math.min(94, startX + i * spacing));
+                    a.yPct = y;
+                    slideAnnotationItems.add(a);
+                    model.addElement(a);
+                }
+                list.setSelectedIndex(firstNew);
+                list.repaint();
+                onFormatChanged();
+                loadSelected.run();
+            };
+            final String[] ALL_REACTIONS = {
+                    "Like", "Love", "Dislike", "Check Badge", "Cross Badge", "Star Badge"};
+
             // ---- action buttons -------------------------------------------
             JButton addBtn = new JButton("＋ Add Selected");
             addBtn.addActionListener(e -> addSelected.run());
+            JButton addReactionsBtn = new JButton("＋ All reactions");
+            addReactionsBtn.setToolTipText("Drop all six premium reaction badges as a centred row.");
+            addReactionsBtn.addActionListener(e -> addRow.accept(ALL_REACTIONS, new double[]{13, 50}));
+            JButton addDoDontBtn = new JButton("＋ Do's & Don'ts");
+            addDoDontBtn.setToolTipText("Drop the Do's and Don'ts label cards side by side.");
+            addDoDontBtn.addActionListener(e -> addRow.accept(new String[]{"Do Card", "Dont Card"}, new double[]{30, 50}));
             JButton dupBtn = new JButton("Duplicate");
             dupBtn.addActionListener(e -> {
                 int i = list.getSelectedIndex();
@@ -21335,7 +21478,13 @@ public class GifSlideShowApp extends JFrame {
             JPanel addPanel = new JPanel(new BorderLayout(4, 4));
             addPanel.setBorder(BorderFactory.createTitledBorder("Add shapes (Ctrl/Shift-click for several)"));
             addPanel.add(new JScrollPane(catalog), BorderLayout.CENTER);
-            addPanel.add(addBtn, BorderLayout.SOUTH);
+            JPanel addBtns = new JPanel(new GridLayout(0, 1, 2, 2));
+            addBtns.add(addBtn);
+            JPanel presetBtns = new JPanel(new GridLayout(1, 0, 3, 0));
+            presetBtns.add(addReactionsBtn);
+            presetBtns.add(addDoDontBtn);
+            addBtns.add(presetBtns);
+            addPanel.add(addBtns, BorderLayout.SOUTH);
 
             JPanel left = new JPanel(new BorderLayout(6, 6));
             left.add(listPanel, BorderLayout.CENTER);
@@ -22463,6 +22612,14 @@ public class GifSlideShowApp extends JFrame {
             List<SlideAnnotation> out = new ArrayList<>(slideAnnotationItems.size());
             for (SlideAnnotation a : slideAnnotationItems) out.add(a.copy());
             return out;
+        }
+
+        /** Replace this slide's shapes with copies from {@code src} (used by Load Preset). */
+        void applySlideAnnotations(List<SlideAnnotation> src) {
+            if (src == null) return;
+            slideAnnotationItems.clear();
+            for (SlideAnnotation a : src) if (a != null) slideAnnotationItems.add(a.copy());
+            schedulePreview();
         }
 
         List<SlidePictureData> getSlidePictureDataList() {
