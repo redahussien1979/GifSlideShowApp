@@ -1032,7 +1032,31 @@ public class GifSlideShowApp extends JFrame {
         int gap = 0;           // pixels between cells
         int margin = 0;        // pixels around the outer edge
         Color background = Color.BLACK;
+        boolean platformExports = true; // also write Facebook / Instagram / TikTok sized copies
     }
+
+    // Target canvas for a social platform's feed/post image. Each saved sheet is
+    // refitted (aspect-ratio preserved, centered, no cropping) into these exact
+    // pixel dimensions so the upload matches the platform's spec and is not
+    // re-cropped by the platform. Sizes reflect current (2025/2026) guidance:
+    //   • Facebook feed photo — 4:5 portrait, the ratio that fills the most feed space.
+    //   • Instagram feed      — 4:5 portrait, Instagram's default feed post ratio.
+    //   • TikTok              — 9:16 full-screen vertical.
+    private static final class PlatformSpec {
+        final String folder;   // sub-folder name created under the output folder
+        final int width;
+        final int height;
+        final String label;    // shown in the summary / tooltip
+        PlatformSpec(String folder, int width, int height, String label) {
+            this.folder = folder; this.width = width; this.height = height; this.label = label;
+        }
+    }
+
+    private static final PlatformSpec[] PLATFORM_SPECS = {
+        new PlatformSpec("Fb",     1080, 1350, "Facebook feed (1080×1350, 4:5)"),
+        new PlatformSpec("insta",  1080, 1350, "Instagram feed (1080×1350, 4:5)"),
+        new PlatformSpec("tiktok", 1080, 1920, "TikTok full screen (1080×1920, 9:16)"),
+    };
 
     private void saveSlidesAsImages() {
         List<SlideData> slides = collectSlides();
@@ -1087,6 +1111,20 @@ public class GifSlideShowApp extends JFrame {
                     int perSheet = Math.max(1, rows * cols);
 
                     int sheetCount = (frames.size() + perSheet - 1) / perSheet;
+
+                    // Prepare one sub-folder per platform (Fb / insta / tiktok).
+                    File[] platformDirs = null;
+                    if (opts.platformExports) {
+                        platformDirs = new File[PLATFORM_SPECS.length];
+                        for (int p = 0; p < PLATFORM_SPECS.length; p++) {
+                            File pdir = new File(outDir, PLATFORM_SPECS[p].folder);
+                            if (!pdir.mkdirs() && !pdir.isDirectory()) {
+                                throw new IOException("Could not create folder: " + pdir.getAbsolutePath());
+                            }
+                            platformDirs[p] = pdir;
+                        }
+                    }
+
                     Set<String> usedNames = new HashSet<>();
                     for (int s = 0; s < sheetCount; s++) {
                         int start = s * perSheet;
@@ -1112,6 +1150,19 @@ public class GifSlideShowApp extends JFrame {
                         publish("Saving " + name + " (PNG)...");
                         ImageIO.write(sheet, "png", pngOut);
                         savedCount++;
+
+                        // Platform-sized copies: refit this sheet into each
+                        // platform's exact post dimensions so it fits perfectly.
+                        if (platformDirs != null) {
+                            for (int p = 0; p < PLATFORM_SPECS.length; p++) {
+                                PlatformSpec spec = PLATFORM_SPECS[p];
+                                publish("Saving " + name + " → " + spec.folder + "...");
+                                BufferedImage fitted = fitToCanvas(
+                                        sheet, spec.width, spec.height, opts.background);
+                                ImageIO.write(fitted, "png",
+                                        new File(platformDirs[p], name + ".png"));
+                            }
+                        }
                         int pct = 80 + (int) ((s + 1.0) / sheetCount * 20);
                         SwingUtilities.invokeLater(() -> progressBar.setValue(pct));
                     }
@@ -1134,9 +1185,18 @@ public class GifSlideShowApp extends JFrame {
                             "Error saving images:\n" + errorMsg,
                             "Save Images", JOptionPane.ERROR_MESSAGE);
                 } else {
+                    StringBuilder msg = new StringBuilder();
+                    msg.append("Saved ").append(savedCount).append(" image(s)");
+                    if (opts.platformExports) {
+                        msg.append("\n\nPlatform-sized copies in sub-folders:");
+                        for (PlatformSpec spec : PLATFORM_SPECS) {
+                            msg.append("\n  • ").append(spec.folder)
+                               .append("/  —  ").append(spec.label);
+                        }
+                    }
+                    msg.append("\n\nFolder: ").append(outDir.getAbsolutePath());
                     JOptionPane.showMessageDialog(GifSlideShowApp.this,
-                            "Saved " + savedCount + " image(s)\nFolder: "
-                                    + outDir.getAbsolutePath(),
+                            msg.toString(),
                             "Save Images", JOptionPane.INFORMATION_MESSAGE);
                 }
             }
@@ -1176,6 +1236,30 @@ public class GifSlideShowApp extends JFrame {
         }
         g2.dispose();
         return sheet;
+    }
+
+    // Refit a rendered image into an exact target canvas (a platform's post
+    // dimensions). The source is scaled with its aspect ratio preserved so it
+    // is fully contained — nothing is cropped — then centered, with any leftover
+    // area filled by the background color. The result is exactly tw×th pixels,
+    // so it matches the platform spec and won't be re-cropped on upload.
+    private BufferedImage fitToCanvas(BufferedImage src, int tw, int th, Color bg) {
+        BufferedImage canvas = new BufferedImage(tw, th, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g2 = canvas.createGraphics();
+        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.setColor(bg != null ? bg : Color.BLACK);
+        g2.fillRect(0, 0, tw, th);
+
+        double scale = Math.min((double) tw / src.getWidth(), (double) th / src.getHeight());
+        int dw = Math.max(1, (int) Math.round(src.getWidth() * scale));
+        int dh = Math.max(1, (int) Math.round(src.getHeight() * scale));
+        int dx = (tw - dw) / 2;
+        int dy = (th - dh) / 2;
+        g2.drawImage(src, dx, dy, dw, dh, null);
+        g2.dispose();
+        return canvas;
     }
 
     // Modal options window shown when "Save Images" is clicked. Returns the
@@ -1220,6 +1304,14 @@ public class GifSlideShowApp extends JFrame {
                 bgButton.setBackground(chosen);
             }
         });
+
+        JCheckBox platformCheck = new JCheckBox(
+                "Also save platform-sized copies (Facebook, Instagram, TikTok)", true);
+        platformCheck.setBackground(panelBg);
+        platformCheck.setForeground(fg);
+        platformCheck.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        platformCheck.setToolTipText("Creates Fb / insta / tiktok sub-folders, each holding "
+                + "copies refitted to that platform's exact post size so they fit perfectly.");
 
         JLabel summary = new JLabel(" ");
         summary.setForeground(new Color(150, 200, 150));
@@ -1284,6 +1376,9 @@ public class GifSlideShowApp extends JFrame {
         gc.gridx = 1; panel.add(bgButton, gc); rowIdx++;
 
         gc.gridx = 0; gc.gridy = rowIdx; gc.gridwidth = 2;
+        panel.add(platformCheck, gc); gc.gridwidth = 1; rowIdx++;
+
+        gc.gridx = 0; gc.gridy = rowIdx; gc.gridwidth = 2;
         panel.add(summary, gc); gc.gridwidth = 1; rowIdx++;
 
         // Buttons
@@ -1318,6 +1413,7 @@ public class GifSlideShowApp extends JFrame {
         opts.gap = (Integer) gapSpinner.getValue();
         opts.margin = (Integer) marginSpinner.getValue();
         opts.background = bgColor[0];
+        opts.platformExports = platformCheck.isSelected();
         return opts;
     }
 
