@@ -152,7 +152,7 @@ public class GifSlideShowApp extends JFrame {
         bulkTextBtn.addActionListener(e -> bulkImportText());
 
         JButton dictImportBtn = createStyledButton("Dict Import", new Color(50, 180, 160));
-        dictImportBtn.setToolTipText("Import CSV/TSV: each row=slide, each column=slide text (A→Text1, B→Text2...). Optional headers: HL/UL/BOLD/ITALIC/COLOR, AUDIOLINK, AUDIO1.., X-AXIS/Y-AXIS/TEXT-SIZE, and TEXT1TIME/TEXT2TIME.. for appear,go timing per text (cell=\"appear,go\" in seconds; \"appear\" alone = never leaves).");
+        dictImportBtn.setToolTipText("Import CSV/TSV: each row=slide, each column=slide text (A→Text1, B→Text2...). Optional headers: HL/UL/BOLD/ITALIC/COLOR, AUDIOLINK, AUDIO1.. (two comma-separated paths in a quoted cell = primary+second audio for that text, sharing the Gap), X-AXIS/Y-AXIS/TEXT-SIZE, and TEXT1TIME/TEXT2TIME.. for appear,go timing per text (cell=\"appear,go\" in seconds; \"appear\" alone = never leaves).");
         dictImportBtn.addActionListener(e -> dictionaryImport());
 
         JButton quizImportBtn = createStyledButton("Quiz Import", new Color(180, 120, 200));
@@ -2539,6 +2539,41 @@ public class GifSlideShowApp extends JFrame {
         return fields;
     }
 
+    /**
+     * Attach the audio(s) named in one imported cell to a text row. The cell may
+     * hold a single path, or two comma-separated paths (quote the cell in the
+     * CSV so the comma survives parsing, e.g. "voice1.mp3,voice2.mp3") — the
+     * first becomes the primary audio and the second the optional second audio,
+     * which plays after the first separated by the slide's Gap value.
+     */
+    private void applyImportedAudioCell(SlideRow slide, int textIdx, String cell,
+            File importSourceDir, int slideIdx, List<String> missingAudioFiles) {
+        String[] parts = cell.split(",");
+        boolean primaryAttached = false;
+        for (int slot = 0; slot < parts.length && slot < 2; slot++) {
+            String audioPath = parts[slot].trim();
+            if (audioPath.isEmpty()) continue;
+            File audioFile = new File(audioPath);
+            if (!audioFile.isAbsolute() && importSourceDir != null) {
+                audioFile = new File(importSourceDir, audioPath);
+            }
+            if (audioFile.exists()) {
+                int durationMs = probeAudioDurationMs(audioFile);
+                if (durationMs <= 0) durationMs = 3000; // fallback 3s if probe fails
+                if (slot == 0) {
+                    slide.setSlideAudio(textIdx, audioFile, durationMs);
+                    primaryAttached = true;
+                } else if (primaryAttached) {
+                    // The second audio only makes sense once the first is attached.
+                    slide.setSlideAudio2(textIdx, audioFile, durationMs);
+                }
+            } else {
+                missingAudioFiles.add("Slide " + (slideIdx + 1) + " Text" + (textIdx + 1)
+                        + (slot == 1 ? " (2nd audio)" : "") + ": " + audioPath);
+            }
+        }
+    }
+
     private void dictionaryImport() {
         // Choose source: file or clipboard
         String[] options = {"From File (CSV/TSV)", "From Clipboard / Paste"};
@@ -2644,7 +2679,7 @@ public class GifSlideShowApp extends JFrame {
 
         // Ask whether first row is a header
         int headerChoice = JOptionPane.showOptionDialog(this,
-                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting,\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.\nX-AXIS/Y-AXIS/TEXT-SIZE for position & size per text item.\nTEXT1TIME/TEXT2TIME/... for appear,go timing per text item\n(cell = \"appear,go\" in seconds; \"appear\" alone = never leaves).)",
+                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting,\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.\nFor TWO audios on one text, put both paths comma-separated in that\ntext's audio cell, quoted: \"first.mp3,second.mp3\" (2nd plays after the\nfirst, separated by the Gap value).\nX-AXIS/Y-AXIS/TEXT-SIZE for position & size per text item.\nTEXT1TIME/TEXT2TIME/... for appear,go timing per text item\n(cell = \"appear,go\" in seconds; \"appear\" alone = never leaves).)",
                 "Dictionary Import", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,
                 null, new String[]{"Yes, skip first row", "No, first row is data"}, "No, first row is data");
 
@@ -2855,42 +2890,25 @@ public class GifSlideShowApp extends JFrame {
                 }
             }
 
-            // Apply audio link from CSV if column exists (single AUDIOLINK → text index 0)
+            // Apply audio link from CSV if column exists (single AUDIOLINK → text index 0).
+            // A quoted cell may hold TWO comma-separated paths → primary + second audio.
             if (audioLinkColIndex >= 0 && audioLinkColIndex < fields.size()) {
-                String audioPath = fields.get(audioLinkColIndex).trim();
-                if (!audioPath.isEmpty()) {
-                    File audioFile = new File(audioPath);
-                    if (!audioFile.isAbsolute() && importSourceDir != null) {
-                        audioFile = new File(importSourceDir, audioPath);
-                    }
-                    if (audioFile.exists()) {
-                        int durationMs = probeAudioDurationMs(audioFile);
-                        if (durationMs <= 0) durationMs = 3000; // fallback 3s if probe fails
-                        slide.setSlideAudio(0, audioFile, durationMs);
-                    } else {
-                        missingAudioFiles.add("Slide " + (i + 1) + ": " + audioPath);
-                    }
+                String cell = fields.get(audioLinkColIndex).trim();
+                if (!cell.isEmpty()) {
+                    applyImportedAudioCell(slide, 0, cell, importSourceDir, i, missingAudioFiles);
                 }
             }
 
-            // Apply multi-audio columns (AUDIO1, AUDIO2, etc.)
+            // Apply multi-audio columns (AUDIO1, AUDIO2, etc.). Each cell maps to
+            // its text row; a quoted "first.mp3,second.mp3" cell attaches both the
+            // primary and the optional second audio for that same text.
             for (java.util.Map.Entry<Integer, Integer> entry : audioColByTextIndex.entrySet()) {
                 int textIdx = entry.getKey();
                 int colIdx = entry.getValue();
                 if (colIdx < fields.size()) {
-                    String audioPath = fields.get(colIdx).trim();
-                    if (!audioPath.isEmpty()) {
-                        File audioFile = new File(audioPath);
-                        if (!audioFile.isAbsolute() && importSourceDir != null) {
-                            audioFile = new File(importSourceDir, audioPath);
-                        }
-                        if (audioFile.exists()) {
-                            int durationMs = probeAudioDurationMs(audioFile);
-                            if (durationMs <= 0) durationMs = 3000; // fallback 3s if probe fails
-                            slide.setSlideAudio(textIdx, audioFile, durationMs);
-                        } else {
-                            missingAudioFiles.add("Slide " + (i + 1) + " Text" + (textIdx + 1) + ": " + audioPath);
-                        }
+                    String cell = fields.get(colIdx).trim();
+                    if (!cell.isEmpty()) {
+                        applyImportedAudioCell(slide, textIdx, cell, importSourceDir, i, missingAudioFiles);
                     }
                 }
             }
@@ -13601,6 +13619,67 @@ public class GifSlideShowApp extends JFrame {
      * land in the normal sequential chain. Other per-text audios chain as
      * before, skipping the hidden one entirely so it doesn't push them later.
      */
+
+    // Cache of merged (primary + gap + secondary) clips, keyed by the two source
+    // paths and gap, so repeated getSlideAudioFilesList() calls reuse one file.
+    private static final java.util.Map<String, File> combinedAudioCache = new java.util.HashMap<>();
+
+    /**
+     * Merge two audio files into a single clip: {@code audioA} + {@code gapMs}
+     * of silence + {@code audioB}. Lets a text row carry two sequential audios
+     * that share the slide's gap while still occupying ONE entry in the per-text
+     * audio list, so the highlight / karaoke / quiz code (which keys visuals off
+     * index==textIndex) keeps working unchanged. Falls back to {@code audioA}
+     * alone if either input is missing or ffmpeg fails.
+     */
+    static File buildCombinedAudioFile(File audioA, File audioB, int gapMs) {
+        if (audioA == null || !audioA.exists()) return audioB;
+        if (audioB == null || !audioB.exists()) return audioA;
+        String key = audioA.getAbsolutePath() + "|" + audioB.getAbsolutePath() + "|" + gapMs;
+        File cached = combinedAudioCache.get(key);
+        if (cached != null && cached.exists()) return cached;
+        try {
+            File outFile = File.createTempFile("slide_audio_pair_", ".m4a");
+            outFile.deleteOnExit();
+            java.util.List<String> cmd = new java.util.ArrayList<>();
+            cmd.add("ffmpeg"); cmd.add("-y");
+            cmd.add("-i"); cmd.add(audioA.getAbsolutePath());
+            cmd.add("-i"); cmd.add(audioB.getAbsolutePath());
+            StringBuilder fc = new StringBuilder();
+            // Normalise both inputs to a common format so concat never rejects
+            // clips that differ in sample-rate / channel-layout.
+            fc.append("[0:a]aformat=sample_rates=44100:channel_layouts=stereo[a0];");
+            fc.append("[1:a]aformat=sample_rates=44100:channel_layouts=stereo[a1];");
+            if (gapMs > 0) {
+                double gapSec = gapMs / 1000.0;
+                cmd.add("-f"); cmd.add("lavfi");
+                cmd.add("-t"); cmd.add(String.format(java.util.Locale.US, "%.3f", gapSec));
+                cmd.add("-i"); cmd.add("anullsrc=channel_layout=stereo:sample_rate=44100");
+                fc.append("[2:a]aformat=sample_rates=44100:channel_layouts=stereo[g];");
+                fc.append("[a0][g][a1]concat=n=3:v=0:a=1[out]");
+            } else {
+                fc.append("[a0][a1]concat=n=2:v=0:a=1[out]");
+            }
+            cmd.add("-filter_complex"); cmd.add(fc.toString());
+            cmd.add("-map"); cmd.add("[out]");
+            cmd.add("-c:a"); cmd.add("aac");
+            cmd.add("-b:a"); cmd.add("192k");
+            cmd.add(outFile.getAbsolutePath());
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            pb.redirectErrorStream(true);
+            Process proc = pb.start();
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(proc.getInputStream()))) {
+                while (br.readLine() != null) {}
+            }
+            int exit = proc.waitFor();
+            if (exit == 0 && outFile.exists() && outFile.length() > 0) {
+                combinedAudioCache.put(key, outFile);
+                return outFile;
+            }
+        } catch (Exception e) { e.printStackTrace(); }
+        return audioA;
+    }
+
     private static File concatSlideAudios(SlideData s, File tempDir) {
         // Parallel lists of valid audios with their original text-slot indices
         // and per-audio durations (needed to advance the cumulative offset).
@@ -16381,6 +16460,13 @@ public class GifSlideShowApp extends JFrame {
 
         private final java.util.Map<Integer, File> slideAudioFiles = new java.util.HashMap<>();
         private final java.util.Map<Integer, Integer> slideAudioDurationsMs = new java.util.HashMap<>();
+        // Optional SECOND audio per text row (key = text-row index). When present,
+        // it plays right after the primary audio for the same text, separated by
+        // the shared audio-gap. At export time the pair is merged into one clip
+        // (primary + gap + secondary) that occupies the text's single audio slot,
+        // so the highlight / karaoke / quiz index==textIndex invariant is kept.
+        private final java.util.Map<Integer, File> slideAudioFiles2 = new java.util.HashMap<>();
+        private final java.util.Map<Integer, Integer> slideAudioDurationsMs2 = new java.util.HashMap<>();
         // Per-text-row audio highlight settings (key = text-row index).
         // Whatever the toolbar's FX toggles / HL color / Sz spinner show is the
         // editable view of these maps for the currentSlideTextIndex; switching
@@ -16410,6 +16496,11 @@ public class GifSlideShowApp extends JFrame {
         private final JLabel audioDurationLabel;
         private final JButton audioClearBtn;
         private final JLabel audioLabel;
+        // Optional second-audio slot controls (shares the same gap control).
+        private final JButton audioBtn2;
+        private final JLabel audioFileLabel2;
+        private final JLabel audioDurationLabel2;
+        private final JButton audioClearBtn2;
         // Quiz feature (timer + reveal). See QuizSlide.java.
         private final QuizSlide quiz = new QuizSlide();
         private final JButton quizBtn;
@@ -17006,6 +17097,8 @@ public class GifSlideShowApp extends JFrame {
                 // Remove audio for the deleted text and shift higher indices down
                 slideAudioFiles.remove(removedIdx);
                 slideAudioDurationsMs.remove(removedIdx);
+                slideAudioFiles2.remove(removedIdx);
+                slideAudioDurationsMs2.remove(removedIdx);
                 slideAudioHlEffectsMap.remove(removedIdx);
                 slideAudioHlColorMap.remove(removedIdx);
                 slideAudioHlGlowSizeMap.remove(removedIdx);
@@ -17014,6 +17107,8 @@ public class GifSlideShowApp extends JFrame {
                 slideKaraokeColorMap.remove(removedIdx);
                 java.util.Map<Integer, File> shiftedFiles = new java.util.HashMap<>();
                 java.util.Map<Integer, Integer> shiftedDurations = new java.util.HashMap<>();
+                java.util.Map<Integer, File> shiftedFiles2 = new java.util.HashMap<>();
+                java.util.Map<Integer, Integer> shiftedDurations2 = new java.util.HashMap<>();
                 java.util.Map<Integer, String>  shiftedHlEffects = new java.util.HashMap<>();
                 java.util.Map<Integer, Color>   shiftedHlColor   = new java.util.HashMap<>();
                 java.util.Map<Integer, Integer> shiftedHlGlow    = new java.util.HashMap<>();
@@ -17027,6 +17122,14 @@ public class GifSlideShowApp extends JFrame {
                 for (java.util.Map.Entry<Integer, Integer> entry : slideAudioDurationsMs.entrySet()) {
                     int key = entry.getKey();
                     shiftedDurations.put(key > removedIdx ? key - 1 : key, entry.getValue());
+                }
+                for (java.util.Map.Entry<Integer, File> entry : slideAudioFiles2.entrySet()) {
+                    int key = entry.getKey();
+                    shiftedFiles2.put(key > removedIdx ? key - 1 : key, entry.getValue());
+                }
+                for (java.util.Map.Entry<Integer, Integer> entry : slideAudioDurationsMs2.entrySet()) {
+                    int key = entry.getKey();
+                    shiftedDurations2.put(key > removedIdx ? key - 1 : key, entry.getValue());
                 }
                 for (java.util.Map.Entry<Integer, String> entry : slideAudioHlEffectsMap.entrySet()) {
                     int key = entry.getKey();
@@ -17056,6 +17159,10 @@ public class GifSlideShowApp extends JFrame {
                 slideAudioFiles.putAll(shiftedFiles);
                 slideAudioDurationsMs.clear();
                 slideAudioDurationsMs.putAll(shiftedDurations);
+                slideAudioFiles2.clear();
+                slideAudioFiles2.putAll(shiftedFiles2);
+                slideAudioDurationsMs2.clear();
+                slideAudioDurationsMs2.putAll(shiftedDurations2);
                 slideAudioHlEffectsMap.clear();
                 slideAudioHlEffectsMap.putAll(shiftedHlEffects);
                 slideAudioHlColorMap.clear();
@@ -18685,11 +18792,50 @@ public class GifSlideShowApp extends JFrame {
             audioClearBtn.addActionListener(e -> clearSlideAudio());
             audioClearBtn.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
 
+            // ---- Optional second audio slot for the same text (shares the gap) ----
+            audioBtn2 = new JButton("📂 +2nd");
+            audioBtn2.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            audioBtn2.setPreferredSize(new Dimension(78, 26));
+            audioBtn2.setFocusPainted(false);
+            audioBtn2.setBackground(new Color(45, 100, 170));
+            audioBtn2.setForeground(Color.WHITE);
+            audioBtn2.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(new Color(70, 130, 200), 1),
+                    BorderFactory.createEmptyBorder(2, 6, 2, 6)));
+            audioBtn2.setToolTipText("Attach a SECOND audio to this text; it plays after the first, separated by the Gap value.");
+            audioBtn2.addActionListener(e -> browseSlideAudio2());
+            audioBtn2.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+
+            audioFileLabel2 = new JLabel("");
+            audioFileLabel2.setFont(new Font("Segoe UI", Font.ITALIC, 11));
+            audioFileLabel2.setForeground(new Color(120, 125, 145));
+            audioFileLabel2.setPreferredSize(new Dimension(130, 22));
+
+            audioDurationLabel2 = new JLabel("");
+            audioDurationLabel2.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            audioDurationLabel2.setForeground(new Color(80, 210, 140));
+
+            audioClearBtn2 = new JButton("✖");
+            audioClearBtn2.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            audioClearBtn2.setPreferredSize(new Dimension(32, 26));
+            audioClearBtn2.setFocusPainted(false);
+            audioClearBtn2.setBackground(new Color(160, 45, 45));
+            audioClearBtn2.setForeground(new Color(255, 200, 200));
+            audioClearBtn2.setBorder(BorderFactory.createLineBorder(new Color(200, 70, 70), 1));
+            audioClearBtn2.setToolTipText("Remove the second audio from this text");
+            audioClearBtn2.setVisible(false);
+            audioClearBtn2.addActionListener(e -> clearSlideAudio2());
+            audioClearBtn2.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+
             toolbar7.add(audioLabel);
             toolbar7.add(audioBtn);
             toolbar7.add(audioFileLabel);
             toolbar7.add(audioDurationLabel);
             toolbar7.add(audioClearBtn);
+            toolbar7.add(audioBtn2);
+            toolbar7.add(audioFileLabel2);
+            toolbar7.add(audioDurationLabel2);
+            toolbar7.add(audioClearBtn2);
 
             // Quiz button (opens timer + reveal config dialog).
             quizBtn = new JButton("🎯 Quiz…");
@@ -23401,9 +23547,24 @@ public class GifSlideShowApp extends JFrame {
         java.util.List<File> getSlideAudioFilesList() {
             int maxIdx = -1;
             for (int k : slideAudioFiles.keySet()) if (k > maxIdx) maxIdx = k;
+            int gapMs = getAudioGapMs();
             java.util.List<File> result = new java.util.ArrayList<>();
             for (int i = 0; i <= maxIdx; i++) {
-                result.add(slideAudioFiles.get(i));
+                File primary = slideAudioFiles.get(i);
+                File second  = slideAudioFiles2.get(i);
+                Integer d1 = slideAudioDurationsMs.get(i);
+                Integer d2 = slideAudioDurationsMs2.get(i);
+                // When a text has a second audio, merge (primary + gap + second)
+                // into a single clip so the text keeps ONE audio slot — the
+                // highlight/karaoke/quiz code all key visuals off index==textIndex.
+                // Predicate must match getSlideAudioDurationsMsList() exactly so the
+                // parallel files/durations lists never diverge.
+                if (primary != null && primary.exists() && d1 != null && d1 > 0
+                        && second != null && second.exists() && d2 != null && d2 > 0) {
+                    result.add(buildCombinedAudioFile(primary, second, gapMs));
+                } else {
+                    result.add(primary);
+                }
             }
             // Append audio files from bulk-grid images (each plays in sequence).
             if (bulkGridShowCheck != null && bulkGridShowCheck.isSelected()) {
@@ -23421,10 +23582,21 @@ public class GifSlideShowApp extends JFrame {
         java.util.List<Integer> getSlideAudioDurationsMsList() {
             int maxIdx = -1;
             for (int k : slideAudioDurationsMs.keySet()) if (k > maxIdx) maxIdx = k;
+            int gapMs = getAudioGapMs();
             java.util.List<Integer> result = new java.util.ArrayList<>();
             for (int i = 0; i <= maxIdx; i++) {
                 Integer d = slideAudioDurationsMs.get(i);
-                result.add(d != null ? d : 0);
+                int dur = d != null ? d : 0;
+                // Parallel to getSlideAudioFilesList(): if this text carries a
+                // merged (primary + gap + second) clip, report the combined length.
+                File primary = slideAudioFiles.get(i);
+                File second  = slideAudioFiles2.get(i);
+                Integer d2 = slideAudioDurationsMs2.get(i);
+                if (dur > 0 && primary != null && primary.exists()
+                        && second != null && second.exists() && d2 != null && d2 > 0) {
+                    dur += gapMs + d2;
+                }
+                result.add(dur);
             }
             // Append durations from bulk-grid images, parallel to audio files.
             if (bulkGridShowCheck != null && bulkGridShowCheck.isSelected()) {
@@ -23941,6 +24113,40 @@ public class GifSlideShowApp extends JFrame {
             slideAudioFiles.remove(currentSlideTextIndex);
             slideAudioDurationsMs.remove(currentSlideTextIndex);
             slideAudioWordTimingsMap.remove(currentSlideTextIndex);
+            // The second audio can't exist without the first — drop it too.
+            slideAudioFiles2.remove(currentSlideTextIndex);
+            slideAudioDurationsMs2.remove(currentSlideTextIndex);
+            updateAudioUI();
+        }
+
+        private void browseSlideAudio2() {
+            if (slideAudioFiles.get(currentSlideTextIndex) == null) {
+                JOptionPane.showMessageDialog(panel,
+                        "Add the first audio (Browse) before adding a second one.",
+                        "Second Audio", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            JFileChooser chooser = new JFileChooser();
+            chooser.setFileFilter(new FileNameExtensionFilter(
+                    "Audio Files", "mp3", "wav", "aac", "ogg", "m4a", "flac", "wma"));
+            if (chooser.showOpenDialog(panel) == JFileChooser.APPROVE_OPTION) {
+                File file = chooser.getSelectedFile();
+                int durationMs = probeAudioDurationMs(file);
+                if (durationMs <= 0) {
+                    JOptionPane.showMessageDialog(panel,
+                            "Could not read audio duration.\nMake sure ffprobe is installed.",
+                            "Audio Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                slideAudioFiles2.put(currentSlideTextIndex, file);
+                slideAudioDurationsMs2.put(currentSlideTextIndex, durationMs);
+                updateAudioUI();
+            }
+        }
+
+        private void clearSlideAudio2() {
+            slideAudioFiles2.remove(currentSlideTextIndex);
+            slideAudioDurationsMs2.remove(currentSlideTextIndex);
             updateAudioUI();
         }
 
@@ -24104,6 +24310,21 @@ public class GifSlideShowApp extends JFrame {
             }
         }
 
+        /** Set (or clear, when file==null) the optional second audio for a text
+         *  row. Used by CSV import (comma-separated audio cell → slot 1, slot 2). */
+        void setSlideAudio2(int textIndex, File file, int durationMs) {
+            if (file != null) {
+                slideAudioFiles2.put(textIndex, file);
+                slideAudioDurationsMs2.put(textIndex, durationMs);
+            } else {
+                slideAudioFiles2.remove(textIndex);
+                slideAudioDurationsMs2.remove(textIndex);
+            }
+            if (currentSlideTextIndex == textIndex) {
+                updateAudioUI();
+            }
+        }
+
         private void updateAudioUI() {
             File file = slideAudioFiles.get(currentSlideTextIndex);
             Integer durationMs = slideAudioDurationsMs.get(currentSlideTextIndex);
@@ -24121,6 +24342,23 @@ public class GifSlideShowApp extends JFrame {
                 audioFileLabel.setForeground(new Color(140, 140, 160));
                 audioDurationLabel.setText("");
                 audioClearBtn.setVisible(false);
+            }
+            // Second audio slot: only usable once a primary audio exists.
+            boolean hasPrimary = file != null && durationMs != null && durationMs > 0;
+            File file2 = slideAudioFiles2.get(currentSlideTextIndex);
+            Integer durationMs2 = slideAudioDurationsMs2.get(currentSlideTextIndex);
+            audioBtn2.setEnabled(hasPrimary);
+            if (hasPrimary && file2 != null && durationMs2 != null && durationMs2 > 0) {
+                audioFileLabel2.setText("+ ♫ " + file2.getName());
+                audioFileLabel2.setFont(audioFileLabel2.getFont().deriveFont(Font.BOLD));
+                audioFileLabel2.setForeground(new Color(200, 230, 255));
+                audioDurationLabel2.setText(String.format("⏱ %d.%ds",
+                        durationMs2 / 1000, (durationMs2 % 1000) / 100));
+                audioClearBtn2.setVisible(true);
+            } else {
+                audioFileLabel2.setText("");
+                audioDurationLabel2.setText("");
+                audioClearBtn2.setVisible(false);
             }
             refreshKaraokeStatus();
         }
