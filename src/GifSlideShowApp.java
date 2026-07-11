@@ -475,6 +475,9 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(pc + "italic",  String.valueOf(source.getLgColItals().get(c)));
             props.setProperty(pc + "ovAlign", String.valueOf(source.getLgColOvAlign().get(c)));
             props.setProperty(pc + "align",   String.valueOf(source.getLgColAligns().get(c)));
+            props.setProperty(pc + "ovPos",   String.valueOf(source.getLgColOvPos().get(c)));
+            props.setProperty(pc + "anchorX", String.valueOf(source.getLgColAnchorX().get(c)));
+            props.setProperty(pc + "anchorY", String.valueOf(source.getLgColAnchorY().get(c)));
             props.setProperty(pc + "ovBox",   String.valueOf(source.getLgColOvBox().get(c)));
             writeBoxStyle(props, pc + "box.", source.getLgColBoxes().get(c));
         }
@@ -1004,6 +1007,12 @@ public class GifSlideShowApp extends JFrame {
                     String  cAs = props.getProperty(pc + "align");
                     Integer cA  = (cAs == null) ? null : parseIntOr(cAs, SwingConstants.CENTER);
                     row.setLgColumnOverride(c, ovF, cF, ovS, cS, ovC, cC, ovB, cB, ovI, cI, ovA, cA);
+                    Boolean ovP = parseBoolOr(props.getProperty(pc + "ovPos"), null);
+                    String  axS = props.getProperty(pc + "anchorX");
+                    Integer ax  = (axS == null) ? null : parseIntOr(axS, 10);
+                    String  ayS = props.getProperty(pc + "anchorY");
+                    Integer ay  = (ayS == null) ? null : parseIntOr(ayS, 55);
+                    row.setLgColumnPos(c, ovP, ax, ay);
                     Boolean ovBox = parseBoolOr(props.getProperty(pc + "ovBox"), null);
                     BoxStyle cBox = readBoxStyle(props, pc + "box.");
                     row.setLgColumnBox(c, ovBox, cBox);
@@ -4893,7 +4902,25 @@ public class GifSlideShowApp extends JFrame {
                 int stPadX = (int) Math.max(1, 6 * stScaleFactor * stBgPadScaleX);
                 int stPadY = (int) Math.max(1, 4 * stScaleFactor * stBgPadScaleY);
 
-                int bgX = stCenterX - stMaxLineWidth / 2 - stPadX;
+                // Position the BG box around where the text actually renders so it
+                // follows Left/Right alignment instead of always hugging the center.
+                // Justified text fills the block starting at the centered stBlockLeft,
+                // so its box stays centered; Left/Right shift the box to the text edge.
+                int stAlignWidth = stMaxWrapWidth;
+                int stAlignLeft  = stCenterX - stAlignWidth / 2;
+                int stBlockLeft  = stCenterX - stMaxLineWidth / 2;
+                int stBoxLeft;
+                if (st.justify) {
+                    stBoxLeft = stBlockLeft;
+                } else if (st.alignment == SwingConstants.LEFT) {
+                    stBoxLeft = stAlignLeft;
+                } else if (st.alignment == SwingConstants.RIGHT) {
+                    stBoxLeft = stAlignLeft + stAlignWidth - stMaxLineWidth;
+                } else {
+                    stBoxLeft = stBlockLeft;
+                }
+
+                int bgX = stBoxLeft - stPadX;
                 int bgY = stCenterY - totalTextHeight / 2 - stPadY;
                 int bgW = stMaxLineWidth + stPadX * 2;
                 int bgH = totalTextHeight + stPadY * 2;
@@ -4974,10 +5001,7 @@ public class GifSlideShowApp extends JFrame {
 
                 // Use wrap width as fixed reference for LEFT/RIGHT alignment
                 // so position doesn't shift with text content length.
-                int stAlignWidth = stMaxWrapWidth;
-                int stAlignLeft = stCenterX - stAlignWidth / 2;
-                int stBlockLeft = stCenterX - stMaxLineWidth / 2;
-
+                // (stAlignWidth / stAlignLeft / stBlockLeft computed above for the BG box.)
                 Color stColor = st.color != null ? st.color : Color.YELLOW;
                 String effect = st.textEffect != null ? st.textEffect : "None";
                 double intensity = st.textEffectIntensity / 100.0;
@@ -16268,6 +16292,12 @@ public class GifSlideShowApp extends JFrame {
         private final java.util.List<Boolean> lgColOvBold  = new java.util.ArrayList<>();
         private final java.util.List<Boolean> lgColOvItal  = new java.util.ArrayList<>();
         private final java.util.List<Boolean> lgColOvAlign = new java.util.ArrayList<>();
+        // Per-column position override: when a column's "Pos" flag is on, its
+        // Anchor X/Y beat the group Anchor + Col-gap for the items in that column
+        // (Row gap still stacks the rows within the column from that anchor Y).
+        private final java.util.List<Integer> lgColAnchorX = new java.util.ArrayList<>();
+        private final java.util.List<Integer> lgColAnchorY = new java.util.ArrayList<>();
+        private final java.util.List<Boolean> lgColOvPos   = new java.util.ArrayList<>();
         // ---- Layout Group "Box style" (BG box) state ----
         // Group-level box stamp + per-column box overrides, mirroring the
         // toolbar 4b2/4b3/4b4 controls. lgGroupBox is seeded from the current
@@ -20012,6 +20042,9 @@ public class GifSlideShowApp extends JFrame {
             boolean bold, italic;
             int alignment = SwingConstants.CENTER;
             java.util.List<Boolean> colOvFont, colOvSize, colOvColor, colOvBold, colOvItal, colOvAlign;
+            // Per-column position override (Anchor X/Y beat the group grid formula).
+            java.util.List<Boolean> colOvPos;
+            java.util.List<Integer> colAnchorX, colAnchorY;
             java.util.List<String>  colFonts;
             java.util.List<Integer> colSizes;
             java.util.List<Color>   colColors;
@@ -20038,7 +20071,7 @@ public class GifSlideShowApp extends JFrame {
             boolean anyCol = anyTrue(cfg.colOvFont) || anyTrue(cfg.colOvSize)
                     || anyTrue(cfg.colOvColor) || anyTrue(cfg.colOvBold)
                     || anyTrue(cfg.colOvItal) || anyTrue(cfg.colOvAlign)
-                    || anyTrue(cfg.colOvBox);
+                    || anyTrue(cfg.colOvPos) || anyTrue(cfg.colOvBox);
             if (!anyGroup && !anyCol) return;
 
             // Flush whatever the user has typed into the visible per-text toolbars
@@ -20065,7 +20098,15 @@ public class GifSlideShowApp extends JFrame {
                 }
 
                 int newX = old.x, newY = old.y;
-                if (cfg.doPos) {
+                // A per-column position override (its "Pos" flag) beats the group
+                // grid formula: the column sits at its own Anchor X, and its rows
+                // stack down from its own Anchor Y using Row gap.
+                if (ovActive(col, cfg.colOvPos, cfg.colAnchorX)
+                        && cfg.colAnchorY != null && col < cfg.colAnchorY.size()
+                        && cfg.colAnchorY.get(col) != null) {
+                    newX = clampPct(cfg.colAnchorX.get(col));
+                    newY = clampPct(cfg.colAnchorY.get(col) + row * cfg.rowGap);
+                } else if (cfg.doPos) {
                     newX = clampPct(cfg.anchorX + col * cfg.colGap);
                     newY = clampPct(cfg.anchorY + row * cfg.rowGap);
                 }
@@ -20171,6 +20212,9 @@ public class GifSlideShowApp extends JFrame {
                 lgColOvBold.add(false);
                 lgColOvItal.add(false);
                 lgColOvAlign.add(false);
+                lgColAnchorX.add(lgAnchorX);
+                lgColAnchorY.add(lgAnchorY);
+                lgColOvPos.add(false);
                 lgColOvBox.add(false);
                 lgColBoxes.add(new BoxStyle());
             }
@@ -20188,6 +20232,9 @@ public class GifSlideShowApp extends JFrame {
                 lgColOvBold.remove(last);
                 lgColOvItal.remove(last);
                 lgColOvAlign.remove(last);
+                lgColAnchorX.remove(last);
+                lgColAnchorY.remove(last);
+                lgColOvPos.remove(last);
                 lgColOvBox.remove(last);
                 lgColBoxes.remove(last);
             }
@@ -20229,6 +20276,9 @@ public class GifSlideShowApp extends JFrame {
         java.util.List<Boolean> getLgColOvBold()  { return lgColOvBold; }
         java.util.List<Boolean> getLgColOvItal()  { return lgColOvItal; }
         java.util.List<Boolean> getLgColOvAlign() { return lgColOvAlign; }
+        java.util.List<Integer> getLgColAnchorX() { return lgColAnchorX; }
+        java.util.List<Integer> getLgColAnchorY() { return lgColAnchorY; }
+        java.util.List<Boolean> getLgColOvPos()   { return lgColOvPos; }
         // Box-style dialog knobs (for preset save/restore).
         boolean isLgApplyBox()   { return lgApplyBox; }
         BoxStyle getLgGroupBox() { return lgGroupBox != null ? lgGroupBox : new BoxStyle(); }
@@ -20241,6 +20291,14 @@ public class GifSlideShowApp extends JFrame {
         void applyLayoutGroupBoxState(boolean applyBox, BoxStyle groupBox) {
             lgApplyBox = applyBox;
             if (groupBox != null) lgGroupBox = groupBox.copy();
+        }
+
+        /** Restore one column's position override flag + anchor from a preset. */
+        void setLgColumnPos(int col, Boolean ovPos, Integer anchorX, Integer anchorY) {
+            ensureColListSize(Math.max(lgCols, col + 1));
+            if (ovPos   != null) lgColOvPos.set(col,   ovPos);
+            if (anchorX != null) lgColAnchorX.set(col, clampPct(anchorX));
+            if (anchorY != null) lgColAnchorY.set(col, clampPct(anchorY));
         }
 
         /** Restore one column's box override flag + style from a preset. */
@@ -20602,6 +20660,10 @@ public class GifSlideShowApp extends JFrame {
             final java.util.List<JToggleButton>       colItalTgls    = new java.util.ArrayList<>();
             final java.util.List<JCheckBox>           ovAlignChecks  = new java.util.ArrayList<>();
             final java.util.List<JComboBox<String>>   colAlignCombos = new java.util.ArrayList<>();
+            // Per-column position overrides: a "Pos" checkbox + Anchor X/Y spinners.
+            final java.util.List<JCheckBox>           ovPosChecks    = new java.util.ArrayList<>();
+            final java.util.List<JSpinner>            colAnchorXSps  = new java.util.ArrayList<>();
+            final java.util.List<JSpinner>            colAnchorYSps  = new java.util.ArrayList<>();
             // Per-column box overrides: one "Box" checkbox + an editable BoxStyle per column.
             final java.util.List<JCheckBox>           ovBoxChecks    = new java.util.ArrayList<>();
             final java.util.List<BoxStyle>            colBoxHolders  = new java.util.ArrayList<>();
@@ -20623,6 +20685,7 @@ public class GifSlideShowApp extends JFrame {
                 ovBoldChecks.clear();   colBoldTgls.clear();
                 ovItalChecks.clear();   colItalTgls.clear();
                 ovAlignChecks.clear();  colAlignCombos.clear();
+                ovPosChecks.clear();    colAnchorXSps.clear(); colAnchorYSps.clear();
                 ovBoxChecks.clear();    colBoxHolders.clear();
 
                 for (int c = 0; c < nCols; c++) {
@@ -20668,6 +20731,18 @@ public class GifSlideShowApp extends JFrame {
                     aCb.setSelectedIndex(lgColAligns.get(c) == SwingConstants.LEFT ? 0
                             : (lgColAligns.get(c) == SwingConstants.RIGHT ? 2 : 1));
 
+                    // Per-column position: overrides the group Anchor + Col-gap for
+                    // this column so it can be placed independently (X, and starting Y).
+                    JCheckBox ovP = new JCheckBox("Pos", lgColOvPos.get(c));
+                    JSpinner axSp = new JSpinner(new SpinnerNumberModel(
+                            lgColAnchorX.get(c).intValue(), 0, 100, 1));
+                    axSp.setPreferredSize(new Dimension(58, 24));
+                    axSp.setToolTipText("Column " + (c + 1) + " Anchor X% (when Pos is on)");
+                    JSpinner aySp = new JSpinner(new SpinnerNumberModel(
+                            lgColAnchorY.get(c).intValue(), 0, 100, 1));
+                    aySp.setPreferredSize(new Dimension(58, 24));
+                    aySp.setToolTipText("Column " + (c + 1) + " Anchor Y% (when Pos is on)");
+
                     // Per-column box override: a checkbox + a popup editor holding a
                     // full BoxStyle for this column.
                     JCheckBox ovBox = new JCheckBox("Box", lgColOvBox.get(c));
@@ -20691,7 +20766,7 @@ public class GifSlideShowApp extends JFrame {
                         boxDlg.setVisible(true);
                     });
 
-                    for (JCheckBox cb : new JCheckBox[]{ovF, ovS, ovC, ovB, ovI, ovA, ovBox}) {
+                    for (JCheckBox cb : new JCheckBox[]{ovF, ovS, ovC, ovB, ovI, ovA, ovP, ovBox}) {
                         cb.addActionListener(e -> livePreview.run());
                     }
                     fCb.addItemListener(e -> livePreview.run());
@@ -20699,6 +20774,8 @@ public class GifSlideShowApp extends JFrame {
                     bTgl.addActionListener(e -> livePreview.run());
                     iTgl.addActionListener(e -> livePreview.run());
                     aCb.addItemListener(e -> livePreview.run());
+                    axSp.addChangeListener(e -> livePreview.run());
+                    aySp.addChangeListener(e -> livePreview.run());
 
                     row.add(ovF); row.add(fCb);
                     row.add(ovS); row.add(sSp);
@@ -20706,6 +20783,8 @@ public class GifSlideShowApp extends JFrame {
                     row.add(ovB); row.add(bTgl);
                     row.add(ovI); row.add(iTgl);
                     row.add(ovA); row.add(aCb);
+                    row.add(ovP); row.add(new JLabel("X")); row.add(axSp);
+                    row.add(new JLabel("Y")); row.add(aySp);
                     row.add(ovBox); row.add(editBoxBtn);
 
                     colsContainer.add(row);
@@ -20716,6 +20795,7 @@ public class GifSlideShowApp extends JFrame {
                     ovBoldChecks.add(ovB);    colBoldTgls.add(bTgl);
                     ovItalChecks.add(ovI);    colItalTgls.add(iTgl);
                     ovAlignChecks.add(ovA);   colAlignCombos.add(aCb);
+                    ovPosChecks.add(ovP);     colAnchorXSps.add(axSp); colAnchorYSps.add(aySp);
                     ovBoxChecks.add(ovBox);   colBoxHolders.add(colBox);
                 }
                 colsContainer.revalidate();
@@ -20768,6 +20848,9 @@ public class GifSlideShowApp extends JFrame {
                 cfg.colOvBold  = new java.util.ArrayList<>(n);
                 cfg.colOvItal  = new java.util.ArrayList<>(n);
                 cfg.colOvAlign = new java.util.ArrayList<>(n);
+                cfg.colOvPos   = new java.util.ArrayList<>(n);
+                cfg.colAnchorX = new java.util.ArrayList<>(n);
+                cfg.colAnchorY = new java.util.ArrayList<>(n);
                 cfg.colFonts   = new java.util.ArrayList<>(n);
                 cfg.colSizes   = new java.util.ArrayList<>(n);
                 cfg.colColors  = new java.util.ArrayList<>(n);
@@ -20783,6 +20866,9 @@ public class GifSlideShowApp extends JFrame {
                     cfg.colOvBold.add(ovBoldChecks.get(c).isSelected());
                     cfg.colOvItal.add(ovItalChecks.get(c).isSelected());
                     cfg.colOvAlign.add(ovAlignChecks.get(c).isSelected());
+                    cfg.colOvPos.add(c < ovPosChecks.size() && ovPosChecks.get(c).isSelected());
+                    cfg.colAnchorX.add(c < colAnchorXSps.size() ? (int) colAnchorXSps.get(c).getValue() : lgAnchorX);
+                    cfg.colAnchorY.add(c < colAnchorYSps.size() ? (int) colAnchorYSps.get(c).getValue() : lgAnchorY);
                     cfg.colFonts.add((String) colFontCombos.get(c).getSelectedItem());
                     cfg.colSizes.add((int) colSizeSps.get(c).getValue());
                     cfg.colColors.add(colColorHolders.get(c)[0]);
@@ -20956,6 +21042,9 @@ public class GifSlideShowApp extends JFrame {
                     lgColItals.set(c,   colItalTgls.get(c).isSelected());
                     lgColOvAlign.set(c, ovAlignChecks.get(c).isSelected());
                     lgColAligns.set(c,  comboToAlignment(colAlignCombos.get(c)));
+                    if (c < ovPosChecks.size())   lgColOvPos.set(c,   ovPosChecks.get(c).isSelected());
+                    if (c < colAnchorXSps.size()) lgColAnchorX.set(c, (int) colAnchorXSps.get(c).getValue());
+                    if (c < colAnchorYSps.size()) lgColAnchorY.set(c, (int) colAnchorYSps.get(c).getValue());
                     if (c < ovBoxChecks.size()) lgColOvBox.set(c, ovBoxChecks.get(c).isSelected());
                     if (c < colBoxHolders.size()) lgColBoxes.set(c, colBoxHolders.get(c).copy());
                 }
