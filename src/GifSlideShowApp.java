@@ -55,6 +55,19 @@ public class GifSlideShowApp extends JFrame {
         loadedFontNames = loadedFonts.keySet().toArray(new String[0]);
     }
 
+    /** Full font list used by the main app: loaded fonts first, then all
+     *  system font families. Shared so dialogs (e.g. Layout Group) offer the
+     *  same set as the main slide-text font picker. */
+    private static String[] allFontNames() {
+        String[] systemFonts = GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
+        java.util.List<String> allFonts = new java.util.ArrayList<>();
+        for (String fn : loadedFontNames) allFonts.add(fn);
+        for (String fn : systemFonts) {
+            if (!allFonts.contains(fn)) allFonts.add(fn);
+        }
+        return allFonts.toArray(new String[0]);
+    }
+
     private final List<SlideRow> slideRows = new ArrayList<>();
     private final JPanel slidesPanel;
     private final JScrollPane scrollPane;
@@ -17064,13 +17077,7 @@ public class GifSlideShowApp extends JFrame {
             slideTextScroll.setPreferredSize(new Dimension(140, 48));
             slideTextScroll.setBorder(BorderFactory.createLineBorder(new Color(60, 63, 68)));
 
-            String[] systemFonts = GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
-            java.util.List<String> allFonts = new java.util.ArrayList<>();
-            for (String fn : loadedFontNames) allFonts.add(fn);
-            for (String fn : systemFonts) {
-                if (!allFonts.contains(fn)) allFonts.add(fn);
-            }
-            slideTextFontCombo = new JComboBox<>(allFonts.toArray(new String[0]));
+            slideTextFontCombo = new JComboBox<>(allFontNames());
             slideTextFontCombo.setSelectedItem(loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI");
             slideTextFontCombo.setPreferredSize(new Dimension(105, 28));
             slideTextFontCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
@@ -20254,8 +20261,8 @@ public class GifSlideShowApp extends JFrame {
             lgCols       = Math.max(1, cols);
             lgAnchorX    = clampPct(anchorX);
             lgAnchorY    = clampPct(anchorY);
-            lgColGap     = clampPct(colGap);
-            lgRowGap     = Math.max(0, Math.min(50, rowGap));
+            lgColGap     = Math.max(-100, Math.min(100, colGap));
+            lgRowGap     = Math.max(-50, Math.min(50, rowGap));
             lgFillOrder  = "Column".equalsIgnoreCase(fillOrder) ? "Column" : "Row";
             lgApplyPos   = doPos;
             lgApplyFont  = doFont;
@@ -20536,8 +20543,8 @@ public class GifSlideShowApp extends JFrame {
 
             final JSpinner anchorXSp = new JSpinner(new SpinnerNumberModel(lgAnchorX, 0, 100, 1));
             final JSpinner anchorYSp = new JSpinner(new SpinnerNumberModel(lgAnchorY, 0, 100, 1));
-            final JSpinner colGapSp  = new JSpinner(new SpinnerNumberModel(lgColGap,  0, 100, 1));
-            final JSpinner rowGapSp  = new JSpinner(new SpinnerNumberModel(lgRowGap,  0,  50, 1));
+            final JSpinner colGapSp  = new JSpinner(new SpinnerNumberModel(lgColGap,  -100, 100, 1));
+            final JSpinner rowGapSp  = new JSpinner(new SpinnerNumberModel(lgRowGap,   -50,  50, 1));
 
             // ---------- Stamp / style (group level) ----------
             final JCheckBox doPosCheck   = new JCheckBox("Position",        lgApplyPos);
@@ -20549,7 +20556,7 @@ public class GifSlideShowApp extends JFrame {
             final JCheckBox doAlignCheck = new JCheckBox("Align:",          lgApplyAlign);
 
             final JComboBox<String> fontCombo = new JComboBox<>(
-                    loadedFontNames.length > 0 ? loadedFontNames : new String[]{"Segoe UI"});
+                    loadedFontNames.length > 0 ? allFontNames() : new String[]{"Segoe UI"});
             fontCombo.setSelectedItem(lgFont);
             final JSpinner sizeSp = new JSpinner(new SpinnerNumberModel(lgSize, 6, 400, 1));
             final Color[] colorHolder = new Color[] { lgColor };
@@ -20625,7 +20632,7 @@ public class GifSlideShowApp extends JFrame {
 
                     JCheckBox ovF = new JCheckBox("Font", lgColOvFont.get(c));
                     JComboBox<String> fCb = new JComboBox<>(
-                            loadedFontNames.length > 0 ? loadedFontNames : new String[]{"Segoe UI"});
+                            loadedFontNames.length > 0 ? allFontNames() : new String[]{"Segoe UI"});
                     fCb.setSelectedItem(lgColFonts.get(c));
                     fCb.setPreferredSize(new Dimension(140, 24));
 
