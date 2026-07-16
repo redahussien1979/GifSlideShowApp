@@ -385,6 +385,7 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(p + "alignment", String.valueOf(t.alignment));
             props.setProperty(p + "textEffect", t.textEffect);
             props.setProperty(p + "textEffectIntensity", String.valueOf(t.textEffectIntensity));
+            props.setProperty(p + "fxBurst", String.valueOf(t.fxBurst));
             props.setProperty(p + "highlightText", t.highlightText);
             props.setProperty(p + "highlightColor", colorToHex(t.highlightColor));
             props.setProperty(p + "highlightStyle", t.highlightStyle);
@@ -739,6 +740,7 @@ public class GifSlideShowApp extends JFrame {
             loaded.bgPaddingPct      = Integer.parseInt(props.getProperty(p + "bgPaddingPct", "50"));
             loaded.bgPaddingYPct     = Integer.parseInt(props.getProperty(p + "bgPaddingYPct", "50"));
             loaded.bgRoundPct        = Integer.parseInt(props.getProperty(p + "bgRoundPct", "10"));
+            loaded.fxBurst           = Boolean.parseBoolean(props.getProperty(p + "fxBurst", "false"));
             loaded.bgColor2          = hexToColor(props.getProperty(p + "bgColor2", "#3C3C3C"));
             // bgFillKind defaults to Solid; legacy bgGradient=true upgrades to Linear.
             String legacyGrad = props.getProperty(p + "bgGradient");
@@ -7301,6 +7303,72 @@ public class GifSlideShowApp extends JFrame {
                             }
                             break;
                         }
+                        case "Cartoon Pop": {
+                            // Kids-vocab sticker look: glossy vertical gradient fill (Word
+                            // Color, brightened at top), a thick accent outline + soft neon
+                            // glow (both taken from the HL color picker), and a drop shadow
+                            // for depth. Colors are driven entirely by the existing pickers
+                            // so the same effect recolors (e.g. gold+purple or cyan+blue).
+                            boolean useShaped = containsArabic(visibleLine);
+                            java.awt.font.FontRenderContext frc = g2.getFontRenderContext();
+                            final float strokeW = Math.max(2.5f, (float) (scaledStSize * 0.14 * (0.5 + 0.5 * intensity)));
+                            final int shadowOff = Math.max(2, (int) (scaledStSize * 0.05));
+                            final Color accent = st.highlightColor != null
+                                    ? new Color(st.highlightColor.getRed(), st.highlightColor.getGreen(), st.highlightColor.getBlue())
+                                    : new Color(120, 80, 210);
+                            final Color fillTop = new Color(
+                                    Math.min(255, stColor.getRed() + 70),
+                                    Math.min(255, stColor.getGreen() + 65),
+                                    Math.min(255, stColor.getBlue() + 40));
+                            final int glowLayers = 4 + (int) (4 * intensity);
+                            java.util.function.BiConsumer<Integer, String> drawPop = (xPos, word) -> {
+                                Shape shape = useShaped
+                                        ? new java.awt.font.TextLayout(word, fxFont, frc)
+                                        .getOutline(AffineTransform.getTranslateInstance(xPos, fxLineY))
+                                        : fxFont.createGlyphVector(frc, word).getOutline(xPos, fxLineY);
+                                // Soft neon glow in the accent color (widening, fading strokes)
+                                Graphics2D gg = (Graphics2D) g2.create();
+                                gg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                                for (int gl = glowLayers; gl >= 1; gl--) {
+                                    float sw = strokeW + gl * (float) (scaledStSize * 0.05 * (0.5 + intensity));
+                                    double tt = (double) gl / glowLayers;
+                                    int alpha = (int) (70 * intensity * (1.0 - tt) + 10);
+                                    gg.setStroke(new BasicStroke(sw, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                    gg.setColor(new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), Math.min(255, alpha)));
+                                    gg.draw(shape);
+                                }
+                                gg.dispose();
+                                // Drop shadow (fake depth)
+                                Graphics2D sg = (Graphics2D) g2.create();
+                                sg.translate(shadowOff, shadowOff);
+                                sg.setColor(new Color(0, 0, 0, (int) (120 * intensity)));
+                                sg.fill(shape);
+                                sg.dispose();
+                                // Thick accent outline
+                                Stroke savedStroke = g2.getStroke();
+                                g2.setStroke(new BasicStroke(strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                g2.setColor(accent);
+                                g2.draw(shape);
+                                g2.setStroke(savedStroke);
+                                // Glossy vertical gradient fill over the glyph bounds
+                                java.awt.Rectangle gb = shape.getBounds();
+                                int gh = Math.max(1, gb.height);
+                                java.awt.Paint savedPaint = g2.getPaint();
+                                g2.setPaint(new java.awt.GradientPaint(0, gb.y, fillTop, 0, gb.y + gh, stColor));
+                                g2.fill(shape);
+                                g2.setPaint(savedPaint);
+                            };
+                            if (justified) {
+                                double dx = stBlockLeft;
+                                for (String w : justifyWords) {
+                                    drawPop.accept((int) dx, w);
+                                    dx += stFm.stringWidth(w) + justifyExtraSpace;
+                                }
+                            } else {
+                                drawPop.accept(lineX, visibleLine);
+                            }
+                            break;
+                        }
                         default: { // "None" and "Typewriter" (typewriter just limits chars above)
                             g2.setColor(stColor);
                             if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
@@ -7403,6 +7471,23 @@ public class GifSlideShowApp extends JFrame {
                                 gFG.dispose();
                             }
                         }
+                    }
+
+                    // Word-anchored sparkle burst: twinkling stars ringed around the
+                    // line's bounding box. Positions are seeded by the box so they
+                    // stay put and twinkle in place; the accent comes from the HL
+                    // color picker (falls back to a soft violet).
+                    if (st.fxBurst) {
+                        int bLeft = justified ? (int) stBlockLeft : lineX;
+                        int bTop  = lineY - stAscent;
+                        int bH    = stFm.getHeight();
+                        int halfW = lineW / 2 + (int) (scaledStSize * 0.45);
+                        int halfH = bH / 2 + (int) (scaledStSize * 0.45);
+                        Color burstAccent = st.highlightColor != null
+                                ? new Color(st.highlightColor.getRed(), st.highlightColor.getGreen(), st.highlightColor.getBlue())
+                                : new Color(150, 110, 240);
+                        drawKidsBurst(g2, bLeft + lineW / 2, bTop + bH / 2, halfW, halfH,
+                                animFrameIndex, burstAccent, stScaleFactor);
                     }
 
                     g2.dispose();
@@ -9041,6 +9126,53 @@ public class GifSlideShowApp extends JFrame {
         String fx = effect != null ? effect : "None";
         drawSlideNumberText(g2, text, drawX, drawY, textColor, fx, scale, ascent);
         g2.dispose();
+    }
+
+    /** Sparkle burst for the "✨ Burst" text option. Draws twinkling 4-point stars
+     *  in a ring around an elliptical box (cx,cy,halfW,halfH). Star positions are
+     *  seeded by the box centre so they hold still and twinkle in place across
+     *  frames; a couple are tinted with the accent colour, the rest warm gold. */
+    private static void drawKidsBurst(Graphics2D g, int cx, int cy, int halfW, int halfH,
+                                      int frame, Color accent, double scale) {
+        int n = 11;
+        java.util.Random rnd = new java.util.Random(0xB0A57L ^ (cx * 73856093L) ^ (cy * 19349663L));
+        Object savedAA = g.getRenderingHint(RenderingHints.KEY_ANTIALIASING);
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        double s = Math.max(0.6, scale);
+        for (int i = 0; i < n; i++) {
+            double ang = rnd.nextDouble() * Math.PI * 2;
+            double rr = 0.9 + rnd.nextDouble() * 0.5;          // ring radius factor
+            double px = cx + Math.cos(ang) * halfW * rr;
+            double py = cy + Math.sin(ang) * halfH * rr;
+            double phase = rnd.nextDouble() * Math.PI * 2;
+            double tw = 0.5 + 0.5 * Math.sin(frame * 0.35 + phase); // 0..1 twinkle
+            int alpha = (int) (230 * tw);
+            if (alpha < 14) continue;
+            double sz = (4 + rnd.nextInt(5)) * s * (0.55 + 0.6 * tw);
+            Color base = (i % 4 == 0) ? accent : new Color(255, 232, 120);
+            drawFourStar(g, px, py, sz, new Color(base.getRed(), base.getGreen(), base.getBlue(), Math.min(255, alpha)));
+        }
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                savedAA == null ? RenderingHints.VALUE_ANTIALIAS_DEFAULT : savedAA);
+    }
+
+    /** A single 4-point sparkle star with a soft round glow behind it. */
+    private static void drawFourStar(Graphics2D g, double cx, double cy, double s, Color c) {
+        double w = s * 0.26;
+        java.awt.geom.Path2D.Double p = new java.awt.geom.Path2D.Double();
+        p.moveTo(cx, cy - s);
+        p.lineTo(cx + w, cy - w);
+        p.lineTo(cx + s, cy);
+        p.lineTo(cx + w, cy + w);
+        p.lineTo(cx, cy + s);
+        p.lineTo(cx - w, cy + w);
+        p.lineTo(cx - s, cy);
+        p.lineTo(cx - w, cy - w);
+        p.closePath();
+        g.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), c.getAlpha() / 3));
+        g.fill(new java.awt.geom.Ellipse2D.Double(cx - s, cy - s, s * 2, s * 2));
+        g.setColor(c);
+        g.fill(p);
     }
 
     private static void drawSlideNumberText(Graphics2D g, String text, int drawX, int drawY,
@@ -15057,7 +15189,8 @@ public class GifSlideShowApp extends JFrame {
             "Water Ripple", "Fire", "Ice", "Rainbow", "Typewriter", "Stone Engraving",
             "Shake", "Pulse",
             "Chalk", "Distressed", "Gold Foil", "Chrome", "Marble", "Watercolor",
-            "Glitch", "Long Shadow", "Spotlight", "Sticker", "Inner Glow"
+            "Glitch", "Long Shadow", "Spotlight", "Sticker", "Inner Glow",
+            "Cartoon Pop"
     };
 
     static final String[] HIGHLIGHT_STYLES = { "None", "Regular", "Brush", "Brush2", "Pill", "Gradient", "Glow", "Box", "Circle", "Scribble", "Sketch", "Sketch Bold", "Ink", "Strikethrough", "Tag", "Speech Bubble", "Marker" };
@@ -15275,6 +15408,11 @@ public class GifSlideShowApp extends JFrame {
         String timerAppearEasing = "Ease Out";
         int    timerAppearDurMs  = 500;
 
+        // Word-anchored sparkle burst (toolbar 4c "✨ Burst" checkbox). Mutable so
+        // it persists without touching the overloaded constructor chain; carried
+        // through copyBgStyle so the HL-clone render pass keeps it.
+        boolean fxBurst = false;
+
         // ===== BG style (toolbars 4b2 / 4b3 / 4b4) =====
         // Defaults are mutable (not final) so they can persist via SlideTextData without
         // touching the long chain of overloaded constructors. Tight=50 reproduces the
@@ -15353,6 +15491,7 @@ public class GifSlideShowApp extends JFrame {
             dst.bgOuterGlow       = src.bgOuterGlow;
             dst.bgOuterGlowSize   = src.bgOuterGlowSize;
             dst.bgOuterGlowColor  = src.bgOuterGlowColor;
+            dst.fxBurst           = src.fxBurst;
             // Texts Timer timeline rides along too, so it survives the same
             // rebuild / broadcast / HL-clone paths as the BG-style block.
             dst.timerAppearMs     = src.timerAppearMs;
@@ -16388,6 +16527,7 @@ public class GifSlideShowApp extends JFrame {
         private final JComboBox<String> slideTextAlignCombo;
         private final JComboBox<String> slideTextEffectCombo;
         private final JSpinner slideTextEffectIntensitySpinner;
+        private final JCheckBox slideTextBurstCheck;
         private final JCheckBox slideTextOdometerCheck;
         private final JSpinner slideTextOdometerSpeedSpinner;
         private final JSpinner slideTextOdometerRollSpinner;
@@ -17647,6 +17787,11 @@ public class GifSlideShowApp extends JFrame {
             slideTextEffectIntensitySpinner.setToolTipText("Effect intensity (0-100)");
             slideTextEffectIntensitySpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
+            slideTextBurstCheck = new JCheckBox("✨ Burst");
+            slideTextBurstCheck.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            slideTextBurstCheck.setToolTipText("Sparkle burst: twinkling stars around the text (accent = HL color)");
+            slideTextBurstCheck.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
             slideTextOdometerCheck = new JCheckBox("Odometer");
             slideTextOdometerCheck.setFont(new Font("Segoe UI", Font.BOLD, 11));
             slideTextOdometerCheck.setForeground(new Color(255, 200, 100));
@@ -17789,6 +17934,7 @@ public class GifSlideShowApp extends JFrame {
             toolbar4c.add(slideTextEffectCombo);
             toolbar4c.add(tc4cPowerLbl);
             toolbar4c.add(slideTextEffectIntensitySpinner);
+            toolbar4c.add(slideTextBurstCheck);
             toolbar4c.add(tc4cHlLbl);
             toolbar4c.add(slideTextHighlightField);
             toolbar4c.add(slideTextHighlightColorBtn);
@@ -20066,6 +20212,7 @@ public class GifSlideShowApp extends JFrame {
             newItem.bgOuterGlow = slideTextBgGlowCheck.isSelected();
             newItem.bgOuterGlowSize = (int) slideTextBgGlowSpinner.getValue();
             newItem.bgOuterGlowColor = slideTextBgGlowColor;
+            newItem.fxBurst = slideTextBurstCheck.isSelected();
             // The Texts-Timer timeline is edited in its own dialog, not on the
             // main toolbar, so carry it forward from the previous item instead of
             // resetting it every time an unrelated property changes.
@@ -20135,6 +20282,7 @@ public class GifSlideShowApp extends JFrame {
                 }
                 slideTextEffectCombo.setSelectedItem(item.textEffect);
                 slideTextEffectIntensitySpinner.setValue(item.textEffectIntensity);
+                slideTextBurstCheck.setSelected(item.fxBurst);
                 slideTextHighlightField.setText(item.highlightText);
                 slideTextHighlightColor = item.highlightColor;
                 slideTextHighlightColorBtn.setForeground(item.highlightColor);
