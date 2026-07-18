@@ -20577,6 +20577,11 @@ public class GifSlideShowApp extends JFrame {
             newItem.timerAppearEffect = prevItem.timerAppearEffect;
             newItem.timerAppearEasing = prevItem.timerAppearEasing;
             newItem.timerAppearDurMs = prevItem.timerAppearDurMs;
+            // The word-by-word reveal schedule isn't a main-toolbar control
+            // either, so carry it forward too — otherwise any toolbar-driven
+            // rebuild (including Layout Group stamping) would silently drop the
+            // merged paragraph's reveal.
+            newItem.wordRevealMs = prevItem.wordRevealMs;
             slideTextItems.set(currentSlideTextIndex, newItem);
         }
 
@@ -21626,6 +21631,30 @@ public class GifSlideShowApp extends JFrame {
                 picker.repaint();
             };
 
+            // Width % also live-applies to the currently ticked text(s): change
+            // it after merging and the selected paragraph re-wraps immediately
+            // (it is not merge-time-only). Justify is turned on so the re-wrap
+            // reads as a clean block.
+            mergeWidthSp.addChangeListener(ev -> {
+                int w = (int) mergeWidthSp.getValue();
+                boolean any = false;
+                for (int i = 0; i < textChecks.size(); i++) {
+                    if (!textChecks.get(i).isSelected()) continue;
+                    if (i < 0 || i >= slideTextItems.size()) continue;
+                    SlideTextData old = slideTextItems.get(i);
+                    SlideTextData re = cloneText(old, old.show, true, w);
+                    slideTextItems.set(i, re);
+                    if (i < openSnapshot.size()) openSnapshot.set(i, re);
+                    any = true;
+                }
+                if (any) {
+                    if (currentSlideTextIndex >= 0 && currentSlideTextIndex < slideTextItems.size()) {
+                        loadSlideTextFromItem(currentSlideTextIndex);
+                    }
+                    onFormatChanged();
+                }
+            });
+
             // Merge the ticked texts into one wrapped, justified paragraph.
             // The paragraph is appended as a new (visible) text row; the source
             // words are kept but hidden so the change is reversible. Word order
@@ -21891,15 +21920,16 @@ public class GifSlideShowApp extends JFrame {
             // re-stamp positions using whatever the stored defaults are.
         }
 
-        /** Faithful copy of a slide text with show forced to false. Preserves
-         *  every final field plus the mutable BG/timer/karaoke blocks so hiding
-         *  a text (e.g. after Merge into paragraph) is fully reversible and the
-         *  hidden row keeps its exact look. */
-        private static SlideTextData hiddenCopyOf(SlideTextData s) {
-            SlideTextData c = new SlideTextData(false, s.text,
+        /** Faithful copy of a slide text, overriding only show / justify /
+         *  widthPct. Preserves every other final field plus the mutable
+         *  BG/timer/karaoke/word-reveal blocks (via copyBgStyle) so cloning a
+         *  text keeps its exact look. */
+        private static SlideTextData cloneText(SlideTextData s, boolean show,
+                                               boolean justify, int widthPct) {
+            SlideTextData c = new SlideTextData(show, s.text,
                     s.fontName, s.fontSize, s.fontStyle, s.color,
                     s.x, s.y, s.bgOpacity, s.bgColor,
-                    s.justify, s.widthPct, s.shiftX, s.alignment,
+                    justify, widthPct, s.shiftX, s.alignment,
                     s.textEffect, s.textEffectIntensity,
                     s.highlightText, s.highlightColor, s.highlightStyle, s.highlightTightness,
                     s.underlineStyle, s.underlineText, s.boldText, s.italicText, s.colorText, s.colorTextColor,
@@ -21910,6 +21940,11 @@ public class GifSlideShowApp extends JFrame {
             c.karaokeStyle = s.karaokeStyle;
             c.karaokeColor = s.karaokeColor;
             return c;
+        }
+
+        /** Faithful copy with show forced to false (reversible hide). */
+        private static SlideTextData hiddenCopyOf(SlideTextData s) {
+            return cloneText(s, false, s.justify, s.widthPct);
         }
 
         /** Format a millisecond value as a compact seconds string ("2", "2.5"). */
