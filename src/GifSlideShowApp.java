@@ -411,6 +411,14 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(p + "timerAppearEffect", t.timerAppearEffect == null ? "None" : t.timerAppearEffect);
             props.setProperty(p + "timerAppearEasing", t.timerAppearEasing == null ? "Ease Out" : t.timerAppearEasing);
             props.setProperty(p + "timerAppearDurMs", String.valueOf(t.timerAppearDurMs));
+            if (t.wordRevealMs != null && t.wordRevealMs.length > 0) {
+                StringBuilder wr = new StringBuilder();
+                for (int k = 0; k < t.wordRevealMs.length; k++) {
+                    if (k > 0) wr.append(',');
+                    wr.append(t.wordRevealMs[k]);
+                }
+                props.setProperty(p + "wordRevealMs", wr.toString());
+            }
         }
 
         // Per-text audio highlight settings (FX, HL color, glow size).
@@ -779,6 +787,17 @@ public class GifSlideShowApp extends JFrame {
             loaded.timerAppearEffect = props.getProperty(p + "timerAppearEffect", "None");
             loaded.timerAppearEasing = props.getProperty(p + "timerAppearEasing", "Ease Out");
             loaded.timerAppearDurMs  = Integer.parseInt(props.getProperty(p + "timerAppearDurMs", "500"));
+            String wrStr = props.getProperty(p + "wordRevealMs", "");
+            if (wrStr != null && !wrStr.trim().isEmpty()) {
+                String[] parts = wrStr.split(",");
+                int[] wr = new int[parts.length];
+                boolean ok = true;
+                for (int k = 0; k < parts.length; k++) {
+                    try { wr[k] = Integer.parseInt(parts[k].trim()); }
+                    catch (NumberFormatException ex) { ok = false; break; }
+                }
+                if (ok) loaded.wordRevealMs = wr;
+            }
             slideTextFormats.add(loaded);
         }
 
@@ -5075,8 +5094,37 @@ public class GifSlideShowApp extends JFrame {
                         }
                     }
 
-                    // === Typewriter: limit visible characters ===
+                    // === Word-by-word reveal (Texts Timer order) ===
+                    // st.wordRevealCount >= 0 means only the first N words of the
+                    // whole paragraph are due yet. Show this line's revealed
+                    // prefix and skip the rest. The block still reserves its full
+                    // height (totalTextHeight uses every wrapped line), so words
+                    // appear in place with no reflow. Partial lines render
+                    // left-aligned (unjustified) so the prefix reads cleanly.
                     String visibleLine = line;
+                    if (st.wordRevealCount >= 0) {
+                        int wordsBefore = 0;
+                        for (int tli = 0; tli < li; tli++) {
+                            String pl = stWrappedLines.get(tli).trim();
+                            wordsBefore += pl.isEmpty() ? 0 : pl.split("\\s+").length;
+                        }
+                        String trimmed = line.trim();
+                        String[] lineWords = trimmed.isEmpty() ? new String[0] : trimmed.split("\\s+");
+                        int revealOnLine = Math.max(0,
+                                Math.min(lineWords.length, st.wordRevealCount - wordsBefore));
+                        if (revealOnLine <= 0) { lineY += stLineHeight; continue; }
+                        if (revealOnLine < lineWords.length) {
+                            StringBuilder vb = new StringBuilder();
+                            for (int wi = 0; wi < revealOnLine; wi++) {
+                                if (wi > 0) vb.append(' ');
+                                vb.append(lineWords[wi]);
+                            }
+                            visibleLine = vb.toString();
+                            justified = false;
+                        }
+                    }
+
+                    // === Typewriter: limit visible characters ===
                     if (effect.equals("Typewriter") && animFrameIndex > 0) {
                         int totalChars = 0;
                         for (int tli = 0; tli < stWrappedLines.size(); tli++) totalChars += stWrappedLines.get(tli).length();
@@ -14389,6 +14437,20 @@ public class GifSlideShowApp extends JFrame {
                 }
             }
             st.quizHidden = hidden;
+            // Word-by-word reveal: count how many leading words are due by now.
+            // Reading-order prefix — stop at the first word not yet due so the
+            // renderer can simply truncate each line. applyTimer=false (editor
+            // live preview) shows every word so positioning/styling stays easy.
+            if (applyTimer && st.wordRevealMs != null && st.wordRevealMs.length > 0) {
+                int cnt = 0;
+                for (int wm : st.wordRevealMs) {
+                    if (elapsedMs >= wm) cnt++;
+                    else break;
+                }
+                st.wordRevealCount = cnt;
+            } else {
+                st.wordRevealCount = -1;
+            }
         }
     }
 
@@ -14397,7 +14459,8 @@ public class GifSlideShowApp extends JFrame {
      *  so the animation actually plays. */
     private static boolean slideTextHasTimer(SlideTextData st) {
         return st != null && (st.timerAppearMs > 0 || st.timerDisappearMs >= 0
-                || slideTextHasAppearEffect(st));
+                || slideTextHasAppearEffect(st)
+                || (st.wordRevealMs != null && st.wordRevealMs.length > 0));
     }
 
     /** True iff this text has a real Texts-Timer entrance effect configured. */
@@ -15725,6 +15788,19 @@ public class GifSlideShowApp extends JFrame {
         int bgOuterGlowSize = 8;
         Color bgOuterGlowColor = null; // null = derived from bgColor
 
+        // ===== Word-by-word reveal (Texts Timer order) =====
+        // Per-word appear times in ms from slide start, parallel to the
+        // whitespace tokens of `text`. null (default) = reveal disabled, so the
+        // whole text shows at once. Captured by "Merge into paragraph" from each
+        // source word's Texts-Timer appear time, so the paragraph reveals its
+        // words in the order/timing set in the Texts Timer button. Mutable +
+        // non-final so it rides along without touching the constructor chain.
+        int[] wordRevealMs = null;
+        // Transient per-frame render state (like pulseRenderScale): how many
+        // leading words are visible at the current time. -1 = show all words.
+        // Set each frame by applyQuizHideMask; read by the text renderer.
+        int wordRevealCount = -1;
+
         /** Copy the toolbar-4b2/3/4 BG-style block from src to dst. Keeps every
          *  Fill / Shape / Border / Shadow / Glow / Noise field in sync without
          *  per-callsite churn. Used when broadcasting master-slide formatting
@@ -15766,6 +15842,10 @@ public class GifSlideShowApp extends JFrame {
             dst.timerAppearEffect = src.timerAppearEffect;
             dst.timerAppearEasing = src.timerAppearEasing;
             dst.timerAppearDurMs  = src.timerAppearDurMs;
+            // Word-by-word reveal schedule + current count ride along so the
+            // HL-clone render pass reveals the same words as the saved item.
+            dst.wordRevealMs      = src.wordRevealMs;
+            dst.wordRevealCount   = src.wordRevealCount;
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -21162,6 +21242,11 @@ public class GifSlideShowApp extends JFrame {
             final JSpinner mergeWidthSp = new JSpinner(new SpinnerNumberModel(60, 20, 100, 5));
             mergeWidthSp.setPreferredSize(new Dimension(56, 24));
             mergeWidthSp.setToolTipText("Paragraph wrap width as % of frame (narrower = more wrapping)");
+            final JCheckBox mergeRevealCheck = new JCheckBox("Reveal words by Texts-Timer times", true);
+            mergeRevealCheck.setToolTipText("<html>Make the merged paragraph reveal its words one by one, "
+                    + "each at the <b>Appear</b> time set for that word in the Texts Timer button.<br>"
+                    + "Set those per-word Appear times <i>before</i> merging. Words with no time set "
+                    + "appear at 0s. Reveal plays on export/playback (the editor shows the whole paragraph).</html>");
             JPanel pickerBtns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
             pickerBtns.add(new JLabel("Quick select:"));
             pickerBtns.add(selAllBtn);
@@ -21171,6 +21256,7 @@ public class GifSlideShowApp extends JFrame {
             pickerBtns.add(mergeBtn);
             pickerBtns.add(new JLabel("Width %:"));
             pickerBtns.add(mergeWidthSp);
+            pickerBtns.add(mergeRevealCheck);
 
             // ---------- Grid + Position ----------
             final JSpinner colsSp = new JSpinner(new SpinnerNumberModel(lgCols, 1, 12, 1));
@@ -21560,14 +21646,24 @@ public class GifSlideShowApp extends JFrame {
                     slideTextItems.set(i, openSnapshot.get(i));
                 }
                 // Join the selected words (numeric order) into one paragraph.
+                // While walking them, capture each resulting word's Texts-Timer
+                // appear time so the paragraph can reveal words in that order.
+                // A source text may hold several words — each inherits that
+                // source's appear time.
                 StringBuilder sb = new StringBuilder();
+                java.util.List<Integer> revealTimes = new java.util.ArrayList<>();
                 for (int idx : sel) {
-                    String t = slideTextItems.get(idx).text;
+                    SlideTextData src = slideTextItems.get(idx);
+                    String t = src.text;
                     if (t == null) continue;
                     t = t.trim();
                     if (t.isEmpty()) continue;
-                    if (sb.length() > 0) sb.append(' ');
-                    sb.append(t);
+                    for (String w : t.split("\\s+")) {
+                        if (w.isEmpty()) continue;
+                        if (sb.length() > 0) sb.append(' ');
+                        sb.append(w);
+                        revealTimes.add(Math.max(0, src.timerAppearMs));
+                    }
                 }
                 String paragraph = sb.toString();
                 if (paragraph.isEmpty()) {
@@ -21591,6 +21687,21 @@ public class GifSlideShowApp extends JFrame {
                         false, seed.animPath, seed.animDurationMs, seed.animStartMs, seed.animEasing,
                         0, seed.letterSpacing, seed.lineSpacing, seed.opacity);
                 SlideTextData.copyBgStyle(seed, para);
+                // copyBgStyle also carried the seed word's block-level Texts-Timer
+                // appear/go times. Reset them so the paragraph stays present and
+                // only the per-word reveal (below) governs timing — otherwise the
+                // block could vanish (seed's go time) before later words appear.
+                para.timerAppearMs = 0;
+                para.timerDisappearMs = -1;
+                para.timerAppearEffect = "None";
+                para.wordRevealMs = null;
+                // Word-by-word reveal: bake the captured per-word Texts-Timer
+                // times onto the paragraph so it reveals words in that order.
+                if (mergeRevealCheck.isSelected() && !revealTimes.isEmpty()) {
+                    int[] wr = new int[revealTimes.size()];
+                    for (int k = 0; k < wr.length; k++) wr[k] = revealTimes.get(k);
+                    para.wordRevealMs = wr;
+                }
                 // Hide the source words (kept for revert), preserving their look.
                 for (int idx : sel) {
                     slideTextItems.set(idx, hiddenCopyOf(slideTextItems.get(idx)));
