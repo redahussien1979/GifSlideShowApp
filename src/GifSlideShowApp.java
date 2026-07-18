@@ -21159,6 +21159,9 @@ public class GifSlideShowApp extends JFrame {
             JButton mergeBtn      = new JButton("Merge into paragraph");
             mergeBtn.setToolTipText("Combine the ticked texts (in Text 1,2,3… order) into one "
                     + "wrapped, justified paragraph added at the end. Originals are kept but hidden.");
+            final JSpinner mergeWidthSp = new JSpinner(new SpinnerNumberModel(60, 20, 100, 5));
+            mergeWidthSp.setPreferredSize(new Dimension(56, 24));
+            mergeWidthSp.setToolTipText("Paragraph wrap width as % of frame (narrower = more wrapping)");
             JPanel pickerBtns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
             pickerBtns.add(new JLabel("Quick select:"));
             pickerBtns.add(selAllBtn);
@@ -21166,6 +21169,8 @@ public class GifSlideShowApp extends JFrame {
             pickerBtns.add(selVisibleBtn);
             pickerBtns.add(Box.createHorizontalStrut(10));
             pickerBtns.add(mergeBtn);
+            pickerBtns.add(new JLabel("Width %:"));
+            pickerBtns.add(mergeWidthSp);
 
             // ---------- Grid + Position ----------
             final JSpinner colsSp = new JSpinner(new SpinnerNumberModel(lgCols, 1, 12, 1));
@@ -21574,10 +21579,11 @@ public class GifSlideShowApp extends JFrame {
                 // Seed position/style from the first selected word. Paragraph
                 // gets neat-block defaults: wrap to ~60% width, justified, left.
                 SlideTextData seed = slideTextItems.get(sel.get(0));
+                int paraWidth = (int) mergeWidthSp.getValue();
                 SlideTextData para = new SlideTextData(true, paragraph,
                         seed.fontName, seed.fontSize, seed.fontStyle, seed.color,
                         seed.x, seed.y, seed.bgOpacity, seed.bgColor,
-                        true, 60, seed.shiftX, SwingConstants.LEFT,
+                        true, paraWidth, seed.shiftX, SwingConstants.LEFT,
                         seed.textEffect, seed.textEffectIntensity,
                         "", seed.highlightColor, seed.highlightStyle, seed.highlightTightness,
                         "None", "", "", "", "", seed.colorTextColor,
