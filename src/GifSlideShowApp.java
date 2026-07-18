@@ -21156,11 +21156,16 @@ public class GifSlideShowApp extends JFrame {
             JButton selAllBtn     = new JButton("All");
             JButton selNoneBtn    = new JButton("None");
             JButton selVisibleBtn = new JButton("Visible Only");
+            JButton mergeBtn      = new JButton("Merge into paragraph");
+            mergeBtn.setToolTipText("Combine the ticked texts (in Text 1,2,3… order) into one "
+                    + "wrapped, justified paragraph added at the end. Originals are kept but hidden.");
             JPanel pickerBtns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
             pickerBtns.add(new JLabel("Quick select:"));
             pickerBtns.add(selAllBtn);
             pickerBtns.add(selNoneBtn);
             pickerBtns.add(selVisibleBtn);
+            pickerBtns.add(Box.createHorizontalStrut(10));
+            pickerBtns.add(mergeBtn);
 
             // ---------- Grid + Position ----------
             final JSpinner colsSp = new JSpinner(new SpinnerNumberModel(lgCols, 1, 12, 1));
@@ -21508,6 +21513,112 @@ public class GifSlideShowApp extends JFrame {
                 livePreview.run();
             });
 
+            // Rebuild the "pick texts" checklist from the current slideTextItems.
+            // Used after Merge changes the list (appends a paragraph + hides the
+            // source words) so the checklist reflects the new rows and labels.
+            final Runnable rebuildPicker = () -> {
+                picker.removeAll();
+                textChecks.clear();
+                for (int i = 0; i < slideTextItems.size(); i++) {
+                    SlideTextData st = slideTextItems.get(i);
+                    String content = st.text == null ? "" : st.text.replace('\n', ' ').trim();
+                    if (content.length() > 50) content = content.substring(0, 47) + "…";
+                    String visMark = st.show ? "" : "  (hidden)";
+                    JCheckBox cb = new JCheckBox("Text " + (i + 1) + ": " + content + visMark, st.show);
+                    cb.setBackground(Color.WHITE);
+                    cb.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+                    cb.addActionListener(actCl);
+                    textChecks.add(cb);
+                    picker.add(cb);
+                }
+                picker.revalidate();
+                picker.repaint();
+            };
+
+            // Merge the ticked texts into one wrapped, justified paragraph.
+            // The paragraph is appended as a new (visible) text row; the source
+            // words are kept but hidden so the change is reversible. Word order
+            // follows the Text 1,2,3… numbering (reading order).
+            mergeBtn.addActionListener(e -> {
+                java.util.List<Integer> sel = new java.util.ArrayList<>();
+                for (int i = 0; i < textChecks.size(); i++) {
+                    if (textChecks.get(i).isSelected()) sel.add(i);
+                }
+                if (sel.size() < 2) {
+                    JOptionPane.showMessageDialog(dlg,
+                            "Tick at least two texts to merge into a paragraph.",
+                            "Merge into paragraph", JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+                // Undo any in-progress grid live-preview so it isn't baked in.
+                for (int i = 0; i < openSnapshot.size() && i < slideTextItems.size(); i++) {
+                    slideTextItems.set(i, openSnapshot.get(i));
+                }
+                // Join the selected words (numeric order) into one paragraph.
+                StringBuilder sb = new StringBuilder();
+                for (int idx : sel) {
+                    String t = slideTextItems.get(idx).text;
+                    if (t == null) continue;
+                    t = t.trim();
+                    if (t.isEmpty()) continue;
+                    if (sb.length() > 0) sb.append(' ');
+                    sb.append(t);
+                }
+                String paragraph = sb.toString();
+                if (paragraph.isEmpty()) {
+                    JOptionPane.showMessageDialog(dlg,
+                            "The ticked texts have no words to merge.",
+                            "Merge into paragraph", JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+                // Seed position/style from the first selected word. Paragraph
+                // gets neat-block defaults: wrap to ~60% width, justified, left.
+                SlideTextData seed = slideTextItems.get(sel.get(0));
+                SlideTextData para = new SlideTextData(true, paragraph,
+                        seed.fontName, seed.fontSize, seed.fontStyle, seed.color,
+                        seed.x, seed.y, seed.bgOpacity, seed.bgColor,
+                        true, 60, seed.shiftX, SwingConstants.LEFT,
+                        seed.textEffect, seed.textEffectIntensity,
+                        "", seed.highlightColor, seed.highlightStyle, seed.highlightTightness,
+                        "None", "", "", "", "", seed.colorTextColor,
+                        seed.xLeftAligned, false, seed.odometerSpeed, seed.odometerRoll, seed.odometerLand,
+                        false, seed.animPath, seed.animDurationMs, seed.animStartMs, seed.animEasing,
+                        0, seed.letterSpacing, seed.lineSpacing, seed.opacity);
+                SlideTextData.copyBgStyle(seed, para);
+                // Hide the source words (kept for revert), preserving their look.
+                for (int idx : sel) {
+                    slideTextItems.set(idx, hiddenCopyOf(slideTextItems.get(idx)));
+                }
+                // Append the paragraph as the last row and seed its audio-HL maps
+                // the same way the "+" add-text button does for a new row.
+                slideTextItems.add(para);
+                int newIdx = slideTextItems.size() - 1;
+                slideAudioHlEffectsMap.put(newIdx, slideAudioHlEffectsMap.getOrDefault(0, DEFAULT_AUDIO_HL_EFFECTS));
+                slideAudioHlColorMap.put(newIdx, slideAudioHlColorMap.getOrDefault(0, DEFAULT_AUDIO_HL_COLOR));
+                slideAudioHlGlowSizeMap.put(newIdx, slideAudioHlGlowSizeMap.getOrDefault(0, DEFAULT_AUDIO_GLOW_SIZE));
+
+                // Commit as the new baseline so live-preview ticks start here.
+                openSnapshot.clear();
+                openSnapshot.addAll(slideTextItems);
+                rebuildPicker.run();
+                // Tick only the new paragraph so further grid ops target it.
+                for (int i = 0; i < textChecks.size(); i++) {
+                    textChecks.get(i).setSelected(i == newIdx);
+                }
+                // Point the main toolbar at the paragraph so it's ready to fine-tune.
+                currentSlideTextIndex = newIdx;
+                isLoadingSlideText = true;
+                try {
+                    rebuildSlideTextSelector();
+                    slideTextSelector.setSelectedIndex(currentSlideTextIndex);
+                } finally {
+                    isLoadingSlideText = false;
+                }
+                loadSlideTextFromItem(currentSlideTextIndex);
+                loadAudioHlForCurrentText();
+                onFormatChanged();
+            });
+
             // ---------- Box style panel (group-level) ----------
             final JComponent boxPanel = buildBoxControls(dlg, groupBox, livePreview);
             final Runnable syncBoxEnabled = () -> setTreeEnabled(boxPanel, doBoxCheck.isSelected());
@@ -21661,6 +21772,27 @@ public class GifSlideShowApp extends JFrame {
             // stay exactly as the user left it until they actively change
             // something in the dialog. Otherwise opening the dialog would
             // re-stamp positions using whatever the stored defaults are.
+        }
+
+        /** Faithful copy of a slide text with show forced to false. Preserves
+         *  every final field plus the mutable BG/timer/karaoke blocks so hiding
+         *  a text (e.g. after Merge into paragraph) is fully reversible and the
+         *  hidden row keeps its exact look. */
+        private static SlideTextData hiddenCopyOf(SlideTextData s) {
+            SlideTextData c = new SlideTextData(false, s.text,
+                    s.fontName, s.fontSize, s.fontStyle, s.color,
+                    s.x, s.y, s.bgOpacity, s.bgColor,
+                    s.justify, s.widthPct, s.shiftX, s.alignment,
+                    s.textEffect, s.textEffectIntensity,
+                    s.highlightText, s.highlightColor, s.highlightStyle, s.highlightTightness,
+                    s.underlineStyle, s.underlineText, s.boldText, s.italicText, s.colorText, s.colorTextColor,
+                    s.xLeftAligned, s.odometer, s.odometerSpeed, s.odometerRoll, s.odometerLand,
+                    s.animEnabled, s.animPath, s.animDurationMs, s.animStartMs, s.animEasing,
+                    s.tiltDegrees, s.letterSpacing, s.lineSpacing, s.opacity);
+            SlideTextData.copyBgStyle(s, c);
+            c.karaokeStyle = s.karaokeStyle;
+            c.karaokeColor = s.karaokeColor;
+            return c;
         }
 
         /** Format a millisecond value as a compact seconds string ("2", "2.5"). */
