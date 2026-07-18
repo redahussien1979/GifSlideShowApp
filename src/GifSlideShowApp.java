@@ -386,6 +386,7 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(p + "textEffect", t.textEffect);
             props.setProperty(p + "textEffectIntensity", String.valueOf(t.textEffectIntensity));
             props.setProperty(p + "fxBurst", String.valueOf(t.fxBurst));
+            props.setProperty(p + "fxBurstStyle", t.fxBurstStyle == null ? "Stars" : t.fxBurstStyle);
             props.setProperty(p + "highlightText", t.highlightText);
             props.setProperty(p + "highlightColor", colorToHex(t.highlightColor));
             props.setProperty(p + "highlightStyle", t.highlightStyle);
@@ -741,6 +742,7 @@ public class GifSlideShowApp extends JFrame {
             loaded.bgPaddingYPct     = Integer.parseInt(props.getProperty(p + "bgPaddingYPct", "50"));
             loaded.bgRoundPct        = Integer.parseInt(props.getProperty(p + "bgRoundPct", "10"));
             loaded.fxBurst           = Boolean.parseBoolean(props.getProperty(p + "fxBurst", "false"));
+            loaded.fxBurstStyle      = props.getProperty(p + "fxBurstStyle", "Stars");
             loaded.bgColor2          = hexToColor(props.getProperty(p + "bgColor2", "#3C3C3C"));
             // bgFillKind defaults to Solid; legacy bgGradient=true upgrades to Linear.
             String legacyGrad = props.getProperty(p + "bgGradient");
@@ -7369,6 +7371,67 @@ public class GifSlideShowApp extends JFrame {
                             }
                             break;
                         }
+                        case "Neon + Shadow":
+                        case "Glow + Outline":
+                        case "Outline + Shadow":
+                        case "Gold Pop": {
+                            // Combo presets: a fill plus compatible legibility layers
+                            // (shadow / outline / glow) composited by drawComboGlyph.
+                            // Colors follow the Word Color + HL-color pickers so they
+                            // recolor like the other effects. Built from glyph outlines
+                            // so Arabic shaping and Latin both work.
+                            final boolean useShaped = containsArabic(visibleLine);
+                            final java.awt.font.FontRenderContext frc = g2.getFontRenderContext();
+                            final int shadowOff = Math.max(2, (int) (scaledStSize * 0.05));
+                            final Color accent = st.highlightColor != null
+                                    ? new Color(st.highlightColor.getRed(), st.highlightColor.getGreen(), st.highlightColor.getBlue())
+                                    : new Color(120, 80, 210);
+                            final String combo = effect;
+                            java.util.function.BiConsumer<Integer, String> drawCombo = (xPos, word) -> {
+                                Shape shape = useShaped
+                                        ? new java.awt.font.TextLayout(word, fxFont, frc)
+                                        .getOutline(AffineTransform.getTranslateInstance(xPos, fxLineY))
+                                        : fxFont.createGlyphVector(frc, word).getOutline(xPos, fxLineY);
+                                switch (combo) {
+                                    case "Neon + Shadow": {
+                                        Color bright = new Color(
+                                                Math.min(255, stColor.getRed() + 60),
+                                                Math.min(255, stColor.getGreen() + 60),
+                                                Math.min(255, stColor.getBlue() + 60));
+                                        drawComboGlyph(g2, shape, scaledStSize, intensity,
+                                                bright, null, null, accent,
+                                                (int) (120 * intensity), shadowOff);
+                                        break;
+                                    }
+                                    case "Glow + Outline":
+                                        drawComboGlyph(g2, shape, scaledStSize, intensity,
+                                                stColor, null, new Color(20, 20, 20, 220), stColor,
+                                                0, shadowOff);
+                                        break;
+                                    case "Outline + Shadow":
+                                        drawComboGlyph(g2, shape, scaledStSize, intensity,
+                                                stColor, null, new Color(15, 15, 15, 230), null,
+                                                (int) (150 * intensity), shadowOff);
+                                        break;
+                                    case "Gold Pop":
+                                        drawComboGlyph(g2, shape, scaledStSize, intensity,
+                                                new Color(200, 140, 20), new Color(255, 245, 170),
+                                                new Color(90, 50, 0), null,
+                                                (int) (130 * intensity), shadowOff);
+                                        break;
+                                }
+                            };
+                            if (justified) {
+                                double dx = stBlockLeft;
+                                for (String w : justifyWords) {
+                                    drawCombo.accept((int) dx, w);
+                                    dx += stFm.stringWidth(w) + justifyExtraSpace;
+                                }
+                            } else {
+                                drawCombo.accept(lineX, visibleLine);
+                            }
+                            break;
+                        }
                         default: { // "None" and "Typewriter" (typewriter just limits chars above)
                             g2.setColor(stColor);
                             if (justified) drawJustified(g2, justifyWords, stBlockLeft, lineY, justifyExtraSpace, stFm);
@@ -7486,7 +7549,7 @@ public class GifSlideShowApp extends JFrame {
                         Color burstAccent = st.highlightColor != null
                                 ? new Color(st.highlightColor.getRed(), st.highlightColor.getGreen(), st.highlightColor.getBlue())
                                 : new Color(150, 110, 240);
-                        drawKidsBurst(g2, bLeft + lineW / 2, bTop + bH / 2, halfW, halfH,
+                        drawBurst(g2, st.fxBurstStyle, bLeft + lineW / 2, bTop + bH / 2, halfW, halfH,
                                 animFrameIndex, burstAccent, stScaleFactor);
                     }
 
@@ -9173,6 +9236,194 @@ public class GifSlideShowApp extends JFrame {
         g.fill(new java.awt.geom.Ellipse2D.Double(cx - s, cy - s, s * 2, s * 2));
         g.setColor(c);
         g.fill(p);
+    }
+
+    /** Shared compositor for the "combo" text effects. Draws, in order: an
+     *  optional soft drop shadow, an optional neon glow ring (widening/fading
+     *  strokes), an optional outline stroke, then the fill — flat when fillTop is
+     *  null, otherwise a glossy vertical gradient from fillTop down to fill. Any
+     *  layer is skipped by passing null / a non-positive alpha, so one routine
+     *  covers every preset. All work happens on throwaway graphics copies so the
+     *  caller's paint/stroke are untouched. */
+    private static void drawComboGlyph(Graphics2D g2, Shape shape, double scaledStSize, double intensity,
+                                       Color fill, Color fillTop, Color outline, Color glow,
+                                       int shadowAlpha, int shadowOff) {
+        if (shadowAlpha > 0) {
+            Graphics2D sg = (Graphics2D) g2.create();
+            sg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            sg.translate(shadowOff, shadowOff);
+            sg.setColor(new Color(0, 0, 0, Math.min(255, shadowAlpha)));
+            sg.fill(shape);
+            sg.dispose();
+        }
+        if (glow != null) {
+            Graphics2D gg = (Graphics2D) g2.create();
+            gg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            int layers = 4 + (int) (5 * intensity);
+            float baseW = Math.max(2f, (float) (scaledStSize * 0.06));
+            for (int gl = layers; gl >= 1; gl--) {
+                float sw = baseW + gl * (float) (scaledStSize * 0.05 * (0.5 + intensity));
+                double tt = (double) gl / layers;
+                int alpha = (int) (70 * intensity * (1.0 - tt) + 10);
+                gg.setStroke(new BasicStroke(sw, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                gg.setColor(new Color(glow.getRed(), glow.getGreen(), glow.getBlue(), Math.min(255, alpha)));
+                gg.draw(shape);
+            }
+            gg.dispose();
+        }
+        if (outline != null) {
+            Graphics2D og = (Graphics2D) g2.create();
+            og.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            float ow = Math.max(2f, (float) (scaledStSize * 0.09 * (0.6 + 0.5 * intensity)));
+            og.setStroke(new BasicStroke(ow, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            og.setColor(outline);
+            og.draw(shape);
+            og.dispose();
+        }
+        java.awt.Paint savedPaint = g2.getPaint();
+        if (fillTop != null) {
+            java.awt.Rectangle gb = shape.getBounds();
+            int gh = Math.max(1, gb.height);
+            g2.setPaint(new java.awt.GradientPaint(0, gb.y, fillTop, 0, gb.y + gh, fill));
+        } else {
+            g2.setColor(fill);
+        }
+        g2.fill(shape);
+        g2.setPaint(savedPaint);
+    }
+
+    /** Burst dispatcher: draws a ring of twinkling particles of the chosen shape
+     *  around the elliptical box (cx,cy,halfW,halfH). Positions are seeded by the
+     *  box centre so they hold still and twinkle in place across frames. "Stars"
+     *  preserves the original sparkle look; the other styles swap the particle
+     *  shape. A quarter of the particles take the accent color, the rest a warm/
+     *  soft tint appropriate to the style. */
+    private static void drawBurst(Graphics2D g, String style, int cx, int cy, int halfW, int halfH,
+                                  int frame, Color accent, double scale) {
+        if (style == null || style.equals("Stars")) {
+            drawKidsBurst(g, cx, cy, halfW, halfH, frame, accent, scale);
+            return;
+        }
+        int n = 11;
+        java.util.Random rnd = new java.util.Random(0xB0A57L ^ (cx * 73856093L) ^ (cy * 19349663L));
+        Object savedAA = g.getRenderingHint(RenderingHints.KEY_ANTIALIASING);
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        double s = Math.max(0.6, scale);
+        for (int i = 0; i < n; i++) {
+            double ang = rnd.nextDouble() * Math.PI * 2;
+            double rr = 0.9 + rnd.nextDouble() * 0.5;
+            double px = cx + Math.cos(ang) * halfW * rr;
+            double py = cy + Math.sin(ang) * halfH * rr;
+            double phase = rnd.nextDouble() * Math.PI * 2;
+            double tw = 0.5 + 0.5 * Math.sin(frame * 0.35 + phase);
+            int alpha = (int) (230 * tw);
+            if (alpha < 14) continue;
+            double sz = (4 + rnd.nextInt(5)) * s * (0.55 + 0.6 * tw);
+            boolean useAccent = (i % 4 == 0);
+            switch (style) {
+                case "Hearts": {
+                    Color base = useAccent ? accent : new Color(255, 120, 160);
+                    drawHeart(g, px, py, sz, new Color(base.getRed(), base.getGreen(), base.getBlue(), Math.min(255, alpha)));
+                    break;
+                }
+                case "Confetti": {
+                    // Bright rotated rectangles cycling through a festive palette.
+                    Color[] pal = { accent, new Color(255, 210, 60), new Color(80, 200, 120),
+                            new Color(90, 160, 255), new Color(255, 120, 160) };
+                    Color base = pal[i % pal.length];
+                    drawConfetti(g, px, py, sz, ang + frame * 0.15,
+                            new Color(base.getRed(), base.getGreen(), base.getBlue(), Math.min(255, alpha)));
+                    break;
+                }
+                case "Bubbles": {
+                    Color base = useAccent ? accent : new Color(150, 210, 255);
+                    drawBubble(g, px, py, sz, new Color(base.getRed(), base.getGreen(), base.getBlue(), Math.min(255, alpha)));
+                    break;
+                }
+                case "Snow": {
+                    Color base = useAccent ? accent : new Color(235, 245, 255);
+                    drawSnowflake(g, px, py, sz, new Color(base.getRed(), base.getGreen(), base.getBlue(), Math.min(255, alpha)));
+                    break;
+                }
+                case "Petals": {
+                    Color base = useAccent ? accent : new Color(255, 190, 210);
+                    drawPetal(g, px, py, sz, ang, new Color(base.getRed(), base.getGreen(), base.getBlue(), Math.min(255, alpha)));
+                    break;
+                }
+                default: {
+                    Color base = useAccent ? accent : new Color(255, 232, 120);
+                    drawFourStar(g, px, py, sz, new Color(base.getRed(), base.getGreen(), base.getBlue(), Math.min(255, alpha)));
+                }
+            }
+        }
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                savedAA == null ? RenderingHints.VALUE_ANTIALIAS_DEFAULT : savedAA);
+    }
+
+    /** A small filled heart centered at (cx,cy) with radius ~s. */
+    private static void drawHeart(Graphics2D g, double cx, double cy, double s, Color c) {
+        java.awt.geom.Path2D.Double p = new java.awt.geom.Path2D.Double();
+        double w = s, h = s;
+        p.moveTo(cx, cy + h * 0.55);
+        p.curveTo(cx + w, cy - h * 0.15, cx + w * 0.55, cy - h, cx, cy - h * 0.35);
+        p.curveTo(cx - w * 0.55, cy - h, cx - w, cy - h * 0.15, cx, cy + h * 0.55);
+        p.closePath();
+        g.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), c.getAlpha() / 3));
+        g.fill(new java.awt.geom.Ellipse2D.Double(cx - s, cy - s, s * 2, s * 2));
+        g.setColor(c);
+        g.fill(p);
+    }
+
+    /** A small rotated rectangle (confetti fleck) centered at (cx,cy). */
+    private static void drawConfetti(Graphics2D g, double cx, double cy, double s, double rot, Color c) {
+        java.awt.geom.AffineTransform saved = g.getTransform();
+        g.translate(cx, cy);
+        g.rotate(rot);
+        g.setColor(c);
+        g.fill(new java.awt.geom.Rectangle2D.Double(-s * 0.7, -s * 0.4, s * 1.4, s * 0.8));
+        g.setTransform(saved);
+    }
+
+    /** A soft hollow bubble with a highlight glint. */
+    private static void drawBubble(Graphics2D g, double cx, double cy, double s, Color c) {
+        g.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), c.getAlpha() / 4));
+        g.fill(new java.awt.geom.Ellipse2D.Double(cx - s, cy - s, s * 2, s * 2));
+        g.setStroke(new BasicStroke(Math.max(1f, (float) (s * 0.18)), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.setColor(c);
+        g.draw(new java.awt.geom.Ellipse2D.Double(cx - s, cy - s, s * 2, s * 2));
+        g.setColor(new Color(255, 255, 255, Math.min(255, c.getAlpha())));
+        g.fill(new java.awt.geom.Ellipse2D.Double(cx - s * 0.45, cy - s * 0.55, s * 0.4, s * 0.4));
+    }
+
+    /** A simple 6-spoke snowflake. */
+    private static void drawSnowflake(Graphics2D g, double cx, double cy, double s, Color c) {
+        g.setColor(c);
+        g.setStroke(new BasicStroke(Math.max(1f, (float) (s * 0.16)), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        for (int k = 0; k < 6; k++) {
+            double a = k * Math.PI / 3;
+            double ex = cx + Math.cos(a) * s, ey = cy + Math.sin(a) * s;
+            g.draw(new java.awt.geom.Line2D.Double(cx, cy, ex, ey));
+            // small side branches
+            double bx = cx + Math.cos(a) * s * 0.6, by = cy + Math.sin(a) * s * 0.6;
+            double a1 = a + 0.5, a2 = a - 0.5, bl = s * 0.3;
+            g.draw(new java.awt.geom.Line2D.Double(bx, by, bx + Math.cos(a1) * bl, by + Math.sin(a1) * bl));
+            g.draw(new java.awt.geom.Line2D.Double(bx, by, bx + Math.cos(a2) * bl, by + Math.sin(a2) * bl));
+        }
+    }
+
+    /** A single teardrop flower petal pointing outward along `rot`. */
+    private static void drawPetal(Graphics2D g, double cx, double cy, double s, double rot, Color c) {
+        java.awt.geom.AffineTransform saved = g.getTransform();
+        g.translate(cx, cy);
+        g.rotate(rot);
+        java.awt.geom.Path2D.Double p = new java.awt.geom.Path2D.Double();
+        p.moveTo(0, -s);
+        p.curveTo(s * 0.7, -s * 0.3, s * 0.7, s * 0.3, 0, s);
+        p.curveTo(-s * 0.7, s * 0.3, -s * 0.7, -s * 0.3, 0, -s);
+        p.closePath();
+        g.setColor(c);
+        g.fill(p);
+        g.setTransform(saved);
     }
 
     private static void drawSlideNumberText(Graphics2D g, String text, int drawX, int drawY,
@@ -15190,7 +15441,20 @@ public class GifSlideShowApp extends JFrame {
             "Shake", "Pulse",
             "Chalk", "Distressed", "Gold Foil", "Chrome", "Marble", "Watercolor",
             "Glitch", "Long Shadow", "Spotlight", "Sticker", "Inner Glow",
-            "Cartoon Pop"
+            "Cartoon Pop",
+            // Combo presets: ready-made layered looks. A single main effect is still
+            // one selection, but these bundle compatible layers (shadow / outline /
+            // glow + fill) that read well together. Rendered by the shared
+            // drawComboGlyph compositor. Color-heavy effects (Fire, Rainbow) can't be
+            // stacked on each other, so combos mix a fill with legibility layers.
+            "Neon + Shadow", "Glow + Outline", "Outline + Shadow", "Gold Pop"
+    };
+
+    /** Burst particle styles for the "✨ Burst" option. Each draws a different
+     *  twinkling shape ringed around the text so the same toggle offers several
+     *  looks. Rendered by drawBurst. */
+    static final String[] BURST_STYLES = {
+            "Stars", "Hearts", "Confetti", "Bubbles", "Snow", "Petals"
     };
 
     static final String[] HIGHLIGHT_STYLES = { "None", "Regular", "Brush", "Brush2", "Pill", "Gradient", "Glow", "Box", "Circle", "Scribble", "Sketch", "Sketch Bold", "Ink", "Strikethrough", "Tag", "Speech Bubble", "Marker" };
@@ -15412,6 +15676,8 @@ public class GifSlideShowApp extends JFrame {
         // it persists without touching the overloaded constructor chain; carried
         // through copyBgStyle so the HL-clone render pass keeps it.
         boolean fxBurst = false;
+        // Which burst particle shape to draw when fxBurst is on (see BURST_STYLES).
+        String  fxBurstStyle = "Stars";
 
         // ===== BG style (toolbars 4b2 / 4b3 / 4b4) =====
         // Defaults are mutable (not final) so they can persist via SlideTextData without
@@ -15492,6 +15758,7 @@ public class GifSlideShowApp extends JFrame {
             dst.bgOuterGlowSize   = src.bgOuterGlowSize;
             dst.bgOuterGlowColor  = src.bgOuterGlowColor;
             dst.fxBurst           = src.fxBurst;
+            dst.fxBurstStyle      = src.fxBurstStyle;
             // Texts Timer timeline rides along too, so it survives the same
             // rebuild / broadcast / HL-clone paths as the BG-style block.
             dst.timerAppearMs     = src.timerAppearMs;
@@ -16528,6 +16795,7 @@ public class GifSlideShowApp extends JFrame {
         private final JComboBox<String> slideTextEffectCombo;
         private final JSpinner slideTextEffectIntensitySpinner;
         private final JCheckBox slideTextBurstCheck;
+        private final JComboBox<String> slideTextBurstStyleCombo;
         private final JCheckBox slideTextOdometerCheck;
         private final JSpinner slideTextOdometerSpeedSpinner;
         private final JSpinner slideTextOdometerRollSpinner;
@@ -17789,8 +18057,14 @@ public class GifSlideShowApp extends JFrame {
 
             slideTextBurstCheck = new JCheckBox("✨ Burst");
             slideTextBurstCheck.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            slideTextBurstCheck.setToolTipText("Sparkle burst: twinkling stars around the text (accent = HL color)");
+            slideTextBurstCheck.setToolTipText("Sparkle burst: twinkling particles around the text (accent = HL color)");
             slideTextBurstCheck.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextBurstStyleCombo = new JComboBox<>(BURST_STYLES);
+            slideTextBurstStyleCombo.setPreferredSize(new Dimension(90, 24));
+            slideTextBurstStyleCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextBurstStyleCombo.setToolTipText("Burst shape: Stars, Hearts, Confetti, Bubbles, Snow or Petals");
+            slideTextBurstStyleCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
             slideTextOdometerCheck = new JCheckBox("Odometer");
             slideTextOdometerCheck.setFont(new Font("Segoe UI", Font.BOLD, 11));
@@ -17935,6 +18209,7 @@ public class GifSlideShowApp extends JFrame {
             toolbar4c.add(tc4cPowerLbl);
             toolbar4c.add(slideTextEffectIntensitySpinner);
             toolbar4c.add(slideTextBurstCheck);
+            toolbar4c.add(slideTextBurstStyleCombo);
             toolbar4c.add(tc4cHlLbl);
             toolbar4c.add(slideTextHighlightField);
             toolbar4c.add(slideTextHighlightColorBtn);
@@ -20213,6 +20488,7 @@ public class GifSlideShowApp extends JFrame {
             newItem.bgOuterGlowSize = (int) slideTextBgGlowSpinner.getValue();
             newItem.bgOuterGlowColor = slideTextBgGlowColor;
             newItem.fxBurst = slideTextBurstCheck.isSelected();
+            newItem.fxBurstStyle = (String) slideTextBurstStyleCombo.getSelectedItem();
             // The Texts-Timer timeline is edited in its own dialog, not on the
             // main toolbar, so carry it forward from the previous item instead of
             // resetting it every time an unrelated property changes.
@@ -20283,6 +20559,7 @@ public class GifSlideShowApp extends JFrame {
                 slideTextEffectCombo.setSelectedItem(item.textEffect);
                 slideTextEffectIntensitySpinner.setValue(item.textEffectIntensity);
                 slideTextBurstCheck.setSelected(item.fxBurst);
+                slideTextBurstStyleCombo.setSelectedItem(item.fxBurstStyle != null ? item.fxBurstStyle : "Stars");
                 slideTextHighlightField.setText(item.highlightText);
                 slideTextHighlightColor = item.highlightColor;
                 slideTextHighlightColorBtn.setForeground(item.highlightColor);
