@@ -14590,9 +14590,10 @@ public class GifSlideShowApp extends JFrame {
         return (v != null && v > 0) ? v : DEFAULT_AUDIO_GLOW_SIZE;
     }
     /** True iff any text row's effects need per-frame rendering. Pulse/Shake plus
-     *  every "Other:*" effect (Wave, Jitter, Scale Pop, Fade In, Slide In *,
-     *  Neon Flicker, Tilt Sway, Shimmer, Reveal, Wipe, Glow Trail, Scan) are
-     *  animated and force the per-frame export path. The static highlight styles
+     *  every "Other:*" effect (Fade In, Rise, Drop, Zoom In, Scale Pop, Slide In *,
+     *  Wave, Float, Tilt Sway, Jitter, Neon Flicker, and the Shine overlays
+     *  Shimmer, Reveal, Wipe, Glow Trail, Scan) are animated and force the
+     *  per-frame export path. The static highlight styles
      *  (Glow / Enlarge / Bold / Underline / Color / None) are constant within a
      *  segment and stay on the cheaper one-frame-per-segment path. */
     /** True iff any shown bulk-grid picture has an audio-triggered visual
@@ -15349,93 +15350,118 @@ public class GifSlideShowApp extends JFrame {
                 }
 
                 // ----- "Others" effects (multi-select). All are render-time only,
-                // so they never trigger text re-wrapping. Multiple effects compose. -----
+                // so they never trigger text re-wrapping. Multiple effects compose.
+                // Values are tuned for a restrained, professional look: subtle
+                // amplitudes, smooth easing, and deliberate (never random) motion. -----
                 double otherDxFrac = 0.0;
                 double otherAlpha  = 1.0;
                 double otherTilt   = 0.0;
+
+                // Shared entrance progress for one-shot effects: 0→1 over ~16 frames
+                // (~0.5 s) after the segment activates, with a smooth cubic ease-out.
+                // entInv is the remaining distance (1→0). -1/0 while inactive.
+                final double ENT_FRAMES = 16.0;
+                double entT    = (animFrame >= 0) ? Math.min(1.0, animFrame / ENT_FRAMES) : -1.0;
+                double easeOut = (entT >= 0) ? (1.0 - Math.pow(1.0 - entT, 3.0)) : -1.0;
+                double entInv  = (easeOut >= 0) ? (1.0 - easeOut) : 0.0;
+
                 if (fx.contains("Other:Wave")) {
-                    if (animFrame >= 0) {
-                        // ~2 Hz vertical sine, ±2.5 % of frame height (~27 px on 1080p)
-                        // — readable as a real wave, not a faint bob.
-                        shakeDyFrac += 0.025 * Math.sin(animFrame * 0.42);
-                    } else {
-                        shakeDyFrac += 0.012;
-                    }
+                    // Gentle vertical float, ±1.2 % of frame height, ~1.6 s cycle —
+                    // a soft bob rather than a big wave.
+                    if (animFrame >= 0) shakeDyFrac += 0.012 * Math.sin(animFrame * 0.30);
+                    else                shakeDyFrac += 0.004;
+                }
+                if (fx.contains("Other:Float")) {
+                    // NEW: a very slow, calm drift (±0.8 %, ~2.8 s cycle) — premium idle.
+                    if (animFrame >= 0) shakeDyFrac += 0.008 * Math.sin(animFrame * 0.17);
+                    else                shakeDyFrac += 0.003;
                 }
                 if (fx.contains("Other:Jitter")) {
-                    if (animFrame >= 0) {
-                        // Deterministic pseudo-random per-frame nudge in both axes,
-                        // ~±1 % of frame size — clearly visible "nervous" motion.
-                        long seed = animFrame * 2654435761L;
-                        double rx = ((seed       & 0xFFFF) / 65535.0) - 0.5;
-                        double ry = (((seed>>>16) & 0xFFFF) / 65535.0) - 0.5;
-                        otherDxFrac += rx * 0.020;
-                        shakeDyFrac += ry * 0.020;
-                    } else {
-                        otherDxFrac += 0.008;
-                    }
+                    // Rebranded "Nudge": a single deliberate settle on activation —
+                    // the text eases in from a small up-left offset. No continuous
+                    // randomness (which read as a glitch); this reads as intent.
+                    if (easeOut >= 0) { otherDxFrac += -0.018 * entInv; shakeDyFrac += -0.018 * entInv; }
                 }
                 if (fx.contains("Other:Scale Pop")) {
-                    // Quick zoom-in once at activation, decays in ~12 frames (~0.4 s).
-                    if (animFrame >= 0 && animFrame < 12) {
-                        double t = animFrame / 12.0;
-                        // Start at 1.35, ease back to 1.0.
-                        pulseScale *= 1.0 + 0.35 * (1.0 - t) * (1.0 - t);
-                    } else if (animFrame < 0) {
-                        pulseScale *= 1.10;
+                    // Rebranded "Pop In": a damped spring — overshoots then settles to
+                    // 100 % with a small bounce, instead of a flat linear decay.
+                    if (animFrame >= 0) {
+                        double s = 1.0 + 0.22 * Math.exp(-3.2 * entT) * Math.cos(6.5 * entT);
+                        pulseScale *= (entT >= 1.0) ? 1.0 : s;
+                    } else {
+                        pulseScale *= 1.06;
+                    }
+                }
+                if (fx.contains("Other:Zoom In")) {
+                    // NEW: cinematic settle — eases in from 108 % to 100 % with a fade.
+                    if (easeOut >= 0) {
+                        pulseScale *= 1.08 - 0.08 * easeOut;
+                        otherAlpha *= Math.min(1.0, 0.25 + easeOut);
+                    } else {
+                        pulseScale *= 1.04;
+                        otherAlpha *= 0.7;
                     }
                 }
                 if (fx.contains("Other:Fade In")) {
+                    // Smooth ease-in-out (smoothstep) fade — reads more premium than a
+                    // straight linear ramp.
                     if (animFrame >= 0) {
-                        // Linear ramp 0→1 over the first 12 frames (~0.4 s).
-                        otherAlpha *= Math.max(0.0, Math.min(1.0, animFrame / 12.0));
+                        double t = Math.min(1.0, animFrame / ENT_FRAMES);
+                        otherAlpha *= t * t * (3.0 - 2.0 * t);
                     } else {
-                        otherAlpha *= 0.6;
+                        otherAlpha *= 0.5;
                     }
                 }
-                // Slide-in: text starts offset and eases to its resting position.
-                // Single-shot — only the first ~14 frames after activation animate.
-                double slideEase = -1.0;
-                if (animFrame >= 0 && animFrame < 14) {
-                    double t = animFrame / 14.0;
-                    // Ease-out cubic.
-                    slideEase = 1.0 - Math.pow(1.0 - t, 3);
+                if (fx.contains("Other:Rise")) {
+                    // NEW: lift + fade — the classic premium title entrance. Starts ~7 %
+                    // low and transparent, eases up into place.
+                    if (easeOut >= 0) { shakeDyFrac += 0.07 * entInv; otherAlpha *= easeOut; }
+                    else              { shakeDyFrac += 0.05;          otherAlpha *= 0.4; }
                 }
+                if (fx.contains("Other:Drop")) {
+                    // NEW: settle down from just above with a soft fade.
+                    if (easeOut >= 0) { shakeDyFrac += -0.07 * entInv; otherAlpha *= easeOut; }
+                    else              { shakeDyFrac += -0.05;          otherAlpha *= 0.4; }
+                }
+                // Slide-in one-shots: text starts offset and eases to rest (ease-out cubic).
                 if (fx.contains("Other:Slide In Left")) {
-                    if (slideEase >= 0) otherDxFrac += (slideEase - 1.0) * 0.5;
+                    if (easeOut >= 0) otherDxFrac += -0.5 * entInv;
                     else if (animFrame < 0) otherDxFrac -= 0.10;
                 }
                 if (fx.contains("Other:Slide In Right")) {
-                    if (slideEase >= 0) otherDxFrac += (1.0 - slideEase) * 0.5;
+                    if (easeOut >= 0) otherDxFrac += 0.5 * entInv;
                     else if (animFrame < 0) otherDxFrac += 0.10;
                 }
                 if (fx.contains("Other:Slide In Up")) {
-                    if (slideEase >= 0) shakeDyFrac += (1.0 - slideEase) * 0.4;
+                    if (easeOut >= 0) shakeDyFrac += 0.4 * entInv;
                     else if (animFrame < 0) shakeDyFrac += 0.06;
                 }
                 if (fx.contains("Other:Slide In Down")) {
-                    if (slideEase >= 0) shakeDyFrac += (slideEase - 1.0) * 0.4;
+                    if (easeOut >= 0) shakeDyFrac += -0.4 * entInv;
                     else if (animFrame < 0) shakeDyFrac -= 0.06;
                 }
                 if (fx.contains("Other:Neon Flicker")) {
+                    // Rebranded "Neon Sign": a scripted power-on — two quick flashes
+                    // then holds steady on, like a real sign warming up. Deterministic,
+                    // so it never looks like a random encoding fault.
                     if (animFrame >= 0) {
-                        // Mostly-on with occasional dim flickers.
-                        long seed = animFrame * 1664525L + 1013904223L;
-                        double r = ((seed & 0xFFFF) / 65535.0);
-                        double dim = (r < 0.10) ? 0.55 : (r < 0.18 ? 0.80 : 1.0);
+                        double dim;
+                        if      (animFrame < 2)  dim = 0.35;
+                        else if (animFrame < 4)  dim = 1.00;
+                        else if (animFrame < 6)  dim = 0.55;
+                        else if (animFrame < 8)  dim = 1.00;
+                        else if (animFrame < 10) dim = 0.82;
+                        else                     dim = 1.00;
                         otherAlpha *= dim;
                     } else {
-                        otherAlpha *= 0.85;
+                        otherAlpha *= 0.9;
                     }
                 }
                 if (fx.contains("Other:Tilt Sway")) {
-                    if (animFrame >= 0) {
-                        // ±5° sway, ~1.5 s cycle — clearly readable as a rocking
-                        // motion rather than an almost-imperceptible lean.
-                        otherTilt += 5.0 * Math.sin(animFrame * 0.14);
-                    } else {
-                        otherTilt += 3.0;
-                    }
+                    // Rebranded "Sway": a subtle ±2° rock, ~2.4 s cycle — a refined
+                    // lean instead of a toy-like wobble.
+                    if (animFrame >= 0) otherTilt += 2.0 * Math.sin(animFrame * 0.09);
+                    else                otherTilt += 1.0;
                 }
 
                 // ----- Light-overlay effects (post-text, clipped to glyph shapes) -----
@@ -17372,15 +17398,43 @@ public class GifSlideShowApp extends JFrame {
                 audioFxUnderline, audioFxColor, audioFxShake, audioFxPulse;
         private final JToggleButton audioFxNone;
         private final JSpinner audioGlowSizeSp;
-        // "Others" multi-select effects (button + checkbox popup). Effect names
-        // live in slideAudioHlEffectsMap as "Other:<Name>" tokens alongside the
-        // existing comma-separated effect string, so persistence stays compatible.
-        private static final String[] AUDIO_FX_OTHERS = {
-                "Wave", "Jitter", "Scale Pop", "Fade In",
-                "Slide In Left", "Slide In Right", "Slide In Up", "Slide In Down",
-                "Neon Flicker", "Tilt Sway",
-                "Shimmer", "Reveal", "Wipe", "Glow Trail", "Scan"
+        // "Others" multi-select effects (button + checkbox popup), grouped into
+        // Entrance / Emphasis / Shine. Each row is {token, label, tooltip}: the
+        // TOKEN is the stable id stored in slideAudioHlEffectsMap as "Other:<token>"
+        // (so old projects keep working) while the LABEL is what the popup shows —
+        // this lets us present a polished name without breaking persistence.
+        private static final String[][] AUDIO_FX_ENTRANCE = {
+                {"Fade In",        "Fade In",        "Smoothly fades the text in (ease-in-out)."},
+                {"Rise",           "Rise",           "Lifts the text up into place as it fades in — a clean, premium title entrance."},
+                {"Drop",           "Drop",           "Settles the text down from just above with a soft fade."},
+                {"Zoom In",        "Zoom In",        "Eases in from a slightly larger size — a subtle cinematic settle."},
+                {"Scale Pop",      "Pop In",         "Springy scale that overshoots then settles — a punchy accent on the beat."},
+                {"Slide In Left",  "Slide In Left",  "Slides in from the left."},
+                {"Slide In Right", "Slide In Right", "Slides in from the right."},
+                {"Slide In Up",    "Slide In Up",    "Slides up into place from below."},
+                {"Slide In Down",  "Slide In Down",  "Slides down into place from above."},
         };
+        private static final String[][] AUDIO_FX_EMPHASIS = {
+                {"Wave",           "Wave",           "A gentle floating bob."},
+                {"Float",          "Float",          "A very slow, calm vertical drift — a refined idle motion."},
+                {"Tilt Sway",      "Sway",           "A subtle ±2° rocking lean."},
+                {"Jitter",         "Nudge",          "A single quick settle-nudge on the beat (not a continuous shake)."},
+                {"Neon Flicker",   "Neon Sign",      "Powers on with two quick flashes then holds steady, like a neon sign."},
+        };
+        private static final String[][] AUDIO_FX_SHINE = {
+                {"Shimmer",        "Shimmer",        "A diagonal light band sweeps across the letters."},
+                {"Reveal",         "Reveal",         "A light sweep travels along the reading direction."},
+                {"Wipe",           "Wipe",           "A bright wipe passes across the text."},
+                {"Glow Trail",     "Glow Trail",     "A glowing highlight trails along the letters."},
+                {"Scan",           "Scan",           "A thin scan line passes over the text."},
+        };
+        // Entrance effects that move the text (share the dx/dy offset) — only one at
+        // a time makes sense, so selecting one clears the others in the group. Same
+        // idea for the two scale entrances.
+        private static final java.util.Set<String> AUDIO_FX_MOVE_EXCL = new java.util.HashSet<>(java.util.Arrays.asList(
+                "Slide In Left", "Slide In Right", "Slide In Up", "Slide In Down", "Rise", "Drop"));
+        private static final java.util.Set<String> AUDIO_FX_SCALE_EXCL = new java.util.HashSet<>(java.util.Arrays.asList(
+                "Scale Pop", "Zoom In"));
         private JButton audioFxOthersBtn;
         private final java.util.LinkedHashMap<String, JCheckBox> audioFxOthersChecks
                 = new java.util.LinkedHashMap<>();
@@ -19849,26 +19903,63 @@ public class GifSlideShowApp extends JFrame {
             JPanel othersPanel = new JPanel();
             othersPanel.setLayout(new BoxLayout(othersPanel, BoxLayout.Y_AXIS));
             othersPanel.setBackground(new Color(40, 44, 56));
-            othersPanel.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
-            for (String name : AUDIO_FX_OTHERS) {
-                JCheckBox cb = new JCheckBox(name);
-                cb.setBackground(new Color(40, 44, 56));
-                cb.setForeground(new Color(220, 225, 235));
-                cb.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-                cb.setFocusPainted(false);
-                cb.addActionListener(e -> {
-                    if (cb.isSelected() && audioFxNone.isSelected()) audioFxNone.setSelected(false);
-                    refreshAudioFxOthersBtnAppearance();
-                    onFormatChanged();
-                });
-                audioFxOthersChecks.put(name, cb);
-                othersPanel.add(cb);
-            }
-            JPanel othersFooter = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 2));
+            othersPanel.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+
+            // Build one labelled section (Entrance / Emphasis / Shine). Checkboxes
+            // are keyed in audioFxOthersChecks by their stable token, while the
+            // visible label + tooltip come from the definition rows. Movement and
+            // scale entrances are mutually exclusive so combinations can't fight.
+            java.util.function.BiConsumer<String, String[][]> addFxSection = (title, defs) -> {
+                if (othersPanel.getComponentCount() > 0) {
+                    othersPanel.add(Box.createRigidArea(new Dimension(0, 4)));
+                }
+                JLabel hdr = new JLabel(title);
+                hdr.setFont(new Font("Segoe UI", Font.BOLD, 10));
+                hdr.setForeground(new Color(150, 180, 230));
+                hdr.setAlignmentX(Component.LEFT_ALIGNMENT);
+                hdr.setBorder(BorderFactory.createEmptyBorder(2, 1, 2, 1));
+                othersPanel.add(hdr);
+                for (String[] d : defs) {
+                    final String token = d[0];
+                    JCheckBox cb = new JCheckBox(d[1]);
+                    cb.setBackground(new Color(40, 44, 56));
+                    cb.setForeground(new Color(220, 225, 235));
+                    cb.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+                    cb.setFocusPainted(false);
+                    cb.setToolTipText(d[2]);
+                    cb.setAlignmentX(Component.LEFT_ALIGNMENT);
+                    cb.addActionListener(e -> {
+                        if (cb.isSelected()) {
+                            if (audioFxNone.isSelected()) audioFxNone.setSelected(false);
+                            java.util.Set<String> grp = AUDIO_FX_MOVE_EXCL.contains(token) ? AUDIO_FX_MOVE_EXCL
+                                    : (AUDIO_FX_SCALE_EXCL.contains(token) ? AUDIO_FX_SCALE_EXCL : null);
+                            if (grp != null) {
+                                for (java.util.Map.Entry<String, JCheckBox> en : audioFxOthersChecks.entrySet()) {
+                                    if (!en.getKey().equals(token) && grp.contains(en.getKey())
+                                            && en.getValue().isSelected()) {
+                                        en.getValue().setSelected(false);
+                                    }
+                                }
+                            }
+                        }
+                        refreshAudioFxOthersBtnAppearance();
+                        onFormatChanged();
+                    });
+                    audioFxOthersChecks.put(token, cb);
+                    othersPanel.add(cb);
+                }
+            };
+            addFxSection.accept("ENTRANCE", AUDIO_FX_ENTRANCE);
+            addFxSection.accept("EMPHASIS", AUDIO_FX_EMPHASIS);
+            addFxSection.accept("SHINE", AUDIO_FX_SHINE);
+            othersPanel.add(Box.createRigidArea(new Dimension(0, 6)));
+
+            JPanel othersFooter = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 2));
             othersFooter.setBackground(new Color(40, 44, 56));
+            othersFooter.setAlignmentX(Component.LEFT_ALIGNMENT);
             JButton clearAllBtn = new JButton("Clear");
-            clearAllBtn.setFont(new Font("Segoe UI", Font.PLAIN, 10));
-            clearAllBtn.setMargin(new Insets(2, 6, 2, 6));
+            clearAllBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            clearAllBtn.setMargin(new Insets(3, 12, 3, 12));
             clearAllBtn.setFocusPainted(false);
             clearAllBtn.addActionListener(e -> {
                 boolean changed = false;
@@ -19881,8 +19972,8 @@ public class GifSlideShowApp extends JFrame {
                 }
             });
             JButton closeBtn = new JButton("OK");
-            closeBtn.setFont(new Font("Segoe UI", Font.BOLD, 10));
-            closeBtn.setMargin(new Insets(2, 8, 2, 8));
+            closeBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            closeBtn.setMargin(new Insets(3, 16, 3, 16));
             closeBtn.setFocusPainted(false);
             closeBtn.addActionListener(e -> audioFxOthersPopup.setVisible(false));
             othersFooter.add(clearAllBtn);
