@@ -2562,6 +2562,200 @@ public class GifSlideShowApp extends JFrame {
         return fields;
     }
 
+    // ===== "Repeat parts of the video" import (from Excel/CSV) =====
+
+    /** True if {@code s} is a plain number (allows surrounding spaces). */
+    private static boolean isNumeric(String s) {
+        if (s == null) return false;
+        s = s.trim();
+        if (s.isEmpty()) return false;
+        try { Double.parseDouble(s); return true; }
+        catch (NumberFormatException ex) { return false; }
+    }
+
+    /** Safe indexed access into a parsed CSV row; "" when the column is absent. */
+    private static String cell(List<String> row, int idx) {
+        if (idx < 0 || idx >= row.size()) return "";
+        return row.get(idx) == null ? "" : row.get(idx).trim();
+    }
+
+    /** Interpret spreadsheet truthy values (true/yes/on/1/x/✓) as a boolean. */
+    private static boolean parseBoolish(String s) {
+        s = s.trim().toLowerCase();
+        return s.equals("true") || s.equals("yes") || s.equals("y") || s.equals("on")
+                || s.equals("1") || s.equals("x") || s.equals("✓") || s.equals("✔");
+    }
+
+    /** Outcome of importing "Repeat parts of the video" ranges from a spreadsheet
+     *  (CSV/TSV, e.g. Save-As-CSV or a paste copied out of Excel). */
+    static final class VideoRepeatImportResult {
+        final StringBuilder repeatLines = new StringBuilder(); // one "start,end[,times[,slow]]" per line
+        int rangeCount = 0;                 // usable ranges parsed
+        int skipped = 0;                    // rows dropped for a non-numeric start/end
+        Boolean crossfade = null;           // set only if a Crossfade column was present
+        Integer globalSlowPct = null;       // set only if a "slow entire video" column was present
+    }
+
+    /**
+     * Let the user pick a CSV/TSV file (or paste rows copied from Excel) that
+     * describe "Repeat parts of the video" ranges — one range per row. Columns may
+     * be named via an optional header row (START, END, TIMES, SLOW, and optionally
+     * CROSSFADE and SLOW_ALL for the whole-video slow), or given positionally as
+     * start, end, times, slow. Returns the parsed result (in the same text form the
+     * repeat box expects), or {@code null} if the user cancelled or nothing usable
+     * was found. Range validity (end &gt; start, etc.) is left to the dialog's Apply.
+     */
+    private VideoRepeatImportResult importVideoRepeatRanges(Component parent) {
+        String[] options = {"From File (CSV/TSV)", "From Clipboard / Paste"};
+        int choice = JOptionPane.showOptionDialog(parent,
+                "Import \"Repeat parts of the video\" ranges — one range per row.\n"
+                        + "Columns: start, end, times (optional), slow (optional) — in seconds.\n"
+                        + "Example row:  6.539, 7.659, 2, 1.3\n"
+                        + "A header row is optional; recognised names include START, END, TIMES,\n"
+                        + "SLOW, plus CROSSFADE and SLOW_ALL (whole-video slow).\n"
+                        + "Tip: In Excel put each value in its own column, then Save As CSV.",
+                "Import Repeats from Excel/CSV",
+                JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE,
+                null, options, options[0]);
+        if (choice != 0 && choice != 1) return null;
+
+        List<String> rawRows;
+        if (choice == 0) {
+            JFileChooser fc = new JFileChooser();
+            fc.setDialogTitle("Choose CSV/TSV file with repeat ranges");
+            if (fc.showOpenDialog(parent) != JFileChooser.APPROVE_OPTION) return null;
+            try {
+                byte[] bytes = Files.readAllBytes(fc.getSelectedFile().toPath());
+                String content;
+                if (bytes.length >= 3 && (bytes[0] & 0xFF) == 0xEF
+                        && (bytes[1] & 0xFF) == 0xBB && (bytes[2] & 0xFF) == 0xBF) {
+                    content = new String(bytes, 3, bytes.length - 3, StandardCharsets.UTF_8);
+                } else {
+                    content = new String(bytes, StandardCharsets.UTF_8);
+                    if (content.contains("\uFFFD")) { // not clean UTF-8; try common Excel encoding
+                        content = new String(bytes, java.nio.charset.Charset.forName("windows-1252"));
+                    }
+                }
+                if (!content.isEmpty() && content.charAt(0) == '\uFEFF') content = content.substring(1);
+                rawRows = splitCsvRows(content);
+            } catch (IOException ex) {
+                JOptionPane.showMessageDialog(parent, "Failed to read file:\n" + ex.getMessage(),
+                        "Error", JOptionPane.ERROR_MESSAGE);
+                return null;
+            }
+        } else {
+            JTextArea pasteArea = new JTextArea(10, 40);
+            pasteArea.setFont(new Font("Consolas", Font.PLAIN, 13));
+            pasteArea.setLineWrap(false);
+            JScrollPane sp = new JScrollPane(pasteArea);
+            sp.setPreferredSize(new Dimension(460, 260));
+            int r = JOptionPane.showConfirmDialog(parent, sp,
+                    "Paste rows (start, end, times, slow) — one range per line:",
+                    JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+            if (r != JOptionPane.OK_OPTION) return null;
+            if (pasteArea.getText().trim().isEmpty()) return null;
+            rawRows = splitCsvRows(pasteArea.getText());
+        }
+
+        // Parse into fields, dropping blank rows.
+        List<List<String>> rows = new ArrayList<>();
+        for (String raw : rawRows) {
+            if (raw.trim().isEmpty()) continue;
+            rows.add(parseCsvLine(raw));
+        }
+        if (rows.isEmpty()) {
+            JOptionPane.showMessageDialog(parent, "No rows found to import.",
+                    "Import Repeats", JOptionPane.WARNING_MESSAGE);
+            return null;
+        }
+
+        // Column mapping. Default is positional: start, end, times, slow.
+        int cStart = 0, cEnd = 1, cTimes = 2, cSlow = 3, cCross = -1, cSlowAll = -1;
+        int firstDataRow = 0;
+        List<String> head = rows.get(0);
+        boolean headerRow = !head.isEmpty() && !isNumeric(head.get(0));
+        if (headerRow) {
+            firstDataRow = 1;
+            cStart = cEnd = cTimes = cSlow = -1;
+            for (int i = 0; i < head.size(); i++) {
+                String key = head.get(i).toLowerCase().replaceAll("[^a-z0-9]", "");
+                switch (key) {
+                    case "start": case "begin": case "from": case "s":
+                    case "startsec": case "startseconds": case "starttime":
+                        if (cStart < 0) cStart = i; break;
+                    case "end": case "stop": case "to": case "e":
+                    case "endsec": case "endseconds": case "endtime": case "finish":
+                        if (cEnd < 0) cEnd = i; break;
+                    case "times": case "plays": case "count": case "repeat":
+                    case "repeats": case "n": case "loops":
+                        if (cTimes < 0) cTimes = i; break;
+                    case "slow": case "speed": case "slowfactor": case "slowdown":
+                    case "slowrepeat":
+                        if (cSlow < 0) cSlow = i; break;
+                    case "crossfade": case "crossfadeaudio": case "fade": case "xfade":
+                        if (cCross < 0) cCross = i; break;
+                    case "slowall": case "slowentire": case "slowentirevideo":
+                    case "entire": case "globalslow": case "slowvideo":
+                    case "slowwholevideo": case "wholevideo":
+                        if (cSlowAll < 0) cSlowAll = i; break;
+                    default: break;
+                }
+            }
+            if (cStart < 0 || cEnd < 0) {
+                JOptionPane.showMessageDialog(parent,
+                        "Could not find START and END columns in the header row.\n"
+                                + "Rename columns to start / end (times, slow optional), or remove the\n"
+                                + "header row and use plain columns: start, end, times, slow.",
+                        "Import Repeats", JOptionPane.ERROR_MESSAGE);
+                return null;
+            }
+        }
+
+        VideoRepeatImportResult res = new VideoRepeatImportResult();
+        for (int r = firstDataRow; r < rows.size(); r++) {
+            List<String> f = rows.get(r);
+            // The whole-video controls may sit on any row; take the first value given.
+            if (cCross >= 0 && res.crossfade == null) {
+                String cv = cell(f, cCross);
+                if (!cv.isEmpty()) res.crossfade = parseBoolish(cv);
+            }
+            if (cSlowAll >= 0 && res.globalSlowPct == null) {
+                String sv = cell(f, cSlowAll);
+                if (isNumeric(sv)) {
+                    double d = Double.parseDouble(sv.trim());
+                    if (d < 1.0) d = 1.0;
+                    if (d > 8.0) d = 8.0;
+                    res.globalSlowPct = (int) Math.round(d * 100.0);
+                }
+            }
+            String s = cell(f, cStart), e = cell(f, cEnd);
+            if (!isNumeric(s) || !isNumeric(e)) {
+                if (!s.isEmpty() || !e.isEmpty()) res.skipped++;
+                continue;
+            }
+            StringBuilder line = new StringBuilder();
+            line.append(s.trim()).append(',').append(e.trim());
+            String times = cell(f, cTimes);
+            String slow = cell(f, cSlow);
+            boolean haveTimes = isNumeric(times);
+            boolean haveSlow = isNumeric(slow);
+            // "slow" reads as the 4th field, so emit a "times" placeholder (default 2)
+            // when only slow was supplied, keeping the columns aligned for the parser.
+            if (haveTimes || haveSlow) line.append(',').append(haveTimes ? times.trim() : "2");
+            if (haveSlow) line.append(',').append(slow.trim());
+            res.repeatLines.append(line).append('\n');
+            res.rangeCount++;
+        }
+
+        if (res.rangeCount == 0) {
+            JOptionPane.showMessageDialog(parent,
+                    "No valid repeat ranges found. Each row needs a numeric start and end (seconds).",
+                    "Import Repeats", JOptionPane.WARNING_MESSAGE);
+            return null;
+        }
+        return res;
+    }
+
     /**
      * Attach the audio(s) named in one imported cell to a text row. The cell may
      * hold a single path, or two comma-separated paths (quote the cell in the
@@ -22705,6 +22899,57 @@ public class GifSlideShowApp extends JFrame {
             slowAllPanel.add(slowAllSpinner);
             slowAllPanel.add(slowAllX);
 
+            // ----- Import the repeat ranges from Excel/CSV -----
+            // Reads one range per row (start, end, times, slow) and fills the box
+            // above; the actual validation happens on Apply, same as typed input.
+            JPanel repeatImportPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+            repeatImportPanel.setBackground(Color.WHITE);
+            JButton importRepeatsBtn = new JButton("Import from Excel/CSV…");
+            importRepeatsBtn.setToolTipText("Load repeat ranges from a spreadsheet — one range per row as "
+                    + "start, end, times, slow (seconds). A header row with START/END/TIMES/SLOW is optional.");
+            JLabel importHint = new JLabel("(one range per row: start, end, times, slow)");
+            importHint.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            importHint.setForeground(new Color(110, 110, 110));
+            repeatImportPanel.add(importRepeatsBtn);
+            repeatImportPanel.add(importHint);
+            importRepeatsBtn.addActionListener(e -> {
+                VideoRepeatImportResult imp = importVideoRepeatRanges(dlg);
+                if (imp == null) return;
+                boolean append = false;
+                if (!repeatArea.getText().trim().isEmpty()) {
+                    int m = JOptionPane.showConfirmDialog(dlg,
+                            "Add the " + imp.rangeCount + " imported range(s) to the ones already listed?\n"
+                                    + "Yes = add to the list,   No = replace the list.",
+                            "Import Repeats", JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
+                    if (m == JOptionPane.CANCEL_OPTION || m == JOptionPane.CLOSED_OPTION) return;
+                    append = (m == JOptionPane.YES_OPTION);
+                }
+                if (append) {
+                    String base = repeatArea.getText();
+                    if (!base.isEmpty() && !base.endsWith("\n")) base += "\n";
+                    repeatArea.setText(base + imp.repeatLines.toString());
+                } else {
+                    repeatArea.setText(imp.repeatLines.toString());
+                }
+                if (imp.crossfade != null) crossfadeCheck.setSelected(imp.crossfade);
+                if (imp.globalSlowPct != null) {
+                    slowAllSpinner.setValue(Math.max(1.0, Math.min(8.0, imp.globalSlowPct / 100.0)));
+                }
+                StringBuilder msg = new StringBuilder("Imported " + imp.rangeCount + " repeat range(s).");
+                if (imp.skipped > 0) {
+                    msg.append("\nSkipped ").append(imp.skipped).append(" row(s) with no numeric start/end.");
+                }
+                if (imp.crossfade != null) {
+                    msg.append("\nCrossfade at repeat joins set to ").append(imp.crossfade ? "on" : "off").append('.');
+                }
+                if (imp.globalSlowPct != null) {
+                    msg.append("\nSlow the ENTIRE video set to ").append(imp.globalSlowPct / 100.0).append("×.");
+                }
+                msg.append("\n\nReview the list above, then click Apply.");
+                JOptionPane.showMessageDialog(dlg, msg.toString(),
+                        "Import Repeats", JOptionPane.INFORMATION_MESSAGE);
+            });
+
             JButton applyAllBtn = new JButton("Effect → all texts");
             JButton clearBtn  = new JButton("Clear All");
             JButton cancelBtn = new JButton("Cancel");
@@ -22894,12 +23139,15 @@ public class GifSlideShowApp extends JFrame {
             rowsScroll.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
             repeatHelp.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
             repeatScroll.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
+            repeatImportPanel.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
+            repeatImportPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, repeatImportPanel.getPreferredSize().height));
             crossfadeCheck.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
             slowAllPanel.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
             slowAllPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, slowAllPanel.getPreferredSize().height));
             center.add(rowsScroll);
             center.add(repeatHelp);
             center.add(repeatScroll);
+            center.add(repeatImportPanel);
             center.add(crossfadeCheck);
             center.add(slowAllPanel);
 
