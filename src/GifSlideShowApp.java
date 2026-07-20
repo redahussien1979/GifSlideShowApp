@@ -2199,7 +2199,37 @@ public class GifSlideShowApp extends JFrame {
         File[] files = fc.getSelectedFiles();
         if (files.length == 0) return;
 
-        // Single file: offer to repeat it across N slides.
+        // Decide how to place the media. When there's existing content, offer a
+        // third option — "Specific slides…" — that drops the media onto exactly
+        // the slides the user names (a range like 7-10 or a list like 4,10,11).
+        //   mode 0 = Add to existing — fill slides that have no photo; leave photo-bearing slides alone.
+        //   mode 1 = Overwrite all   — replace only the photo on each eligible slide; keep texts/controls/settings.
+        //   mode 2 = Fresh           — no existing content; build from scratch.
+        // In modes 0/1 we skip title-grid slides and video slides. Extra files beyond
+        // the existing slots are appended as new slides.
+        boolean hasContent = slideRows.size() > 1
+                || (slideRows.size() == 1 && (slideRows.get(0).getImage() != null || slideRows.get(0).isTitleGridSlide));
+        int mode = 2;
+        if (hasContent) {
+            String[] options = {"Add to existing", "Overwrite all", "Specific slides…"};
+            int choice = JOptionPane.showOptionDialog(this,
+                    "You have " + slideRows.size() + " existing slide(s).\nHow would you like to import?\n"
+                            + "• Add to existing — fill slides that have no photo\n"
+                            + "• Overwrite all — replace the photo on each slide\n"
+                            + "• Specific slides… — place media only on the slides you name (e.g. 7-10 or 4,10,11)",
+                    "Bulk Import", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
+                    null, options, options[0]);
+            if (choice < 0) return;
+            if (choice == 2) { bulkImportToSpecificSlides(files); return; }
+            mode = choice;
+        } else {
+            // Single empty slide — just clear it
+            slideRows.clear();
+            slidesPanel.removeAll();
+        }
+
+        // Single file: offer to repeat it across N slides (whole-deck import only;
+        // the "Specific slides…" path above decides its own count from the range).
         if (files.length == 1) {
             String input = JOptionPane.showInputDialog(this,
                     "How many slides do you want from \"" + files[0].getName() + "\"?\n"
@@ -2237,29 +2267,6 @@ public class GifSlideShowApp extends JFrame {
             }
             return a.getName().compareToIgnoreCase(b.getName());
         });
-
-        // Modes:
-        //   0 = Add to existing   — fill slides that have no photo; leave photo-bearing slides alone.
-        //   1 = Overwrite all     — replace only the photo on each eligible slide; keep texts/controls/settings.
-        //   2 = Fresh             — no existing content; build from scratch.
-        // In modes 0/1 we skip title-grid slides and video slides. Extra files beyond
-        // the existing slots are appended as new slides.
-        boolean hasContent = slideRows.size() > 1
-                || (slideRows.size() == 1 && (slideRows.get(0).getImage() != null || slideRows.get(0).isTitleGridSlide));
-        int mode = 2;
-        if (hasContent) {
-            String[] options = {"Add to existing", "Overwrite all"};
-            int choice = JOptionPane.showOptionDialog(this,
-                    "You have " + slideRows.size() + " existing slide(s).\nHow would you like to import?",
-                    "Bulk Import", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
-                    null, options, options[0]);
-            if (choice < 0) return;
-            mode = choice;
-        } else {
-            // Single empty slide — just clear it
-            slideRows.clear();
-            slidesPanel.removeAll();
-        }
 
         int loaded = 0;
         int failed = 0;
@@ -2341,6 +2348,144 @@ public class GifSlideShowApp extends JFrame {
                 + images + " image(s), " + videos + " video(s)).";
         if (failed > 0) msg += "\n" + failed + " file(s) failed to load.";
         JOptionPane.showMessageDialog(this, msg, "Bulk Import", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    /**
+     * Place the chosen media onto specific slides named by the user — a range
+     * such as {@code 7-10}, a list such as {@code 4,10,11}, or a mix such as
+     * {@code 1-3,7,9-11}. Media is assigned to the listed slides in order; a
+     * single item is placed on every listed slide, and when there are more
+     * slides than items the items cycle. Existing slides keep their texts and
+     * settings — only the photo/video is replaced. If a listed slide is beyond
+     * the current end of the deck, blank slides are appended to reach it.
+     */
+    private void bulkImportToSpecificSlides(File[] files) {
+        // Same ordering as the main bulk import: leading number, then name.
+        Arrays.sort(files, (a, b) -> {
+            int numA = extractLeadingNumber(a.getName());
+            int numB = extractLeadingNumber(b.getName());
+            if (numA != Integer.MAX_VALUE || numB != Integer.MAX_VALUE) {
+                return Integer.compare(numA, numB);
+            }
+            return a.getName().compareToIgnoreCase(b.getName());
+        });
+
+        String prompt = "Which slides should get "
+                + (files.length == 1 ? "this media?" : "these " + files.length + " media items?") + "\n"
+                + "Examples:  7-10  (slides 7 through 10)   •   4,10,11   •   1-3,7,9-11\n"
+                + "You currently have " + slideRows.size() + " slide(s).\n"
+                + (files.length == 1
+                        ? "The item is placed on every slide you list."
+                        : "Items are placed in order across the slides you list (they cycle if you list more slides than items).");
+        String spec = JOptionPane.showInputDialog(this, prompt,
+                "Add Media to Specific Slides", JOptionPane.QUESTION_MESSAGE);
+        if (spec == null) return; // cancelled
+
+        List<Integer> targets = parseSlideSpec(spec);
+        if (targets == null) return; // invalid — parseSlideSpec already showed the error
+        if (targets.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "No slides were specified.",
+                    "Add Media to Specific Slides", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        // Extend the deck with blank slides if a target sits past the current end.
+        int maxTarget = targets.get(targets.size() - 1);
+        int created = 0;
+        while (slideRows.size() < maxTarget) {
+            SlideRow row = new SlideRow(slideRows.size() + 1);
+            slideRows.add(row);
+            slidesPanel.add(row.getPanel());
+            slidesPanel.add(Box.createRigidArea(new Dimension(0, 10)));
+            created++;
+        }
+
+        int loaded = 0, failed = 0, videos = 0, skippedTitle = 0;
+        for (int k = 0; k < targets.size(); k++) {
+            SlideRow row = slideRows.get(targets.get(k) - 1);
+            if (row.isTitleGridSlide) { skippedTitle++; continue; }
+            File file = files[k % files.length];
+            try {
+                if (isVideoFile(file)) {
+                    int durationMs = probeAudioDurationMs(file);
+                    if (durationMs <= 0) { failed++; continue; }
+                    BufferedImage firstFrame = extractFirstVideoFrame(file);
+                    if (firstFrame == null) { failed++; continue; }
+                    row.setVideoSlideDirectly(file, firstFrame, durationMs);
+                    loaded++;
+                    videos++;
+                } else {
+                    BufferedImage img = loadImageFile(file);
+                    if (img == null) { failed++; continue; }
+                    row.setImageDirectly(img, file.getName());
+                    loaded++;
+                }
+            } catch (IOException ex) {
+                failed++;
+            }
+        }
+
+        slidesPanel.revalidate();
+        slidesPanel.repaint();
+
+        int images = loaded - videos;
+        StringBuilder msg = new StringBuilder();
+        msg.append(loaded).append(" item(s) placed (")
+                .append(images).append(" image(s), ").append(videos).append(" video(s)).");
+        if (created > 0) {
+            msg.append("\n").append(created)
+                    .append(" new slide(s) were created to reach the highest slide number you listed.");
+        }
+        if (skippedTitle > 0) {
+            msg.append("\n").append(skippedTitle).append(" title-grid slide(s) were skipped.");
+        }
+        if (failed > 0) {
+            msg.append("\n").append(failed).append(" file(s) failed to load.");
+        }
+        JOptionPane.showMessageDialog(this, msg.toString(),
+                "Add Media to Specific Slides", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    /**
+     * Parse a slide selection like {@code 7-10}, {@code 4,10,11} or {@code 1-3,7,9-11}
+     * into a sorted, de-duplicated list of 1-based slide numbers. Returns an empty
+     * list when nothing usable is given, or {@code null} (after showing an error)
+     * when a token can't be understood.
+     */
+    private List<Integer> parseSlideSpec(String spec) {
+        if (spec == null) return null;
+        java.util.TreeSet<Integer> set = new java.util.TreeSet<>();
+        for (String tokRaw : spec.split(",")) {
+            String tok = tokRaw.trim();
+            if (tok.isEmpty()) continue;
+            int dash = tok.indexOf('-');
+            if (dash > 0) { // a range like 7-10 (dash after the first char, never a negative)
+                try {
+                    int a = Integer.parseInt(tok.substring(0, dash).trim());
+                    int b = Integer.parseInt(tok.substring(dash + 1).trim());
+                    if (a < 1 || b < 1) throw new NumberFormatException();
+                    if (a > b) { int t = a; a = b; b = t; }
+                    for (int i = a; i <= b; i++) set.add(i);
+                } catch (NumberFormatException ex) {
+                    JOptionPane.showMessageDialog(this,
+                            "\"" + tok + "\" is not a valid slide range. Use e.g. 7-10.",
+                            "Add Media to Specific Slides", JOptionPane.ERROR_MESSAGE);
+                    return null;
+                }
+            } else {
+                try {
+                    int v = Integer.parseInt(tok);
+                    if (v < 1) throw new NumberFormatException();
+                    set.add(v);
+                } catch (NumberFormatException ex) {
+                    JOptionPane.showMessageDialog(this,
+                            "\"" + tok + "\" is not a valid slide number.",
+                            "Add Media to Specific Slides", JOptionPane.ERROR_MESSAGE);
+                    return null;
+                }
+            }
+        }
+        return new ArrayList<>(set);
     }
 
     // ==================== Bulk Import Text ====================
