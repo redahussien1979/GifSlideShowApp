@@ -14446,14 +14446,19 @@ public class GifSlideShowApp extends JFrame {
             StringBuilder fc = new StringBuilder();
             // Normalise both inputs to a common format so concat never rejects
             // clips that differ in sample-rate / channel-layout.
-            fc.append("[0:a]aformat=sample_rates=44100:channel_layouts=stereo[a0];");
-            fc.append("[1:a]aformat=sample_rates=44100:channel_layouts=stereo[a1];");
+            // sample_fmts=fltp is REQUIRED: the anullsrc gap below emits 8-bit
+            // (u8) silence, and concat downgrades every segment to the lowest
+            // common sample format. Without pinning float here, concat would
+            // requantise the whole voice to 8-bit -> a constant "shhh" hiss
+            // smeared across the audio (only in the two-audio/gap path).
+            fc.append("[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[a0];");
+            fc.append("[1:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[a1];");
             if (gapMs > 0) {
                 double gapSec = gapMs / 1000.0;
                 cmd.add("-f"); cmd.add("lavfi");
                 cmd.add("-t"); cmd.add(String.format(java.util.Locale.US, "%.3f", gapSec));
                 cmd.add("-i"); cmd.add("anullsrc=channel_layout=stereo:sample_rate=44100");
-                fc.append("[2:a]aformat=sample_rates=44100:channel_layouts=stereo[g];");
+                fc.append("[2:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[g];");
                 fc.append("[a0][g][a1]concat=n=3:v=0:a=1[out]");
             } else {
                 fc.append("[a0][a1]concat=n=2:v=0:a=1[out]");
