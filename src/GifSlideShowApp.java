@@ -5336,6 +5336,8 @@ public class GifSlideShowApp extends JFrame {
                 // translate is itself reversed.
                 java.awt.geom.AffineTransform savedSlideTextTx = g.getTransform();
                 java.awt.Composite savedSlideTextComposite = g.getComposite();
+                Object savedSlideTextAA = g.getRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING);
+                Object savedSlideTextFM = g.getRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS);
                 boolean transformWrapApplied = false;
                 if (st.tiltDegrees != 0) {
                     g.rotate(Math.toRadians(st.tiltDegrees), stCenterX, stCenterY);
@@ -5376,6 +5378,18 @@ public class GifSlideShowApp extends JFrame {
                     g.setComposite(java.awt.AlphaComposite.getInstance(
                             java.awt.AlphaComposite.SRC_OVER, a));
                     transformWrapApplied = true;
+                }
+                // Live per-frame transforms (Pulse scale, Bounce/Shake translate,
+                // tilt, slide-in) re-rasterize the glyphs every frame. LCD subpixel
+                // AA and integer glyph metrics both snap glyphs to the pixel grid,
+                // so a continuously-moving transform makes the text "shiver". Switch
+                // to grayscale AA + fractional metrics for the duration of the draw
+                // so sub-pixel motion stays perfectly smooth; restored afterwards.
+                if (transformWrapApplied) {
+                    g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+                            RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                    g.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS,
+                            RenderingHints.VALUE_FRACTIONALMETRICS_ON);
                 }
 
                 if (st.bgOpacity > 0) {
@@ -8058,6 +8072,12 @@ public class GifSlideShowApp extends JFrame {
                 if (transformWrapApplied) {
                     g.setTransform(savedSlideTextTx);
                     g.setComposite(savedSlideTextComposite);
+                    g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+                            savedSlideTextAA != null ? savedSlideTextAA
+                                    : RenderingHints.VALUE_TEXT_ANTIALIAS_DEFAULT);
+                    g.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS,
+                            savedSlideTextFM != null ? savedSlideTextFM
+                                    : RenderingHints.VALUE_FRACTIONALMETRICS_DEFAULT);
                 }
 
                 // Reverse the entry-animation translate so other slide texts
