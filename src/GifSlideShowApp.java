@@ -14616,7 +14616,7 @@ public class GifSlideShowApp extends JFrame {
         if (list == null) return false;
         for (String fx : list) {
             if (fx == null) continue;
-            if (fx.contains("Pulse") || fx.contains("Shake") || fx.contains("Other:")) return true;
+            if (fx.contains("Pulse") || fx.contains("Shake") || fx.contains("Bounce") || fx.contains("Other:")) return true;
         }
         return false;
     }
@@ -15275,28 +15275,23 @@ public class GifSlideShowApp extends JFrame {
                 int fontSize = st.fontSize;
                 if (fx.contains("Enlarge")) fontSize = (int)(fontSize * 1.30);
 
-                // Pulse: smooth heartbeat scale applied at draw time only (does NOT
-                // change fontSize → wrapping remains constant frame-to-frame).
-                // ~72 bpm "lub-dub" cycle, subtle peak amplitude.
+                // Pulse: smooth continuous "breathing" scale applied at draw time
+                // only (does NOT change fontSize → wrapping stays constant
+                // frame-to-frame). A single raised-cosine oscillation per cycle
+                // means the scale eases in AND out with zero velocity at both
+                // extremes — no snap, no dead pause — the same gentle pulse pro
+                // motion-graphics apps use. ~1.33 s/cycle, subtle peak amplitude.
                 double pulseScale = 1.0;
                 if (fx.contains("Pulse")) {
                     if (animFrame >= 0) {
-                        // 25 frames @ 30fps ≈ 0.83 s/cycle ≈ 72 bpm.
-                        double cyclePos = (animFrame % 25) / 25.0;
-                        double beat;
-                        if (cyclePos < 0.18) {
-                            // "lub" — primary contraction, smooth half-sine
-                            beat = Math.sin(cyclePos / 0.18 * Math.PI);
-                        } else if (cyclePos >= 0.26 && cyclePos < 0.42) {
-                            // "dub" — secondary, smaller, smooth half-sine
-                            beat = 0.55 * Math.sin((cyclePos - 0.26) / 0.16 * Math.PI);
-                        } else {
-                            beat = 0.0;
-                        }
-                        pulseScale = 1.0 + 0.07 * beat;
+                        double period = 40.0;                          // ~1.33 s @ 30fps
+                        double phase = (animFrame % period) / period;  // 0..1
+                        // Raised cosine: 0 → 1 → 0, smooth (C¹) across the wrap.
+                        double eased = 0.5 - 0.5 * Math.cos(phase * 2.0 * Math.PI);
+                        pulseScale = 1.0 + 0.06 * eased;
                     } else {
-                        // Static preview path: small scale-up to indicate pulse is on.
-                        pulseScale = 1.05;
+                        // Static preview path: mid-pulse scale to indicate it is on.
+                        pulseScale = 1.03;
                     }
                 }
 
@@ -15348,6 +15343,33 @@ public class GifSlideShowApp extends JFrame {
                     } else {
                         // Static preview: small lift so the user sees Shake is on.
                         shakeDyFrac = -0.006;
+                    }
+                }
+
+                // Bounce: a clean vertical hop with a smaller secondary rebound
+                // and a brief rest, looping seamlessly (dy = 0 at both ends of the
+                // cycle → no teleport on wrap). Built from projectile-style
+                // parabolic arcs, so it reads as a real bounce — the recognizable
+                // "drop-and-settle" of professional title animators. Vertical only,
+                // so wrapping/justification are untouched (X stays put).
+                if (fx.contains("Bounce")) {
+                    if (animFrame >= 0) {
+                        double period = 45.0;                       // 1.5 s/cycle
+                        double p = (animFrame % period) / period;   // 0..1
+                        double bounceH = 0.05;                      // peak ≈ 5 % of frame height
+                        if (p < 0.55) {
+                            // Primary hop: up to the peak and back to the ground.
+                            double u = p / 0.55;
+                            shakeDyFrac -= bounceH * (4.0 * u * (1.0 - u));
+                        } else if (p < 0.72) {
+                            // Secondary, smaller rebound after landing.
+                            double v = (p - 0.55) / 0.17;
+                            shakeDyFrac -= bounceH * 0.22 * (4.0 * v * (1.0 - v));
+                        }
+                        // else: brief rest on the ground before the next hop.
+                    } else {
+                        // Static preview: small lift so the user sees Bounce is on.
+                        shakeDyFrac -= 0.012;
                     }
                 }
 
@@ -17372,7 +17394,7 @@ public class GifSlideShowApp extends JFrame {
         private final JButton audioHlColorBtn;
         private Color audioHlColor = new Color(255, 200, 50, 160);
         private final JToggleButton audioFxGlow, audioFxEnlarge, audioFxBold,
-                audioFxUnderline, audioFxColor, audioFxShake, audioFxPulse;
+                audioFxUnderline, audioFxColor, audioFxShake, audioFxPulse, audioFxBounce;
         private final JToggleButton audioFxNone;
         private final JSpinner audioGlowSizeSp;
         // "Others" multi-select effects (button + checkbox popup). Effect names
@@ -19810,6 +19832,15 @@ public class GifSlideShowApp extends JFrame {
             audioFxPulse.addItemListener(fxToggleStyler);
             audioFxPulse.addItemListener(e -> onFormatChanged());
 
+            audioFxBounce = new JToggleButton("Bounce");
+            audioFxBounce.setFont(fxBtnFont); audioFxBounce.setPreferredSize(new Dimension(58, 24));
+            audioFxBounce.setFocusPainted(false); audioFxBounce.setToolTipText("Bounce active text with a springy hop (animated video only)");
+            audioFxBounce.setBackground(fxBtnOffBg); audioFxBounce.setForeground(fxBtnOffFg);
+            audioFxBounce.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
+            audioFxBounce.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+            audioFxBounce.addItemListener(fxToggleStyler);
+            audioFxBounce.addItemListener(e -> onFormatChanged());
+
             audioFxNone = new JToggleButton("None");
             audioFxNone.setFont(fxBtnFont); audioFxNone.setPreferredSize(new Dimension(48, 24));
             audioFxNone.setFocusPainted(false); audioFxNone.setToolTipText("Disable all audio highlight effects");
@@ -19819,7 +19850,7 @@ public class GifSlideShowApp extends JFrame {
             audioFxNone.addItemListener(fxToggleStyler);
 
             JToggleButton[] fxGroup = { audioFxGlow, audioFxEnlarge, audioFxBold,
-                    audioFxUnderline, audioFxColor, audioFxShake, audioFxPulse };
+                    audioFxUnderline, audioFxColor, audioFxShake, audioFxPulse, audioFxBounce };
             audioFxNone.addItemListener(e -> {
                 if (audioFxNone.isSelected()) {
                     for (JToggleButton b : fxGroup) b.setSelected(false);
@@ -19948,6 +19979,7 @@ public class GifSlideShowApp extends JFrame {
             toolbar7b.add(audioFxColor);
             toolbar7b.add(audioFxShake);
             toolbar7b.add(audioFxPulse);
+            toolbar7b.add(audioFxBounce);
             toolbar7b.add(audioFxOthersBtn);
             refreshAudioFxOthersBtnAppearance();
 
@@ -24986,6 +25018,7 @@ public class GifSlideShowApp extends JFrame {
             if (audioFxColor.isSelected())     sb.append("Color,");
             if (audioFxShake.isSelected())     sb.append("Shake,");
             if (audioFxPulse.isSelected())     sb.append("Pulse,");
+            if (audioFxBounce.isSelected())    sb.append("Bounce,");
             if (audioFxOthersChecks != null) {
                 for (java.util.Map.Entry<String, JCheckBox> e : audioFxOthersChecks.entrySet()) {
                     if (e.getValue().isSelected()) {
@@ -25040,6 +25073,7 @@ public class GifSlideShowApp extends JFrame {
                 audioFxColor.setSelected(fxSet.contains("Color"));
                 audioFxShake.setSelected(fxSet.contains("Shake"));
                 audioFxPulse.setSelected(fxSet.contains("Pulse"));
+                audioFxBounce.setSelected(fxSet.contains("Bounce"));
                 audioFxNone.setSelected(fxSet.contains("None") || effects.isEmpty());
 
                 for (java.util.Map.Entry<String, JCheckBox> e : audioFxOthersChecks.entrySet()) {
