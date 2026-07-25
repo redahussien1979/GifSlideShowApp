@@ -3800,8 +3800,11 @@ public class QuizSlide {
         for (int i = 0; i < files.size(); i++) {
             fc.append("[a").append(i).append("]");
         }
+        // normalize=0 keeps each layer's own volume; the limiter caps the summed
+        // peaks just under full-scale so overlapping layers (ding over narration,
+        // replay cues, etc.) can't clip into a "shhh" crackle.
         fc.append("amix=inputs=").append(files.size())
-                .append(":duration=longest:normalize=0[out]");
+                .append(":duration=longest:normalize=0,alimiter=limit=0.97[out]");
         cmd.add("-filter_complex"); cmd.add(fc.toString());
         cmd.add("-map"); cmd.add("[out]");
         cmd.add("-ac"); cmd.add("2");

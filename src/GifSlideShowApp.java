@@ -12298,8 +12298,13 @@ public class GifSlideShowApp extends JFrame {
                             for (int ai = 0; ai < audioInputIndices.size(); ai++) {
                                 filterComplex.append("[a").append(ai).append("]");
                             }
+                            // normalize=0 keeps each layer at full loudness, but summed
+                            // overlapping layers can exceed 0 dBFS and hard-clip -> a gritty
+                            // "shhh" crackle. A brick-wall limiter caps the sum just below
+                            // full-scale so overlaps never clip.
                             filterComplex.append("amix=inputs=").append(audioInputIndices.size())
-                                    .append(":duration=longest:dropout_transition=0:normalize=0[aout]");
+                                    .append(":duration=longest:dropout_transition=0:normalize=0,")
+                                    .append("alimiter=limit=0.97[aout]");
 
                             mergeCmd.add("-filter_complex");
                             mergeCmd.add(filterComplex.toString());
@@ -14539,8 +14544,11 @@ public class GifSlideShowApp extends JFrame {
                 for (int ai = 0; ai < validAudios.size(); ai++) {
                     fc.append("[a").append(ai).append("]");
                 }
+                // normalize=0 preserves per-layer loudness; the limiter prevents
+                // overlapping layers from summing past full-scale and clipping (hiss).
                 fc.append("amix=inputs=").append(validAudios.size())
-                        .append(":duration=longest:dropout_transition=0:normalize=0[out]");
+                        .append(":duration=longest:dropout_transition=0:normalize=0,")
+                        .append("alimiter=limit=0.97[out]");
                 cmd.add("-filter_complex"); cmd.add(fc.toString());
                 cmd.add("-map"); cmd.add("[out]");
                 cmd.add("-c:a"); cmd.add("aac");
