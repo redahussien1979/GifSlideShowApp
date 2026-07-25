@@ -30,6 +30,10 @@ final class SlideEffects {
         if (animFrameIndex < 0) animFrameIndex = 0;
 
         // Image-transform effects (operate on frame pixels directly).
+        if ("Blur".equals(fxOtherKind)) {
+            applyBlur(frame, targetW, targetH, fxOther);
+            return;
+        }
         if ("Water Waves".equals(fxOtherKind)) {
             applyWaterWaves(frame, targetW, targetH, fxOther, animFrameIndex);
             return;
@@ -87,6 +91,77 @@ final class SlideEffects {
             case "Film Scratches":  drawFilmScratches(g, targetW, targetH, density, scale, animFrameIndex); break;
         }
         g.dispose();
+    }
+
+    /**
+     * Soft focus / gaussian-style blur over the whole frame. Intensity maps
+     * to blur radius (scaled to frame height so it looks consistent across
+     * resolutions). Blur is O(w*h*radius), so the heavy work runs on a
+     * 4x-downscaled copy and is bilinearly upscaled back — visually identical
+     * but ~16x cheaper. Two box-blur passes approximate a gaussian.
+     */
+    private static void applyBlur(BufferedImage frame, int W, int H, int fxOther) {
+        // radius: up to ~4% of frame height at full intensity.
+        int radius = Math.max(1, (int) (H * 0.04 * (fxOther / 100.0)));
+        int downFactor = 4;
+        int smallW = Math.max(1, W / downFactor);
+        int smallH = Math.max(1, H / downFactor);
+        int smallRadius = Math.max(1, radius / downFactor);
+
+        BufferedImage small = new BufferedImage(smallW, smallH, BufferedImage.TYPE_INT_RGB);
+        Graphics2D sg = small.createGraphics();
+        sg.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        sg.drawImage(frame, 0, 0, smallW, smallH, null);
+        sg.dispose();
+
+        int[] pixels = small.getRGB(0, 0, smallW, smallH, null, 0, smallW);
+        int[] result = new int[pixels.length];
+        boxBlurPass(pixels, result, smallW, smallH, smallRadius, true);
+        boxBlurPass(result, pixels, smallW, smallH, smallRadius, false);
+        small.setRGB(0, 0, smallW, smallH, pixels, 0, smallW);
+
+        Graphics2D fg = frame.createGraphics();
+        fg.setComposite(AlphaComposite.Src);
+        fg.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        fg.drawImage(small, 0, 0, W, H, null);
+        fg.dispose();
+    }
+
+    /** One horizontal or vertical box-blur pass with a sliding-window sum. */
+    private static void boxBlurPass(int[] src, int[] dst, int w, int h, int radius, boolean horizontal) {
+        int length = horizontal ? w : h;
+        int span = horizontal ? h : w;
+        int div = radius + radius + 1;
+
+        for (int j = 0; j < span; j++) {
+            long sumR = 0, sumG = 0, sumB = 0;
+            for (int k = -radius; k <= radius; k++) {
+                int idx = k < 0 ? 0 : (k > length - 1 ? length - 1 : k);
+                int pixel = horizontal ? src[j * w + idx] : src[idx * w + j];
+                sumR += (pixel >> 16) & 0xFF;
+                sumG += (pixel >> 8) & 0xFF;
+                sumB += pixel & 0xFF;
+            }
+            for (int i = 0; i < length; i++) {
+                int r = (int) (sumR / div);
+                int gg = (int) (sumG / div);
+                int b = (int) (sumB / div);
+                if (horizontal) dst[j * w + i] = (r << 16) | (gg << 8) | b;
+                else            dst[i * w + j] = (r << 16) | (gg << 8) | b;
+
+                int aI = i + radius + 1;
+                aI = aI < 0 ? 0 : (aI > length - 1 ? length - 1 : aI);
+                int rI = i - radius;
+                rI = rI < 0 ? 0 : (rI > length - 1 ? length - 1 : rI);
+                int addPixel = horizontal ? src[j * w + aI] : src[aI * w + j];
+                int remPixel = horizontal ? src[j * w + rI] : src[rI * w + j];
+                sumR += ((addPixel >> 16) & 0xFF) - ((remPixel >> 16) & 0xFF);
+                sumG += ((addPixel >> 8) & 0xFF) - ((remPixel >> 8) & 0xFF);
+                sumB += (addPixel & 0xFF) - (remPixel & 0xFF);
+            }
+        }
     }
 
     private static double prand(int idx, int salt) {
