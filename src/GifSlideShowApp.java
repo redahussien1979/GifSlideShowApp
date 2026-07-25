@@ -4996,13 +4996,16 @@ public class GifSlideShowApp extends JFrame {
                     }
                 }
 
-            // Fade the rendered BG (image or video frame) toward the dark base.
-            // bgTransparency: 0 = opaque (no change), 100 = fully invisible.
-            if (bgTransparency > 0) {
+            // Fade the rendered BG (image or video frame) toward a base tone.
+            // bgTransparency: 0 = opaque (no change).
+            //   positive  1..100  -> fade toward the dark base (dim/darken).
+            //   negative -1..-100 -> fade toward white (brighten/wash out).
+            if (bgTransparency != 0) {
+                int tintMag = Math.min(100, Math.abs(bgTransparency));
                 Composite oldComp = g.getComposite();
                 g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER,
-                        Math.min(1f, bgTransparency / 100f)));
-                g.setColor(new Color(21, 32, 43));
+                        Math.min(1f, tintMag / 100f)));
+                g.setColor(bgTransparency > 0 ? new Color(21, 32, 43) : new Color(255, 255, 255));
                 g.fillRect(0, 0, targetW, targetH);
                 g.setComposite(oldComp);
             }
@@ -17743,9 +17746,9 @@ public class GifSlideShowApp extends JFrame {
             sourceVideoVolumeSpinner.setToolTipText("Uploaded source-video volume (0=mute, 100=full)");
             sourceVideoVolumeSpinner.addChangeListener(e -> onFormatChanged());
 
-            bgTransparencySpinner = new JSpinner(new SpinnerNumberModel(0, 0, 100, 5));
+            bgTransparencySpinner = new JSpinner(new SpinnerNumberModel(0, -100, 100, 5));
             bgTransparencySpinner.setPreferredSize(new Dimension(50, 28));
-            bgTransparencySpinner.setToolTipText("Background transparency (0=opaque, 100=invisible) — works for image or video BG");
+            bgTransparencySpinner.setToolTipText("Background tint (0=opaque; +1..100 fade to dark/dim; -1..-100 fade to white/wash) — works for image or video BG");
             bgTransparencySpinner.addChangeListener(e -> onFormatChanged());
 
             toolbar2.add(styledLabel("Text Y%:"));
@@ -19463,7 +19466,7 @@ public class GifSlideShowApp extends JFrame {
             fxRaisedSpinner.addChangeListener(e -> onFormatChanged());
 
             fxOtherCombo = new JComboBox<>(new String[]{
-                    "None", "Cinematic",
+                    "None", "Blur", "Cinematic",
                     "Ken Burns", "Handheld Drift", "Grade Breathe",
                     "Dust Motes", "Fog", "Embers", "Film Scratches",
                     "Snow", "Rain", "Falling Leaves", "Cherry Blossom",
