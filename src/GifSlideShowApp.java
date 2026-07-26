@@ -5258,7 +5258,6 @@ public class GifSlideShowApp extends JFrame {
                 // When xLeftAligned (set via CSV X-AXIS import), treat X as edge-aligned:
                 // For RTL text (Arabic/Hebrew), X is measured from the right side.
                 // For LTR text, X is the left edge where the first letter starts.
-                boolean stXEdgeAlignLtr = false;
                 if (st.xLeftAligned) {
                     boolean isRTL = false;
                     String rawText = st.text != null ? st.text : "";
@@ -5275,7 +5274,6 @@ public class GifSlideShowApp extends JFrame {
                         stCenterX = targetW - (int) (st.x / 100.0 * targetW) - stMaxLineWidth / 2;
                     } else {
                         stCenterX += stMaxLineWidth / 2;
-                        stXEdgeAlignLtr = true;
                     }
                 }
 
@@ -5293,26 +5291,6 @@ public class GifSlideShowApp extends JFrame {
                 // so its box stays centered; Left/Right shift the box to the text edge.
                 int stAlignWidth = stMaxWrapWidth;
                 int stAlignLeft  = stCenterX - stAlignWidth / 2;
-                // LEFT alignment must keep a FIXED left edge: the first character of
-                // every line starts at the same X no matter how many lines the text
-                // wraps into, and — crucially — no matter what Width % is set. Width %
-                // should only decide WHERE the text wraps, never shove it sideways.
-                //
-                // The default origin above uses stMaxWrapWidth (the Width %), so a
-                // narrower Width % (which is what forces a second line) slides the
-                // text right. Pin the left edge to a width-independent reference so
-                // one-line and two-line texts share the exact same margin:
-                //   * xLeftAligned (CSV X-AXIS import): X *is* the left margin.
-                //   * otherwise: use the full-frame reference, which equals the
-                //     Width %=100 position, so nothing moves in the common case and
-                //     narrowed texts simply wrap in place instead of drifting.
-                if (st.alignment == SwingConstants.LEFT) {
-                    if (stXEdgeAlignLtr) {
-                        stAlignLeft = (int) (st.x / 100.0 * targetW) + stShiftPx;
-                    } else {
-                        stAlignLeft = stCenterX - targetW / 2;
-                    }
-                }
                 int stBlockLeft  = stCenterX - stMaxLineWidth / 2;
                 int stBoxLeft;
                 if (st.justify) {
