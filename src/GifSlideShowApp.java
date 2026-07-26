@@ -5293,14 +5293,25 @@ public class GifSlideShowApp extends JFrame {
                 // so its box stays centered; Left/Right shift the box to the text edge.
                 int stAlignWidth = stMaxWrapWidth;
                 int stAlignLeft  = stCenterX - stAlignWidth / 2;
-                // For LEFT alignment, X marks a fixed left margin: the first character
-                // of EVERY line must start there, and it must not move when the text
-                // wraps to more lines. The xLeftAligned origin above is derived from the
-                // widest line width (which changes with wrapping), so for LEFT alignment
-                // pin the left edge straight to X — this keeps one-line and multi-line
-                // texts on exactly the same margin instead of nudging wrapped text right.
-                if (stXEdgeAlignLtr && st.alignment == SwingConstants.LEFT) {
-                    stAlignLeft = (int) (st.x / 100.0 * targetW) + stShiftPx;
+                // LEFT alignment must keep a FIXED left edge: the first character of
+                // every line starts at the same X no matter how many lines the text
+                // wraps into, and — crucially — no matter what Width % is set. Width %
+                // should only decide WHERE the text wraps, never shove it sideways.
+                //
+                // The default origin above uses stMaxWrapWidth (the Width %), so a
+                // narrower Width % (which is what forces a second line) slides the
+                // text right. Pin the left edge to a width-independent reference so
+                // one-line and two-line texts share the exact same margin:
+                //   * xLeftAligned (CSV X-AXIS import): X *is* the left margin.
+                //   * otherwise: use the full-frame reference, which equals the
+                //     Width %=100 position, so nothing moves in the common case and
+                //     narrowed texts simply wrap in place instead of drifting.
+                if (st.alignment == SwingConstants.LEFT) {
+                    if (stXEdgeAlignLtr) {
+                        stAlignLeft = (int) (st.x / 100.0 * targetW) + stShiftPx;
+                    } else {
+                        stAlignLeft = stCenterX - targetW / 2;
+                    }
                 }
                 int stBlockLeft  = stCenterX - stMaxLineWidth / 2;
                 int stBoxLeft;
