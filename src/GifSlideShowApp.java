@@ -5258,6 +5258,7 @@ public class GifSlideShowApp extends JFrame {
                 // When xLeftAligned (set via CSV X-AXIS import), treat X as edge-aligned:
                 // For RTL text (Arabic/Hebrew), X is measured from the right side.
                 // For LTR text, X is the left edge where the first letter starts.
+                boolean stXEdgeAlignLtr = false;
                 if (st.xLeftAligned) {
                     boolean isRTL = false;
                     String rawText = st.text != null ? st.text : "";
@@ -5274,6 +5275,7 @@ public class GifSlideShowApp extends JFrame {
                         stCenterX = targetW - (int) (st.x / 100.0 * targetW) - stMaxLineWidth / 2;
                     } else {
                         stCenterX += stMaxLineWidth / 2;
+                        stXEdgeAlignLtr = true;
                     }
                 }
 
@@ -5291,6 +5293,15 @@ public class GifSlideShowApp extends JFrame {
                 // so its box stays centered; Left/Right shift the box to the text edge.
                 int stAlignWidth = stMaxWrapWidth;
                 int stAlignLeft  = stCenterX - stAlignWidth / 2;
+                // For LEFT alignment, X marks a fixed left margin: the first character
+                // of EVERY line must start there, and it must not move when the text
+                // wraps to more lines. The xLeftAligned origin above is derived from the
+                // widest line width (which changes with wrapping), so for LEFT alignment
+                // pin the left edge straight to X — this keeps one-line and multi-line
+                // texts on exactly the same margin instead of nudging wrapped text right.
+                if (stXEdgeAlignLtr && st.alignment == SwingConstants.LEFT) {
+                    stAlignLeft = (int) (st.x / 100.0 * targetW) + stShiftPx;
+                }
                 int stBlockLeft  = stCenterX - stMaxLineWidth / 2;
                 int stBoxLeft;
                 if (st.justify) {
