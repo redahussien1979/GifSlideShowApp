@@ -1674,6 +1674,18 @@ public class GifSlideShowApp extends JFrame {
         props.setProperty(p + "bgOuterGlow",      String.valueOf(b.bgOuterGlow));
         props.setProperty(p + "bgOuterGlowSize",  String.valueOf(b.bgOuterGlowSize));
         props.setProperty(p + "bgOuterGlowColor", colorToHex(b.bgOuterGlowColor != null ? b.bgOuterGlowColor : Color.WHITE));
+        // Text-effect stamp knobs (Layout Group box popup).
+        props.setProperty(p + "stampEffects",       String.valueOf(b.stampEffects));
+        props.setProperty(p + "textEffect",         b.textEffect != null ? b.textEffect : "None");
+        props.setProperty(p + "textEffectIntensity",String.valueOf(b.textEffectIntensity));
+        props.setProperty(p + "fxBurst",            String.valueOf(b.fxBurst));
+        props.setProperty(p + "fxBurstStyle",       b.fxBurstStyle != null ? b.fxBurstStyle : "Stars");
+        props.setProperty(p + "hlText",             b.highlightText != null ? b.highlightText : "");
+        props.setProperty(p + "hlColor",            colorToHex(b.highlightColor != null ? b.highlightColor : new Color(255, 100, 150, 180)));
+        props.setProperty(p + "hlStyle",            b.highlightStyle != null ? b.highlightStyle : "None");
+        props.setProperty(p + "hlTightness",        String.valueOf(b.highlightTightness));
+        props.setProperty(p + "ulStyle",            b.underlineStyle != null ? b.underlineStyle : "None");
+        props.setProperty(p + "ulText",             b.underlineText != null ? b.underlineText : "");
     }
 
     /** Read a BoxStyle written by {@link #writeBoxStyle}, or null if the preset
@@ -1709,6 +1721,17 @@ public class GifSlideShowApp extends JFrame {
         b.bgOuterGlow      = Boolean.parseBoolean(props.getProperty(p + "bgOuterGlow", "false"));
         b.bgOuterGlowSize  = parseIntOr(props.getProperty(p + "bgOuterGlowSize"), b.bgOuterGlowSize);
         b.bgOuterGlowColor = hexToColor(props.getProperty(p + "bgOuterGlowColor", colorToHex(b.bgOuterGlowColor)));
+        b.stampEffects        = Boolean.parseBoolean(props.getProperty(p + "stampEffects", "false"));
+        b.textEffect          = props.getProperty(p + "textEffect", b.textEffect);
+        b.textEffectIntensity = parseIntOr(props.getProperty(p + "textEffectIntensity"), b.textEffectIntensity);
+        b.fxBurst             = Boolean.parseBoolean(props.getProperty(p + "fxBurst", "false"));
+        b.fxBurstStyle        = props.getProperty(p + "fxBurstStyle", b.fxBurstStyle);
+        b.highlightText       = props.getProperty(p + "hlText", b.highlightText);
+        b.highlightColor      = hexToColor(props.getProperty(p + "hlColor", colorToHex(b.highlightColor)));
+        b.highlightStyle      = props.getProperty(p + "hlStyle", b.highlightStyle);
+        b.highlightTightness  = parseIntOr(props.getProperty(p + "hlTightness"), b.highlightTightness);
+        b.underlineStyle      = props.getProperty(p + "ulStyle", b.underlineStyle);
+        b.underlineText       = props.getProperty(p + "ulText", b.underlineText);
         return b;
     }
 
@@ -15947,6 +15970,24 @@ public class GifSlideShowApp extends JFrame {
         int bgOuterGlowSize = 8;
         Color bgOuterGlowColor = Color.WHITE;
 
+        // ---- Text-effect stamp (Layout Group toolbar). These ride inside the
+        //      Box Style popup so one dialog can push the same text-effect look
+        //      (Effect / Burst / Highlight / Underline) onto a whole group of
+        //      texts. Only applied when stampEffects is on AND the box itself is
+        //      active (group "Apply box style" or a per-column Box override), so a
+        //      plain box stamp never disturbs a text's existing effects. ----
+        boolean stampEffects = false;
+        String  textEffect = "None";
+        int     textEffectIntensity = 100;
+        boolean fxBurst = false;
+        String  fxBurstStyle = "Stars";
+        String  highlightText = "";
+        Color   highlightColor = new Color(255, 100, 150, 180);
+        String  highlightStyle = "None";
+        int     highlightTightness = 50;
+        String  underlineStyle = "None";
+        String  underlineText = "";
+
         static BoxStyle from(SlideTextData t) {
             BoxStyle b = new BoxStyle();
             if (t == null) return b;
@@ -15974,6 +16015,18 @@ public class GifSlideShowApp extends JFrame {
             b.bgOuterGlow = t.bgOuterGlow;
             b.bgOuterGlowSize = t.bgOuterGlowSize;
             b.bgOuterGlowColor = t.bgOuterGlowColor != null ? t.bgOuterGlowColor : Color.WHITE;
+            // Effect fields — seed from the text so the box popup reflects its
+            // current look. stampEffects stays off so opening never changes them.
+            b.textEffect          = t.textEffect != null ? t.textEffect : "None";
+            b.textEffectIntensity = t.textEffectIntensity;
+            b.fxBurst             = t.fxBurst;
+            b.fxBurstStyle        = t.fxBurstStyle != null ? t.fxBurstStyle : "Stars";
+            b.highlightText       = t.highlightText != null ? t.highlightText : "";
+            b.highlightColor      = t.highlightColor != null ? t.highlightColor : new Color(255, 100, 150, 180);
+            b.highlightStyle      = t.highlightStyle != null ? t.highlightStyle : "None";
+            b.highlightTightness  = t.highlightTightness;
+            b.underlineStyle      = t.underlineStyle != null ? t.underlineStyle : "None";
+            b.underlineText       = t.underlineText != null ? t.underlineText : "";
             return b;
         }
 
@@ -15989,6 +16042,12 @@ public class GifSlideShowApp extends JFrame {
             b.bgShadow = bgShadow; b.bgShadowDx = bgShadowDx; b.bgShadowDy = bgShadowDy; b.bgShadowBlur = bgShadowBlur;
             b.bgInnerShadow = bgInnerShadow; b.bgInnerShadowSize = bgInnerShadowSize;
             b.bgOuterGlow = bgOuterGlow; b.bgOuterGlowSize = bgOuterGlowSize; b.bgOuterGlowColor = bgOuterGlowColor;
+            b.stampEffects = stampEffects;
+            b.textEffect = textEffect; b.textEffectIntensity = textEffectIntensity;
+            b.fxBurst = fxBurst; b.fxBurstStyle = fxBurstStyle;
+            b.highlightText = highlightText; b.highlightColor = highlightColor;
+            b.highlightStyle = highlightStyle; b.highlightTightness = highlightTightness;
+            b.underlineStyle = underlineStyle; b.underlineText = underlineText;
             return b;
         }
 
@@ -16004,6 +16063,13 @@ public class GifSlideShowApp extends JFrame {
             t.bgShadow = bgShadow; t.bgShadowDx = bgShadowDx; t.bgShadowDy = bgShadowDy; t.bgShadowBlur = bgShadowBlur;
             t.bgInnerShadow = bgInnerShadow; t.bgInnerShadowSize = bgInnerShadowSize;
             t.bgOuterGlow = bgOuterGlow; t.bgOuterGlowSize = bgOuterGlowSize; t.bgOuterGlowColor = bgOuterGlowColor;
+            // Burst is a mutable fx field; stamp it only when effects are enabled.
+            // (The remaining effect fields are final on SlideTextData and are set
+            // through its constructor by applyLayoutGroupCore.)
+            if (stampEffects) {
+                t.fxBurst = fxBurst;
+                t.fxBurstStyle = fxBurstStyle;
+            }
         }
     }
 
@@ -21186,13 +21252,25 @@ public class GifSlideShowApp extends JFrame {
                 int   newBgOpacity = effBox != null ? effBox.bgOpacity : old.bgOpacity;
                 Color newBgColor   = effBox != null ? effBox.bgColor   : old.bgColor;
 
+                // Text-effect stamp: only when the effective box has effects
+                // enabled. Otherwise every field falls back to the text's own.
+                boolean stampFx = effBox != null && effBox.stampEffects;
+                String newEffect      = stampFx ? effBox.textEffect          : old.textEffect;
+                int    newEffectInt   = stampFx ? effBox.textEffectIntensity : old.textEffectIntensity;
+                String newHlText      = stampFx ? effBox.highlightText       : old.highlightText;
+                Color  newHlColor     = stampFx ? effBox.highlightColor      : old.highlightColor;
+                String newHlStyle     = stampFx ? effBox.highlightStyle      : old.highlightStyle;
+                int    newHlTight     = stampFx ? effBox.highlightTightness  : old.highlightTightness;
+                String newUlStyle     = stampFx ? effBox.underlineStyle      : old.underlineStyle;
+                String newUlText      = stampFx ? effBox.underlineText       : old.underlineText;
+
                 SlideTextData fresh = new SlideTextData(
                         old.show, old.text, newFont, newSize, newStyle, newColor,
                         newX, newY, newBgOpacity, newBgColor,
                         old.justify, old.widthPct, old.shiftX, newAlign,
-                        old.textEffect, old.textEffectIntensity,
-                        old.highlightText, old.highlightColor, old.highlightStyle,
-                        old.highlightTightness, old.underlineStyle, old.underlineText,
+                        newEffect, newEffectInt,
+                        newHlText, newHlColor, newHlStyle,
+                        newHlTight, newUlStyle, newUlText,
                         old.boldText, old.italicText, old.colorText, old.colorTextColor,
                         old.xLeftAligned, old.odometer, old.odometerSpeed, old.odometerRoll, old.odometerLand,
                         old.animEnabled, old.animPath, old.animDurationMs, old.animStartMs, old.animEasing,
@@ -21566,9 +21644,98 @@ public class GifSlideShowApp extends JFrame {
             r3.add(innerChk); r3.add(innerSp);
             r3.add(glowChk); r3.add(glowSp); r3.add(glowColBtn);
 
+            // ---- Row 4: text-effect stamp (the per-text effect toolbar, mirrored
+            //      here so one box popup can push Effect / Burst / Highlight /
+            //      Underline onto the whole group). Gated by the "Text FX" checkbox
+            //      (b.stampEffects) so a plain box stamp leaves effects untouched.
+            //      Align is intentionally omitted — the dialog already stamps it. ----
+            JPanel r4 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            r4.setBorder(BorderFactory.createTitledBorder("Text effects (stamped with this box)"));
+
+            JCheckBox fxOnChk = new JCheckBox("✨ Text FX", b.stampEffects);
+            fxOnChk.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            fxOnChk.setToolTipText("<html>Stamp these text effects onto the group when this box is applied.<br>"
+                    + "Leave off to change only the box background and keep each text's own effects.</html>");
+
+            JComboBox<String> fxEffectCb = new JComboBox<>(TEXT_EFFECTS);
+            fxEffectCb.setSelectedItem(b.textEffect);
+            fxEffectCb.setPreferredSize(new Dimension(120, 24));
+            fxEffectCb.addActionListener(e -> { b.textEffect = (String) fxEffectCb.getSelectedItem(); onChange.run(); });
+
+            JSpinner fxPowerSp = new JSpinner(new SpinnerNumberModel(clampRange(b.textEffectIntensity, 0, 100), 0, 100, 5));
+            fxPowerSp.setPreferredSize(new Dimension(55, 24));
+            fxPowerSp.addChangeListener(e -> { b.textEffectIntensity = (int) fxPowerSp.getValue(); onChange.run(); });
+
+            JCheckBox fxBurstChk = new JCheckBox("Burst", b.fxBurst);
+            fxBurstChk.addActionListener(e -> { b.fxBurst = fxBurstChk.isSelected(); onChange.run(); });
+            JComboBox<String> fxBurstCb = new JComboBox<>(BURST_STYLES);
+            fxBurstCb.setSelectedItem(b.fxBurstStyle);
+            fxBurstCb.setPreferredSize(new Dimension(90, 24));
+            fxBurstCb.addActionListener(e -> { b.fxBurstStyle = (String) fxBurstCb.getSelectedItem(); onChange.run(); });
+
+            JTextField fxHlField = new JTextField(b.highlightText, 8);
+            fxHlField.setPreferredSize(new Dimension(80, 24));
+            fxHlField.setToolTipText("Words to highlight (comma-separated)");
+            fxHlField.getDocument().addDocumentListener(new DocumentListener() {
+                private void upd() { b.highlightText = fxHlField.getText(); onChange.run(); }
+                @Override public void insertUpdate(DocumentEvent e) { upd(); }
+                @Override public void removeUpdate(DocumentEvent e) { upd(); }
+                @Override public void changedUpdate(DocumentEvent e) { upd(); }
+            });
+            JButton fxHlColBtn = swatchButton(b.highlightColor);
+            fxHlColBtn.addActionListener(e -> pickColorLive(owner, "Highlight Color", b.highlightColor, c -> {
+                b.highlightColor = new Color(c.getRed(), c.getGreen(), c.getBlue(), 180);
+                fxHlColBtn.setForeground(b.highlightColor); onChange.run();
+            }));
+            JComboBox<String> fxHlStyleCb = new JComboBox<>(HIGHLIGHT_STYLES);
+            fxHlStyleCb.setSelectedItem(b.highlightStyle);
+            fxHlStyleCb.setPreferredSize(new Dimension(90, 24));
+            fxHlStyleCb.addActionListener(e -> { b.highlightStyle = (String) fxHlStyleCb.getSelectedItem(); onChange.run(); });
+
+            JSpinner fxTightSp = new JSpinner(new SpinnerNumberModel(clampRange(b.highlightTightness, -50, 100), -50, 100, 5));
+            fxTightSp.setPreferredSize(new Dimension(55, 24));
+            fxTightSp.setToolTipText("Tight: HL padding / UL distance below text");
+            fxTightSp.addChangeListener(e -> { b.highlightTightness = (int) fxTightSp.getValue(); onChange.run(); });
+
+            JComboBox<String> fxUlCb = new JComboBox<>(UNDERLINE_STYLES);
+            fxUlCb.setSelectedItem(b.underlineStyle);
+            fxUlCb.setPreferredSize(new Dimension(90, 24));
+            fxUlCb.addActionListener(e -> { b.underlineStyle = (String) fxUlCb.getSelectedItem(); onChange.run(); });
+            JTextField fxUlField = new JTextField(b.underlineText, 8);
+            fxUlField.setPreferredSize(new Dimension(80, 24));
+            fxUlField.setToolTipText("Words to underline (comma-separated; empty uses the highlight words)");
+            fxUlField.getDocument().addDocumentListener(new DocumentListener() {
+                private void upd() { b.underlineText = fxUlField.getText(); onChange.run(); }
+                @Override public void insertUpdate(DocumentEvent e) { upd(); }
+                @Override public void removeUpdate(DocumentEvent e) { upd(); }
+                @Override public void changedUpdate(DocumentEvent e) { upd(); }
+            });
+
+            // Grey the effect widgets out until "Text FX" is ticked.
+            final JComponent[] fxWidgets = { fxEffectCb, fxPowerSp, fxBurstChk, fxBurstCb,
+                    fxHlField, fxHlColBtn, fxHlStyleCb, fxTightSp, fxUlCb, fxUlField };
+            final Runnable syncFxEnabled = () -> {
+                for (JComponent w : fxWidgets) w.setEnabled(fxOnChk.isSelected());
+            };
+            fxOnChk.addActionListener(e -> {
+                b.stampEffects = fxOnChk.isSelected();
+                syncFxEnabled.run();
+                onChange.run();
+            });
+            syncFxEnabled.run();
+
+            r4.add(fxOnChk);
+            r4.add(L.apply("Effect:", 0)); r4.add(fxEffectCb);
+            r4.add(L.apply("Power:", 0)); r4.add(fxPowerSp);
+            r4.add(fxBurstChk); r4.add(fxBurstCb);
+            r4.add(L.apply("HL:", 0)); r4.add(fxHlField); r4.add(fxHlColBtn); r4.add(fxHlStyleCb);
+            r4.add(L.apply("Tight:", 0)); r4.add(fxTightSp);
+            r4.add(L.apply("UL:", 0)); r4.add(fxUlCb); r4.add(fxUlField);
+
             wrap.add(r1);
             wrap.add(r2);
             wrap.add(r3);
+            wrap.add(r4);
             return wrap;
         }
 
