@@ -24029,6 +24029,36 @@ public class GifSlideShowApp extends JFrame {
             });
             cancelBtn.addActionListener(e -> dlg.dispose());
 
+            // Propagate this text's motion to the SAME text position on every
+            // slide — so a "move this word" set up once repeats across the deck.
+            final int textIndex = textNumber - 1;
+            JButton allSlidesBtn = new JButton("→ Apply to all slides");
+            allSlidesBtn.setToolTipText("Copy this motion to Text " + textNumber
+                    + " on every slide (slides without a Text " + textNumber + " are skipped).");
+            allSlidesBtn.addActionListener(e -> {
+                java.util.List<SlideTextData.Action> current = new java.util.ArrayList<>();
+                for (ActionRowUI r : rowUIs) current.add(r.toAction());
+                int applied = 0, skipped = 0;
+                for (SlideRow row : slideRows) {
+                    if (row.isTitleGridSlide) continue;
+                    if (textIndex >= row.slideTextItems.size()) { skipped++; continue; }
+                    java.util.List<SlideTextData.Action> copy = new java.util.ArrayList<>();
+                    for (SlideTextData.Action a : current) copy.add(a.copy());
+                    row.slideTextItems.get(textIndex).actions = copy;
+                    applied++;
+                }
+                // Keep this dialog's working copy in sync so OK / the row label stay
+                // consistent with what was just broadcast.
+                actions.clear();
+                actions.addAll(current);
+                String msg = "Applied this motion to Text " + textNumber + " on " + applied + " slide(s).";
+                if (skipped > 0) {
+                    msg += "\n" + skipped + " slide(s) have no Text " + textNumber + " and were skipped.";
+                }
+                JOptionPane.showMessageDialog(dlg, msg, "Apply to all slides",
+                        JOptionPane.INFORMATION_MESSAGE);
+            });
+
             JPanel top = new JPanel(new BorderLayout());
             top.setBorder(BorderFactory.createEmptyBorder(10, 12, 4, 12));
             top.add(help, BorderLayout.NORTH);
@@ -24037,9 +24067,14 @@ public class GifSlideShowApp extends JFrame {
             addLine.add(addBtn);
             top.add(addLine, BorderLayout.SOUTH);
 
-            JPanel btns = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 6));
-            btns.add(cancelBtn);
-            btns.add(okBtn);
+            JPanel btnLeft = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6));
+            btnLeft.add(allSlidesBtn);
+            JPanel btnRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 6));
+            btnRight.add(cancelBtn);
+            btnRight.add(okBtn);
+            JPanel btns = new JPanel(new BorderLayout());
+            btns.add(btnLeft, BorderLayout.WEST);
+            btns.add(btnRight, BorderLayout.EAST);
 
             dlg.setLayout(new BorderLayout());
             dlg.add(top, BorderLayout.CENTER);
