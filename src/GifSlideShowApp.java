@@ -438,6 +438,8 @@ public class GifSlideShowApp extends JFrame {
                 props.setProperty(ap + "landScale", String.valueOf(a.landScale));
                 props.setProperty(ap + "landColor", a.landColor == null ? "none" : colorToHex(a.landColor));
                 props.setProperty(ap + "triggerTextIndex", String.valueOf(a.triggerTextIndex));
+                props.setProperty(ap + "word", a.word == null ? "" : a.word);
+                props.setProperty(ap + "wordOccurrence", String.valueOf(a.wordOccurrence));
             }
         }
 
@@ -836,6 +838,8 @@ public class GifSlideShowApp extends JFrame {
                 String lc = props.getProperty(ap + "landColor", "none");
                 a.landColor = (lc == null || lc.equalsIgnoreCase("none")) ? null : hexToColor(lc);
                 a.triggerTextIndex = Integer.parseInt(props.getProperty(ap + "triggerTextIndex", "-1"));
+                a.word = props.getProperty(ap + "word", "");
+                a.wordOccurrence = Integer.parseInt(props.getProperty(ap + "wordOccurrence", "1"));
                 loaded.actions.add(a);
             }
             slideTextFormats.add(loaded);
@@ -8154,6 +8158,53 @@ public class GifSlideShowApp extends JFrame {
                 if (animApplied) {
                     g.translate(-animDx, -animDy);
                 }
+
+                // ----- Word-targeted motion copies (Texts Timer → Motion, Word set) -----
+                // Drawn at absolute coordinates AFTER the block transforms are
+                // reversed, so a single word can fly / pulse independently while the
+                // paragraph itself stays put. The copy is additive — the original
+                // word is untouched.
+                if (st.wordMotionsRender != null && !st.wordMotionsRender.isEmpty()) {
+                    int firstBaseline = stCenterY - totalTextHeight / 2 + stAscent;
+                    for (SlideTextData.WordMotionRender wm : st.wordMotionsRender) {
+                        if (wm == null || wm.word == null || wm.word.isEmpty()) continue;
+                        double[] loc = locateWordCenter(stWrappedLines, stFm, wm.word, wm.occ,
+                                st.alignment, stAlignLeft, stAlignWidth, stCenterX,
+                                firstBaseline, stLineHeight);
+                        if (loc == null) continue;
+                        double wx = loc[0], wy = loc[1];
+                        double px, py;
+                        if (wm.isMove) {
+                            px = wx + (wm.destXFrac * targetW - wx) * wm.eased;
+                            py = wy + (wm.destYFrac * targetH - wy) * wm.eased;
+                        } else {
+                            px = wx + wm.dxFrac * targetW;
+                            py = wy + wm.dyFrac * targetH;
+                        }
+                        Graphics2D wg = (Graphics2D) g.create();
+                        try {
+                            wg.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+                                    RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                            wg.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS,
+                                    RenderingHints.VALUE_FRACTIONALMETRICS_ON);
+                            wg.setFont(stFont);
+                            if (wm.alpha < 1.0) {
+                                wg.setComposite(java.awt.AlphaComposite.getInstance(
+                                        java.awt.AlphaComposite.SRC_OVER,
+                                        (float) Math.max(0.0, Math.min(1.0, wm.alpha))));
+                            }
+                            wg.translate(px, py);
+                            if (wm.tiltDeg != 0.0) wg.rotate(Math.toRadians(wm.tiltDeg));
+                            if (wm.scale != 1.0) wg.scale(wm.scale, wm.scale);
+                            wg.setColor(wm.color != null ? wm.color : stColor);
+                            int ww = stFm.stringWidth(wm.word);
+                            float baselineOff = (stFm.getAscent() - stFm.getDescent()) / 2f;
+                            wg.drawString(wm.word, -ww / 2f, baselineOff);
+                        } finally {
+                            wg.dispose();
+                        }
+                    }
+                }
             }
         }
 
@@ -9488,6 +9539,71 @@ public class GifSlideShowApp extends JFrame {
             }
         }
         return perLine;
+    }
+
+    /**
+     * Locate the on-screen centre of the {@code occ}-th (1-based) whole-word match
+     * of {@code word} within a text block's already-wrapped lines. Mirrors how
+     * {@link #computeWrapSegments} flattens the lines (joined with single spaces),
+     * but matches on word boundaries and reports pixels so word-targeted motion can
+     * fly a copy from the word's spot. Returns {cx, cy, wordWidth} or null if not
+     * found. Layout inputs mirror the render loop's own maths.
+     */
+    private static double[] locateWordCenter(List<String> lines, FontMetrics fm, String word, int occ,
+                                             int alignment, int alignLeft, int alignWidth, int centerX,
+                                             int firstBaseline, int lineHeight) {
+        if (lines == null || lines.isEmpty() || word == null) return null;
+        String needle = word.trim().toLowerCase();
+        if (needle.isEmpty()) return null;
+        int n = lines.size();
+        int[] lineStart = new int[n];
+        StringBuilder flat = new StringBuilder();
+        for (int i = 0; i < n; i++) {
+            if (i > 0) flat.append(' ');
+            lineStart[i] = flat.length();
+            flat.append(lines.get(i));
+        }
+        String hay = flat.toString();
+        String hayLower = hay.toLowerCase();
+        int want = Math.max(1, occ);
+        int seen = 0;
+        int from = 0;
+        while (from <= hayLower.length()) {
+            int idx = hayLower.indexOf(needle, from);
+            if (idx < 0) break;
+            int end = idx + needle.length();
+            boolean leftBoundary = idx == 0 || !Character.isLetterOrDigit(hay.charAt(idx - 1));
+            boolean rightBoundary = end >= hay.length() || !Character.isLetterOrDigit(hay.charAt(end));
+            if (leftBoundary && rightBoundary) {
+                seen++;
+                if (seen == want) {
+                    // Find the line holding the match start.
+                    int li = 0;
+                    for (int k = 0; k < n; k++) {
+                        int ls = lineStart[k], le = ls + lines.get(k).length();
+                        if (idx >= ls && idx <= le) { li = k; break; }
+                    }
+                    String line = lines.get(li);
+                    int inLineStart = idx - lineStart[li];
+                    int inLineEnd = Math.min(line.length(), end - lineStart[li]);
+                    if (inLineStart < 0) inLineStart = 0;
+                    if (inLineEnd < inLineStart) inLineEnd = inLineStart;
+                    int lineW = fm.stringWidth(line);
+                    int lineX;
+                    if (alignment == SwingConstants.LEFT) lineX = alignLeft;
+                    else if (alignment == SwingConstants.RIGHT) lineX = alignLeft + alignWidth - lineW;
+                    else lineX = centerX - lineW / 2;
+                    int startOff = fm.stringWidth(line.substring(0, inLineStart));
+                    int wordW = fm.stringWidth(line.substring(inLineStart, inLineEnd));
+                    double cx = lineX + startOff + wordW / 2.0;
+                    int baseline = firstBaseline + li * lineHeight;
+                    double cy = baseline - (fm.getAscent() - fm.getDescent()) / 2.0;
+                    return new double[]{cx, cy, wordW};
+                }
+            }
+            from = idx + Math.max(1, needle.length());
+        }
+        return null;
     }
 
     /**
@@ -14994,6 +15110,56 @@ public class GifSlideShowApp extends JFrame {
             boolean landed = since >= dur;
             double eased = QuizSlide.easeNamed(a.easing, p);
 
+            // ----- Word-targeted actions -----
+            // Instead of transforming the whole block, describe a formatted copy
+            // of one word for renderFrame to locate and draw. The paragraph is
+            // left untouched (the copy is additive).
+            if (a.isWordTargeted()) {
+                double ph2 = since / 1000.0;
+                SlideTextData.WordMotionRender wm = new SlideTextData.WordMotionRender();
+                wm.word = a.word.trim();
+                wm.occ = Math.max(1, a.wordOccurrence);
+                if (a.isMove()) {
+                    wm.isMove = true;
+                    wm.destXFrac = a.toXPct / 100.0;
+                    wm.destYFrac = a.toYPct / 100.0;
+                    wm.eased = eased;
+                    if (landed && a.landFormat) {
+                        wm.scale = a.landScale * (1.0 + landingPop(since - dur));
+                        wm.color = a.landColor;
+                    }
+                } else {
+                    if (landed) continue;   // in-place effect only during its window
+                    switch (a.kind) {
+                        case "Pulse": {
+                            int cycles = Math.max(1, (int) Math.round(dur / 550.0));
+                            wm.scale = 1.0 + 0.18 * Math.sin(p * Math.PI * 2 * cycles);
+                            break;
+                        }
+                        case "Shake":
+                            wm.dxFrac = 0.012 * Math.sin(ph2 * 42.0);
+                            wm.dyFrac = 0.006 * Math.sin(ph2 * 55.0);
+                            break;
+                        case "Bounce": {
+                            double u = (p * 2.0) % 1.0;
+                            wm.dyFrac = -0.06 * (4.0 * u * (1.0 - u));
+                            break;
+                        }
+                        case "Spin":
+                            wm.tiltDeg = 360.0 * eased;
+                            break;
+                        case "Flash":
+                            wm.alpha = 0.35 + 0.65 * Math.abs(Math.sin(p * Math.PI * 6));
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                if (st.wordMotionsRender == null) st.wordMotionsRender = new java.util.ArrayList<>();
+                st.wordMotionsRender.add(wm);
+                continue;
+            }
+
             if (a.isMove()) {
                 double dxFull = (a.toXPct - st.x) / 100.0;   // fraction of frame width
                 double dyFull = (a.toYPct - st.y) / 100.0;   // fraction of frame height
@@ -15130,6 +15296,7 @@ public class GifSlideShowApp extends JFrame {
         st.ghostScale  = 1.0;
         st.ghostAlpha  = 1.0;
         st.ghostColor  = null;
+        if (st.wordMotionsRender != null) st.wordMotionsRender.clear();
     }
 
     /** Map an animation name + per-frame easing to the transient render fields. */
@@ -16385,6 +16552,22 @@ public class GifSlideShowApp extends JFrame {
         double ghostScale  = 1.0;   // ghost scale around its own centre
         double ghostAlpha  = 1.0;   // ghost alpha multiplier (0..1)
         Color  ghostColor  = null;  // ghost draw-colour override (null = text's own colour)
+
+        // Per-frame word-motion overlays (Texts Timer → Motion, with a Word target).
+        // Each entry describes a formatted copy of one word to draw this frame — its
+        // travel/effect state. Computed by applyTextActions, consumed by renderFrame
+        // (which locates the word and draws the copy). Cleared each frame.
+        java.util.List<WordMotionRender> wordMotionsRender = null;
+
+        /** Transient render state for one word-targeted action this frame. */
+        static class WordMotionRender {
+            String word; int occ;
+            boolean isMove;      // true = fly to dest; false = in-place effect
+            double destXFrac, destYFrac, eased;  // move interpolation target + progress
+            double dxFrac, dyFrac;               // in-place translate (fraction of frame)
+            double scale = 1.0, alpha = 1.0, tiltDeg = 0.0;
+            Color color;         // null = keep the text's colour
+        }
         // Comma-separated light-overlay effects (Shimmer, Reveal, Wipe, Glow Trail, Scan).
         // These are post-text overlays clipped to the text glyph shape so they appear
         // to illuminate the letters themselves, not the surrounding rectangle.
@@ -16477,10 +16660,21 @@ public class GifSlideShowApp extends JFrame {
             // appear-time override so it survives edits and re-renders.
             int triggerTextIndex = -1;
 
+            // Optional word target. When non-empty, the action acts on just this
+            // word inside the text instead of the whole block: a formatted COPY of
+            // the word animates (Move/Move Copy fly it to the destination; the
+            // in-place kinds play the effect on the copy) while the paragraph
+            // stays intact. wordOccurrence (1-based) disambiguates repeats.
+            String word = "";
+            int wordOccurrence = 1;
+
             Action() {}
 
             /** True for the two relocation kinds (they use toX/toY + landing). */
             boolean isMove() { return "Move".equals(kind) || "Move Copy".equals(kind); }
+
+            /** True when this action targets a single word rather than the block. */
+            boolean isWordTargeted() { return word != null && !word.trim().isEmpty(); }
 
             /** Deep copy — Action instances must not be shared between texts. */
             Action copy() {
@@ -16489,6 +16683,7 @@ public class GifSlideShowApp extends JFrame {
                 a.toXPct = toXPct; a.toYPct = toYPct;
                 a.landFormat = landFormat; a.landScale = landScale; a.landColor = landColor;
                 a.triggerTextIndex = triggerTextIndex;
+                a.word = word; a.wordOccurrence = wordOccurrence;
                 return a;
             }
         }
@@ -24014,7 +24209,9 @@ public class GifSlideShowApp extends JFrame {
                     + "original in place and sends a duplicate; <b>Pulse / Shake / Bounce / Spin / Flash</b> "
                     + "play in place. <b>To X% / Y%</b> is the destination as a percentage of the frame. "
                     + "<b>Format on landing</b> scales &amp; recolours the arrival; <b>Trigger</b> makes "
-                    + "another text appear when this action lands.</html>");
+                    + "another text appear when this action lands.<br><b>Word</b> (optional) targets a single "
+                    + "word inside the text — a formatted copy of that word animates while the paragraph "
+                    + "stays put (great for pulling one word out of a sentence).</html>");
             help.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             help.setBorder(BorderFactory.createEmptyBorder(2, 2, 8, 2));
 
@@ -24101,6 +24298,8 @@ public class GifSlideShowApp extends JFrame {
             private final JTextField scaleField = new JTextField(4);
             private final JButton colorBtn = new JButton("Colour…");
             private final JComboBox<String> triggerCombo;
+            private final JTextField wordField = new JTextField(14);
+            private final JSpinner occSpinner = new JSpinner(new SpinnerNumberModel(1, 1, 99, 1));
             private Color landColor;
             private final java.util.function.BiFunction<String, Integer, Integer> pInt;
             private final java.util.function.BiFunction<String, Double, Double> pDbl;
@@ -24146,6 +24345,12 @@ public class GifSlideShowApp extends JFrame {
                 int ti = a.triggerTextIndex;
                 triggerCombo.setSelectedIndex(ti >= 0 && ti + 1 < triggerChoices.length ? ti + 1 : 0);
 
+                wordField.setText(a.word == null ? "" : a.word);
+                wordField.setToolTipText("Optional: act on just this word inside the text — a formatted copy of "
+                        + "the word animates while the paragraph stays intact. Leave empty for the whole text.");
+                occSpinner.setValue(Math.max(1, a.wordOccurrence));
+                occSpinner.setToolTipText("Which occurrence of the word to use when it repeats (1 = first).");
+
                 JButton removeBtn = new JButton("✕");
                 removeBtn.setToolTipText("Remove this action.");
                 removeBtn.setMargin(new Insets(1, 6, 1, 6));
@@ -24180,8 +24385,14 @@ public class GifSlideShowApp extends JFrame {
                 g.gridx = 5; panel.add(landCheck, g);
                 g.gridx = 6; panel.add(scaleField, g);
                 g.gridx = 7; panel.add(colorBtn, g);
-                // Line 3
+                // Line 3 — word target (optional)
                 g.gridy = 2;
+                g.gridx = 1; panel.add(new JLabel("Word:"), g);
+                g.gridx = 2; g.gridwidth = 3; panel.add(wordField, g); g.gridwidth = 1;
+                g.gridx = 5; panel.add(new JLabel("Occurrence:"), g);
+                g.gridx = 6; panel.add(occSpinner, g);
+                // Line 4 — trigger
+                g.gridy = 3;
                 g.gridx = 1; panel.add(new JLabel("Trigger:"), g);
                 g.gridx = 2; g.gridwidth = 4; panel.add(triggerCombo, g); g.gridwidth = 1;
 
@@ -24224,6 +24435,8 @@ public class GifSlideShowApp extends JFrame {
                 a.landColor = landColor;
                 int ti = triggerCombo.getSelectedIndex();
                 a.triggerTextIndex = ti <= 0 ? -1 : ti - 1;
+                a.word = wordField.getText().trim();
+                a.wordOccurrence = Math.max(1, (Integer) occSpinner.getValue());
                 return a;
             }
         }
