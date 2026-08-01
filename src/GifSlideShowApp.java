@@ -21377,6 +21377,15 @@ public class GifSlideShowApp extends JFrame {
             // rebuild (including Layout Group stamping) would silently drop the
             // merged paragraph's reveal.
             newItem.wordRevealMs = prevItem.wordRevealMs;
+            // Timed Text Actions (Texts Timer → "Motion…") are edited in their own
+            // dialog, so carry them forward too — otherwise reopening the Texts
+            // Timer (which rebuilds the current item first) would drop them.
+            newItem.actions = new java.util.ArrayList<>();
+            if (prevItem.actions != null) {
+                for (SlideTextData.Action a : prevItem.actions) {
+                    if (a != null) newItem.actions.add(a.copy());
+                }
+            }
             slideTextItems.set(currentSlideTextIndex, newItem);
         }
 
@@ -24251,6 +24260,12 @@ public class GifSlideShowApp extends JFrame {
                 applied.timerAppearEffect = existing.timerAppearEffect;
                 applied.timerAppearEasing = existing.timerAppearEasing;
                 applied.timerAppearDurMs = existing.timerAppearDurMs;
+                // Timed actions are per-slide too — keep this row's own, not the
+                // master's (copyBgStyle above copied the master's onto `applied`).
+                applied.actions = new java.util.ArrayList<>();
+                if (existing.actions != null) {
+                    for (SlideTextData.Action a : existing.actions) if (a != null) applied.actions.add(a.copy());
+                }
                 slideTextItems.set(i, applied);
             }
             // For extra items beyond what the source has, apply formatting
@@ -24283,6 +24298,11 @@ public class GifSlideShowApp extends JFrame {
                     applied.timerAppearEffect = existing.timerAppearEffect;
                     applied.timerAppearEasing = existing.timerAppearEasing;
                     applied.timerAppearDurMs = existing.timerAppearDurMs;
+                    // Keep this row's own timed actions (per-slide), as with timing.
+                    applied.actions = new java.util.ArrayList<>();
+                    if (existing.actions != null) {
+                        for (SlideTextData.Action a : existing.actions) if (a != null) applied.actions.add(a.copy());
+                    }
                     slideTextItems.set(i, applied);
                 }
             }
