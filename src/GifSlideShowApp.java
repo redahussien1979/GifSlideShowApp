@@ -419,6 +419,26 @@ public class GifSlideShowApp extends JFrame {
                 }
                 props.setProperty(p + "wordRevealMs", wr.toString());
             }
+            // Timed Text Actions (Texts Timer → "Motion…"). Stored as an indexed
+            // block parallel to the timer fields; absent keys load as defaults so
+            // older presets keep working. landColor is "none" when unset.
+            int actCount = (t.actions == null) ? 0 : t.actions.size();
+            props.setProperty(p + "actionCount", String.valueOf(actCount));
+            for (int k = 0; k < actCount; k++) {
+                SlideTextData.Action a = t.actions.get(k);
+                if (a == null) continue;
+                String ap = p + "action." + k + ".";
+                props.setProperty(ap + "kind", a.kind == null ? "Move" : a.kind);
+                props.setProperty(ap + "atMs", String.valueOf(a.atMs));
+                props.setProperty(ap + "durMs", String.valueOf(a.durMs));
+                props.setProperty(ap + "easing", a.easing == null ? "Ease Out" : a.easing);
+                props.setProperty(ap + "toXPct", String.valueOf(a.toXPct));
+                props.setProperty(ap + "toYPct", String.valueOf(a.toYPct));
+                props.setProperty(ap + "landFormat", String.valueOf(a.landFormat));
+                props.setProperty(ap + "landScale", String.valueOf(a.landScale));
+                props.setProperty(ap + "landColor", a.landColor == null ? "none" : colorToHex(a.landColor));
+                props.setProperty(ap + "triggerTextIndex", String.valueOf(a.triggerTextIndex));
+            }
         }
 
         // Per-text audio highlight settings (FX, HL color, glow size).
@@ -797,6 +817,26 @@ public class GifSlideShowApp extends JFrame {
                     catch (NumberFormatException ex) { ok = false; break; }
                 }
                 if (ok) loaded.wordRevealMs = wr;
+            }
+            // Timed Text Actions (parallel to the save block above). Missing keys
+            // fall back to defaults so presets written before this feature load fine.
+            int actCount = Integer.parseInt(props.getProperty(p + "actionCount", "0"));
+            loaded.actions = new java.util.ArrayList<>();
+            for (int k = 0; k < actCount; k++) {
+                String ap = p + "action." + k + ".";
+                SlideTextData.Action a = new SlideTextData.Action();
+                a.kind   = props.getProperty(ap + "kind", "Move");
+                a.atMs   = Integer.parseInt(props.getProperty(ap + "atMs", "0"));
+                a.durMs  = Integer.parseInt(props.getProperty(ap + "durMs", "800"));
+                a.easing = props.getProperty(ap + "easing", "Ease Out");
+                a.toXPct = Integer.parseInt(props.getProperty(ap + "toXPct", "50"));
+                a.toYPct = Integer.parseInt(props.getProperty(ap + "toYPct", "50"));
+                a.landFormat = Boolean.parseBoolean(props.getProperty(ap + "landFormat", "false"));
+                a.landScale  = Double.parseDouble(props.getProperty(ap + "landScale", "1.3"));
+                String lc = props.getProperty(ap + "landColor", "none");
+                a.landColor = (lc == null || lc.equalsIgnoreCase("none")) ? null : hexToColor(lc);
+                a.triggerTextIndex = Integer.parseInt(props.getProperty(ap + "triggerTextIndex", "-1"));
+                loaded.actions.add(a);
             }
             slideTextFormats.add(loaded);
         }
@@ -5233,7 +5273,9 @@ public class GifSlideShowApp extends JFrame {
 
         // ========== SLIDE TEXT OVERLAY(S) ==========
         if (slideTexts != null) {
-            for (SlideTextData st : slideTexts) {
+            // Expand any active "Move Copy" ghosts into extra render entries (the
+            // original list is returned unchanged when none are active).
+            for (SlideTextData st : expandActionGhosts(slideTexts)) {
                 if (!st.show || st.quizHidden || st.text == null || st.text.isEmpty()) continue;
                 float stScaleFactor = Math.max(targetW, targetH) / 1920.0f;
                 int scaledStSize = Math.max(8, (int) (st.fontSize * stScaleFactor));
@@ -5422,7 +5464,11 @@ public class GifSlideShowApp extends JFrame {
                 // Use wrap width as fixed reference for LEFT/RIGHT alignment
                 // so position doesn't shift with text content length.
                 // (stAlignWidth / stAlignLeft / stBlockLeft computed above for the BG box.)
-                Color stColor = st.color != null ? st.color : Color.YELLOW;
+                // Timed-action landing recolour (Move / Move Copy landing format)
+                // wins over the text's own colour; kept in the initializer so
+                // stColor stays effectively final for the effect lambdas below.
+                Color stColor = st.renderColorOverride != null ? st.renderColorOverride
+                        : (st.color != null ? st.color : Color.YELLOW);
                 String effect = st.textEffect != null ? st.textEffect : "None";
                 double intensity = st.textEffectIntensity / 100.0;
 
@@ -14793,11 +14839,27 @@ public class GifSlideShowApp extends JFrame {
         if (texts == null) return;
         boolean quizActive = quiz != null && quiz.enabled;
         int size = texts.size();
+        // Trigger-driven appear overrides: an action with a triggerTextIndex makes
+        // the target text appear when the action lands (atMs + durMs), even if the
+        // target's own appear time is later. Computed once so every row sees them.
+        long[] triggerAppear = applyTimer ? computeActionTriggerAppear(texts) : null;
         for (int i = 0; i < size; i++) {
             SlideTextData st = texts.get(i);
             boolean hidden = false;
-            // Texts Timer: hide before appear time and after (optional) go time.
-            if (applyTimer && !textTimerVisibleAt(st, elapsedMs)) hidden = true;
+            // Effective appear time = the earlier of this text's own appear time
+            // and any action that triggers it into view. For untriggered text this
+            // equals timerAppearMs, so existing timing is unchanged.
+            long effAppear = st.timerAppearMs;
+            if (triggerAppear != null && i < triggerAppear.length && triggerAppear[i] < effAppear) {
+                effAppear = triggerAppear[i];
+            }
+            // Texts Timer: hide before the (effective) appear time and after the
+            // optional go time.
+            if (applyTimer) {
+                boolean vis = elapsedMs >= effAppear
+                        && (st.timerDisappearMs < 0 || elapsedMs < st.timerDisappearMs);
+                if (!vis) hidden = true;
+            }
             boolean quizAnimating = false;
             if (quizActive) {
                 if (quiz.shouldHideText(i, elapsedMs, size)) hidden = true;
@@ -14810,15 +14872,22 @@ public class GifSlideShowApp extends JFrame {
             }
             // Texts-Timer entrance effect. Independent of the Quiz reveal; it
             // reuses the same render fields, so only apply it when the Quiz
-            // isn't already animating this text. Runs from the appear time
-            // through appear + duration, then settles to the resting state.
+            // isn't already animating this text. Anchored at the effective appear
+            // time so a triggered text still animates in when it is revealed.
             if (!quizAnimating) {
-                if (applyTimer && !hidden && textTimerEntranceActive(st, elapsedMs)) {
-                    double t = textTimerEntranceProgress(st, elapsedMs);
+                if (applyTimer && !hidden && textTimerEntranceActive(st, elapsedMs, effAppear)) {
+                    double t = textTimerEntranceProgress(st, elapsedMs, effAppear);
                     double eased = QuizSlide.easeNamed(st.timerAppearEasing, t);
                     applyRevealAnimFields(st, st.timerAppearEffect, t, eased);
                 } else {
                     resetQuizRevealAnim(st);
+                }
+                // Timed actions layer on top of the resting/entrance state. Skipped
+                // while the Quiz reveal owns this text's render fields, and in the
+                // editor live preview (applyTimer == false) so the editor shows the
+                // resting layout.
+                if (applyTimer && !hidden) {
+                    applyTextActions(st, elapsedMs);
                 }
             }
             st.quizHidden = hidden;
@@ -14845,7 +14914,8 @@ public class GifSlideShowApp extends JFrame {
     private static boolean slideTextHasTimer(SlideTextData st) {
         return st != null && (st.timerAppearMs > 0 || st.timerDisappearMs >= 0
                 || slideTextHasAppearEffect(st)
-                || (st.wordRevealMs != null && st.wordRevealMs.length > 0));
+                || (st.wordRevealMs != null && st.wordRevealMs.length > 0)
+                || (st.actions != null && !st.actions.isEmpty()));
     }
 
     /** True iff this text has a real Texts-Timer entrance effect configured. */
@@ -14858,16 +14928,171 @@ public class GifSlideShowApp extends JFrame {
     /** True iff (elapsed) falls inside this text's entrance-animation window,
      *  i.e. from its appear time until appear + duration. */
     private static boolean textTimerEntranceActive(SlideTextData st, long elapsedMs) {
+        return textTimerEntranceActive(st, elapsedMs, st == null ? 0 : st.timerAppearMs);
+    }
+
+    /** Overload anchored at an explicit appear time, so a text revealed by an
+     *  action trigger still plays its entrance effect from the reveal moment. */
+    private static boolean textTimerEntranceActive(SlideTextData st, long elapsedMs, long appearMs) {
         if (!slideTextHasAppearEffect(st)) return false;
-        return elapsedMs >= st.timerAppearMs
-                && elapsedMs < (long) st.timerAppearMs + st.timerAppearDurMs;
+        return elapsedMs >= appearMs && elapsedMs < appearMs + st.timerAppearDurMs;
     }
 
     /** Linear 0..1 progress through the entrance window (0 at appear time). */
     private static double textTimerEntranceProgress(SlideTextData st, long elapsedMs) {
+        return textTimerEntranceProgress(st, elapsedMs, st == null ? 0 : st.timerAppearMs);
+    }
+
+    /** Overload anchored at an explicit appear time (see the boolean overload). */
+    private static double textTimerEntranceProgress(SlideTextData st, long elapsedMs, long appearMs) {
         if (st.timerAppearDurMs <= 0) return 1.0;
-        double t = (elapsedMs - st.timerAppearMs) / (double) st.timerAppearDurMs;
+        double t = (elapsedMs - appearMs) / (double) st.timerAppearDurMs;
         return t < 0 ? 0 : (t > 1 ? 1 : t);
+    }
+
+    /** Effective appear-time override table for trigger actions: index t holds the
+     *  earliest landing time of any action that triggers text t into view, or
+     *  Long.MAX_VALUE when nothing triggers it. */
+    private static long[] computeActionTriggerAppear(List<SlideTextData> texts) {
+        int n = texts.size();
+        long[] out = new long[n];
+        java.util.Arrays.fill(out, Long.MAX_VALUE);
+        for (SlideTextData st : texts) {
+            if (st == null || st.actions == null) continue;
+            for (SlideTextData.Action a : st.actions) {
+                if (a == null) continue;
+                int tgt = a.triggerTextIndex;
+                if (tgt < 0 || tgt >= n) continue;
+                long land = (long) a.atMs + Math.max(0, a.durMs);
+                if (land < out[tgt]) out[tgt] = land;
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Drive the transient render hooks for this text's timed actions at the given
+     * elapsed time. Reuses the same per-frame fields as the audio-highlight and
+     * entrance systems (pulseRenderScale / shakeRenderDyFrac / audioOtherDxFrac /
+     * audioOtherAlpha / audioOtherTiltDeg + the ghost hooks), so no new draw code
+     * is needed. Fields were reset to identity earlier this frame; effects compose
+     * additively/multiplicatively so several active actions can stack.
+     *
+     *   Move       — translates the text itself to (toX%,toY%) then holds there,
+     *                applying the landing format + a polish pop on arrival.
+     *   Move Copy  — leaves the original in place and sends a ghost duplicate
+     *                (rendered by expandActionGhosts) on the same path.
+     *   Pulse / Shake / Bounce / Spin / Flash — in-place emphasis over the window.
+     */
+    private static void applyTextActions(SlideTextData st, long elapsedMs) {
+        if (st == null || st.actions == null || st.actions.isEmpty()) return;
+        for (SlideTextData.Action a : st.actions) {
+            if (a == null || elapsedMs < a.atMs) continue;   // not fired yet
+            int dur = Math.max(1, a.durMs);
+            long since = elapsedMs - a.atMs;                  // ms since it fired
+            double p = Math.min(1.0, since / (double) dur);   // linear progress 0..1
+            boolean landed = since >= dur;
+            double eased = QuizSlide.easeNamed(a.easing, p);
+
+            if (a.isMove()) {
+                double dxFull = (a.toXPct - st.x) / 100.0;   // fraction of frame width
+                double dyFull = (a.toYPct - st.y) / 100.0;   // fraction of frame height
+                double dx = dxFull * eased;
+                double dy = dyFull * eased;
+                // Landing polish: persistent scale/colour once arrived, plus a
+                // brief overshoot pop centred just after touchdown.
+                double landScale = 1.0;
+                Color  landCol   = null;
+                if (landed && a.landFormat) {
+                    long sinceLanded = since - dur;
+                    landScale = a.landScale * (1.0 + landingPop(sinceLanded));
+                    landCol   = a.landColor;
+                }
+                if ("Move Copy".equals(a.kind)) {
+                    st.ghostActive = true;
+                    st.ghostDxFrac = dx;
+                    st.ghostDyFrac = dy;
+                    st.ghostScale  = landScale;
+                    if (landCol != null) st.ghostColor = landCol;
+                } else {
+                    st.audioOtherDxFrac  += dx;
+                    st.shakeRenderDyFrac += dy;
+                    if (landed && a.landFormat) {
+                        st.pulseRenderScale *= landScale;
+                        if (landCol != null) st.renderColorOverride = landCol;
+                    }
+                }
+                continue;
+            }
+
+            // In-place emphasis effects run only during their window; afterwards
+            // the fields stay at the identity values set earlier this frame.
+            if (landed) continue;
+            double ph = since / 1000.0;   // seconds since fired, for continuous cycles
+            switch (a.kind) {
+                case "Pulse": {
+                    int cycles = Math.max(1, (int) Math.round(dur / 550.0));
+                    st.pulseRenderScale *= 1.0 + 0.18 * Math.sin(p * Math.PI * 2 * cycles);
+                    break;
+                }
+                case "Shake":
+                    st.audioOtherDxFrac  += 0.012 * Math.sin(ph * 42.0);
+                    st.shakeRenderDyFrac += 0.006 * Math.sin(ph * 55.0);
+                    break;
+                case "Bounce": {
+                    double u = (p * 2.0) % 1.0;               // two hops over the window
+                    st.shakeRenderDyFrac += -0.06 * (4.0 * u * (1.0 - u));
+                    break;
+                }
+                case "Spin":
+                    st.audioOtherTiltDeg += 360.0 * eased;    // one full turn, eased
+                    break;
+                case "Flash":
+                    st.audioOtherAlpha *= 0.35 + 0.65 * Math.abs(Math.sin(p * Math.PI * 6));
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+
+    /** Overshoot amount (0 at touchdown, peaks ~0.18, back to 0) for the landing
+     *  pop, over a fixed ~260 ms window. Added on top of the landing scale. */
+    private static double landingPop(long sinceLandedMs) {
+        final long POP = 260;
+        if (sinceLandedMs < 0 || sinceLandedMs >= POP) return 0.0;
+        double u = sinceLandedMs / (double) POP;   // 0..1
+        return 0.18 * Math.sin(u * Math.PI);
+    }
+
+    /**
+     * If any visible text has an active "Move Copy" ghost this frame, return a new
+     * list = the originals plus one ghost clone per active copy, so the original
+     * stays put while its duplicate renders at the moved/landed position. When no
+     * ghost is active the input list is returned unchanged (zero overhead for the
+     * common case). The ghost hooks on each source text are set by applyTextActions.
+     */
+    private static List<SlideTextData> expandActionGhosts(List<SlideTextData> texts) {
+        if (texts == null) return null;
+        boolean any = false;
+        for (SlideTextData st : texts) {
+            if (st != null && st.ghostActive && st.show && !st.quizHidden) { any = true; break; }
+        }
+        if (!any) return texts;
+        List<SlideTextData> out = new ArrayList<>(texts);
+        for (SlideTextData st : texts) {
+            if (st == null || !st.ghostActive || !st.show || st.quizHidden) continue;
+            SlideTextData ghost = st.cloneForRender();
+            ghost.ghostActive        = false;   // the ghost never spawns its own ghost
+            ghost.actions            = java.util.Collections.emptyList();
+            ghost.audioOtherDxFrac   = st.ghostDxFrac;
+            ghost.shakeRenderDyFrac  = st.ghostDyFrac;
+            ghost.pulseRenderScale   = st.ghostScale;
+            ghost.audioOtherAlpha    = st.ghostAlpha;
+            ghost.renderColorOverride = st.ghostColor;
+            out.add(ghost);
+        }
+        return out;
     }
 
     /** True iff any shown text on the slide has a timeline, so the slide must be
@@ -14897,6 +15122,14 @@ public class GifSlideShowApp extends JFrame {
         st.audioOtherDxFrac  = 0.0;
         st.audioOtherAlpha   = 1.0;
         st.audioOtherTiltDeg = 0.0;
+        // Timed-action render hooks are re-derived each frame too.
+        st.renderColorOverride = null;
+        st.ghostActive = false;
+        st.ghostDxFrac = 0.0;
+        st.ghostDyFrac = 0.0;
+        st.ghostScale  = 1.0;
+        st.ghostAlpha  = 1.0;
+        st.ghostColor  = null;
     }
 
     /** Map an animation name + per-frame easing to the transient render fields. */
@@ -16137,6 +16370,21 @@ public class GifSlideShowApp extends JFrame {
         double audioOtherDxFrac = 0.0;     // horizontal translate, fraction of frame width
         double audioOtherAlpha  = 1.0;     // additional alpha multiplier (0..1)
         double audioOtherTiltDeg = 0.0;    // additional rotation in degrees
+
+        // ---- Timed Text Actions render hooks (transient, not persisted) ----
+        // Draw-colour override from an active/landed Move action's landing format
+        // (null = use the text's own colour). Re-derived every frame: cleared by
+        // resetQuizRevealAnim, then set by applyTextActions.
+        Color renderColorOverride = null;
+        // "Move Copy": when true, the renderer draws an extra ghost instance of
+        // this text at the offset / scale / colour below, leaving the original in
+        // place. Set each frame by applyTextActions; cleared by resetQuizRevealAnim.
+        boolean ghostActive = false;
+        double ghostDxFrac = 0.0;   // ghost horizontal translate, fraction of frame width
+        double ghostDyFrac = 0.0;   // ghost vertical translate, fraction of frame height
+        double ghostScale  = 1.0;   // ghost scale around its own centre
+        double ghostAlpha  = 1.0;   // ghost alpha multiplier (0..1)
+        Color  ghostColor  = null;  // ghost draw-colour override (null = text's own colour)
         // Comma-separated light-overlay effects (Shimmer, Reveal, Wipe, Glow Trail, Scan).
         // These are post-text overlays clipped to the text glyph shape so they appear
         // to illuminate the letters themselves, not the surrounding rectangle.
@@ -16184,6 +16432,66 @@ public class GifSlideShowApp extends JFrame {
         String timerAppearEffect = "None";
         String timerAppearEasing = "Ease Out";
         int    timerAppearDurMs  = 500;
+
+        // ===== Timed Text Actions (Texts Timer → "Motion…") =====
+        // Time-triggered behaviours layered on top of the appear/disappear
+        // timeline above. Each action fires at its own time (ms from slide start)
+        // and either MOVES this text (or a COPY of it) to a new location and
+        // formats it on landing, or plays an in-place emphasis effect
+        // (Pulse / Shake / Bounce / Spin / Flash). Mutable + non-final with a
+        // safe empty default so it rides along the constructor chain untouched,
+        // exactly like the timer block. Modelled as a list so new action kinds
+        // can be added later without touching the render or persistence plumbing.
+        java.util.List<Action> actions = new java.util.ArrayList<>();
+
+        /** One time-triggered behaviour on a text. Purely data; the semantics
+         *  live in applyTextActions() (render) and the Motion editor (UI). Every
+         *  field defaults to a harmless no-op so older presets keep working. */
+        static class Action {
+            // Supported behaviours. "Move" relocates the text itself; "Move Copy"
+            // leaves the original and sends a duplicate; the rest are in-place.
+            static final String[] KINDS = {
+                    "Move", "Move Copy", "Pulse", "Shake", "Bounce", "Spin", "Flash" };
+            static final String[] EASINGS = {
+                    "Linear", "Ease In", "Ease Out", "Ease In Out", "Bounce" };
+
+            String kind = "Move";       // one of KINDS
+            int atMs = 0;               // when the action fires (ms from slide start)
+            int durMs = 800;            // motion / effect duration in ms
+            String easing = "Ease Out"; // easing curve for the motion
+
+            // Destination for Move / Move Copy, as a percentage of the frame
+            // (0..100), matching how SlideTextData.x / y are stored.
+            int toXPct = 50;
+            int toYPct = 50;
+
+            // Landing format — applied to the moved text / copy once it arrives,
+            // giving the "lands and is formatted beautifully" finish. A gentle
+            // arrival pop is always added on top so the landing reads as polished.
+            boolean landFormat = false;
+            double  landScale = 1.3;    // size multiplier on landing (1.0 = same)
+            Color   landColor = null;   // recolour on landing (null = keep colour)
+
+            // Trigger another text to appear when this action lands: index into
+            // the slide's text list, or -1 for none. Implemented as an effective
+            // appear-time override so it survives edits and re-renders.
+            int triggerTextIndex = -1;
+
+            Action() {}
+
+            /** True for the two relocation kinds (they use toX/toY + landing). */
+            boolean isMove() { return "Move".equals(kind) || "Move Copy".equals(kind); }
+
+            /** Deep copy — Action instances must not be shared between texts. */
+            Action copy() {
+                Action a = new Action();
+                a.kind = kind; a.atMs = atMs; a.durMs = durMs; a.easing = easing;
+                a.toXPct = toXPct; a.toYPct = toYPct;
+                a.landFormat = landFormat; a.landScale = landScale; a.landColor = landColor;
+                a.triggerTextIndex = triggerTextIndex;
+                return a;
+            }
+        }
 
         // Word-anchored sparkle burst (toolbar 4c "✨ Burst" checkbox). Mutable so
         // it persists without touching the overloaded constructor chain; carried
@@ -16296,6 +16604,33 @@ public class GifSlideShowApp extends JFrame {
             // HL-clone render pass reveals the same words as the saved item.
             dst.wordRevealMs      = src.wordRevealMs;
             dst.wordRevealCount   = src.wordRevealCount;
+            // Timed actions ride along too, deep-copied so the HL-clone / master
+            // broadcast passes never share mutable Action instances with src.
+            dst.actions = new java.util.ArrayList<>();
+            if (src.actions != null) {
+                for (Action a : src.actions) if (a != null) dst.actions.add(a.copy());
+            }
+        }
+
+        /** A render-only duplicate of this text carrying every visual field, used
+         *  to draw the "Move Copy" ghost. The entrance fly-in is disabled on the
+         *  clone (its position is driven entirely by the ghost render hooks). */
+        SlideTextData cloneForRender() {
+            SlideTextData c = new SlideTextData(show, text, fontName, fontSize,
+                    fontStyle, color, x, y, bgOpacity, bgColor, justify, widthPct, shiftX,
+                    alignment, textEffect, textEffectIntensity,
+                    highlightText, highlightColor, highlightStyle, highlightTightness,
+                    underlineStyle, underlineText, boldText, italicText, colorText, colorTextColor,
+                    xLeftAligned, odometer, odometerSpeed, odometerRoll, odometerLand,
+                    false, animPath, animDurationMs, animStartMs, animEasing,
+                    tiltDegrees, letterSpacing, lineSpacing, opacity);
+            copyBgStyle(this, c);
+            c.karaokeStyle = karaokeStyle;
+            c.karaokeColor = karaokeColor;
+            c.audioOtherLightEffects = audioOtherLightEffects;
+            c.wordRevealMs = wordRevealMs;
+            c.wordRevealCount = wordRevealCount;
+            return c;
         }
 
         SlideTextData(boolean show, String text, String fontName, int fontSize,
@@ -23109,6 +23444,22 @@ public class GifSlideShowApp extends JFrame {
             final java.util.List<JComboBox<String>> effectCombos = new java.util.ArrayList<>();
             final java.util.List<JComboBox<String>> easeCombos   = new java.util.ArrayList<>();
             final java.util.List<JTextField> durFields = new java.util.ArrayList<>();
+            // Timed-action working copies (one list per text row), edited via the
+            // per-row "Motion…" button and committed on Apply. Deep-copied from the
+            // items so Cancel discards any changes. motionBtns tracks the buttons so
+            // Clear All can reset their labels.
+            final java.util.List<java.util.List<SlideTextData.Action>> rowActions = new java.util.ArrayList<>();
+            final java.util.List<JButton> motionBtns = new java.util.ArrayList<>();
+            // Labels for the "trigger another text" picker in the Motion editor,
+            // index-aligned to slideTextItems.
+            final String[] textLabels = new String[slideTextItems.size()];
+            for (int li = 0; li < slideTextItems.size(); li++) {
+                SlideTextData sx = slideTextItems.get(li);
+                String c = sx.text == null ? "" : sx.text.replace('\n', ' ').trim();
+                if (c.isEmpty()) c = "(empty)";
+                if (c.length() > 24) c = c.substring(0, 21) + "…";
+                textLabels[li] = "Text " + (li + 1) + ": " + c;
+            }
 
             // Entrance-effect choices — same set the Quiz reveal already renders,
             // so applyRevealAnimFields knows how to draw every one.
@@ -23138,6 +23489,7 @@ public class GifSlideShowApp extends JFrame {
             gc.gridx = 3; rows.add(hdr.apply("Effect"), gc);
             gc.gridx = 4; rows.add(hdr.apply("Ease"), gc);
             gc.gridx = 5; rows.add(hdr.apply("Anim (ms)"), gc);
+            gc.gridx = 6; rows.add(hdr.apply("Motion"), gc);
 
             for (int i = 0; i < slideTextItems.size(); i++) {
                 SlideTextData st = slideTextItems.get(i);
@@ -23184,6 +23536,30 @@ public class GifSlideShowApp extends JFrame {
                 easeCombos.add(easeCombo);
                 durFields.add(dur);
 
+                // Timed actions (Move / Move Copy / Pulse / …). Deep-copied working
+                // list edited by the per-row Motion editor; committed on Apply.
+                java.util.List<SlideTextData.Action> myActs = new java.util.ArrayList<>();
+                if (st.actions != null) {
+                    for (SlideTextData.Action a : st.actions) if (a != null) myActs.add(a.copy());
+                }
+                rowActions.add(myActs);
+                final int rowIdx = i;
+                JButton motionBtn = new JButton();
+                motionBtn.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+                motionBtn.setToolTipText("At a chosen time, move this text (or a copy of it) to a new spot "
+                        + "and format it beautifully on landing — or play an in-place effect like Pulse. "
+                        + "A landed move can also trigger another text to appear.");
+                Runnable updMotionLbl = () -> {
+                    int c = rowActions.get(rowIdx).size();
+                    motionBtn.setText(c == 0 ? "Motion…" : "Motion (" + c + ")");
+                };
+                updMotionLbl.run();
+                motionBtn.addActionListener(ev -> {
+                    openTextMotionEditor(dlg, rowIdx + 1, rowActions.get(rowIdx), textLabels);
+                    updMotionLbl.run();
+                });
+                motionBtns.add(motionBtn);
+
                 gc.gridy = i + 1;
                 gc.gridx = 0; rows.add(nameLbl, gc);
                 gc.gridx = 1; rows.add(appear, gc);
@@ -23191,17 +23567,20 @@ public class GifSlideShowApp extends JFrame {
                 gc.gridx = 3; rows.add(effectCombo, gc);
                 gc.gridx = 4; rows.add(easeCombo, gc);
                 gc.gridx = 5; rows.add(dur, gc);
+                gc.gridx = 6; rows.add(motionBtn, gc);
             }
 
             JScrollPane rowsScroll = new JScrollPane(rows);
-            rowsScroll.setPreferredSize(new Dimension(820, Math.min(360, 40 + slideTextItems.size() * 32)));
+            rowsScroll.setPreferredSize(new Dimension(920, Math.min(360, 40 + slideTextItems.size() * 32)));
             rowsScroll.getVerticalScrollBar().setUnitIncrement(18);
 
             JLabel help = new JLabel("<html>Times are in seconds from the start of this slide. "
                     + "Leave <b>Go</b> empty to keep a text on screen once it appears.<br>"
                     + "<b>Effect</b> animates the text into view when it appears — "
                     + "<b>Ease</b> and <b>Anim (ms)</b> shape that animation "
-                    + "(a subtle Fade or Slide In at ~500&nbsp;ms looks the most professional).</html>");
+                    + "(a subtle Fade or Slide In at ~500&nbsp;ms looks the most professional).<br>"
+                    + "<b>Motion</b> makes a text (or a copy of it) move to a new spot at a chosen time, "
+                    + "format on landing, and optionally trigger another text — or play an in-place effect.</html>");
             help.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             help.setBorder(BorderFactory.createEmptyBorder(0, 2, 6, 2));
 
@@ -23343,6 +23722,10 @@ public class GifSlideShowApp extends JFrame {
                 for (JComboBox<String> c : effectCombos) c.setSelectedItem("None");
                 for (JComboBox<String> c : easeCombos)   c.setSelectedItem("Ease Out");
                 for (JTextField f : durFields) f.setText("500");
+                for (int i = 0; i < rowActions.size(); i++) {
+                    rowActions.get(i).clear();
+                    if (i < motionBtns.size()) motionBtns.get(i).setText("Motion…");
+                }
                 repeatArea.setText("");
                 slowAllSpinner.setValue(1.0);
             });
@@ -23491,6 +23874,10 @@ public class GifSlideShowApp extends JFrame {
                     slideTextItems.get(i).timerAppearEffect = effectVal[i];
                     slideTextItems.get(i).timerAppearEasing = easeVal[i];
                     slideTextItems.get(i).timerAppearDurMs = durMs[i];
+                    // Timed actions — commit the per-row working copy edited via Motion.
+                    if (i < rowActions.size()) {
+                        slideTextItems.get(i).actions = new java.util.ArrayList<>(rowActions.get(i));
+                    }
                 }
                 setVideoRepeats(repeats);
                 setVideoRepeatCrossfade(crossfadeCheck.isSelected());
@@ -23537,9 +23924,264 @@ public class GifSlideShowApp extends JFrame {
             dlg.add(root, BorderLayout.CENTER);
             dlg.add(btnRow, BorderLayout.SOUTH);
             dlg.pack();
-            dlg.setSize(Math.max(880, dlg.getPreferredSize().width), dlg.getPreferredSize().height);
+            dlg.setSize(Math.max(980, dlg.getPreferredSize().width), dlg.getPreferredSize().height);
             dlg.setLocationRelativeTo(owner);
             dlg.setVisible(true);
+        }
+
+        /**
+         * Editor for one text's timed actions (Texts Timer → "Motion…"). Edits the
+         * supplied list in place: on OK the list is rebuilt from the on-screen rows;
+         * Cancel leaves it untouched. {@code textLabels} are the choices for the
+         * "trigger another text" picker (index-aligned to the slide's text list).
+         *
+         * The action model is a list, so extra behaviours can be added later just by
+         * extending {@code SlideTextData.Action.KINDS} and the render switch — the
+         * dialog, persistence and commit paths need no further changes.
+         */
+        private void openTextMotionEditor(Window owner, int textNumber,
+                                          java.util.List<SlideTextData.Action> actions,
+                                          String[] textLabels) {
+            final JDialog dlg = new JDialog(owner, "Text Motion — Text " + textNumber,
+                    Dialog.ModalityType.APPLICATION_MODAL);
+            dlg.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+
+            // Lenient number parsers: a stray value falls back to a sane default so
+            // Apply never fails mid-edit (ranges are clamped where it matters).
+            final java.util.function.BiFunction<String, Integer, Integer> pInt = (s, d) -> {
+                try { return Integer.parseInt(s.trim()); } catch (Exception ex) { return d; }
+            };
+            final java.util.function.BiFunction<String, Double, Double> pDbl = (s, d) -> {
+                try { return Double.parseDouble(s.trim()); } catch (Exception ex) { return d; }
+            };
+
+            final String[] triggerChoices = new String[textLabels.length + 1];
+            triggerChoices[0] = "(none)";
+            System.arraycopy(textLabels, 0, triggerChoices, 1, textLabels.length);
+
+            final JPanel rowsPanel = new JPanel();
+            rowsPanel.setLayout(new BoxLayout(rowsPanel, BoxLayout.Y_AXIS));
+            rowsPanel.setBackground(Color.WHITE);
+            final JScrollPane scroll = new JScrollPane(rowsPanel);
+            scroll.setPreferredSize(new Dimension(780, 340));
+            scroll.getVerticalScrollBar().setUnitIncrement(18);
+
+            final java.util.List<ActionRowUI> rowUIs = new java.util.ArrayList<>();
+            final Runnable rebuild = () -> {
+                rowsPanel.removeAll();
+                if (rowUIs.isEmpty()) {
+                    JLabel empty = new JLabel("No motion yet — click \"Add action\" below.");
+                    empty.setFont(new Font("Segoe UI", Font.ITALIC, 12));
+                    empty.setForeground(new Color(120, 120, 120));
+                    empty.setBorder(BorderFactory.createEmptyBorder(14, 8, 14, 8));
+                    empty.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
+                    rowsPanel.add(empty);
+                }
+                for (int k = 0; k < rowUIs.size(); k++) {
+                    ActionRowUI r = rowUIs.get(k);
+                    r.setIndexLabel(k + 1);
+                    r.panel.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
+                    rowsPanel.add(r.panel);
+                    rowsPanel.add(Box.createVerticalStrut(6));
+                }
+                rowsPanel.revalidate();
+                rowsPanel.repaint();
+            };
+
+            for (SlideTextData.Action a : actions) {
+                if (a != null) rowUIs.add(new ActionRowUI(a, triggerChoices, rowUIs, rebuild, pInt, pDbl));
+            }
+            rebuild.run();
+
+            JButton addBtn = new JButton("＋ Add action");
+            addBtn.addActionListener(e -> {
+                rowUIs.add(new ActionRowUI(new SlideTextData.Action(),
+                        triggerChoices, rowUIs, rebuild, pInt, pDbl));
+                rebuild.run();
+            });
+
+            JLabel help = new JLabel("<html>Each action fires at its own time (seconds from the start of this "
+                    + "slide).<br><b>Move</b> sends this text to a new spot; <b>Move Copy</b> leaves the "
+                    + "original in place and sends a duplicate; <b>Pulse / Shake / Bounce / Spin / Flash</b> "
+                    + "play in place. <b>To X% / Y%</b> is the destination as a percentage of the frame. "
+                    + "<b>Format on landing</b> scales &amp; recolours the arrival; <b>Trigger</b> makes "
+                    + "another text appear when this action lands.</html>");
+            help.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            help.setBorder(BorderFactory.createEmptyBorder(2, 2, 8, 2));
+
+            JButton okBtn = new JButton("OK");
+            JButton cancelBtn = new JButton("Cancel");
+            okBtn.addActionListener(e -> {
+                java.util.List<SlideTextData.Action> out = new java.util.ArrayList<>();
+                for (ActionRowUI r : rowUIs) out.add(r.toAction());
+                actions.clear();
+                actions.addAll(out);
+                dlg.dispose();
+            });
+            cancelBtn.addActionListener(e -> dlg.dispose());
+
+            JPanel top = new JPanel(new BorderLayout());
+            top.setBorder(BorderFactory.createEmptyBorder(10, 12, 4, 12));
+            top.add(help, BorderLayout.NORTH);
+            top.add(scroll, BorderLayout.CENTER);
+            JPanel addLine = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+            addLine.add(addBtn);
+            top.add(addLine, BorderLayout.SOUTH);
+
+            JPanel btns = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 6));
+            btns.add(cancelBtn);
+            btns.add(okBtn);
+
+            dlg.setLayout(new BorderLayout());
+            dlg.add(top, BorderLayout.CENTER);
+            dlg.add(btns, BorderLayout.SOUTH);
+            dlg.pack();
+            dlg.setSize(Math.max(840, dlg.getPreferredSize().width),
+                    Math.min(620, Math.max(360, dlg.getPreferredSize().height)));
+            dlg.setLocationRelativeTo(owner);
+            dlg.setVisible(true);
+        }
+
+        /** One editable action row in the Motion editor. Holds its widgets, seeds
+         *  them from an Action, and reads them back out via {@link #toAction()}. */
+        private final class ActionRowUI {
+            final JPanel panel = new JPanel(new GridBagLayout());
+            private final JLabel idxLbl = new JLabel("#1");
+            private final JComboBox<String> kindCombo = new JComboBox<>(SlideTextData.Action.KINDS);
+            private final JTextField atField = new JTextField(4);
+            private final JTextField durField = new JTextField(5);
+            private final JComboBox<String> easeCombo = new JComboBox<>(SlideTextData.Action.EASINGS);
+            private final JTextField toXField = new JTextField(4);
+            private final JTextField toYField = new JTextField(4);
+            private final JCheckBox landCheck = new JCheckBox("Format on landing");
+            private final JTextField scaleField = new JTextField(4);
+            private final JButton colorBtn = new JButton("Colour…");
+            private final JComboBox<String> triggerCombo;
+            private Color landColor;
+            private final java.util.function.BiFunction<String, Integer, Integer> pInt;
+            private final java.util.function.BiFunction<String, Double, Double> pDbl;
+
+            ActionRowUI(SlideTextData.Action a, String[] triggerChoices,
+                        java.util.List<ActionRowUI> owner, Runnable rebuild,
+                        java.util.function.BiFunction<String, Integer, Integer> pInt,
+                        java.util.function.BiFunction<String, Double, Double> pDbl) {
+                this.pInt = pInt;
+                this.pDbl = pDbl;
+                this.triggerCombo = new JComboBox<>(triggerChoices);
+                this.landColor = a.landColor;
+
+                panel.setBackground(new Color(248, 248, 250));
+                panel.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(new Color(220, 220, 226)),
+                        BorderFactory.createEmptyBorder(6, 8, 6, 8)));
+
+                idxLbl.setFont(new Font("Segoe UI", Font.BOLD, 12));
+                kindCombo.setSelectedItem(a.kind == null ? "Move" : a.kind);
+                atField.setText(timerMsToSecStr(a.atMs));
+                atField.setToolTipText("When this action fires — seconds from the start of the slide.");
+                durField.setText(String.valueOf(a.durMs));
+                durField.setToolTipText("How long the move / effect takes, in milliseconds (e.g. 800).");
+                easeCombo.setSelectedItem(a.easing == null ? "Ease Out" : a.easing);
+                toXField.setText(String.valueOf(a.toXPct));
+                toYField.setText(String.valueOf(a.toYPct));
+                toXField.setToolTipText("Destination X as a percentage of the frame width (0–100).");
+                toYField.setToolTipText("Destination Y as a percentage of the frame height (0–100).");
+                landCheck.setSelected(a.landFormat);
+                landCheck.setBackground(panel.getBackground());
+                scaleField.setText(String.valueOf(a.landScale));
+                scaleField.setToolTipText("Size multiplier applied when it lands (1.0 = unchanged, 1.4 = 40% bigger).");
+                colorBtn.setToolTipText("Colour to switch to on landing. Leave unset to keep the text's own colour.");
+                refreshColorBtn();
+                colorBtn.addActionListener(ev -> {
+                    Color c = JColorChooser.showDialog(panel,
+                            "Landing colour", landColor != null ? landColor : Color.WHITE);
+                    if (c != null) { landColor = c; refreshColorBtn(); }
+                });
+                triggerCombo.setToolTipText("Reveal another text when this action lands (its own appear time still "
+                        + "applies if earlier).");
+                int ti = a.triggerTextIndex;
+                triggerCombo.setSelectedIndex(ti >= 0 && ti + 1 < triggerChoices.length ? ti + 1 : 0);
+
+                JButton removeBtn = new JButton("✕");
+                removeBtn.setToolTipText("Remove this action.");
+                removeBtn.setMargin(new Insets(1, 6, 1, 6));
+                removeBtn.addActionListener(ev -> { owner.remove(this); rebuild.run(); });
+
+                // Enable the move-only fields only for the relocation kinds.
+                kindCombo.addActionListener(ev -> syncEnabled());
+                landCheck.addActionListener(ev -> syncEnabled());
+
+                GridBagConstraints g = new GridBagConstraints();
+                g.insets = new Insets(2, 4, 2, 4);
+                g.anchor = GridBagConstraints.WEST;
+                // Line 1
+                g.gridy = 0;
+                g.gridx = 0; panel.add(idxLbl, g);
+                g.gridx = 1; panel.add(kindCombo, g);
+                g.gridx = 2; panel.add(new JLabel("At (s):"), g);
+                g.gridx = 3; panel.add(atField, g);
+                g.gridx = 4; panel.add(new JLabel("Dur (ms):"), g);
+                g.gridx = 5; panel.add(durField, g);
+                g.gridx = 6; panel.add(new JLabel("Ease:"), g);
+                g.gridx = 7; panel.add(easeCombo, g);
+                g.gridx = 8; g.weightx = 1.0; g.anchor = GridBagConstraints.EAST;
+                panel.add(removeBtn, g);
+                g.weightx = 0; g.anchor = GridBagConstraints.WEST;
+                // Line 2
+                g.gridy = 1;
+                g.gridx = 1; panel.add(new JLabel("To X%:"), g);
+                g.gridx = 2; panel.add(toXField, g);
+                g.gridx = 3; panel.add(new JLabel("Y%:"), g);
+                g.gridx = 4; panel.add(toYField, g);
+                g.gridx = 5; panel.add(landCheck, g);
+                g.gridx = 6; panel.add(scaleField, g);
+                g.gridx = 7; panel.add(colorBtn, g);
+                // Line 3
+                g.gridy = 2;
+                g.gridx = 1; panel.add(new JLabel("Trigger:"), g);
+                g.gridx = 2; g.gridwidth = 4; panel.add(triggerCombo, g); g.gridwidth = 1;
+
+                syncEnabled();
+            }
+
+            private void refreshColorBtn() {
+                if (landColor != null) {
+                    colorBtn.setText("■");
+                    colorBtn.setForeground(landColor);
+                } else {
+                    colorBtn.setText("Colour…");
+                    colorBtn.setForeground(Color.BLACK);
+                }
+            }
+
+            private void syncEnabled() {
+                boolean move = "Move".equals(kindCombo.getSelectedItem())
+                        || "Move Copy".equals(kindCombo.getSelectedItem());
+                toXField.setEnabled(move);
+                toYField.setEnabled(move);
+                landCheck.setEnabled(move);
+                boolean fmt = move && landCheck.isSelected();
+                scaleField.setEnabled(fmt);
+                colorBtn.setEnabled(fmt);
+            }
+
+            void setIndexLabel(int n) { idxLbl.setText("#" + n); }
+
+            SlideTextData.Action toAction() {
+                SlideTextData.Action a = new SlideTextData.Action();
+                a.kind = (String) kindCombo.getSelectedItem();
+                a.atMs = (int) Math.round(Math.max(0.0, pDbl.apply(atField.getText(), 0.0)) * 1000.0);
+                a.durMs = Math.max(1, pInt.apply(durField.getText(), 800));
+                a.easing = (String) easeCombo.getSelectedItem();
+                a.toXPct = Math.max(0, Math.min(100, pInt.apply(toXField.getText(), 50)));
+                a.toYPct = Math.max(0, Math.min(100, pInt.apply(toYField.getText(), 50)));
+                a.landFormat = landCheck.isSelected();
+                a.landScale = Math.max(0.2, Math.min(5.0, pDbl.apply(scaleField.getText(), 1.3)));
+                a.landColor = landColor;
+                int ti = triggerCombo.getSelectedIndex();
+                a.triggerTextIndex = ti <= 0 ? -1 : ti - 1;
+                return a;
+            }
         }
 
         private JLabel sectionLabel(String txt) {
