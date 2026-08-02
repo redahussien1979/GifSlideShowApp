@@ -15957,6 +15957,17 @@ public class GifSlideShowApp extends JFrame {
                 if (st.shakeRenderDyFrac != 0.0) hl.shakeRenderDyFrac = st.shakeRenderDyFrac;
                 if (st.audioOtherDxFrac  != 0.0) hl.audioOtherDxFrac  = st.audioOtherDxFrac;
                 if (st.audioOtherTiltDeg != 0.0) hl.audioOtherTiltDeg = st.audioOtherTiltDeg;
+                // Carry the timed-action render hooks too, so Move / Move Copy
+                // ghosts, landing recolour and word-targeted motion still play on
+                // the audio-active text — otherwise this clone silently drops them.
+                hl.renderColorOverride = st.renderColorOverride;
+                hl.ghostActive = st.ghostActive;
+                hl.ghostDxFrac = st.ghostDxFrac;
+                hl.ghostDyFrac = st.ghostDyFrac;
+                hl.ghostScale  = st.ghostScale;
+                hl.ghostAlpha  = st.ghostAlpha;
+                hl.ghostColor  = st.ghostColor;
+                hl.wordMotionsRender = st.wordMotionsRender;
                 result.add(hl);
             } else {
                 result.add(st);
