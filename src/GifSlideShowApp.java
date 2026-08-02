@@ -5280,7 +5280,8 @@ public class GifSlideShowApp extends JFrame {
             // Expand any active "Move Copy" ghosts into extra render entries (the
             // original list is returned unchanged when none are active).
             for (SlideTextData st : expandActionGhosts(slideTexts)) {
-                if (!st.show || st.quizHidden || st.text == null || st.text.isEmpty()) continue;
+                // forceShow lets a fired trigger reveal a text marked hidden (show=false).
+                if ((!st.show && !st.forceShow) || st.quizHidden || st.text == null || st.text.isEmpty()) continue;
                 float stScaleFactor = Math.max(targetW, targetH) / 1920.0f;
                 int scaledStSize = Math.max(8, (int) (st.fontSize * stScaleFactor));
                 Font stFont;
@@ -5490,6 +5491,38 @@ public class GifSlideShowApp extends JFrame {
                         ? st.underlineText : st.highlightText;
                 java.util.List<java.util.List<int[]>> stUlSegments = computeWrapSegments(stWrappedLines, ulSrcText);
                 String[] stUlTerms = splitTerms(ulSrcText);
+
+                // ----- Hide the original word for in-place word effects -----
+                // For a word-targeted Pulse/Shake/Bounce/Spin/Flash, punch the
+                // word's rectangle out of the text-draw clip so the paragraph
+                // renders WITHOUT that word; the animated word is then drawn on top
+                // below, so the word ITSELF appears to move rather than a doubled
+                // copy over a static original. Move / Move Copy keep the word in
+                // place (they intentionally send a duplicate), so they don't punch.
+                Shape savedWordClip = g.getClip();
+                boolean wordClipApplied = false;
+                if (st.wordMotionsRender != null && !st.wordMotionsRender.isEmpty()) {
+                    int firstBaselineH = stCenterY - totalTextHeight / 2 + stAscent;
+                    java.awt.geom.Area clipArea = null;
+                    for (SlideTextData.WordMotionRender wm : st.wordMotionsRender) {
+                        if (wm == null || wm.isMove || wm.word == null || wm.word.isEmpty()) continue;
+                        double[] loc = locateWordCenter(stWrappedLines, stFm, wm.word, wm.occ,
+                                st.alignment, stAlignLeft, stAlignWidth, stCenterX,
+                                firstBaselineH, stLineHeight);
+                        if (loc == null) continue;
+                        int pad = Math.max(2, (int) (stAscent * 0.15));
+                        double rw = loc[2] + pad * 2;
+                        double rh = stAscent + stFm.getDescent() + pad * 2;
+                        java.awt.geom.Rectangle2D.Double rect = new java.awt.geom.Rectangle2D.Double(
+                                loc[0] - rw / 2, loc[1] - rh / 2, rw, rh);
+                        if (clipArea == null) {
+                            clipArea = new java.awt.geom.Area(savedWordClip != null ? savedWordClip
+                                    : new java.awt.Rectangle(0, 0, targetW, targetH));
+                        }
+                        clipArea.subtract(new java.awt.geom.Area(rect));
+                    }
+                    if (clipArea != null) { g.setClip(clipArea); wordClipApplied = true; }
+                }
 
                 int lineY = stCenterY - totalTextHeight / 2 + stAscent;
                 for (int li = 0; li < stWrappedLines.size(); li++) {
@@ -8139,6 +8172,11 @@ public class GifSlideShowApp extends JFrame {
                         }
                     }
                 }
+
+                // Restore the clip after all text passes (word hole no longer needed;
+                // done here, under the same transform it was set, before the wrap is
+                // reversed — so the animated word below draws unclipped).
+                if (wordClipApplied) g.setClip(savedWordClip);
 
                 // Reverse the tilt + opacity wrap before the animation translate is
                 // reversed, so the absolute matrix returns to its pre-text state.
@@ -14974,19 +15012,25 @@ public class GifSlideShowApp extends JFrame {
         for (int i = 0; i < size; i++) {
             SlideTextData st = texts.get(i);
             boolean hidden = false;
-            // Effective appear time = the earlier of this text's own appear time
-            // and any action that triggers it into view. For untriggered text this
-            // equals timerAppearMs, so existing timing is unchanged.
-            long effAppear = st.timerAppearMs;
-            if (triggerAppear != null && i < triggerAppear.length && triggerAppear[i] < effAppear) {
-                effAppear = triggerAppear[i];
-            }
+            // A text that is the target of a trigger appears WHEN the trigger lands
+            // (atMs + durMs) — even if it was marked hidden — and stays hidden until
+            // then. Untriggered text keeps its own appear time, so existing timing
+            // is unchanged.
+            boolean triggered = triggerAppear != null && i < triggerAppear.length
+                    && triggerAppear[i] != Long.MAX_VALUE;
+            long effAppear = triggered ? triggerAppear[i] : st.timerAppearMs;
             // Texts Timer: hide before the (effective) appear time and after the
             // optional go time.
             if (applyTimer) {
                 boolean vis = elapsedMs >= effAppear
                         && (st.timerDisappearMs < 0 || elapsedMs < st.timerDisappearMs);
                 if (!vis) hidden = true;
+                // A fired trigger reveals its target even if the text is marked
+                // hidden (show == false) — that's the whole point of "trigger to
+                // appear". renderFrame honours forceShow to draw it.
+                st.forceShow = triggered && !hidden;
+            } else {
+                st.forceShow = false;
             }
             boolean quizAnimating = false;
             if (quizActive) {
@@ -15968,6 +16012,7 @@ public class GifSlideShowApp extends JFrame {
                 hl.ghostAlpha  = st.ghostAlpha;
                 hl.ghostColor  = st.ghostColor;
                 hl.wordMotionsRender = st.wordMotionsRender;
+                hl.forceShow = st.forceShow;
                 result.add(hl);
             } else {
                 result.add(st);
@@ -16607,6 +16652,11 @@ public class GifSlideShowApp extends JFrame {
         // Used by the quiz "delayed reveal text" feature so the picked text
         // stays invisible until the countdown finishes. Not persisted.
         boolean quizHidden = false;
+        // Per-frame override set by applyQuizHideMask: when a Motion action's
+        // trigger has fired, its target text is drawn even if it is marked hidden
+        // (show == false) — so "trigger another text to appear" reveals a text the
+        // user deliberately kept hidden until then. Recomputed every frame.
+        boolean forceShow = false;
         // Per-word effect style chosen on toolbar 7d (None / Box / Background /
         // Underline / Color / Glow / Bold / Scale). "None" means "timings are
         // captured but draw nothing" so the user can A/B with karaoke off.
