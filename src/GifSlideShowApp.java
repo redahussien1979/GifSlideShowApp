@@ -9565,8 +9565,8 @@ public class GifSlideShowApp extends JFrame {
         }
         String hay = flat.toString();
         String hayLower = hay.toLowerCase();
-        int want = Math.max(1, occ);
-        int seen = 0;
+        // Collect every whole-word match start, then pick the requested occurrence.
+        java.util.List<Integer> matches = new java.util.ArrayList<>();
         int from = 0;
         while (from <= hayLower.length()) {
             int idx = hayLower.indexOf(needle, from);
@@ -9574,36 +9574,48 @@ public class GifSlideShowApp extends JFrame {
             int end = idx + needle.length();
             boolean leftBoundary = idx == 0 || !Character.isLetterOrDigit(hay.charAt(idx - 1));
             boolean rightBoundary = end >= hay.length() || !Character.isLetterOrDigit(hay.charAt(end));
-            if (leftBoundary && rightBoundary) {
-                seen++;
-                if (seen == want) {
-                    // Find the line holding the match start.
-                    int li = 0;
-                    for (int k = 0; k < n; k++) {
-                        int ls = lineStart[k], le = ls + lines.get(k).length();
-                        if (idx >= ls && idx <= le) { li = k; break; }
-                    }
-                    String line = lines.get(li);
-                    int inLineStart = idx - lineStart[li];
-                    int inLineEnd = Math.min(line.length(), end - lineStart[li]);
-                    if (inLineStart < 0) inLineStart = 0;
-                    if (inLineEnd < inLineStart) inLineEnd = inLineStart;
-                    int lineW = fm.stringWidth(line);
-                    int lineX;
-                    if (alignment == SwingConstants.LEFT) lineX = alignLeft;
-                    else if (alignment == SwingConstants.RIGHT) lineX = alignLeft + alignWidth - lineW;
-                    else lineX = centerX - lineW / 2;
-                    int startOff = fm.stringWidth(line.substring(0, inLineStart));
-                    int wordW = fm.stringWidth(line.substring(inLineStart, inLineEnd));
-                    double cx = lineX + startOff + wordW / 2.0;
-                    int baseline = firstBaseline + li * lineHeight;
-                    double cy = baseline - (fm.getAscent() - fm.getDescent()) / 2.0;
-                    return new double[]{cx, cy, wordW};
-                }
-            }
+            if (leftBoundary && rightBoundary) matches.add(idx);
             from = idx + Math.max(1, needle.length());
         }
-        return null;
+        // Fallback: if the needle never matches as a whole word (e.g. it's part of
+        // a longer word, or punctuation-joined), fall back to a plain substring so
+        // the user still gets motion rather than silence.
+        if (matches.isEmpty()) {
+            from = 0;
+            while (from <= hayLower.length()) {
+                int idx = hayLower.indexOf(needle, from);
+                if (idx < 0) break;
+                matches.add(idx);
+                from = idx + Math.max(1, needle.length());
+            }
+        }
+        if (matches.isEmpty()) return null;
+        // Requested occurrence (1-based), clamped to what actually exists so a
+        // too-high Occurrence still lands on the last match instead of nothing.
+        int want = Math.max(1, occ);
+        int idx = matches.get(Math.min(want, matches.size()) - 1);
+        int end = idx + needle.length();
+        int li = 0;
+        for (int k = 0; k < n; k++) {
+            int ls = lineStart[k], le = ls + lines.get(k).length();
+            if (idx >= ls && idx <= le) { li = k; break; }
+        }
+        String line = lines.get(li);
+        int inLineStart = idx - lineStart[li];
+        int inLineEnd = Math.min(line.length(), end - lineStart[li]);
+        if (inLineStart < 0) inLineStart = 0;
+        if (inLineEnd < inLineStart) inLineEnd = inLineStart;
+        int lineW = fm.stringWidth(line);
+        int lineX;
+        if (alignment == SwingConstants.LEFT) lineX = alignLeft;
+        else if (alignment == SwingConstants.RIGHT) lineX = alignLeft + alignWidth - lineW;
+        else lineX = centerX - lineW / 2;
+        int startOff = fm.stringWidth(line.substring(0, inLineStart));
+        int wordW = fm.stringWidth(line.substring(inLineStart, inLineEnd));
+        double cx = lineX + startOff + wordW / 2.0;
+        int baseline = firstBaseline + li * lineHeight;
+        double cy = baseline - (fm.getAscent() - fm.getDescent()) / 2.0;
+        return new double[]{cx, cy, wordW};
     }
 
     /**
@@ -15945,6 +15957,17 @@ public class GifSlideShowApp extends JFrame {
                 if (st.shakeRenderDyFrac != 0.0) hl.shakeRenderDyFrac = st.shakeRenderDyFrac;
                 if (st.audioOtherDxFrac  != 0.0) hl.audioOtherDxFrac  = st.audioOtherDxFrac;
                 if (st.audioOtherTiltDeg != 0.0) hl.audioOtherTiltDeg = st.audioOtherTiltDeg;
+                // Carry the timed-action render hooks too, so Move / Move Copy
+                // ghosts, landing recolour and word-targeted motion still play on
+                // the audio-active text — otherwise this clone silently drops them.
+                hl.renderColorOverride = st.renderColorOverride;
+                hl.ghostActive = st.ghostActive;
+                hl.ghostDxFrac = st.ghostDxFrac;
+                hl.ghostDyFrac = st.ghostDyFrac;
+                hl.ghostScale  = st.ghostScale;
+                hl.ghostAlpha  = st.ghostAlpha;
+                hl.ghostColor  = st.ghostColor;
+                hl.wordMotionsRender = st.wordMotionsRender;
                 result.add(hl);
             } else {
                 result.add(st);
@@ -24264,7 +24287,30 @@ public class GifSlideShowApp extends JFrame {
             addLine.add(addBtn);
             top.add(addLine, BorderLayout.SOUTH);
 
+            // Play the timeline so the motion is actually visible (the editor's
+            // static Live Preview shows time 0 only, where nothing has moved yet).
+            JButton previewBtn = new JButton("▶ Preview");
+            previewBtn.setToolTipText("Play this slide's timeline in a loop so you can see the motion.");
+            previewBtn.addActionListener(e -> {
+                java.util.List<SlideTextData.Action> current = new java.util.ArrayList<>();
+                for (ActionRowUI r : rowUIs) current.add(r.toAction());
+                actions.clear();
+                actions.addAll(current);   // keep working copy in sync
+                java.util.List<SlideTextData> committed = getSlideTextDataList();
+                java.util.List<SlideTextData> previewTexts = new java.util.ArrayList<>();
+                for (int i = 0; i < committed.size(); i++) {
+                    SlideTextData cp = committed.get(i).cloneForRender();
+                    if (i == textIndex) {
+                        cp.actions = new java.util.ArrayList<>();
+                        for (SlideTextData.Action a : current) cp.actions.add(a.copy());
+                    }
+                    previewTexts.add(cp);
+                }
+                playMotionPreview(dlg, previewTexts);
+            });
+
             JPanel btnLeft = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6));
+            btnLeft.add(previewBtn);
             btnLeft.add(allSlidesBtn);
             JPanel btnRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 6));
             btnRight.add(cancelBtn);
@@ -24280,6 +24326,97 @@ public class GifSlideShowApp extends JFrame {
             dlg.setSize(Math.max(840, dlg.getPreferredSize().width),
                     Math.min(620, Math.max(360, dlg.getPreferredSize().height)));
             dlg.setLocationRelativeTo(owner);
+            dlg.setVisible(true);
+        }
+
+        /**
+         * Play a looping timeline preview of the given texts on this slide's image,
+         * so timed motion/effects are actually visible (the editor's static Live
+         * Preview only shows time 0). Uses the same applyQuizHideMask + renderFrame
+         * path as the export, at 30 fps, over the full length of the timeline.
+         */
+        private void playMotionPreview(Window owner, java.util.List<SlideTextData> texts) {
+            BufferedImage bg = loadedImage;
+            if (isTitleGridSlide && gridSourceImages != null) {
+                bg = composeTitleGridFrame(getPreviewWidth(), getPreviewHeight());
+            }
+            if (bg == null) {
+                JOptionPane.showMessageDialog(owner,
+                        "Add an image to this slide first to preview the motion.",
+                        "Motion Preview", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            final BufferedImage bgF = bg;
+            // Timeline length = latest of any disappear / entrance / action end, + tail.
+            long dur = 2500;
+            for (SlideTextData st : texts) {
+                if (st == null) continue;
+                if (st.timerDisappearMs > dur) dur = st.timerDisappearMs;
+                dur = Math.max(dur, (long) st.timerAppearMs + st.timerAppearDurMs + 300);
+                if (st.actions != null) {
+                    for (SlideTextData.Action a : st.actions) {
+                        if (a != null) dur = Math.max(dur, (long) a.atMs + a.durMs + 700);
+                    }
+                }
+            }
+            final long totalMs = dur + 900;
+            final int fps = 30;
+
+            final JDialog dlg = new JDialog(owner, "Motion Preview  (loops)",
+                    Dialog.ModalityType.APPLICATION_MODAL);
+            dlg.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+            final JLabel view = new JLabel("", SwingConstants.CENTER);
+            view.setPreferredSize(new Dimension(getPreviewWidth(), getPreviewHeight()));
+            view.setOpaque(true);
+            view.setBackground(Color.BLACK);
+            final JLabel status = new JLabel(" ", SwingConstants.CENTER);
+            status.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            dlg.setLayout(new BorderLayout());
+            dlg.add(view, BorderLayout.CENTER);
+            dlg.add(status, BorderLayout.SOUTH);
+
+            final long[] tms = {0};
+            final javax.swing.Timer timer = new javax.swing.Timer(1000 / fps, null);
+            timer.addActionListener(ev -> {
+                long elapsed = tms[0];
+                applyQuizHideMask(texts, quiz, elapsed, true);
+                int frame = (int) (elapsed * fps / 1000);
+                BufferedImage img = renderFrame(
+                        bgF, textArea.getText(),
+                        getSelectedFont(), getFontSize(), getFontStyle(),
+                        getFontColor(), getTextAlignment(), isShowPin(),
+                        getPreviewWidth(), getPreviewHeight(),
+                        (isTitleGridSlide && titleBgImage == null) ? "Direct" : getDisplayMode(), getSubtitleY(),
+                        getSubtitleBgOpacity(),
+                        isShowSlideNumber(), getSlideNumberText(), getSlideNumberFontName(),
+                        getSlideNumberX(), getSlideNumberY(),
+                        getSlideNumberSize(), getSlideNumberColor(),
+                        getSlideNumberStyle(), getSlideNumberEffect(),
+                        texts,
+                        isFxRoundCorners(), getFxCornerRadius(),
+                        getFxVignette(), getFxSepia(), getFxGrain(),
+                        getFxWaterRipple(), getFxGlitch(), getFxShake(),
+                        getFxScanline(), getFxRaised(),
+                        getFxOtherKind(), getFxOther(),
+                        isOverlayEnabled(),
+                        getOverlayShape(), getOverlayBgMode(), getOverlayBgColor(),
+                        getOverlayX(), getOverlayY(), getOverlaySize(), frame,
+                        isTextJustify(), getTextWidthPct(),
+                        getHighlightText(), getHighlightColor(),
+                        getTextShiftX(), getSlidePictureDataList(), getBgTransparency());
+                view.setIcon(new ImageIcon(img));
+                view.setText(null);
+                status.setText(String.format("t = %.2f s   (loops at %.2f s)",
+                        elapsed / 1000.0, totalMs / 1000.0));
+                tms[0] += 1000 / fps;
+                if (tms[0] > totalMs) tms[0] = 0;
+            });
+            dlg.addWindowListener(new java.awt.event.WindowAdapter() {
+                @Override public void windowClosed(java.awt.event.WindowEvent e) { timer.stop(); }
+            });
+            dlg.pack();
+            dlg.setLocationRelativeTo(owner);
+            timer.start();
             dlg.setVisible(true);
         }
 
