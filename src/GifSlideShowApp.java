@@ -24871,6 +24871,29 @@ public class GifSlideShowApp extends JFrame {
         }
 
         /**
+         * Build a word-timing list for a video slide by pairing this slide's
+         * imported "Repeat parts of the video" ranges (start/end in ms, one row
+         * per word in reading order) with the words of Text {@code textNumber}.
+         * Range i gives the start/end for the i-th word; extra ranges or extra
+         * words (whichever is longer) are ignored. Returns null when there are no
+         * ranges or no words to pair.
+         */
+        private java.util.List<WordTiming> wordTimingsFromVideoRanges(int textNumber) {
+            if (videoRepeats == null || videoRepeats.isEmpty()) return null;
+            String text = getSlideTextItemText(textNumber - 1);
+            if (text == null || text.trim().isEmpty()) return null;
+            String[] words = text.trim().split("\\s+");
+            int n = Math.min(words.length, videoRepeats.size());
+            java.util.List<WordTiming> out = new java.util.ArrayList<>();
+            for (int i = 0; i < n; i++) {
+                int[] r = videoRepeats.get(i);
+                if (r == null || r.length < 2) continue;
+                out.add(new WordTiming(words[i], r[0] / 1000.0, r[1] / 1000.0));
+            }
+            return out.isEmpty() ? null : out;
+        }
+
+        /**
          * Word-timings picker for the Text Motion dialog. Lists every word of
          * Text {@code textNumber} with its spoken start/end (read from this row's
          * {@code slideAudioWordTimingsMap} — the same store the karaoke renderer
@@ -24883,12 +24906,21 @@ public class GifSlideShowApp extends JFrame {
                 String[] triggerChoices,
                 java.util.function.BiFunction<String, Integer, Integer> pInt,
                 java.util.function.BiFunction<String, Double, Double> pDbl) {
-            final java.util.List<WordTiming> timings = slideAudioWordTimingsMap.get(textNumber - 1);
+            // Two timing sources, in priority order:
+            //  1) per-text audio Word Sync (has word text + start/end), and
+            //  2) a video slide's imported "Repeat parts" ranges — start/end per
+            //     row, no word text, so we pair range i with word i of the text.
+            java.util.List<WordTiming> src = slideAudioWordTimingsMap.get(textNumber - 1);
+            if ((src == null || src.isEmpty()) && sourceVideoFile != null) {
+                src = wordTimingsFromVideoRanges(textNumber);
+            }
+            final java.util.List<WordTiming> timings = src;
             if (timings == null || timings.isEmpty()) {
                 JOptionPane.showMessageDialog(owner,
                         "No word timings for Text " + textNumber + " yet.\n\n"
-                        + "Upload the word-timing sheet for this text (or run Word Sync on its "
-                        + "audio) first — then every word shows up here with its time.",
+                        + "For a text with its own audio, run Word Sync first. For a video slide, "
+                        + "import the word-timing ranges (Texts Timer → Import from Excel/CSV) so "
+                        + "each word gets a start/end — then every word shows up here with its time.",
                         "Word timings", JOptionPane.INFORMATION_MESSAGE);
                 return;
             }
