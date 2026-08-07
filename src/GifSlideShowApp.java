@@ -9570,6 +9570,52 @@ public class GifSlideShowApp extends JFrame {
         return null;
     }
 
+    /** Strip leading/trailing punctuation from a picked token so it matches the
+     *  whole-word needle {@link #locateWordCenter} searches for. Internal
+     *  apostrophes/hyphens are kept (e.g. "aren't", "well-known"). */
+    static String cleanPickWord(String s) {
+        if (s == null) return "";
+        int a = 0, b = s.length();
+        while (a < b && !Character.isLetterOrDigit(s.charAt(a))) a++;
+        while (b > a && !Character.isLetterOrDigit(s.charAt(b - 1))) b--;
+        return s.substring(a, b);
+    }
+
+    /** Occurrence (1-based) that {@link #locateWordCenter} will resolve for the
+     *  token at {@code tokenIdx}, when the action targets that token's own
+     *  cleaned word. Counts matches with the SAME whole-word boundary rule as
+     *  locateWordCenter (with its substring fallback) whose start falls within
+     *  or before that token — so a repeated word maps to the exact instance the
+     *  user picked in the timings list. */
+    static int occurrenceForToken(String[] tokens, int tokenIdx) {
+        if (tokens == null || tokenIdx < 0 || tokenIdx >= tokens.length) return 1;
+        String needle = cleanPickWord(tokens[tokenIdx]).toLowerCase();
+        if (needle.isEmpty()) return 1;
+        StringBuilder sb = new StringBuilder();
+        int tokenEnd = 0;
+        for (int k = 0; k < tokens.length; k++) {
+            if (k > 0) sb.append(' ');
+            sb.append(tokens[k] == null ? "" : tokens[k]);
+            if (k == tokenIdx) tokenEnd = sb.length();   // char index just past this token
+        }
+        String hay = sb.toString();
+        String hayLower = hay.toLowerCase();
+        int whole = 0, sub = 0;
+        boolean anyWhole = false;
+        int from = 0;
+        while (from <= hayLower.length()) {
+            int idx = hayLower.indexOf(needle, from);
+            if (idx < 0) break;
+            int end = idx + needle.length();
+            boolean lb = idx == 0 || !Character.isLetterOrDigit(hay.charAt(idx - 1));
+            boolean rb = end >= hay.length() || !Character.isLetterOrDigit(hay.charAt(end));
+            if (lb && rb) { anyWhole = true; if (idx < tokenEnd) whole++; }
+            if (idx < tokenEnd) sub++;
+            from = idx + Math.max(1, needle.length());
+        }
+        return Math.max(1, anyWhole ? whole : sub);
+    }
+
     static java.util.List<java.util.List<int[]>> computeWrapSegments(List<String> wrappedLines, String csv) {
         if (wrappedLines == null || wrappedLines.isEmpty()) return null;
         String[] terms = splitTerms(csv);
@@ -24673,6 +24719,8 @@ public class GifSlideShowApp extends JFrame {
             scroll.getVerticalScrollBar().setUnitIncrement(18);
 
             final java.util.List<ActionRowUI> rowUIs = new java.util.ArrayList<>();
+            // The row the Word-timings picker fills — tracked by focus/click.
+            final ActionRowUI[] activeRow = { null };
             final Runnable rebuild = () -> {
                 rowsPanel.removeAll();
                 if (rowUIs.isEmpty()) {
@@ -24695,16 +24743,29 @@ public class GifSlideShowApp extends JFrame {
             };
 
             for (SlideTextData.Action a : actions) {
-                if (a != null) rowUIs.add(new ActionRowUI(a, triggerChoices, rowUIs, rebuild, pInt, pDbl));
+                if (a != null) {
+                    ActionRowUI r = new ActionRowUI(a, triggerChoices, rowUIs, rebuild, pInt, pDbl);
+                    r.markActiveOn(x -> activeRow[0] = x);
+                    rowUIs.add(r);
+                }
             }
             rebuild.run();
 
             JButton addBtn = new JButton("＋ Add action");
             addBtn.addActionListener(e -> {
-                rowUIs.add(new ActionRowUI(new SlideTextData.Action(),
-                        triggerChoices, rowUIs, rebuild, pInt, pDbl));
+                ActionRowUI r = new ActionRowUI(new SlideTextData.Action(),
+                        triggerChoices, rowUIs, rebuild, pInt, pDbl);
+                r.markActiveOn(x -> activeRow[0] = x);
+                rowUIs.add(r);
+                activeRow[0] = r;
                 rebuild.run();
             });
+
+            JButton timingBtn = new JButton("⏱ Word timings…");
+            timingBtn.setToolTipText("Show every word of Text " + textNumber + " with its spoken time; "
+                    + "double-click a word to set the active action's Word and At(s).");
+            timingBtn.addActionListener(e -> showWordTimingPicker(dlg, textNumber, activeRow,
+                    rowUIs, rebuild, triggerChoices, pInt, pDbl));
 
             JLabel help = new JLabel("<html>Each action fires at its own time (seconds from the start of this "
                     + "slide).<br><b>Move</b> sends this text to a new spot; <b>Move Copy</b> leaves the "
@@ -24764,6 +24825,7 @@ public class GifSlideShowApp extends JFrame {
             top.add(scroll, BorderLayout.CENTER);
             JPanel addLine = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
             addLine.add(addBtn);
+            addLine.add(timingBtn);
             top.add(addLine, BorderLayout.SOUTH);
 
             // Play the timeline so the motion is actually visible (the editor's
@@ -24806,6 +24868,105 @@ public class GifSlideShowApp extends JFrame {
                     Math.min(620, Math.max(360, dlg.getPreferredSize().height)));
             dlg.setLocationRelativeTo(owner);
             dlg.setVisible(true);
+        }
+
+        /**
+         * Word-timings picker for the Text Motion dialog. Lists every word of
+         * Text {@code textNumber} with its spoken start/end (read from this row's
+         * {@code slideAudioWordTimingsMap} — the same store the karaoke renderer
+         * uses, populated by an uploaded timing sheet or the Scribe Word Sync).
+         * Double-clicking (or Use) drops the chosen word into the active action:
+         * its Word, the matching Occurrence, and At(s) = the word's start time.
+         */
+        private void showWordTimingPicker(Window owner, int textNumber,
+                ActionRowUI[] activeRow, java.util.List<ActionRowUI> rowUIs, Runnable rebuild,
+                String[] triggerChoices,
+                java.util.function.BiFunction<String, Integer, Integer> pInt,
+                java.util.function.BiFunction<String, Double, Double> pDbl) {
+            final java.util.List<WordTiming> timings = slideAudioWordTimingsMap.get(textNumber - 1);
+            if (timings == null || timings.isEmpty()) {
+                JOptionPane.showMessageDialog(owner,
+                        "No word timings for Text " + textNumber + " yet.\n\n"
+                        + "Upload the word-timing sheet for this text (or run Word Sync on its "
+                        + "audio) first — then every word shows up here with its time.",
+                        "Word timings", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            final String[] tokens = new String[timings.size()];
+            DefaultListModel<String> model = new DefaultListModel<>();
+            for (int i = 0; i < timings.size(); i++) {
+                WordTiming t = timings.get(i);
+                tokens[i] = t.word;
+                model.addElement(String.format(java.util.Locale.US, "%7.2fs –%7.2fs    %s",
+                        t.startSec, t.endSec, t.word == null ? "" : t.word));
+            }
+            final JList<String> list = new JList<>(model);
+            list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+            list.setFont(new Font("Consolas", Font.PLAIN, 13));
+            list.setSelectedIndex(0);
+            JScrollPane sp = new JScrollPane(list);
+            sp.setPreferredSize(new Dimension(360, 320));
+
+            final JDialog pick = new JDialog(owner, "Word timings — Text " + textNumber,
+                    Dialog.ModalityType.APPLICATION_MODAL);
+            pick.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+
+            String tgt;
+            if (activeRow[0] != null && rowUIs.contains(activeRow[0])) {
+                tgt = "Action #" + (rowUIs.indexOf(activeRow[0]) + 1);
+            } else if (!rowUIs.isEmpty()) {
+                tgt = "Action #" + rowUIs.size();
+            } else {
+                tgt = "a new action";
+            }
+            JLabel hdr = new JLabel("<html>Double-click a word (or select it and press <b>Use</b>) "
+                    + "to fill <b>" + tgt + "</b>'s Word and At(s).</html>");
+            hdr.setBorder(BorderFactory.createEmptyBorder(8, 10, 6, 10));
+
+            final Runnable apply = () -> {
+                int i = list.getSelectedIndex();
+                if (i < 0) return;
+                WordTiming t = timings.get(i);
+                String word = cleanPickWord(tokens[i]);
+                if (word.isEmpty()) word = tokens[i] == null ? "" : tokens[i].trim();
+                int occ = occurrenceForToken(tokens, i);
+                ActionRowUI target = (activeRow[0] != null && rowUIs.contains(activeRow[0]))
+                        ? activeRow[0]
+                        : (!rowUIs.isEmpty() ? rowUIs.get(rowUIs.size() - 1) : null);
+                if (target == null) {
+                    target = new ActionRowUI(new SlideTextData.Action(),
+                            triggerChoices, rowUIs, rebuild, pInt, pDbl);
+                    target.markActiveOn(x -> activeRow[0] = x);
+                    rowUIs.add(target);
+                    rebuild.run();
+                }
+                activeRow[0] = target;
+                target.applyWordPick(word, occ, t.startSec);
+                pick.dispose();
+            };
+
+            list.addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override public void mouseClicked(java.awt.event.MouseEvent e) {
+                    if (e.getClickCount() == 2) apply.run();
+                }
+            });
+
+            JButton use = new JButton("Use");
+            use.addActionListener(e -> apply.run());
+            JButton cancel = new JButton("Cancel");
+            cancel.addActionListener(e -> pick.dispose());
+            JPanel btns = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 6));
+            btns.add(cancel);
+            btns.add(use);
+
+            pick.setLayout(new BorderLayout());
+            pick.add(hdr, BorderLayout.NORTH);
+            pick.add(sp, BorderLayout.CENTER);
+            pick.add(btns, BorderLayout.SOUTH);
+            pick.pack();
+            pick.getRootPane().setDefaultButton(use);
+            pick.setLocationRelativeTo(owner);
+            pick.setVisible(true);
         }
 
         /**
@@ -25061,6 +25222,32 @@ public class GifSlideShowApp extends JFrame {
                 a.word = wordField.getText().trim();
                 a.wordOccurrence = Math.max(1, (Integer) occSpinner.getValue());
                 return a;
+            }
+
+            /** Mark this row as the active target (for the Word-timings picker)
+             *  whenever any of its fields gains focus or it's clicked. */
+            void markActiveOn(java.util.function.Consumer<ActionRowUI> setter) {
+                java.awt.event.FocusAdapter fa = new java.awt.event.FocusAdapter() {
+                    @Override public void focusGained(java.awt.event.FocusEvent e) {
+                        setter.accept(ActionRowUI.this);
+                    }
+                };
+                JComponent[] fields = { kindCombo, atField, durField, easeCombo,
+                        toXField, toYField, scaleField, wordField, occSpinner, triggerCombo };
+                for (JComponent c : fields) c.addFocusListener(fa);
+                panel.addMouseListener(new java.awt.event.MouseAdapter() {
+                    @Override public void mousePressed(java.awt.event.MouseEvent e) {
+                        setter.accept(ActionRowUI.this);
+                    }
+                });
+            }
+
+            /** Fill this row from a picked word timing: its Word, the matching
+             *  Occurrence, and At(s) set to the moment the word is spoken. */
+            void applyWordPick(String word, int occ, double startSec) {
+                wordField.setText(word);
+                occSpinner.setValue(Math.max(1, occ));
+                atField.setText(timerMsToSecStr((int) Math.round(startSec * 1000.0)));
             }
         }
 
