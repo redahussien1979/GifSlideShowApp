@@ -441,6 +441,21 @@ public class GifSlideShowApp extends JFrame {
                 props.setProperty(ap + "word", a.word == null ? "" : a.word);
                 props.setProperty(ap + "wordOccurrence", String.valueOf(a.wordOccurrence));
             }
+            // Alternating Text (Texts Timer → "Alternate…"). Absent keys load as
+            // defaults so presets written before this feature keep working. Each
+            // alternate string is stored under its own indexed key.
+            props.setProperty(p + "altEnabled", String.valueOf(t.altEnabled));
+            props.setProperty(p + "altPeriodMs", String.valueOf(t.altPeriodMs));
+            props.setProperty(p + "altStartMs", String.valueOf(t.altStartMs));
+            props.setProperty(p + "altDurationMs", String.valueOf(t.altDurationMs));
+            props.setProperty(p + "altTransition", t.altTransition == null ? "Cross-fade" : t.altTransition);
+            props.setProperty(p + "altTransitionMs", String.valueOf(t.altTransitionMs));
+            int altN = (t.altTexts == null) ? 0 : t.altTexts.size();
+            props.setProperty(p + "altCount", String.valueOf(altN));
+            for (int k = 0; k < altN; k++) {
+                String av = t.altTexts.get(k);
+                props.setProperty(p + "alt." + k, av == null ? "" : av);
+            }
         }
 
         // Per-text audio highlight settings (FX, HL color, glow size).
@@ -841,6 +856,20 @@ public class GifSlideShowApp extends JFrame {
                 a.word = props.getProperty(ap + "word", "");
                 a.wordOccurrence = Integer.parseInt(props.getProperty(ap + "wordOccurrence", "1"));
                 loaded.actions.add(a);
+            }
+            // Alternating Text (parallel to the save block above). Missing keys fall
+            // back to defaults so presets predating this feature load fine.
+            loaded.altEnabled     = Boolean.parseBoolean(props.getProperty(p + "altEnabled", "false"));
+            loaded.altPeriodMs    = Integer.parseInt(props.getProperty(p + "altPeriodMs", "1000"));
+            loaded.altStartMs     = Integer.parseInt(props.getProperty(p + "altStartMs", "-1"));
+            loaded.altDurationMs  = Integer.parseInt(props.getProperty(p + "altDurationMs", "-1"));
+            loaded.altTransition  = props.getProperty(p + "altTransition", "Cross-fade");
+            loaded.altTransitionMs= Integer.parseInt(props.getProperty(p + "altTransitionMs", "300"));
+            int altN = Integer.parseInt(props.getProperty(p + "altCount", "0"));
+            loaded.altTexts = new java.util.ArrayList<>();
+            for (int k = 0; k < altN; k++) {
+                String av = props.getProperty(p + "alt." + k, "");
+                if (av != null) loaded.altTexts.add(av);
             }
             slideTextFormats.add(loaded);
         }
@@ -5277,9 +5306,10 @@ public class GifSlideShowApp extends JFrame {
 
         // ========== SLIDE TEXT OVERLAY(S) ==========
         if (slideTexts != null) {
-            // Expand any active "Move Copy" ghosts into extra render entries (the
-            // original list is returned unchanged when none are active).
-            for (SlideTextData st : expandActionGhosts(slideTexts)) {
+            // Expand any active alternating-text copies and "Move Copy" ghosts into
+            // extra render entries (the original list is returned unchanged when
+            // none are active).
+            for (SlideTextData st : expandActionGhosts(expandAlternateTexts(slideTexts))) {
                 // forceShow lets a fired trigger reveal a text marked hidden (show=false).
                 if ((!st.show && !st.forceShow) || st.quizHidden || st.text == null || st.text.isEmpty()) continue;
                 float stScaleFactor = Math.max(targetW, targetH) / 1920.0f;
@@ -15012,6 +15042,8 @@ public class GifSlideShowApp extends JFrame {
         for (int i = 0; i < size; i++) {
             SlideTextData st = texts.get(i);
             boolean hidden = false;
+            // Alternating-text plan is re-derived every frame; clear last frame's.
+            st.altRendersThisFrame = null;
             // A text that is the target of a trigger appears WHEN the trigger lands
             // (atMs + durMs) — even if it was marked hidden — and stays hidden until
             // then. Untriggered text keeps its own appear time, so existing timing
@@ -15061,6 +15093,15 @@ public class GifSlideShowApp extends JFrame {
                 if (applyTimer && !hidden) {
                     applyTextActions(st, elapsedMs);
                 }
+                // Alternating text: swap this text with its alternate string(s) on a
+                // repeating timer. Runs after the entrance window so the fly-in isn't
+                // clobbered; on an "alternate" phase computeAlternation returns true
+                // and the base is hidden this frame (the copy is drawn separately by
+                // expandAlternateTexts).
+                if (applyTimer && !hidden && slideTextHasAlternation(st)
+                        && !textTimerEntranceActive(st, elapsedMs, effAppear)) {
+                    if (computeAlternation(st, elapsedMs, effAppear)) hidden = true;
+                }
             }
             st.quizHidden = hidden;
             // Word-by-word reveal: count how many leading words are due by now.
@@ -15087,7 +15128,14 @@ public class GifSlideShowApp extends JFrame {
         return st != null && (st.timerAppearMs > 0 || st.timerDisappearMs >= 0
                 || slideTextHasAppearEffect(st)
                 || (st.wordRevealMs != null && st.wordRevealMs.length > 0)
+                || slideTextHasAlternation(st)
                 || (st.actions != null && !st.actions.isEmpty()));
+    }
+
+    /** True iff this text has a live alternating-text configuration, so the slide
+     *  must render frame-by-frame for the swap timer to play. */
+    private static boolean slideTextHasAlternation(SlideTextData st) {
+        return st != null && st.altEnabled && st.altTexts != null && !st.altTexts.isEmpty();
     }
 
     /** True iff this text has a real Texts-Timer entrance effect configured. */
@@ -15317,6 +15365,82 @@ public class GifSlideShowApp extends JFrame {
         return out;
     }
 
+    /**
+     * Drive the alternating-text swap for one text at the given time. Builds the
+     * per-frame list of alternate copies to draw ({@code st.altRendersThisFrame},
+     * with cross-fade alphas) and multiplies the base text's own alpha into
+     * {@code audioOtherAlpha}. Ring member 0 is the base string; {@code altTexts}
+     * supplies members 1..N, so a single alternate yields the classic A↔B toggle.
+     * Returns true when the base string itself is NOT on screen this frame, so the
+     * caller hides it (the copy renders in its place via expandAlternateTexts).
+     */
+    private static boolean computeAlternation(SlideTextData st, long elapsedMs, long effAppearMs) {
+        long start = (st.altStartMs >= 0) ? st.altStartMs : effAppearMs;
+        if (elapsedMs < start) return false;                    // not started: base shows
+        long cyc = elapsedMs - start;
+        if (st.altDurationMs >= 0 && cyc >= st.altDurationMs) return false; // ended: rest on base
+        int ring = 1 + st.altTexts.size();
+        if (ring < 2) return false;
+        int period = Math.max(1, st.altPeriodMs);
+        int trans = "Cut".equals(st.altTransition) ? 0
+                : Math.max(0, Math.min(period, st.altTransitionMs));
+        long slot = cyc / period;
+        long intoSlot = cyc - slot * period;
+        int curr = (int) (slot % ring);
+        int prev = (int) (((slot - 1) % ring + ring) % ring);
+        double aCurr = 1.0, aPrev = 0.0;
+        // A cross-fade at the start of each slot (never before the very first slot,
+        // where there is no outgoing string to dissolve from).
+        if (slot > 0 && trans > 0 && intoSlot < trans) {
+            double u = intoSlot / (double) trans;               // 0..1
+            aCurr = u;
+            aPrev = 1.0 - u;
+        }
+        double baseAlpha = 0.0;
+        java.util.List<SlideTextData.AltRender> alts = new java.util.ArrayList<>();
+        if (curr == 0) baseAlpha = Math.max(baseAlpha, aCurr);
+        else alts.add(new SlideTextData.AltRender(st.altTexts.get(curr - 1), aCurr));
+        if (aPrev > 0.0) {
+            if (prev == 0) baseAlpha = Math.max(baseAlpha, aPrev);
+            else alts.add(new SlideTextData.AltRender(st.altTexts.get(prev - 1), aPrev));
+        }
+        st.altRendersThisFrame = alts.isEmpty() ? null : alts;
+        if (baseAlpha <= 0.001) return true;                    // hide the base this frame
+        st.audioOtherAlpha *= baseAlpha;
+        return false;
+    }
+
+    /**
+     * If any visible text has alternate copies to draw this frame (set by
+     * applyQuizHideMask/computeAlternation), return the list plus one fully-
+     * formatted copy per alternate string — each at the base text's location with
+     * its cross-fade alpha. Returns the input unchanged when no alternate is active
+     * (zero overhead for the common case), mirroring expandActionGhosts.
+     */
+    private static List<SlideTextData> expandAlternateTexts(List<SlideTextData> texts) {
+        if (texts == null) return null;
+        boolean any = false;
+        for (SlideTextData st : texts) {
+            if (st != null && st.altRendersThisFrame != null && !st.altRendersThisFrame.isEmpty()
+                    && (st.show || st.forceShow)) { any = true; break; }
+        }
+        if (!any) return texts;
+        List<SlideTextData> out = new ArrayList<>(texts);
+        for (SlideTextData st : texts) {
+            if (st == null || st.altRendersThisFrame == null || st.altRendersThisFrame.isEmpty()) continue;
+            if (!st.show && !st.forceShow) continue;
+            for (SlideTextData.AltRender ar : st.altRendersThisFrame) {
+                if (ar == null || ar.text == null || ar.text.isEmpty()) continue;
+                SlideTextData copy = st.cloneForRenderAltText(ar.text);
+                copy.quizHidden = false;
+                copy.forceShow  = true;   // draw even while the base is marked hidden
+                copy.audioOtherAlpha = Math.max(0.0, Math.min(1.0, ar.alpha));
+                out.add(copy);
+            }
+        }
+        return out;
+    }
+
     /** True iff any shown text on the slide has a timeline, so the slide must be
      *  rendered frame-by-frame for the appear/disappear to take effect. */
     private static boolean anySlideTextTimer(SlideData s) {
@@ -15352,6 +15476,7 @@ public class GifSlideShowApp extends JFrame {
         st.ghostScale  = 1.0;
         st.ghostAlpha  = 1.0;
         st.ghostColor  = null;
+        st.altRendersThisFrame = null;
         if (st.wordMotionsRender != null) st.wordMotionsRender.clear();
     }
 
@@ -16012,6 +16137,7 @@ public class GifSlideShowApp extends JFrame {
                 hl.ghostAlpha  = st.ghostAlpha;
                 hl.ghostColor  = st.ghostColor;
                 hl.wordMotionsRender = st.wordMotionsRender;
+                hl.altRendersThisFrame = st.altRendersThisFrame;
                 hl.forceShow = st.forceShow;
                 result.add(hl);
             } else {
@@ -16700,6 +16826,76 @@ public class GifSlideShowApp extends JFrame {
         // can be added later without touching the render or persistence plumbing.
         java.util.List<Action> actions = new java.util.ArrayList<>();
 
+        // ===== Alternating Text (Texts Timer → "Alternate…") =====
+        // Swaps this text with one or more alternate strings at the SAME location
+        // on a repeating timer ("A ↔ B ↔ A …"), for an optional bounded window.
+        // The base text is member 0 of the ring; altTexts supplies members 1..N.
+        // Rendered non-destructively: on an alternate phase the base is hidden for
+        // the frame and a fully-formatted copy carrying the alternate string is
+        // drawn in its place (see applyQuizHideMask + expandAlternateTexts), so the
+        // main text pipeline and every per-word feature stay untouched. Off by
+        // default (altEnabled == false) → older presets are unaffected.
+        //   altPeriodMs:     how long each string shows before swapping.
+        //   altStartMs:      when alternation begins; -1 = the effective appear time.
+        //   altDurationMs:   total alternation window; -1 = run to the slide end,
+        //                    else rest on the original once it elapses.
+        //   altTransition:   "Cut" (instant) or "Cross-fade" (dissolve at each swap).
+        //   altTransitionMs: cross-fade length at each swap.
+        boolean altEnabled = false;
+        java.util.List<String> altTexts = new java.util.ArrayList<>();
+        int    altPeriodMs     = 1000;
+        int    altStartMs      = -1;
+        int    altDurationMs   = -1;
+        String altTransition   = "Cross-fade";
+        int    altTransitionMs = 300;
+
+        /** Transient per-frame plan for the alternate copies to draw this frame
+         *  (set by applyQuizHideMask, consumed by expandAlternateTexts). Null when
+         *  no alternate string is on screen this frame. Not persisted. */
+        java.util.List<AltRender> altRendersThisFrame = null;
+
+        /** One alternate string to draw this frame, with its cross-fade alpha. */
+        static class AltRender {
+            final String text; final double alpha;
+            AltRender(String text, double alpha) { this.text = text; this.alpha = alpha; }
+        }
+
+        /** Editor-side working copy of the alternating-text settings, used by the
+         *  Texts Timer "Alternate…" dialog so Cancel discards changes and Apply
+         *  commits them back onto the SlideTextData in one shot. */
+        static class AltConfig {
+            boolean enabled = false;
+            java.util.List<String> texts = new java.util.ArrayList<>();
+            int    periodMs     = 1000;
+            int    startMs      = -1;
+            int    durationMs   = -1;
+            String transition   = "Cross-fade";
+            int    transitionMs = 300;
+
+            static AltConfig from(SlideTextData st) {
+                AltConfig c = new AltConfig();
+                c.enabled = st.altEnabled;
+                c.texts = new java.util.ArrayList<>(st.altTexts == null
+                        ? java.util.Collections.emptyList() : st.altTexts);
+                c.periodMs = st.altPeriodMs;
+                c.startMs = st.altStartMs;
+                c.durationMs = st.altDurationMs;
+                c.transition = st.altTransition == null ? "Cross-fade" : st.altTransition;
+                c.transitionMs = st.altTransitionMs;
+                return c;
+            }
+
+            void applyTo(SlideTextData st) {
+                st.altTexts = new java.util.ArrayList<>(texts);
+                st.altEnabled = enabled && !st.altTexts.isEmpty();
+                st.altPeriodMs = periodMs;
+                st.altStartMs = startMs;
+                st.altDurationMs = durationMs;
+                st.altTransition = transition == null ? "Cross-fade" : transition;
+                st.altTransitionMs = transitionMs;
+            }
+        }
+
         /** One time-triggered behaviour on a text. Purely data; the semantics
          *  live in applyTextActions() (render) and the Motion editor (UI). Every
          *  field defaults to a harmless no-op so older presets keep working. */
@@ -16878,6 +17074,16 @@ public class GifSlideShowApp extends JFrame {
             if (src.actions != null) {
                 for (Action a : src.actions) if (a != null) dst.actions.add(a.copy());
             }
+            // Alternating-text config rides along too (deep-copied list so the
+            // master broadcast / HL-clone passes never share the mutable altTexts).
+            dst.altEnabled     = src.altEnabled;
+            dst.altPeriodMs    = src.altPeriodMs;
+            dst.altStartMs     = src.altStartMs;
+            dst.altDurationMs  = src.altDurationMs;
+            dst.altTransition  = src.altTransition;
+            dst.altTransitionMs= src.altTransitionMs;
+            dst.altTexts = new java.util.ArrayList<>();
+            if (src.altTexts != null) dst.altTexts.addAll(src.altTexts);
         }
 
         /** A render-only duplicate of this text carrying every visual field, used
@@ -16898,6 +17104,41 @@ public class GifSlideShowApp extends JFrame {
             c.audioOtherLightEffects = audioOtherLightEffects;
             c.wordRevealMs = wordRevealMs;
             c.wordRevealCount = wordRevealCount;
+            // A render clone (ghost / HL pass) never runs its own alternation — it
+            // is appended after the per-frame mask, so leaving these off avoids any
+            // chance of a clone spawning further copies.
+            c.altEnabled = false;
+            c.altRendersThisFrame = null;
+            return c;
+        }
+
+        /** Like {@link #cloneForRender()} but carrying a different string — used to
+         *  draw an alternating-text copy in the base text's place. The copy is a
+         *  plain co-located swap: it does not re-run the timeline, spawn its own
+         *  alternation/ghosts, or carry per-word reveal state that keys on the base
+         *  string. It keeps every font / colour / background / effect field so the
+         *  alternate looks identical to the original but for the words. */
+        SlideTextData cloneForRenderAltText(String altStr) {
+            SlideTextData c = new SlideTextData(show, altStr == null ? "" : altStr, fontName, fontSize,
+                    fontStyle, color, x, y, bgOpacity, bgColor, justify, widthPct, shiftX,
+                    alignment, textEffect, textEffectIntensity,
+                    highlightText, highlightColor, highlightStyle, highlightTightness,
+                    underlineStyle, underlineText, boldText, italicText, colorText, colorTextColor,
+                    xLeftAligned, odometer, odometerSpeed, odometerRoll, odometerLand,
+                    false, animPath, animDurationMs, animStartMs, animEasing,
+                    tiltDegrees, letterSpacing, lineSpacing, opacity);
+            copyBgStyle(this, c);
+            c.karaokeStyle = karaokeStyle;
+            c.karaokeColor = karaokeColor;
+            c.audioOtherLightEffects = audioOtherLightEffects;
+            c.altEnabled = false;
+            c.altRendersThisFrame = null;
+            c.actions = java.util.Collections.emptyList();
+            c.timerAppearMs = 0;
+            c.timerDisappearMs = -1;
+            c.timerAppearEffect = "None";
+            c.wordRevealMs = null;
+            c.wordRevealCount = -1;
             return c;
         }
 
@@ -23727,6 +23968,11 @@ public class GifSlideShowApp extends JFrame {
             // Clear All can reset their labels.
             final java.util.List<java.util.List<SlideTextData.Action>> rowActions = new java.util.ArrayList<>();
             final java.util.List<JButton> motionBtns = new java.util.ArrayList<>();
+            // Alternating-text working copies (one per text row), edited via the
+            // per-row "Alternate…" button and committed on Apply. Deep-copied from
+            // the items so Cancel discards changes; altBtns lets Clear All reset labels.
+            final java.util.List<SlideTextData.AltConfig> rowAlt = new java.util.ArrayList<>();
+            final java.util.List<JButton> altBtns = new java.util.ArrayList<>();
             // Labels for the "trigger another text" picker in the Motion editor,
             // index-aligned to slideTextItems.
             final String[] textLabels = new String[slideTextItems.size()];
@@ -23767,6 +24013,7 @@ public class GifSlideShowApp extends JFrame {
             gc.gridx = 4; rows.add(hdr.apply("Ease"), gc);
             gc.gridx = 5; rows.add(hdr.apply("Anim (ms)"), gc);
             gc.gridx = 6; rows.add(hdr.apply("Motion"), gc);
+            gc.gridx = 7; rows.add(hdr.apply("Alternate"), gc);
 
             for (int i = 0; i < slideTextItems.size(); i++) {
                 SlideTextData st = slideTextItems.get(i);
@@ -23837,6 +24084,26 @@ public class GifSlideShowApp extends JFrame {
                 });
                 motionBtns.add(motionBtn);
 
+                // Alternating text (swap with another string at the same spot on a
+                // timer). Working copy edited by the per-row Alternate editor.
+                SlideTextData.AltConfig myAlt = SlideTextData.AltConfig.from(st);
+                rowAlt.add(myAlt);
+                JButton altBtn = new JButton();
+                altBtn.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+                altBtn.setToolTipText("Swap this text with one or more alternate strings at the same "
+                        + "spot, on a repeating timer (A ↔ B ↔ A…), for an optional number of seconds. "
+                        + "Cut or cross-fade between them.");
+                Runnable updAltLbl = () -> {
+                    int c = (myAlt.enabled && myAlt.texts != null) ? myAlt.texts.size() : 0;
+                    altBtn.setText(c == 0 ? "Alternate…" : "Alternate (" + c + ")");
+                };
+                updAltLbl.run();
+                altBtn.addActionListener(ev -> {
+                    openTextAlternateEditor(dlg, rowIdx + 1, myAlt);
+                    updAltLbl.run();
+                });
+                altBtns.add(altBtn);
+
                 gc.gridy = i + 1;
                 gc.gridx = 0; rows.add(nameLbl, gc);
                 gc.gridx = 1; rows.add(appear, gc);
@@ -23845,10 +24112,11 @@ public class GifSlideShowApp extends JFrame {
                 gc.gridx = 4; rows.add(easeCombo, gc);
                 gc.gridx = 5; rows.add(dur, gc);
                 gc.gridx = 6; rows.add(motionBtn, gc);
+                gc.gridx = 7; rows.add(altBtn, gc);
             }
 
             JScrollPane rowsScroll = new JScrollPane(rows);
-            rowsScroll.setPreferredSize(new Dimension(920, Math.min(360, 40 + slideTextItems.size() * 32)));
+            rowsScroll.setPreferredSize(new Dimension(1060, Math.min(360, 40 + slideTextItems.size() * 32)));
             rowsScroll.getVerticalScrollBar().setUnitIncrement(18);
 
             JLabel help = new JLabel("<html>Times are in seconds from the start of this slide. "
@@ -23857,7 +24125,9 @@ public class GifSlideShowApp extends JFrame {
                     + "<b>Ease</b> and <b>Anim (ms)</b> shape that animation "
                     + "(a subtle Fade or Slide In at ~500&nbsp;ms looks the most professional).<br>"
                     + "<b>Motion</b> makes a text (or a copy of it) move to a new spot at a chosen time, "
-                    + "format on landing, and optionally trigger another text — or play an in-place effect.</html>");
+                    + "format on landing, and optionally trigger another text — or play an in-place effect.<br>"
+                    + "<b>Alternate</b> swaps a text with one or more other strings at the same spot on a "
+                    + "repeating timer (A ↔ B ↔ A…), for an optional number of seconds.</html>");
             help.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             help.setBorder(BorderFactory.createEmptyBorder(0, 2, 6, 2));
 
@@ -24002,6 +24272,17 @@ public class GifSlideShowApp extends JFrame {
                 for (int i = 0; i < rowActions.size(); i++) {
                     rowActions.get(i).clear();
                     if (i < motionBtns.size()) motionBtns.get(i).setText("Motion…");
+                }
+                for (int i = 0; i < rowAlt.size(); i++) {
+                    SlideTextData.AltConfig c = rowAlt.get(i);
+                    c.enabled = false;
+                    c.texts.clear();
+                    c.periodMs = 1000;
+                    c.startMs = -1;
+                    c.durationMs = -1;
+                    c.transition = "Cross-fade";
+                    c.transitionMs = 300;
+                    if (i < altBtns.size()) altBtns.get(i).setText("Alternate…");
                 }
                 repeatArea.setText("");
                 slowAllSpinner.setValue(1.0);
@@ -24155,6 +24436,10 @@ public class GifSlideShowApp extends JFrame {
                     if (i < rowActions.size()) {
                         slideTextItems.get(i).actions = new java.util.ArrayList<>(rowActions.get(i));
                     }
+                    // Alternating text — commit the per-row working copy.
+                    if (i < rowAlt.size()) {
+                        rowAlt.get(i).applyTo(slideTextItems.get(i));
+                    }
                 }
                 setVideoRepeats(repeats);
                 setVideoRepeatCrossfade(crossfadeCheck.isSelected());
@@ -24201,7 +24486,151 @@ public class GifSlideShowApp extends JFrame {
             dlg.add(root, BorderLayout.CENTER);
             dlg.add(btnRow, BorderLayout.SOUTH);
             dlg.pack();
-            dlg.setSize(Math.max(980, dlg.getPreferredSize().width), dlg.getPreferredSize().height);
+            dlg.setSize(Math.max(1120, dlg.getPreferredSize().width), dlg.getPreferredSize().height);
+            dlg.setLocationRelativeTo(owner);
+            dlg.setVisible(true);
+        }
+
+        /**
+         * Editor for one text's alternating-text settings (Texts Timer →
+         * "Alternate…"). Writes the on-screen values back into the supplied
+         * {@link SlideTextData.AltConfig} working copy on OK; Cancel leaves it
+         * untouched. The parent dialog commits the working copy on Apply.
+         *
+         * Each non-empty line in the alternates box is one alternate string. With
+         * the base text they form a ring (base → alt1 → alt2 → … → base) that the
+         * renderer cycles through at the chosen period, so a single alternate gives
+         * the classic A↔B toggle and extra lines extend it into a rotator.
+         */
+        private void openTextAlternateEditor(Window owner, int textNumber,
+                                             SlideTextData.AltConfig cfg) {
+            final JDialog dlg = new JDialog(owner, "Alternate Text — Text " + textNumber,
+                    Dialog.ModalityType.APPLICATION_MODAL);
+            dlg.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+
+            JCheckBox enable = new JCheckBox("Alternate this text with the string(s) below", cfg.enabled);
+            enable.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            enable.setBackground(Color.WHITE);
+
+            JTextArea altArea = new JTextArea(cfg.texts == null ? "" : String.join("\n", cfg.texts), 5, 26);
+            altArea.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+            altArea.setLineWrap(false);
+            altArea.setToolTipText("One alternate per line. The text cycles base → line 1 → line 2 … → base. "
+                    + "One line = the classic A↔B swap.");
+            JScrollPane altScroll = new JScrollPane(altArea);
+            altScroll.setPreferredSize(new Dimension(360, 120));
+
+            JTextField period = new JTextField(timerMsToSecStr(cfg.periodMs), 6);
+            period.setToolTipText("How long each string stays on screen before swapping, in seconds (e.g. 1).");
+            JTextField start  = new JTextField(cfg.startMs < 0 ? "" : timerMsToSecStr(cfg.startMs), 6);
+            start.setToolTipText("When the alternation begins, in seconds from the start of this slide. "
+                    + "Leave empty to begin when the text first appears.");
+            JTextField durF   = new JTextField(cfg.durationMs < 0 ? "" : timerMsToSecStr(cfg.durationMs), 6);
+            durF.setToolTipText("How long the alternation lasts, in seconds. Leave empty to keep alternating "
+                    + "for the whole slide; otherwise it rests on the original text once this elapses.");
+
+            JComboBox<String> trans = new JComboBox<>(new String[]{ "Cross-fade", "Cut" });
+            trans.setSelectedItem(cfg.transition == null ? "Cross-fade" : cfg.transition);
+            trans.setToolTipText("How each swap looks: a soft cross-fade (most professional) or a hard cut.");
+            JTextField transMs = new JTextField(String.valueOf(cfg.transitionMs), 6);
+            transMs.setToolTipText("Cross-fade length at each swap, in milliseconds (e.g. 300).");
+            java.awt.event.ActionListener transToggle = ev ->
+                    transMs.setEnabled("Cross-fade".equals(trans.getSelectedItem()));
+            trans.addActionListener(transToggle);
+            transToggle.actionPerformed(null);
+
+            JPanel form = new JPanel(new GridBagLayout());
+            form.setBackground(Color.WHITE);
+            GridBagConstraints g = new GridBagConstraints();
+            g.insets = new Insets(4, 6, 4, 6);
+            g.anchor = GridBagConstraints.WEST;
+            java.util.function.BiConsumer<Integer, String> addLbl = (row, txt) -> {
+                g.gridx = 0; g.gridy = row; g.gridwidth = 1;
+                JLabel l = new JLabel(txt);
+                l.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+                form.add(l, g);
+            };
+            g.gridx = 0; g.gridy = 0; g.gridwidth = 2; form.add(enable, g);
+            g.gridwidth = 1;
+            addLbl.accept(1, "Alternate text(s):");
+            g.gridx = 1; g.gridy = 1; form.add(altScroll, g);
+            addLbl.accept(2, "Swap every (s):");
+            g.gridx = 1; g.gridy = 2; form.add(period, g);
+            addLbl.accept(3, "Start at (s):");
+            g.gridx = 1; g.gridy = 3; form.add(start, g);
+            addLbl.accept(4, "Alternate for (s):");
+            g.gridx = 1; g.gridy = 4; form.add(durF, g);
+            addLbl.accept(5, "Transition:");
+            g.gridx = 1; g.gridy = 5; form.add(trans, g);
+            addLbl.accept(6, "Cross-fade (ms):");
+            g.gridx = 1; g.gridy = 6; form.add(transMs, g);
+
+            JLabel help = new JLabel("<html>Shows an <b>alternate</b> string in place of this text, then swaps "
+                    + "back, on a loop — all at the <b>same location</b> with the same styling.<br>"
+                    + "Put one alternate per line (add more lines to rotate through several). "
+                    + "<b>Swap every</b> sets the pace; <b>Alternate for</b> limits how long the swapping runs "
+                    + "(empty = whole slide, then it rests on the original).</html>");
+            help.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            help.setBorder(BorderFactory.createEmptyBorder(2, 2, 8, 2));
+
+            JButton okBtn = new JButton("OK");
+            JButton cancelBtn = new JButton("Cancel");
+            okBtn.addActionListener(e -> {
+                java.util.List<String> lines = new java.util.ArrayList<>();
+                for (String ln : altArea.getText().split("\n")) {
+                    String s = ln.trim();
+                    if (!s.isEmpty()) lines.add(s);
+                }
+                // Lenient parsing: bad values fall back to sensible defaults so OK
+                // never fails mid-edit (matches the Motion editor's approach).
+                double pSec;
+                try { pSec = Double.parseDouble(period.getText().trim()); }
+                catch (Exception ex) { pSec = cfg.periodMs / 1000.0; }
+                int pMs = (int) Math.round(Math.max(0.05, pSec) * 1000.0);
+
+                int sMs = -1;
+                String sStr = start.getText().trim();
+                if (!sStr.isEmpty()) {
+                    try { sMs = (int) Math.round(Math.max(0.0, Double.parseDouble(sStr)) * 1000.0); }
+                    catch (Exception ex) { sMs = -1; }
+                }
+                int dMs = -1;
+                String dStr = durF.getText().trim();
+                if (!dStr.isEmpty()) {
+                    try { dMs = (int) Math.round(Math.max(0.0, Double.parseDouble(dStr)) * 1000.0); }
+                    catch (Exception ex) { dMs = -1; }
+                }
+                int tMs;
+                try { tMs = (int) Math.round(Double.parseDouble(transMs.getText().trim())); }
+                catch (Exception ex) { tMs = cfg.transitionMs; }
+                if (tMs < 0) tMs = 0;
+                if (tMs > pMs) tMs = pMs;   // a cross-fade can't outlast a full slot
+
+                cfg.texts = lines;
+                cfg.periodMs = pMs;
+                cfg.startMs = sMs;
+                cfg.durationMs = dMs;
+                cfg.transition = (String) trans.getSelectedItem();
+                if (cfg.transition == null) cfg.transition = "Cross-fade";
+                cfg.transitionMs = tMs;
+                cfg.enabled = enable.isSelected() && !lines.isEmpty();
+                dlg.dispose();
+            });
+            cancelBtn.addActionListener(e -> dlg.dispose());
+
+            JPanel root = new JPanel(new BorderLayout());
+            root.setBackground(Color.WHITE);
+            root.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+            root.add(help, BorderLayout.NORTH);
+            root.add(form, BorderLayout.CENTER);
+            JPanel btns = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 6));
+            btns.add(cancelBtn);
+            btns.add(okBtn);
+
+            dlg.setLayout(new BorderLayout());
+            dlg.add(root, BorderLayout.CENTER);
+            dlg.add(btns, BorderLayout.SOUTH);
+            dlg.pack();
             dlg.setLocationRelativeTo(owner);
             dlg.setVisible(true);
         }
@@ -24407,6 +24836,13 @@ public class GifSlideShowApp extends JFrame {
                     for (SlideTextData.Action a : st.actions) {
                         if (a != null) dur = Math.max(dur, (long) a.atMs + a.durMs + 700);
                     }
+                }
+                if (slideTextHasAlternation(st)) {
+                    long altStart = (st.altStartMs >= 0) ? st.altStartMs : st.timerAppearMs;
+                    long altEnd = (st.altDurationMs >= 0)
+                            ? altStart + st.altDurationMs
+                            : altStart + (long) Math.max(1, st.altPeriodMs) * (1 + st.altTexts.size()) * 2;
+                    dur = Math.max(dur, altEnd + 700);
                 }
             }
             final long totalMs = dur + 900;
