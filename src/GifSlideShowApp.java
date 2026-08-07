@@ -10381,37 +10381,6 @@ public class GifSlideShowApp extends JFrame {
                 }
             }
         }
-        // Alternating text (Texts Timer → "Alternate…") needs time to actually swap
-        // before the slide ends: a text placed near the end of the video would
-        // otherwise never get to alternate, because the slide's length ignores the
-        // text timeline entirely. This block ONLY looks at texts that have
-        // alternation turned on — every other slide falls straight through
-        // unchanged, so it cannot alter how existing projects render. It can only
-        // ever lengthen a slide, never shorten one.
-        if (s.slideTexts != null) {
-            final int ALT_TAIL_MS   = 400;  // let the final swap settle on screen
-            final int ALT_MIN_CYCLES = 2;   // guaranteed full swaps when no span is set
-            for (SlideTextData st : s.slideTexts) {
-                if (!slideTextHasAlternation(st)) continue;
-                // When the swaps begin: the explicit alt start, else the text's
-                // appear time. If the text also reveals word-by-word, wait until the
-                // whole text is on screen before counting the swap window.
-                long start = (st.altStartMs >= 0) ? st.altStartMs : st.timerAppearMs;
-                if (st.wordRevealMs != null && st.wordRevealMs.length > 0) {
-                    for (int wm : st.wordRevealMs) start = Math.max(start, wm);
-                }
-                long window;
-                if (st.altDurationMs >= 0) {
-                    window = st.altDurationMs;                       // the user's chosen span
-                } else {
-                    int  ring   = 1 + st.altTexts.size();           // base + alternates
-                    long period = Math.max(1, st.altPeriodMs);
-                    window = period * (long) ring * ALT_MIN_CYCLES; // floor: ~2 full cycles
-                }
-                long need = start + window + ALT_TAIL_MS;
-                if (need > dur) dur = (int) Math.min(Integer.MAX_VALUE, need);
-            }
-        }
         return dur;
     }
 
