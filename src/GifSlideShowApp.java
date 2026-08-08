@@ -524,6 +524,9 @@ public class GifSlideShowApp extends JFrame {
                 props.setProperty(q + "textEffect",  sp.textEffect != null ? sp.textEffect : "None");
                 props.setProperty(q + "textEffectIntensity", String.valueOf(sp.textEffectIntensity));
                 props.setProperty(q + "lineSpacing", String.valueOf(sp.lineSpacing));
+                props.setProperty(q + "highlightWords", sp.highlightWords != null ? sp.highlightWords : "");
+                props.setProperty(q + "highlightColor", colorToHex(sp.highlightColor));
+                props.setProperty(q + "highlightStyle", sp.highlightStyle != null ? sp.highlightStyle : "Marker");
                 props.setProperty(q + "xPct",        String.valueOf(sp.xPct));
                 props.setProperty(q + "yPct",        String.valueOf(sp.yPct));
                 props.setProperty(q + "widthPct",    String.valueOf(sp.widthPct));
@@ -1708,6 +1711,9 @@ public class GifSlideShowApp extends JFrame {
         sp.textEffect  = props.getProperty(q + "textEffect", def.textEffect);
         sp.textEffectIntensity = parseIntOr(props.getProperty(q + "textEffectIntensity"), def.textEffectIntensity);
         sp.lineSpacing = parseIntOr(props.getProperty(q + "lineSpacing"), def.lineSpacing);
+        sp.highlightWords = props.getProperty(q + "highlightWords", def.highlightWords);
+        sp.highlightColor = hexToColor(props.getProperty(q + "highlightColor", colorToHex(def.highlightColor)));
+        sp.highlightStyle = props.getProperty(q + "highlightStyle", def.highlightStyle);
         sp.xPct        = parseIntOr(props.getProperty(q + "xPct"), def.xPct);
         sp.yPct        = parseIntOr(props.getProperty(q + "yPct"), def.yPct);
         sp.widthPct    = parseIntOr(props.getProperty(q + "widthPct"), def.widthPct);
@@ -11614,6 +11620,17 @@ public class GifSlideShowApp extends JFrame {
         final int[]    ALIGN_VALUES = { SwingConstants.LEFT, SwingConstants.CENTER, SwingConstants.RIGHT };
         final String[] BG_MODES = { "Freeze Last Frame", "Blur Last Frame", "Solid Color" };
         final String[] BORDER_STYLES = { "None", "Solid", "Double", "Dashed" };
+        // Highlight styles minus "None" (an empty word list is how you turn it off).
+        final String[] HL_STYLES;
+        {
+            java.util.List<String> hs = new java.util.ArrayList<>();
+            for (String s : HIGHLIGHT_STYLES) if (!"None".equals(s)) hs.add(s);
+            HL_STYLES = hs.toArray(new String[0]);
+        }
+
+        // Forward hook to the live preview (assigned once the preview is built),
+        // so colour picks and list edits made anywhere can refresh it.
+        final Runnable[] previewHook = { () -> {} };
 
         final Window owner = SwingUtilities.getWindowAncestor(this);
         final JDialog dlg = new JDialog(owner, "End-of-Video Summary Popups",
@@ -11626,7 +11643,7 @@ public class GifSlideShowApp extends JFrame {
         final JComboBox<String> bgMode = new JComboBox<>(BG_MODES);
         bgMode.setSelectedItem(wc.bgMode);
         final Color[] bgColor = { wc.bgColor };
-        final JButton bgColorBtn = makeColorButton("Backdrop colour", bgColor);
+        final JButton bgColorBtn = makeColorButton("Backdrop colour", bgColor, () -> previewHook[0].run());
         final JSpinner bgDim = new JSpinner(new SpinnerNumberModel(wc.bgDim, 0, 100, 5));
         final JLabel segLenLabel = new JLabel(" ");
         segLenLabel.setFont(new Font("Segoe UI", Font.ITALIC, 11));
@@ -11647,21 +11664,28 @@ public class GifSlideShowApp extends JFrame {
         final JSpinner fontSize = new JSpinner(new SpinnerNumberModel(64, 8, 400, 2));
         final JCheckBox bold = new JCheckBox("Bold");
         final JCheckBox italic = new JCheckBox("Italic");
+        final Runnable colorPicked = () -> previewHook[0].run();
         final Color[] textColor = { Color.WHITE };
-        final JButton textColorBtn = makeColorButton("Text colour", textColor);
+        final JButton textColorBtn = makeColorButton("Text colour", textColor, colorPicked);
         final Color[] accentColor = { new Color(120, 80, 210) };
-        final JButton accentColorBtn = makeColorButton("Effect colour 2", accentColor);
+        final JButton accentColorBtn = makeColorButton("Effect colour 2", accentColor, colorPicked);
         accentColorBtn.setToolTipText("Second colour for two-colour effects (Cartoon Pop, Gold Pop, "
                 + "Neon + Shadow, Glow + Outline, Outline + Shadow) — the outline / glow accent.");
         final JComboBox<String> align = new JComboBox<>(ALIGN_LABELS);
         final JComboBox<String> textEffect = new JComboBox<>(TEXT_EFFECTS);
         final JSpinner textEffectIntensity = new JSpinner(new SpinnerNumberModel(60, 0, 100, 5));
         final JSpinner lineSpacing = new JSpinner(new SpinnerNumberModel(8, -20, 60, 1));
+        // Highlight specific word(s).
+        final JTextField highlightWords = new JTextField(18);
+        highlightWords.setToolTipText("Comma-separated word(s) or phrase(s) inside the text to highlight. Leave empty for none.");
+        final Color[] highlightColor = { new Color(255, 210, 60) };
+        final JButton highlightColorBtn = makeColorButton("Highlight colour", highlightColor, colorPicked);
+        final JComboBox<String> highlightStyle = new JComboBox<>(HL_STYLES);
         final JSpinner xPct = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
         final JSpinner yPct = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
         final JSpinner widthPct = new JSpinner(new SpinnerNumberModel(80, 10, 100, 1));
         final Color[] boxColor = { new Color(20, 20, 32) };
-        final JButton boxColorBtn = makeColorButton("Box colour", boxColor);
+        final JButton boxColorBtn = makeColorButton("Box colour", boxColor, colorPicked);
         final JSpinner boxOpacity = new JSpinner(new SpinnerNumberModel(82, 0, 100, 1));
         final JSpinner boxRound = new JSpinner(new SpinnerNumberModel(28, 0, 100, 1));
         // Padding = how far the text sits from the box edges. 100 ≈ default; goes
@@ -11671,10 +11695,10 @@ public class GifSlideShowApp extends JFrame {
         final JCheckBox boxShadow = new JCheckBox("Drop shadow");
         final JCheckBox boxGlow = new JCheckBox("Outer glow");
         final Color[] boxGlowColor = { new Color(90, 160, 255) };
-        final JButton boxGlowColorBtn = makeColorButton("Glow colour", boxGlowColor);
+        final JButton boxGlowColorBtn = makeColorButton("Glow colour", boxGlowColor, colorPicked);
         final JComboBox<String> border = new JComboBox<>(BORDER_STYLES);
         final Color[] borderColor = { Color.WHITE };
-        final JButton borderColorBtn = makeColorButton("Border colour", borderColor);
+        final JButton borderColorBtn = makeColorButton("Border colour", borderColor, colorPicked);
         final JSpinner borderWidth = new JSpinner(new SpinnerNumberModel(3, 1, 30, 1));
 
         // ---- popup list ----
@@ -11686,9 +11710,6 @@ public class GifSlideShowApp extends JFrame {
 
         final int[] sel = { 0 };
         final boolean[] loading = { false };
-        // Forward hook to the live preview (wired once the preview is built below),
-        // so list edits made before that point can still refresh the preview.
-        final Runnable[] previewHook = { () -> {} };
 
         // Read current form controls into popup p.
         final java.util.function.Consumer<SummaryPopup> commitInto = p -> {
@@ -11709,6 +11730,9 @@ public class GifSlideShowApp extends JFrame {
             p.textEffect = (String) textEffect.getSelectedItem();
             p.textEffectIntensity = ((Number) textEffectIntensity.getValue()).intValue();
             p.lineSpacing = ((Number) lineSpacing.getValue()).intValue();
+            p.highlightWords = highlightWords.getText();
+            p.highlightColor = highlightColor[0];
+            p.highlightStyle = (String) highlightStyle.getSelectedItem();
             p.xPct = ((Number) xPct.getValue()).intValue();
             p.yPct = ((Number) yPct.getValue()).intValue();
             p.widthPct = ((Number) widthPct.getValue()).intValue();
@@ -11749,6 +11773,9 @@ public class GifSlideShowApp extends JFrame {
             textEffect.setSelectedItem(p.textEffect);
             textEffectIntensity.setValue(p.textEffectIntensity);
             lineSpacing.setValue(p.lineSpacing);
+            highlightWords.setText(p.highlightWords);
+            highlightColor[0] = p.highlightColor; repaintColorButton(highlightColorBtn, highlightColor[0]);
+            highlightStyle.setSelectedItem(p.highlightStyle);
             xPct.setValue(p.xPct);
             yPct.setValue(p.yPct);
             widthPct.setValue(p.widthPct);
@@ -11809,6 +11836,26 @@ public class GifSlideShowApp extends JFrame {
         JButton addBtn = new JButton("Add");
         JButton dupBtn = new JButton("Duplicate");
         JButton delBtn = new JButton("Remove");
+        JButton applyAllBtn = new JButton("Apply style → all");
+        applyAllBtn.setToolTipText("Copy this popup's look (font, colours, effects, highlight, box) to every "
+                + "other popup. Keeps each popup's own text, position and timing.");
+        applyAllBtn.addActionListener(e -> {
+            commitCurrent.run();
+            if (sel[0] < 0 || sel[0] >= wc.popups.size() || wc.popups.size() < 2) return;
+            int n = JOptionPane.showConfirmDialog(dlg,
+                    "Apply this popup's style (font, colours, effects, highlight style, box) to all "
+                            + wc.popups.size() + " popups?\nEach popup keeps its own text, position and timing.",
+                    "Apply style to all", JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
+            if (n != JOptionPane.OK_OPTION) return;
+            SummaryPopup src = wc.popups.get(sel[0]);
+            for (SummaryPopup t : wc.popups) {
+                if (t == src) continue;
+                applySummaryStyle(src, t);
+            }
+            refreshList.run();
+            popupList.setSelectedIndex(sel[0]);
+            previewHook[0].run();
+        });
         addBtn.addActionListener(e -> {
             commitCurrent.run();
             SummaryPopup p = new SummaryPopup();
@@ -11899,6 +11946,10 @@ public class GifSlideShowApp extends JFrame {
         field2.accept("Effect colour 2:", new Component[]{ accentColorBtn,
                 new JLabel("(outline / glow for 2-colour effects)") });
 
+        section.accept(r[0]++, "Highlight word(s)");
+        field.accept("Words:", highlightWords);
+        field2.accept("Colour / style:", new Component[]{ highlightColorBtn, highlightStyle });
+
         section.accept(r[0]++, "Box");
         field2.accept("Fill:", new Component[]{ boxColorBtn, new JLabel("Opacity %:"), boxOpacity,
                 new JLabel("Round %:"), boxRound });
@@ -11912,8 +11963,12 @@ public class GifSlideShowApp extends JFrame {
                 new JLabel("Width:"), widthPct });
 
         // ---- left: list + list buttons; segment backdrop ----
-        JPanel listButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        listButtons.add(addBtn); listButtons.add(dupBtn); listButtons.add(delBtn);
+        JPanel listButtons = new JPanel(new GridLayout(2, 1, 0, 3));
+        JPanel listButtonsRow1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        listButtonsRow1.add(addBtn); listButtonsRow1.add(dupBtn); listButtonsRow1.add(delBtn);
+        JPanel listButtonsRow2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        listButtonsRow2.add(applyAllBtn);
+        listButtons.add(listButtonsRow1); listButtons.add(listButtonsRow2);
         JPanel left = new JPanel(new BorderLayout(0, 6));
         left.setBorder(BorderFactory.createEmptyBorder(6, 10, 6, 6));
         JLabel popupsLbl = new JLabel("Popups");
@@ -12079,26 +12134,27 @@ public class GifSlideShowApp extends JFrame {
         for (JSpinner sp : new JSpinner[]{ appearSec, duration, animMs, fontSize, textEffectIntensity,
                 lineSpacing, xPct, yPct, widthPct, boxOpacity, boxRound, boxPad, boxPadY, borderWidth, bgDim })
             sp.addChangeListener(anyChange);
-        for (JComboBox<String> cb : java.util.Arrays.asList(entrance, easing, font, align, textEffect, border, bgMode))
+        for (JComboBox<String> cb : java.util.Arrays.asList(entrance, easing, font, align, textEffect, border, bgMode, highlightStyle))
             cb.addActionListener(anyAction);
         for (JCheckBox ck : new JCheckBox[]{ bold, italic, boxShadow, boxGlow, popEnabled, masterEnabled })
             ck.addActionListener(anyAction);
-        textArea.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+        javax.swing.event.DocumentListener docPreview = new javax.swing.event.DocumentListener() {
             public void insertUpdate(javax.swing.event.DocumentEvent e) { schedulePreview.run(); }
             public void removeUpdate(javax.swing.event.DocumentEvent e) { schedulePreview.run(); }
             public void changedUpdate(javax.swing.event.DocumentEvent e) { schedulePreview.run(); }
-        });
-        // Colour buttons already repaint themselves; also refresh the preview.
-        for (JButton cbn : new JButton[]{ textColorBtn, accentColorBtn, boxColorBtn, boxGlowColorBtn,
-                borderColorBtn, bgColorBtn })
-            cbn.addActionListener(e -> schedulePreview.run());
+        };
+        textArea.getDocument().addDocumentListener(docPreview);
+        highlightWords.getDocument().addDocumentListener(docPreview);
+        // Colour picks refresh the preview via each button's onChange (previewHook),
+        // which points at schedulePreview once it is assigned below.
 
         // ---- enable/disable form when master off ----
         final Component[] segControls = { bgMode, bgColorBtn, bgDim };
         final Component[] popControls = { popEnabled, textArea, appearSec, duration, animMs, entrance, easing,
                 font, fontSize, bold, italic, textColorBtn, accentColorBtn, align, textEffect, textEffectIntensity, lineSpacing,
+                highlightWords, highlightColorBtn, highlightStyle,
                 xPct, yPct, widthPct, boxColorBtn, boxOpacity, boxRound, boxPad, boxPadY, boxShadow, boxGlow,
-                boxGlowColorBtn, border, borderColorBtn, borderWidth, popupList, addBtn, dupBtn, delBtn };
+                boxGlowColorBtn, border, borderColorBtn, borderWidth, popupList, addBtn, dupBtn, delBtn, applyAllBtn };
         Runnable masterToggle = () -> {
             boolean on = masterEnabled.isSelected();
             for (Component c : segControls) c.setEnabled(on);
@@ -12307,6 +12363,26 @@ public class GifSlideShowApp extends JFrame {
         return out;
     }
 
+    /** Copy the "look" of one summary popup onto another — font, colours, effects,
+     *  highlight style and box — while leaving the destination's own text, position,
+     *  timing, enabled flag and highlighted words untouched. Backs "Apply style → all". */
+    private static void applySummaryStyle(SummaryPopup src, SummaryPopup dst) {
+        dst.entrance = src.entrance; dst.easing = src.easing; dst.animMs = src.animMs;
+        dst.fontName = src.fontName; dst.fontSize = src.fontSize;
+        dst.bold = src.bold; dst.italic = src.italic;
+        dst.textColor = src.textColor; dst.accentColor = src.accentColor;
+        dst.alignment = src.alignment;
+        dst.textEffect = src.textEffect; dst.textEffectIntensity = src.textEffectIntensity;
+        dst.lineSpacing = src.lineSpacing;
+        dst.highlightColor = src.highlightColor; dst.highlightStyle = src.highlightStyle;
+        dst.widthPct = src.widthPct;
+        dst.boxColor = src.boxColor; dst.boxOpacity = src.boxOpacity; dst.boxRoundPct = src.boxRoundPct;
+        dst.boxPadPct = src.boxPadPct; dst.boxPadYPct = src.boxPadYPct;
+        dst.boxShadow = src.boxShadow; dst.boxGlow = src.boxGlow; dst.boxGlowColor = src.boxGlowColor;
+        dst.boxBorderStyle = src.boxBorderStyle; dst.boxBorderColor = src.boxBorderColor;
+        dst.boxBorderWidth = src.boxBorderWidth;
+    }
+
     /** Index of {@code value} in {@code arr}, or 0 when not present. */
     private static int indexOfInt(int[] arr, int value) {
         for (int i = 0; i < arr.length; i++) if (arr[i] == value) return i;
@@ -12327,11 +12403,22 @@ public class GifSlideShowApp extends JFrame {
     /** A small button showing a colour swatch; clicking opens a colour chooser and
      *  writes the pick back into {@code holder[0]}. */
     private JButton makeColorButton(String title, Color[] holder) {
+        return makeColorButton(title, holder, null);
+    }
+
+    /** Colour-swatch button that also runs {@code onChange} immediately after a
+     *  successful pick — used to refresh a live preview the moment a colour is
+     *  chosen. */
+    private JButton makeColorButton(String title, Color[] holder, Runnable onChange) {
         JButton b = new JButton(title);
         repaintColorButton(b, holder[0]);
         b.addActionListener(e -> {
             Color picked = JColorChooser.showDialog(b, title, holder[0]);
-            if (picked != null) { holder[0] = picked; repaintColorButton(b, holder[0]); }
+            if (picked != null) {
+                holder[0] = picked;
+                repaintColorButton(b, holder[0]);
+                if (onChange != null) onChange.run();
+            }
         });
         return b;
     }
@@ -15369,14 +15456,19 @@ public class GifSlideShowApp extends JFrame {
      *  is the single source of truth shared by the export and the live preview. */
     static SlideTextData buildSummaryTextData(SummaryPopup p) {
         int style = (p.bold ? Font.BOLD : 0) | (p.italic ? Font.ITALIC : 0);
+        // Word highlight and the two-colour-effect accent share the single
+        // highlightColor slot. When words are highlighted, that colour + style
+        // drive the highlight; otherwise the colour is the effect accent.
+        boolean hasHl = p.highlightWords != null && !p.highlightWords.trim().isEmpty();
+        String hlText  = hasHl ? p.highlightWords : "";
+        Color  hlColor = hasHl ? p.highlightColor : p.accentColor;
+        String hlStyle = hasHl ? (p.highlightStyle == null ? "Marker" : p.highlightStyle) : "Regular";
         SlideTextData st = new SlideTextData(
                 true, p.text == null ? "" : p.text, p.fontName, p.fontSize, style, p.textColor,
                 p.xPct, p.yPct, p.boxOpacity, p.boxColor,
                 false, p.widthPct, 0, p.alignment,
                 p.textEffect, p.textEffectIntensity,
-                // highlightText stays empty (no highlight drawn); highlightColor
-                // carries the second/accent colour the two-colour effects read.
-                "", p.accentColor, null, 0, "None", "", "", "", "", null,
+                hlText, hlColor, hlStyle, 50, "None", "", "", "", "", null,
                 false, false, 0, 0, "Sequential",
                 false, "From Left", 1500, 0, "Ease Out",
                 0, 0, p.lineSpacing, 100);
@@ -18676,12 +18768,19 @@ public class GifSlideShowApp extends JFrame {
         Color   textColor = Color.WHITE;
         // Second colour used by the effects that take two (Cartoon Pop, Gold Pop,
         // Neon + Shadow, Glow + Outline, Outline + Shadow, …) as the outline / glow
-        // accent. Fed to the renderer as the text's highlight colour.
+        // accent. Fed to the renderer as the text's highlight colour when no words
+        // are highlighted.
         Color   accentColor = new Color(120, 80, 210);
         int     alignment = SwingConstants.CENTER;
         String  textEffect = "Glow";     // one of TEXT_EFFECTS
         int     textEffectIntensity = 60;
         int     lineSpacing = 8;
+
+        // ---- Highlight specific word(s) ----
+        // Comma-separated word(s)/phrase(s) inside `text` to highlight. Empty = off.
+        String  highlightWords = "";
+        Color   highlightColor = new Color(255, 210, 60);
+        String  highlightStyle = "Marker"; // one of HIGHLIGHT_STYLES (excluding "None")
 
         // ---- Position + wrap width (percent of frame) ----
         int     xPct = 50;
@@ -18714,6 +18813,7 @@ public class GifSlideShowApp extends JFrame {
             textColor = o.textColor; accentColor = o.accentColor; alignment = o.alignment;
             textEffect = o.textEffect; textEffectIntensity = o.textEffectIntensity;
             lineSpacing = o.lineSpacing;
+            highlightWords = o.highlightWords; highlightColor = o.highlightColor; highlightStyle = o.highlightStyle;
             xPct = o.xPct; yPct = o.yPct; widthPct = o.widthPct;
             boxColor = o.boxColor; boxOpacity = o.boxOpacity; boxRoundPct = o.boxRoundPct;
             boxPadPct = o.boxPadPct; boxPadYPct = o.boxPadYPct;
