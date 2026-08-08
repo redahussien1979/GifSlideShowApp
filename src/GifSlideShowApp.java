@@ -79,9 +79,10 @@ public class GifSlideShowApp extends JFrame {
     private JComboBox<String> orientationCombo;
     private JLabel header;
 
-    // End-of-video summary popup (project-level). Edited via the "Summary…"
-    // toolbar button; appended as a final pass when exporting the MP4.
-    private final SummaryPopup summaryPopup = new SummaryPopup();
+    // End-of-video summary segment (project-level): a shared backdrop plus one or
+    // more fancy pop-up textboxes. Edited via the "Summary…" toolbar button;
+    // appended as a final pass when exporting the MP4.
+    private final SummaryConfig summaryConfig = new SummaryConfig();
 
     // Presets
     private static final File PRESETS_DIR = new File(new File(".").getAbsoluteFile().getParentFile(), "presets");
@@ -495,41 +496,48 @@ public class GifSlideShowApp extends JFrame {
         // Orientation
         props.setProperty("orientation", isPortrait() ? "Portrait" : "Landscape");
 
-        // End-of-video summary popup (project-level).
+        // End-of-video summary segment (project-level): shared backdrop + popup list.
         {
-            SummaryPopup sp = summaryPopup;
-            props.setProperty("summary.enabled",     String.valueOf(sp.enabled));
-            props.setProperty("summary.text",        sp.text != null ? sp.text : "");
-            props.setProperty("summary.durationSec", String.valueOf(sp.durationSec));
-            props.setProperty("summary.entrance",    sp.entrance != null ? sp.entrance : "Pop");
-            props.setProperty("summary.easing",      sp.easing != null ? sp.easing : "Ease Out");
-            props.setProperty("summary.animMs",      String.valueOf(sp.animMs));
-            props.setProperty("summary.fontName",    sp.fontName != null ? sp.fontName : "Segoe UI");
-            props.setProperty("summary.fontSize",    String.valueOf(sp.fontSize));
-            props.setProperty("summary.bold",        String.valueOf(sp.bold));
-            props.setProperty("summary.italic",      String.valueOf(sp.italic));
-            props.setProperty("summary.textColor",   colorToHex(sp.textColor));
-            props.setProperty("summary.alignment",   String.valueOf(sp.alignment));
-            props.setProperty("summary.textEffect",  sp.textEffect != null ? sp.textEffect : "None");
-            props.setProperty("summary.textEffectIntensity", String.valueOf(sp.textEffectIntensity));
-            props.setProperty("summary.lineSpacing", String.valueOf(sp.lineSpacing));
-            props.setProperty("summary.xPct",        String.valueOf(sp.xPct));
-            props.setProperty("summary.yPct",        String.valueOf(sp.yPct));
-            props.setProperty("summary.widthPct",    String.valueOf(sp.widthPct));
-            props.setProperty("summary.boxColor",    colorToHex(sp.boxColor));
-            props.setProperty("summary.boxOpacity",  String.valueOf(sp.boxOpacity));
-            props.setProperty("summary.boxRoundPct", String.valueOf(sp.boxRoundPct));
-            props.setProperty("summary.boxPadPct",   String.valueOf(sp.boxPadPct));
-            props.setProperty("summary.boxPadYPct",  String.valueOf(sp.boxPadYPct));
-            props.setProperty("summary.boxShadow",   String.valueOf(sp.boxShadow));
-            props.setProperty("summary.boxGlow",     String.valueOf(sp.boxGlow));
-            props.setProperty("summary.boxGlowColor", colorToHex(sp.boxGlowColor));
-            props.setProperty("summary.boxBorderStyle", sp.boxBorderStyle != null ? sp.boxBorderStyle : "None");
-            props.setProperty("summary.boxBorderColor", colorToHex(sp.boxBorderColor));
-            props.setProperty("summary.boxBorderWidth", String.valueOf(sp.boxBorderWidth));
-            props.setProperty("summary.bgMode",      sp.bgMode != null ? sp.bgMode : "Freeze Last Frame");
-            props.setProperty("summary.bgColor",     colorToHex(sp.bgColor));
-            props.setProperty("summary.bgDim",       String.valueOf(sp.bgDim));
+            SummaryConfig sc = summaryConfig;
+            props.setProperty("summary.enabled", String.valueOf(sc.enabled));
+            props.setProperty("summary.bgMode",  sc.bgMode != null ? sc.bgMode : "Freeze Last Frame");
+            props.setProperty("summary.bgColor", colorToHex(sc.bgColor));
+            props.setProperty("summary.bgDim",   String.valueOf(sc.bgDim));
+            props.setProperty("summary.count",   String.valueOf(sc.popups.size()));
+            for (int i = 0; i < sc.popups.size(); i++) {
+                SummaryPopup sp = sc.popups.get(i);
+                String q = "summary." + i + ".";
+                props.setProperty(q + "enabled",     String.valueOf(sp.enabled));
+                props.setProperty(q + "text",        sp.text != null ? sp.text : "");
+                props.setProperty(q + "appearSec",   String.valueOf(sp.appearSec));
+                props.setProperty(q + "durationSec", String.valueOf(sp.durationSec));
+                props.setProperty(q + "entrance",    sp.entrance != null ? sp.entrance : "Pop");
+                props.setProperty(q + "easing",      sp.easing != null ? sp.easing : "Ease Out");
+                props.setProperty(q + "animMs",      String.valueOf(sp.animMs));
+                props.setProperty(q + "fontName",    sp.fontName != null ? sp.fontName : "Segoe UI");
+                props.setProperty(q + "fontSize",    String.valueOf(sp.fontSize));
+                props.setProperty(q + "bold",        String.valueOf(sp.bold));
+                props.setProperty(q + "italic",      String.valueOf(sp.italic));
+                props.setProperty(q + "textColor",   colorToHex(sp.textColor));
+                props.setProperty(q + "alignment",   String.valueOf(sp.alignment));
+                props.setProperty(q + "textEffect",  sp.textEffect != null ? sp.textEffect : "None");
+                props.setProperty(q + "textEffectIntensity", String.valueOf(sp.textEffectIntensity));
+                props.setProperty(q + "lineSpacing", String.valueOf(sp.lineSpacing));
+                props.setProperty(q + "xPct",        String.valueOf(sp.xPct));
+                props.setProperty(q + "yPct",        String.valueOf(sp.yPct));
+                props.setProperty(q + "widthPct",    String.valueOf(sp.widthPct));
+                props.setProperty(q + "boxColor",    colorToHex(sp.boxColor));
+                props.setProperty(q + "boxOpacity",  String.valueOf(sp.boxOpacity));
+                props.setProperty(q + "boxRoundPct", String.valueOf(sp.boxRoundPct));
+                props.setProperty(q + "boxPadPct",   String.valueOf(sp.boxPadPct));
+                props.setProperty(q + "boxPadYPct",  String.valueOf(sp.boxPadYPct));
+                props.setProperty(q + "boxShadow",   String.valueOf(sp.boxShadow));
+                props.setProperty(q + "boxGlow",     String.valueOf(sp.boxGlow));
+                props.setProperty(q + "boxGlowColor", colorToHex(sp.boxGlowColor));
+                props.setProperty(q + "boxBorderStyle", sp.boxBorderStyle != null ? sp.boxBorderStyle : "None");
+                props.setProperty(q + "boxBorderColor", colorToHex(sp.boxBorderColor));
+                props.setProperty(q + "boxBorderWidth", String.valueOf(sp.boxBorderWidth));
+            }
         }
 
         // Layout Group dialog state — saved so reopening the dialog (or saving
@@ -953,43 +961,29 @@ public class GifSlideShowApp extends JFrame {
             orientationCombo.setSelectedItem("Landscape (1920×1080)");
         }
 
-        // End-of-video summary popup (project-level). Absent keys keep defaults.
+        // End-of-video summary segment (project-level). Absent keys keep defaults.
+        // Reads the popup list (summary.count + summary.N.*); falls back to the
+        // legacy single-popup layout (summary.text, summary.*) for old presets.
         {
-            SummaryPopup sp = summaryPopup;
-            SummaryPopup def = new SummaryPopup();
-            sp.enabled     = Boolean.parseBoolean(props.getProperty("summary.enabled", String.valueOf(def.enabled)));
-            sp.text        = props.getProperty("summary.text", def.text);
-            try { sp.durationSec = Double.parseDouble(props.getProperty("summary.durationSec",
-                    String.valueOf(def.durationSec))); } catch (NumberFormatException ex) { sp.durationSec = def.durationSec; }
-            sp.entrance    = props.getProperty("summary.entrance", def.entrance);
-            sp.easing      = props.getProperty("summary.easing", def.easing);
-            sp.animMs      = parseIntOr(props.getProperty("summary.animMs"), def.animMs);
-            sp.fontName    = props.getProperty("summary.fontName", def.fontName);
-            sp.fontSize    = parseIntOr(props.getProperty("summary.fontSize"), def.fontSize);
-            sp.bold        = Boolean.parseBoolean(props.getProperty("summary.bold", String.valueOf(def.bold)));
-            sp.italic      = Boolean.parseBoolean(props.getProperty("summary.italic", String.valueOf(def.italic)));
-            sp.textColor   = hexToColor(props.getProperty("summary.textColor", colorToHex(def.textColor)));
-            sp.alignment   = parseIntOr(props.getProperty("summary.alignment"), def.alignment);
-            sp.textEffect  = props.getProperty("summary.textEffect", def.textEffect);
-            sp.textEffectIntensity = parseIntOr(props.getProperty("summary.textEffectIntensity"), def.textEffectIntensity);
-            sp.lineSpacing = parseIntOr(props.getProperty("summary.lineSpacing"), def.lineSpacing);
-            sp.xPct        = parseIntOr(props.getProperty("summary.xPct"), def.xPct);
-            sp.yPct        = parseIntOr(props.getProperty("summary.yPct"), def.yPct);
-            sp.widthPct    = parseIntOr(props.getProperty("summary.widthPct"), def.widthPct);
-            sp.boxColor    = hexToColor(props.getProperty("summary.boxColor", colorToHex(def.boxColor)));
-            sp.boxOpacity  = parseIntOr(props.getProperty("summary.boxOpacity"), def.boxOpacity);
-            sp.boxRoundPct = parseIntOr(props.getProperty("summary.boxRoundPct"), def.boxRoundPct);
-            sp.boxPadPct   = parseIntOr(props.getProperty("summary.boxPadPct"), def.boxPadPct);
-            sp.boxPadYPct  = parseIntOr(props.getProperty("summary.boxPadYPct"), def.boxPadYPct);
-            sp.boxShadow   = Boolean.parseBoolean(props.getProperty("summary.boxShadow", String.valueOf(def.boxShadow)));
-            sp.boxGlow     = Boolean.parseBoolean(props.getProperty("summary.boxGlow", String.valueOf(def.boxGlow)));
-            sp.boxGlowColor = hexToColor(props.getProperty("summary.boxGlowColor", colorToHex(def.boxGlowColor)));
-            sp.boxBorderStyle = props.getProperty("summary.boxBorderStyle", def.boxBorderStyle);
-            sp.boxBorderColor = hexToColor(props.getProperty("summary.boxBorderColor", colorToHex(def.boxBorderColor)));
-            sp.boxBorderWidth = parseIntOr(props.getProperty("summary.boxBorderWidth"), def.boxBorderWidth);
-            sp.bgMode      = props.getProperty("summary.bgMode", def.bgMode);
-            sp.bgColor     = hexToColor(props.getProperty("summary.bgColor", colorToHex(def.bgColor)));
-            sp.bgDim       = parseIntOr(props.getProperty("summary.bgDim"), def.bgDim);
+            SummaryConfig sc = summaryConfig;
+            SummaryConfig scDef = new SummaryConfig();
+            sc.enabled = Boolean.parseBoolean(props.getProperty("summary.enabled", String.valueOf(scDef.enabled)));
+            sc.bgMode  = props.getProperty("summary.bgMode", scDef.bgMode);
+            sc.bgColor = hexToColor(props.getProperty("summary.bgColor", colorToHex(scDef.bgColor)));
+            sc.bgDim   = parseIntOr(props.getProperty("summary.bgDim"), scDef.bgDim);
+            sc.popups.clear();
+            int count = parseIntOr(props.getProperty("summary.count"), -1);
+            if (count < 0) {
+                // Legacy single-popup preset: read the old flat keys into popup 0.
+                if (props.getProperty("summary.text") != null) {
+                    sc.popups.add(readSummaryPopup(props, "summary."));
+                }
+            } else {
+                for (int i = 0; i < count; i++) {
+                    sc.popups.add(readSummaryPopup(props, "summary." + i + "."));
+                }
+            }
+            if (sc.popups.isEmpty()) sc.popups.add(new SummaryPopup());
         }
 
         // Layout Group — restore last-used dialog state into every row so any row
@@ -1689,6 +1683,44 @@ public class GifSlideShowApp extends JFrame {
     private static Boolean parseBoolOr(String s, Boolean fallback) {
         if (s == null || s.isEmpty()) return fallback;
         return Boolean.parseBoolean(s.trim());
+    }
+
+    /** Read one {@link SummaryPopup} from properties under prefix {@code q}
+     *  (e.g. "summary.2."). Missing keys fall back to fresh-object defaults. */
+    private static SummaryPopup readSummaryPopup(Properties props, String q) {
+        SummaryPopup sp = new SummaryPopup();
+        SummaryPopup def = new SummaryPopup();
+        sp.enabled     = Boolean.parseBoolean(props.getProperty(q + "enabled", String.valueOf(def.enabled)));
+        sp.text        = props.getProperty(q + "text", def.text);
+        sp.appearSec   = parseDoubleOr(props.getProperty(q + "appearSec"), def.appearSec);
+        sp.durationSec = parseDoubleOr(props.getProperty(q + "durationSec"), def.durationSec);
+        sp.entrance    = props.getProperty(q + "entrance", def.entrance);
+        sp.easing      = props.getProperty(q + "easing", def.easing);
+        sp.animMs      = parseIntOr(props.getProperty(q + "animMs"), def.animMs);
+        sp.fontName    = props.getProperty(q + "fontName", def.fontName);
+        sp.fontSize    = parseIntOr(props.getProperty(q + "fontSize"), def.fontSize);
+        sp.bold        = Boolean.parseBoolean(props.getProperty(q + "bold", String.valueOf(def.bold)));
+        sp.italic      = Boolean.parseBoolean(props.getProperty(q + "italic", String.valueOf(def.italic)));
+        sp.textColor   = hexToColor(props.getProperty(q + "textColor", colorToHex(def.textColor)));
+        sp.alignment   = parseIntOr(props.getProperty(q + "alignment"), def.alignment);
+        sp.textEffect  = props.getProperty(q + "textEffect", def.textEffect);
+        sp.textEffectIntensity = parseIntOr(props.getProperty(q + "textEffectIntensity"), def.textEffectIntensity);
+        sp.lineSpacing = parseIntOr(props.getProperty(q + "lineSpacing"), def.lineSpacing);
+        sp.xPct        = parseIntOr(props.getProperty(q + "xPct"), def.xPct);
+        sp.yPct        = parseIntOr(props.getProperty(q + "yPct"), def.yPct);
+        sp.widthPct    = parseIntOr(props.getProperty(q + "widthPct"), def.widthPct);
+        sp.boxColor    = hexToColor(props.getProperty(q + "boxColor", colorToHex(def.boxColor)));
+        sp.boxOpacity  = parseIntOr(props.getProperty(q + "boxOpacity"), def.boxOpacity);
+        sp.boxRoundPct = parseIntOr(props.getProperty(q + "boxRoundPct"), def.boxRoundPct);
+        sp.boxPadPct   = parseIntOr(props.getProperty(q + "boxPadPct"), def.boxPadPct);
+        sp.boxPadYPct  = parseIntOr(props.getProperty(q + "boxPadYPct"), def.boxPadYPct);
+        sp.boxShadow   = Boolean.parseBoolean(props.getProperty(q + "boxShadow", String.valueOf(def.boxShadow)));
+        sp.boxGlow     = Boolean.parseBoolean(props.getProperty(q + "boxGlow", String.valueOf(def.boxGlow)));
+        sp.boxGlowColor = hexToColor(props.getProperty(q + "boxGlowColor", colorToHex(def.boxGlowColor)));
+        sp.boxBorderStyle = props.getProperty(q + "boxBorderStyle", def.boxBorderStyle);
+        sp.boxBorderColor = hexToColor(props.getProperty(q + "boxBorderColor", colorToHex(def.boxBorderColor)));
+        sp.boxBorderWidth = parseIntOr(props.getProperty(q + "boxBorderWidth"), def.boxBorderWidth);
+        return sp;
     }
 
     private static Color hexToColor(String hex) {
@@ -11561,14 +11593,15 @@ public class GifSlideShowApp extends JFrame {
     // ==================== MP4 Video Creation ====================
 
     /**
-     * "Summary…" dialog — configures the end-of-video pop-up textbox. Edits a
-     * working copy so Cancel discards changes; OK commits it into
-     * {@link #summaryPopup}. The box is drawn at export time by
-     * {@link #appendSummaryPopup}, reusing the same effect machinery the rest of
-     * the app uses.
+     * "Summary…" dialog — configures the end-of-video segment: a shared backdrop
+     * and a list of fancy pop-up textboxes, each at its own position/time with
+     * its own effects. Edits a working copy so Cancel discards changes; OK commits
+     * into {@link #summaryConfig}. A "Live Preview" button plays the segment using
+     * the exact renderer the export uses, so what you see matches the video.
      */
     private void openSummaryPopupDialog() {
-        final SummaryPopup w = summaryPopup.duplicate(); // working copy
+        final SummaryConfig wc = summaryConfig.duplicate(); // working copy
+        if (wc.popups.isEmpty()) wc.popups.add(new SummaryPopup());
 
         final String[] ENTRANCES = {
                 "None", "Fade", "Slide In Top", "Slide In Bottom",
@@ -11581,92 +11614,244 @@ public class GifSlideShowApp extends JFrame {
         final String[] BORDER_STYLES = { "None", "Solid", "Double", "Dashed" };
 
         final Window owner = SwingUtilities.getWindowAncestor(this);
-        final JDialog dlg = new JDialog(owner, "End-of-Video Summary Popup",
+        final JDialog dlg = new JDialog(owner, "End-of-Video Summary Popups",
                 Dialog.ModalityType.APPLICATION_MODAL);
         dlg.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
 
-        // ---- controls ----
-        JCheckBox enabled = new JCheckBox("Show a summary pop-up at the end of the video", w.enabled);
-        enabled.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        // ---- segment-level controls ----
+        final JCheckBox masterEnabled = new JCheckBox("Show a summary at the end of the video", wc.enabled);
+        masterEnabled.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        final JComboBox<String> bgMode = new JComboBox<>(BG_MODES);
+        bgMode.setSelectedItem(wc.bgMode);
+        final Color[] bgColor = { wc.bgColor };
+        final JButton bgColorBtn = makeColorButton("Backdrop colour", bgColor);
+        final JSpinner bgDim = new JSpinner(new SpinnerNumberModel(wc.bgDim, 0, 100, 5));
+        final JLabel segLenLabel = new JLabel(" ");
+        segLenLabel.setFont(new Font("Segoe UI", Font.ITALIC, 11));
 
-        JTextArea textArea = new JTextArea(w.text, 5, 34);
+        // ---- per-popup controls ----
+        final JCheckBox popEnabled = new JCheckBox("This popup is enabled");
+        final JTextArea textArea = new JTextArea(5, 30);
         textArea.setLineWrap(true);
         textArea.setWrapStyleWord(true);
         textArea.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-        JScrollPane textScroll = new JScrollPane(textArea);
+        final JScrollPane textScroll = new JScrollPane(textArea);
+        final JSpinner appearSec = new JSpinner(new SpinnerNumberModel(0.0, 0.0, 600.0, 0.5));
+        final JSpinner duration  = new JSpinner(new SpinnerNumberModel(5.0, 0.5, 600.0, 0.5));
+        final JSpinner animMs    = new JSpinner(new SpinnerNumberModel(600, 0, 5000, 50));
+        final JComboBox<String> entrance = new JComboBox<>(ENTRANCES);
+        final JComboBox<String> easing   = new JComboBox<>(EASINGS);
+        final JComboBox<String> font = new JComboBox<>(allFontNames());
+        final JSpinner fontSize = new JSpinner(new SpinnerNumberModel(64, 8, 400, 2));
+        final JCheckBox bold = new JCheckBox("Bold");
+        final JCheckBox italic = new JCheckBox("Italic");
+        final Color[] textColor = { Color.WHITE };
+        final JButton textColorBtn = makeColorButton("Text colour", textColor);
+        final JComboBox<String> align = new JComboBox<>(ALIGN_LABELS);
+        final JComboBox<String> textEffect = new JComboBox<>(TEXT_EFFECTS);
+        final JSpinner textEffectIntensity = new JSpinner(new SpinnerNumberModel(60, 0, 100, 5));
+        final JSpinner lineSpacing = new JSpinner(new SpinnerNumberModel(8, -20, 60, 1));
+        final JSpinner xPct = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
+        final JSpinner yPct = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
+        final JSpinner widthPct = new JSpinner(new SpinnerNumberModel(80, 10, 100, 1));
+        final Color[] boxColor = { new Color(20, 20, 32) };
+        final JButton boxColorBtn = makeColorButton("Box colour", boxColor);
+        final JSpinner boxOpacity = new JSpinner(new SpinnerNumberModel(82, 0, 100, 1));
+        final JSpinner boxRound = new JSpinner(new SpinnerNumberModel(28, 0, 100, 1));
+        final JSpinner boxPad = new JSpinner(new SpinnerNumberModel(70, 0, 100, 1));
+        final JSpinner boxPadY = new JSpinner(new SpinnerNumberModel(70, 0, 100, 1));
+        final JCheckBox boxShadow = new JCheckBox("Drop shadow");
+        final JCheckBox boxGlow = new JCheckBox("Outer glow");
+        final Color[] boxGlowColor = { new Color(90, 160, 255) };
+        final JButton boxGlowColorBtn = makeColorButton("Glow colour", boxGlowColor);
+        final JComboBox<String> border = new JComboBox<>(BORDER_STYLES);
+        final Color[] borderColor = { Color.WHITE };
+        final JButton borderColorBtn = makeColorButton("Border colour", borderColor);
+        final JSpinner borderWidth = new JSpinner(new SpinnerNumberModel(3, 1, 30, 1));
 
-        JSpinner duration = new JSpinner(new SpinnerNumberModel(
-                Math.max(0.5, w.durationSec), 0.5, 120.0, 0.5));
-        JSpinner animMs   = new JSpinner(new SpinnerNumberModel(w.animMs, 0, 5000, 50));
-        JComboBox<String> entrance = new JComboBox<>(ENTRANCES);
-        entrance.setSelectedItem(w.entrance);
-        JComboBox<String> easing = new JComboBox<>(EASINGS);
-        easing.setSelectedItem(w.easing);
+        // ---- popup list ----
+        final DefaultListModel<String> listModel = new DefaultListModel<>();
+        final JList<String> popupList = new JList<>(listModel);
+        popupList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        popupList.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        popupList.setVisibleRowCount(6);
 
-        JComboBox<String> font = new JComboBox<>(allFontNames());
-        font.setSelectedItem(w.fontName);
-        JSpinner fontSize = new JSpinner(new SpinnerNumberModel(w.fontSize, 8, 400, 2));
-        JCheckBox bold = new JCheckBox("Bold", w.bold);
-        JCheckBox italic = new JCheckBox("Italic", w.italic);
-        final Color[] textColor = { w.textColor };
-        JButton textColorBtn = makeColorButton("Text colour", textColor);
-        JComboBox<String> align = new JComboBox<>(ALIGN_LABELS);
-        align.setSelectedIndex(Math.max(0, indexOfInt(ALIGN_VALUES, w.alignment)));
+        final int[] sel = { 0 };
+        final boolean[] loading = { false };
 
-        JComboBox<String> textEffect = new JComboBox<>(TEXT_EFFECTS);
-        textEffect.setSelectedItem(w.textEffect);
-        JSpinner textEffectIntensity = new JSpinner(new SpinnerNumberModel(w.textEffectIntensity, 0, 100, 5));
-        JSpinner lineSpacing = new JSpinner(new SpinnerNumberModel(w.lineSpacing, -20, 60, 1));
+        // Read current form controls into popup p.
+        final java.util.function.Consumer<SummaryPopup> commitInto = p -> {
+            p.enabled = popEnabled.isSelected();
+            p.text = textArea.getText();
+            p.appearSec = ((Number) appearSec.getValue()).doubleValue();
+            p.durationSec = ((Number) duration.getValue()).doubleValue();
+            p.animMs = ((Number) animMs.getValue()).intValue();
+            p.entrance = (String) entrance.getSelectedItem();
+            p.easing = (String) easing.getSelectedItem();
+            p.fontName = (String) font.getSelectedItem();
+            p.fontSize = ((Number) fontSize.getValue()).intValue();
+            p.bold = bold.isSelected();
+            p.italic = italic.isSelected();
+            p.textColor = textColor[0];
+            p.alignment = ALIGN_VALUES[Math.max(0, align.getSelectedIndex())];
+            p.textEffect = (String) textEffect.getSelectedItem();
+            p.textEffectIntensity = ((Number) textEffectIntensity.getValue()).intValue();
+            p.lineSpacing = ((Number) lineSpacing.getValue()).intValue();
+            p.xPct = ((Number) xPct.getValue()).intValue();
+            p.yPct = ((Number) yPct.getValue()).intValue();
+            p.widthPct = ((Number) widthPct.getValue()).intValue();
+            p.boxColor = boxColor[0];
+            p.boxOpacity = ((Number) boxOpacity.getValue()).intValue();
+            p.boxRoundPct = ((Number) boxRound.getValue()).intValue();
+            p.boxPadPct = ((Number) boxPad.getValue()).intValue();
+            p.boxPadYPct = ((Number) boxPadY.getValue()).intValue();
+            p.boxShadow = boxShadow.isSelected();
+            p.boxGlow = boxGlow.isSelected();
+            p.boxGlowColor = boxGlowColor[0];
+            p.boxBorderStyle = (String) border.getSelectedItem();
+            p.boxBorderColor = borderColor[0];
+            p.boxBorderWidth = ((Number) borderWidth.getValue()).intValue();
+        };
+        final Runnable commitCurrent = () -> {
+            if (!loading[0] && sel[0] >= 0 && sel[0] < wc.popups.size()) commitInto.accept(wc.popups.get(sel[0]));
+        };
 
-        JSpinner xPct = new JSpinner(new SpinnerNumberModel(w.xPct, 0, 100, 1));
-        JSpinner yPct = new JSpinner(new SpinnerNumberModel(w.yPct, 0, 100, 1));
-        JSpinner widthPct = new JSpinner(new SpinnerNumberModel(w.widthPct, 10, 100, 1));
+        // Load popup p into the form controls.
+        final java.util.function.Consumer<SummaryPopup> loadForm = p -> {
+            loading[0] = true;
+            popEnabled.setSelected(p.enabled);
+            textArea.setText(p.text);
+            textArea.setCaretPosition(0);
+            appearSec.setValue(p.appearSec);
+            duration.setValue(p.durationSec);
+            animMs.setValue(p.animMs);
+            entrance.setSelectedItem(p.entrance);
+            easing.setSelectedItem(p.easing);
+            font.setSelectedItem(p.fontName);
+            fontSize.setValue(p.fontSize);
+            bold.setSelected(p.bold);
+            italic.setSelected(p.italic);
+            textColor[0] = p.textColor; repaintColorButton(textColorBtn, textColor[0]);
+            align.setSelectedIndex(Math.max(0, indexOfInt(ALIGN_VALUES, p.alignment)));
+            textEffect.setSelectedItem(p.textEffect);
+            textEffectIntensity.setValue(p.textEffectIntensity);
+            lineSpacing.setValue(p.lineSpacing);
+            xPct.setValue(p.xPct);
+            yPct.setValue(p.yPct);
+            widthPct.setValue(p.widthPct);
+            boxColor[0] = p.boxColor; repaintColorButton(boxColorBtn, boxColor[0]);
+            boxOpacity.setValue(p.boxOpacity);
+            boxRound.setValue(p.boxRoundPct);
+            boxPad.setValue(p.boxPadPct);
+            boxPadY.setValue(p.boxPadYPct);
+            boxShadow.setSelected(p.boxShadow);
+            boxGlow.setSelected(p.boxGlow);
+            boxGlowColor[0] = p.boxGlowColor; repaintColorButton(boxGlowColorBtn, boxGlowColor[0]);
+            border.setSelectedItem(p.boxBorderStyle);
+            borderColor[0] = p.boxBorderColor; repaintColorButton(borderColorBtn, borderColor[0]);
+            borderWidth.setValue(p.boxBorderWidth);
+            loading[0] = false;
+        };
 
-        final Color[] boxColor = { w.boxColor };
-        JButton boxColorBtn = makeColorButton("Box colour", boxColor);
-        JSpinner boxOpacity = new JSpinner(new SpinnerNumberModel(w.boxOpacity, 0, 100, 1));
-        JSpinner boxRound = new JSpinner(new SpinnerNumberModel(w.boxRoundPct, 0, 100, 1));
-        JSpinner boxPad = new JSpinner(new SpinnerNumberModel(w.boxPadPct, 0, 100, 1));
-        JSpinner boxPadY = new JSpinner(new SpinnerNumberModel(w.boxPadYPct, 0, 100, 1));
-        JCheckBox boxShadow = new JCheckBox("Drop shadow", w.boxShadow);
-        JCheckBox boxGlow = new JCheckBox("Outer glow", w.boxGlow);
-        final Color[] boxGlowColor = { w.boxGlowColor };
-        JButton boxGlowColorBtn = makeColorButton("Glow colour", boxGlowColor);
-        JComboBox<String> border = new JComboBox<>(BORDER_STYLES);
-        border.setSelectedItem(w.boxBorderStyle);
-        final Color[] borderColor = { w.boxBorderColor };
-        JButton borderColorBtn = makeColorButton("Border colour", borderColor);
-        JSpinner borderWidth = new JSpinner(new SpinnerNumberModel(w.boxBorderWidth, 1, 30, 1));
+        final Runnable updateSegLen = () -> {
+            commitCurrent.run();
+            double s = wc.segmentDurationSec();
+            segLenLabel.setText(String.format(java.util.Locale.US,
+                    "Segment length added to video: %.1f s  (%d popup%s)",
+                    s, wc.popups.size(), wc.popups.size() == 1 ? "" : "s"));
+        };
+        final Runnable refreshList = () -> {
+            int keep = sel[0];
+            listModel.clear();
+            for (int i = 0; i < wc.popups.size(); i++) {
+                SummaryPopup p = wc.popups.get(i);
+                String t = p.text == null ? "" : p.text.replace('\n', ' ').trim();
+                if (t.length() > 24) t = t.substring(0, 22) + "…";
+                if (t.isEmpty()) t = "(empty)";
+                listModel.addElement("Popup " + (i + 1) + (p.enabled ? "" : " (off)") + ": " + t);
+            }
+            if (keep >= 0 && keep < listModel.size()) popupList.setSelectedIndex(keep);
+        };
 
-        JComboBox<String> bgMode = new JComboBox<>(BG_MODES);
-        bgMode.setSelectedItem(w.bgMode);
-        final Color[] bgColor = { w.bgColor };
-        JButton bgColorBtn = makeColorButton("Background colour", bgColor);
-        JSpinner bgDim = new JSpinner(new SpinnerNumberModel(w.bgDim, 0, 100, 5));
+        popupList.addListSelectionListener(ev -> {
+            if (ev.getValueIsAdjusting()) return;
+            int idx = popupList.getSelectedIndex();
+            if (idx < 0 || idx == sel[0]) return;
+            commitCurrent.run();          // save edits of the previous selection
+            sel[0] = idx;
+            loadForm.accept(wc.popups.get(idx));
+        });
+        // Keep the list label + segment length live as text / timing change.
+        textArea.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            void go() { if (loading[0]) return; commitCurrent.run(); int i = sel[0]; refreshList.run(); sel[0] = i; }
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { go(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { go(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { go(); }
+        });
+        javax.swing.event.ChangeListener timingCh = e -> updateSegLen.run();
+        appearSec.addChangeListener(timingCh);
+        duration.addChangeListener(timingCh);
+        popEnabled.addActionListener(e -> { commitCurrent.run(); int i = sel[0]; refreshList.run(); sel[0] = i; updateSegLen.run(); });
 
-        // ---- layout ----
+        JButton addBtn = new JButton("Add");
+        JButton dupBtn = new JButton("Duplicate");
+        JButton delBtn = new JButton("Remove");
+        addBtn.addActionListener(e -> {
+            commitCurrent.run();
+            SummaryPopup p = new SummaryPopup();
+            p.appearSec = wc.segmentDurationSec(); // stagger a new one after the others
+            p.yPct = Math.min(90, 30 + wc.popups.size() * 15);
+            wc.popups.add(p);
+            sel[0] = wc.popups.size() - 1;
+            refreshList.run();
+            popupList.setSelectedIndex(sel[0]);
+            loadForm.accept(p);
+            updateSegLen.run();
+        });
+        dupBtn.addActionListener(e -> {
+            commitCurrent.run();
+            if (sel[0] < 0 || sel[0] >= wc.popups.size()) return;
+            SummaryPopup p = wc.popups.get(sel[0]).duplicate();
+            p.yPct = Math.min(95, p.yPct + 8);
+            wc.popups.add(sel[0] + 1, p);
+            sel[0] = sel[0] + 1;
+            refreshList.run();
+            popupList.setSelectedIndex(sel[0]);
+            loadForm.accept(p);
+            updateSegLen.run();
+        });
+        delBtn.addActionListener(e -> {
+            if (wc.popups.size() <= 1) { wc.popups.get(0).text = ""; loadForm.accept(wc.popups.get(0)); }
+            else {
+                wc.popups.remove(sel[0]);
+                sel[0] = Math.max(0, sel[0] - 1);
+                loadForm.accept(wc.popups.get(sel[0]));
+            }
+            refreshList.run();
+            popupList.setSelectedIndex(sel[0]);
+            updateSegLen.run();
+        });
+
+        // ---- form layout ----
         JPanel form = new JPanel(new GridBagLayout());
-        form.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+        form.setBorder(BorderFactory.createEmptyBorder(6, 10, 10, 12));
         GridBagConstraints gc = new GridBagConstraints();
         gc.insets = new Insets(3, 5, 3, 5);
         gc.anchor = GridBagConstraints.WEST;
-        gc.gridx = 0; gc.gridy = 0; gc.gridwidth = 4; form.add(enabled, gc);
-
+        int[] r = { 0 };
         java.util.function.BiConsumer<Integer, String> section = (row, title) -> {
-            gc.gridx = 0; gc.gridy = row; gc.gridwidth = 4;
+            gc.gridx = 0; gc.gridy = row; gc.gridwidth = 2;
             JLabel l = new JLabel(title);
             l.setFont(new Font("Segoe UI", Font.BOLD, 12));
             l.setForeground(new Color(90, 60, 150));
             form.add(l, gc);
             gc.gridwidth = 1;
         };
-        int[] r = { 1 };
         java.util.function.BiConsumer<String, Component> field = (label, comp) -> {
-            gc.gridx = 0; gc.gridy = r[0]; gc.gridwidth = 1;
+            gc.gridx = 0; gc.gridy = r[0]; gc.gridwidth = 1; gc.anchor = GridBagConstraints.NORTHWEST;
             form.add(new JLabel(label), gc);
-            gc.gridx = 1; gc.gridwidth = 3;
+            gc.gridx = 1; gc.anchor = GridBagConstraints.WEST;
             form.add(comp, gc);
-            gc.gridwidth = 1;
             r[0]++;
         };
         java.util.function.BiConsumer<String, Component[]> field2 = (label, comps) -> {
@@ -11674,16 +11859,17 @@ public class GifSlideShowApp extends JFrame {
             form.add(new JLabel(label), gc);
             JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
             for (Component c : comps) row.add(c);
-            gc.gridx = 1; gc.gridwidth = 3;
+            gc.gridx = 1;
             form.add(row, gc);
-            gc.gridwidth = 1;
             r[0]++;
         };
 
-        r[0] = 1;
-        section.accept(1, "Content"); r[0] = 2;
+        r[0] = 0;
+        gc.gridx = 0; gc.gridy = r[0]++; gc.gridwidth = 2; form.add(popEnabled, gc); gc.gridwidth = 1;
+        section.accept(r[0]++, "Content");
         field.accept("Summary text:", textScroll);
-        field.accept("Hold on screen (sec):", duration);
+        field2.accept("Timing (sec):", new Component[]{ new JLabel("Appear at:"), appearSec,
+                new JLabel("Hold for:"), duration });
 
         section.accept(r[0]++, "Entrance");
         field2.accept("Animation:", new Component[]{ entrance, new JLabel("Ease:"), easing,
@@ -11702,86 +11888,267 @@ public class GifSlideShowApp extends JFrame {
         field2.accept("Effects:", new Component[]{ boxShadow, boxGlow, boxGlowColorBtn });
         field2.accept("Border:", new Component[]{ border, borderColorBtn, new JLabel("Width:"), borderWidth });
 
-        section.accept(r[0]++, "Placement & background");
+        section.accept(r[0]++, "Placement");
         field2.accept("Position %:", new Component[]{ new JLabel("X:"), xPct, new JLabel("Y:"), yPct,
                 new JLabel("Width:"), widthPct });
-        field2.accept("Backdrop:", new Component[]{ bgMode, bgColorBtn, new JLabel("Dim %:"), bgDim });
 
-        // enable/disable everything but the master checkbox
-        Runnable toggle = () -> {
-            boolean on = enabled.isSelected();
-            for (Component c : new Component[]{ textArea, duration, entrance, easing, animMs,
-                    font, fontSize, bold, italic, textColorBtn, align, textEffect, textEffectIntensity,
-                    lineSpacing, xPct, yPct, widthPct, boxColorBtn, boxOpacity, boxRound, boxPad, boxPadY,
-                    boxShadow, boxGlow, boxGlowColorBtn, border, borderColorBtn, borderWidth,
-                    bgMode, bgColorBtn, bgDim }) {
-                c.setEnabled(on);
-            }
+        // ---- left: list + list buttons; segment backdrop ----
+        JPanel listButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        listButtons.add(addBtn); listButtons.add(dupBtn); listButtons.add(delBtn);
+        JPanel left = new JPanel(new BorderLayout(0, 6));
+        left.setBorder(BorderFactory.createEmptyBorder(6, 10, 6, 6));
+        JLabel popupsLbl = new JLabel("Popups");
+        popupsLbl.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        left.add(popupsLbl, BorderLayout.NORTH);
+        left.add(new JScrollPane(popupList), BorderLayout.CENTER);
+        JPanel backdrop = new JPanel(new GridBagLayout());
+        GridBagConstraints bgc = new GridBagConstraints();
+        bgc.insets = new Insets(2, 3, 2, 3); bgc.anchor = GridBagConstraints.WEST;
+        bgc.gridx = 0; bgc.gridy = 0; bgc.gridwidth = 2;
+        JLabel bdLbl = new JLabel("Backdrop (shared)");
+        bdLbl.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        bdLbl.setForeground(new Color(90, 60, 150));
+        backdrop.add(bdLbl, bgc);
+        bgc.gridwidth = 1; bgc.gridy = 1; bgc.gridx = 0; backdrop.add(new JLabel("Mode:"), bgc);
+        bgc.gridx = 1; backdrop.add(bgMode, bgc);
+        bgc.gridy = 2; bgc.gridx = 0; backdrop.add(new JLabel("Colour:"), bgc);
+        bgc.gridx = 1; backdrop.add(bgColorBtn, bgc);
+        bgc.gridy = 3; bgc.gridx = 0; backdrop.add(new JLabel("Dim %:"), bgc);
+        bgc.gridx = 1; backdrop.add(bgDim, bgc);
+        JPanel leftBottom = new JPanel(new BorderLayout(0, 4));
+        leftBottom.add(listButtons, BorderLayout.NORTH);
+        leftBottom.add(backdrop, BorderLayout.CENTER);
+        left.add(leftBottom, BorderLayout.SOUTH);
+
+        JScrollPane formScroll = new JScrollPane(form);
+        formScroll.setBorder(BorderFactory.createEmptyBorder());
+        formScroll.getVerticalScrollBar().setUnitIncrement(16);
+
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, formScroll);
+        split.setResizeWeight(0.28);
+        split.setDividerLocation(230);
+
+        // ---- enable/disable form when master off ----
+        final Component[] segControls = { bgMode, bgColorBtn, bgDim };
+        final Component[] popControls = { popEnabled, textArea, appearSec, duration, animMs, entrance, easing,
+                font, fontSize, bold, italic, textColorBtn, align, textEffect, textEffectIntensity, lineSpacing,
+                xPct, yPct, widthPct, boxColorBtn, boxOpacity, boxRound, boxPad, boxPadY, boxShadow, boxGlow,
+                boxGlowColorBtn, border, borderColorBtn, borderWidth, popupList, addBtn, dupBtn, delBtn };
+        Runnable masterToggle = () -> {
+            boolean on = masterEnabled.isSelected();
+            for (Component c : segControls) c.setEnabled(on);
+            for (Component c : popControls) c.setEnabled(on);
         };
-        enabled.addActionListener(e -> toggle.run());
-        toggle.run();
+        masterEnabled.addActionListener(e -> masterToggle.run());
+        bgMode.addActionListener(e -> {});
 
+        // ---- south buttons ----
+        JButton preview = new JButton("▶ Live Preview");
+        preview.setToolTipText("Play the summary segment exactly as it will look in the exported video — no rendering needed.");
         JButton ok = new JButton("OK");
         JButton cancel = new JButton("Cancel");
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        buttons.add(cancel); buttons.add(ok);
+        JPanel south = new JPanel(new BorderLayout());
+        JPanel southLeft = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        southLeft.add(preview);
+        southLeft.add(segLenLabel);
+        JPanel southRight = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        southRight.add(cancel); southRight.add(ok);
+        south.add(southLeft, BorderLayout.WEST);
+        south.add(southRight, BorderLayout.EAST);
 
+        Runnable commitSegment = () -> {
+            wc.enabled = masterEnabled.isSelected();
+            wc.bgMode = (String) bgMode.getSelectedItem();
+            wc.bgColor = bgColor[0];
+            wc.bgDim = ((Number) bgDim.getValue()).intValue();
+            commitCurrent.run();
+        };
+
+        preview.addActionListener(e -> {
+            commitSegment.run();
+            if (wc.segmentDurationSec() <= 0) {
+                JOptionPane.showMessageDialog(dlg,
+                        "Add some summary text (and enable the summary) first — there's nothing to preview yet.",
+                        "Live Preview", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            openSummaryPreview(dlg, wc.duplicate());
+        });
         cancel.addActionListener(e -> dlg.dispose());
         ok.addActionListener(e -> {
-            w.enabled = enabled.isSelected();
-            w.text = textArea.getText();
-            w.durationSec = ((Number) duration.getValue()).doubleValue();
-            w.entrance = (String) entrance.getSelectedItem();
-            w.easing = (String) easing.getSelectedItem();
-            w.animMs = ((Number) animMs.getValue()).intValue();
-            w.fontName = (String) font.getSelectedItem();
-            w.fontSize = ((Number) fontSize.getValue()).intValue();
-            w.bold = bold.isSelected();
-            w.italic = italic.isSelected();
-            w.textColor = textColor[0];
-            w.alignment = ALIGN_VALUES[Math.max(0, align.getSelectedIndex())];
-            w.textEffect = (String) textEffect.getSelectedItem();
-            w.textEffectIntensity = ((Number) textEffectIntensity.getValue()).intValue();
-            w.lineSpacing = ((Number) lineSpacing.getValue()).intValue();
-            w.xPct = ((Number) xPct.getValue()).intValue();
-            w.yPct = ((Number) yPct.getValue()).intValue();
-            w.widthPct = ((Number) widthPct.getValue()).intValue();
-            w.boxColor = boxColor[0];
-            w.boxOpacity = ((Number) boxOpacity.getValue()).intValue();
-            w.boxRoundPct = ((Number) boxRound.getValue()).intValue();
-            w.boxPadPct = ((Number) boxPad.getValue()).intValue();
-            w.boxPadYPct = ((Number) boxPadY.getValue()).intValue();
-            w.boxShadow = boxShadow.isSelected();
-            w.boxGlow = boxGlow.isSelected();
-            w.boxGlowColor = boxGlowColor[0];
-            w.boxBorderStyle = (String) border.getSelectedItem();
-            w.boxBorderColor = borderColor[0];
-            w.boxBorderWidth = ((Number) borderWidth.getValue()).intValue();
-            w.bgMode = (String) bgMode.getSelectedItem();
-            w.bgColor = bgColor[0];
-            w.bgDim = ((Number) bgDim.getValue()).intValue();
-            summaryPopup.copyFrom(w);
+            commitSegment.run();
+            summaryConfig.copyFrom(wc);
             dlg.dispose();
         });
 
-        JScrollPane formScroll = new JScrollPane(form);
-        formScroll.setBorder(null);
-        formScroll.getVerticalScrollBar().setUnitIncrement(16);
+        // ---- assemble ----
         dlg.setLayout(new BorderLayout());
-        JLabel hint = new JLabel("<html><body style='width:520px'>This pop-up plays <b>after</b> the "
-                + "whole slideshow and adds its hold time to the final video length. It uses the same "
-                + "entrance and text effects as the rest of the app.</body></html>");
-        hint.setBorder(BorderFactory.createEmptyBorder(8, 12, 0, 12));
+        JPanel north = new JPanel(new BorderLayout());
+        JLabel hint = new JLabel("<html><body style='width:640px'>The summary plays <b>after</b> the whole "
+                + "slideshow and adds its length to the video. Add multiple popups at different positions and times; "
+                + "each uses the same entrance and text effects as the rest of the app. Use <b>Live Preview</b> to "
+                + "see the exact result without exporting.</body></html>");
+        hint.setBorder(BorderFactory.createEmptyBorder(8, 12, 4, 12));
         hint.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        dlg.add(hint, BorderLayout.NORTH);
-        dlg.add(formScroll, BorderLayout.CENTER);
-        dlg.add(buttons, BorderLayout.SOUTH);
+        JPanel masterRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        masterRow.add(masterEnabled);
+        north.add(hint, BorderLayout.NORTH);
+        north.add(masterRow, BorderLayout.SOUTH);
+        dlg.add(north, BorderLayout.NORTH);
+        dlg.add(split, BorderLayout.CENTER);
+        dlg.add(south, BorderLayout.SOUTH);
+
+        // initial state
+        refreshList.run();
+        popupList.setSelectedIndex(0);
+        loadForm.accept(wc.popups.get(0));
+        updateSegLen.run();
+        masterToggle.run();
+
         dlg.pack();
         Dimension scr = Toolkit.getDefaultToolkit().getScreenSize();
-        dlg.setSize(Math.min(dlg.getWidth() + 20, 720),
+        dlg.setSize(Math.min(Math.max(dlg.getWidth() + 20, 860), scr.width - 60),
                 Math.min(dlg.getHeight() + 10, scr.height - 80));
         dlg.setLocationRelativeTo(owner);
         dlg.setVisible(true);
+    }
+
+    /**
+     * Live-preview window for the summary segment. Plays / scrubs the segment
+     * rendered by {@link #renderSummaryFrame} — the very same code the export
+     * uses — at the project's base resolution, so the preview matches the final
+     * video (scaled to fit the window). The backdrop uses the last slide's image
+     * as a stand-in for the frozen last frame.
+     */
+    private void openSummaryPreview(Window owner, SummaryConfig cfg) {
+        final int baseW = isPortrait() ? 1080 : 1920;
+        final int baseH = isPortrait() ? 1920 : 1080;
+        final int fps = 30;
+        final int segMs = Math.max(1, (int) Math.round(cfg.segmentDurationSec() * 1000.0));
+
+        final BufferedImage baseFrame = summaryPreviewBaseFrame(baseW, baseH);
+        final BufferedImage backdrop = buildSummaryBackdrop(cfg, baseFrame, baseW, baseH);
+
+        // Fit the base resolution into a reasonable on-screen size.
+        Dimension scr = Toolkit.getDefaultToolkit().getScreenSize();
+        final int maxH = Math.min(760, scr.height - 200);
+        final int maxW = Math.min(900, scr.width - 120);
+        double fit = Math.min(maxW / (double) baseW, maxH / (double) baseH);
+        final int dispW = Math.max(80, (int) (baseW * fit));
+        final int dispH = Math.max(80, (int) (baseH * fit));
+
+        final BufferedImage[] frameImg = { renderSummaryFrame(cfg, backdrop, baseW, baseH, fps, 0) };
+
+        // Owned by (and modal to) the config dialog so its Play / scrub controls
+        // work while the config dialog is application-modal; closing it returns to
+        // the editor.
+        final JDialog dlg = new JDialog(owner, "Summary — Live Preview",
+                Dialog.ModalityType.APPLICATION_MODAL);
+        dlg.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+
+        JPanel canvas = new JPanel() {
+            @Override protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g;
+                g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                int x = (getWidth() - dispW) / 2, y = (getHeight() - dispH) / 2;
+                g2.setColor(Color.BLACK);
+                g2.fillRect(0, 0, getWidth(), getHeight());
+                if (frameImg[0] != null) g2.drawImage(frameImg[0], x, y, dispW, dispH, null);
+            }
+        };
+        canvas.setPreferredSize(new Dimension(dispW, dispH));
+        canvas.setBackground(Color.BLACK);
+
+        final JSlider scrub = new JSlider(0, segMs, 0);
+        final JLabel timeLbl = new JLabel();
+        final JButton play = new JButton("▶ Play");
+        final long[] baseNanoAtZero = { 0 };
+        final int[] curMs = { 0 };
+
+        final Runnable renderAt = () -> {
+            frameImg[0] = renderSummaryFrame(cfg, backdrop, baseW, baseH, fps, curMs[0]);
+            timeLbl.setText(String.format(java.util.Locale.US, "%.2f / %.2f s", curMs[0] / 1000.0, segMs / 1000.0));
+            canvas.repaint();
+        };
+
+        final javax.swing.Timer timer = new javax.swing.Timer(1000 / fps, null);
+        timer.addActionListener(e -> {
+            int t = (int) ((System.nanoTime() - baseNanoAtZero[0]) / 1_000_000L);
+            if (t >= segMs) {                 // loop
+                baseNanoAtZero[0] = System.nanoTime();
+                t = 0;
+            }
+            curMs[0] = t;
+            scrub.setValue(t);
+            renderAt.run();
+        });
+
+        play.addActionListener(e -> {
+            if (timer.isRunning()) {
+                timer.stop();
+                play.setText("▶ Play");
+            } else {
+                baseNanoAtZero[0] = System.nanoTime() - (long) curMs[0] * 1_000_000L;
+                timer.start();
+                play.setText("❚❚ Pause");
+            }
+        });
+        scrub.addChangeListener(e -> {
+            if (timer.isRunning()) return; // driven by the timer while playing
+            curMs[0] = scrub.getValue();
+            renderAt.run();
+        });
+        dlg.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override public void windowClosed(java.awt.event.WindowEvent e) { timer.stop(); }
+        });
+
+        JPanel controls = new JPanel(new BorderLayout(6, 0));
+        controls.setBorder(BorderFactory.createEmptyBorder(6, 10, 8, 10));
+        controls.add(play, BorderLayout.WEST);
+        controls.add(scrub, BorderLayout.CENTER);
+        controls.add(timeLbl, BorderLayout.EAST);
+
+        JLabel note = new JLabel("Popups render exactly as in the export. Backdrop shown here is the last "
+                + "slide's image as a stand-in for the frozen last frame.");
+        note.setFont(new Font("Segoe UI", Font.ITALIC, 10));
+        note.setBorder(BorderFactory.createEmptyBorder(4, 10, 4, 10));
+
+        dlg.setLayout(new BorderLayout());
+        dlg.add(canvas, BorderLayout.CENTER);
+        JPanel south = new JPanel(new BorderLayout());
+        south.add(controls, BorderLayout.CENTER);
+        south.add(note, BorderLayout.SOUTH);
+        dlg.add(south, BorderLayout.SOUTH);
+        dlg.pack();
+        dlg.setLocationRelativeTo(owner);
+        renderAt.run();
+        // Auto-play on open. The Timer must start before the modal setVisible call
+        // (which blocks here): the modal dialog runs its own event loop that keeps
+        // dispatching Timer ticks.
+        baseNanoAtZero[0] = System.nanoTime();
+        timer.start();
+        play.setText("❚❚ Pause");
+        dlg.setVisible(true);
+    }
+
+    /** Backdrop stand-in for the live preview: the last slide's image scaled to
+     *  cover the frame, or null when there is no image. */
+    private BufferedImage summaryPreviewBaseFrame(int w, int h) {
+        BufferedImage src = null;
+        for (int i = slideRows.size() - 1; i >= 0; i--) {
+            BufferedImage img = slideRows.get(i).getImage();
+            if (img != null) { src = img; break; }
+        }
+        if (src == null) return null;
+        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = out.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        double sc = Math.max((double) w / src.getWidth(), (double) h / src.getHeight());
+        int dw = (int) (src.getWidth() * sc), dh = (int) (src.getHeight() * sc);
+        g.drawImage(src, (w - dw) / 2, (h - dh) / 2, dw, dh, null);
+        g.dispose();
+        return out;
     }
 
     /** Index of {@code value} in {@code arr}, or 0 when not present. */
@@ -11790,21 +12157,25 @@ public class GifSlideShowApp extends JFrame {
         return 0;
     }
 
+    /** Paint a colour-swatch button so its background shows the chosen colour and
+     *  its label stays legible. */
+    private static void repaintColorButton(JButton b, Color c) {
+        if (c == null) c = Color.GRAY;
+        b.setBackground(c);
+        int lum = (c.getRed() * 299 + c.getGreen() * 587 + c.getBlue() * 114) / 1000;
+        b.setForeground(lum > 140 ? Color.BLACK : Color.WHITE);
+        b.setOpaque(true);
+        b.setBorderPainted(false);
+    }
+
     /** A small button showing a colour swatch; clicking opens a colour chooser and
      *  writes the pick back into {@code holder[0]}. */
     private JButton makeColorButton(String title, Color[] holder) {
         JButton b = new JButton(title);
-        Runnable paint = () -> {
-            b.setBackground(holder[0]);
-            int lum = (holder[0].getRed() * 299 + holder[0].getGreen() * 587 + holder[0].getBlue() * 114) / 1000;
-            b.setForeground(lum > 140 ? Color.BLACK : Color.WHITE);
-            b.setOpaque(true);
-            b.setBorderPainted(false);
-        };
-        paint.run();
+        repaintColorButton(b, holder[0]);
         b.addActionListener(e -> {
             Color picked = JColorChooser.showDialog(b, title, holder[0]);
-            if (picked != null) { holder[0] = picked; paint.run(); }
+            if (picked != null) { holder[0] = picked; repaintColorButton(b, holder[0]); }
         });
         return b;
     }
@@ -13563,16 +13934,15 @@ public class GifSlideShowApp extends JFrame {
                             }
                         }
 
-                        // End-of-video summary pop-up (optional). Appended as the very
+                        // End-of-video summary segment (optional). Appended as the very
                         // last pass — after overlays, repeats and global slow — and only
                         // on the final chunk, so it truly plays at the end of the video
-                        // and lengthens it by its hold time. Non-destructive on failure.
-                        if (summaryPopup != null && summaryPopup.enabled
-                                && summaryPopup.text != null && !summaryPopup.text.trim().isEmpty()
+                        // and lengthens it by its total hold time. Non-destructive on failure.
+                        if (summaryConfig != null && summaryConfig.active()
                                 && __chunkIdx == slideChunks.size() - 1) {
                             publish("Adding end summary popup...");
                             try {
-                                appendSummaryPopup(finalOut, summaryPopup, videoW, videoH, fps, crf, tempDir);
+                                appendSummaryPopup(finalOut, summaryConfig, videoW, videoH, fps, crf, tempDir);
                             } catch (Exception spex) {
                                 publish("Summary popup skipped: " + spex.getMessage());
                             }
@@ -14838,101 +15208,125 @@ public class GifSlideShowApp extends JFrame {
         return null;
     }
 
-    /**
-     * Append the end-of-video summary pop-up to a finished MP4, extending its
-     * length by {@code cfg.durationSec}. Rendered as its own segment (a fancy
-     * textbox drawn over a chosen backdrop, animated in with the configured
-     * entrance + text effects) then concatenated after the main video. Silent
-     * audio is added to the segment when the base has an audio track so the
-     * streams line up for concat. Non-destructive: any failure leaves the input
-     * file untouched (the exception is caught by the caller).
-     */
-    private static void appendSummaryPopup(File video, SummaryPopup cfg,
-                                           int videoW, int videoH, int fps, int crf, File tempDir)
-            throws IOException, InterruptedException {
-        if (video == null || !video.exists() || cfg == null || !cfg.enabled) return;
-        String text = cfg.text == null ? "" : cfg.text;
-        if (text.trim().isEmpty()) return;
-        int frames = Math.max(1, (int) Math.round(cfg.durationSec * fps));
+    /** Build the SlideTextData that draws one summary popup: box styling + text
+     *  effect + the entrance animation anchored at the popup's appear time. This
+     *  is the single source of truth shared by the export and the live preview. */
+    static SlideTextData buildSummaryTextData(SummaryPopup p) {
+        int style = (p.bold ? Font.BOLD : 0) | (p.italic ? Font.ITALIC : 0);
+        SlideTextData st = new SlideTextData(
+                true, p.text == null ? "" : p.text, p.fontName, p.fontSize, style, p.textColor,
+                p.xPct, p.yPct, p.boxOpacity, p.boxColor,
+                false, p.widthPct, 0, p.alignment,
+                p.textEffect, p.textEffectIntensity,
+                "", null, null, 0, "None", "", "", "", "", null,
+                false, false, 0, 0, "Sequential",
+                false, "From Left", 1500, 0, "Ease Out",
+                0, 0, p.lineSpacing, 100);
+        st.bgColor2       = p.boxColor;
+        st.bgRoundPct     = p.boxRoundPct;
+        st.bgPaddingPct   = p.boxPadPct;
+        st.bgPaddingYPct  = p.boxPadYPct;
+        st.bgShape        = "Rounded";
+        st.bgShadow       = p.boxShadow;
+        st.bgOuterGlow    = p.boxGlow;
+        st.bgOuterGlowColor = p.boxGlowColor;
+        st.bgBorderStyle  = p.boxBorderStyle;
+        st.bgBorderColor  = p.boxBorderColor;
+        st.bgBorderWidth  = p.boxBorderWidth;
+        // Timeline: appear at appearSec, disappear at appearSec + durationSec.
+        st.timerAppearMs     = (int) Math.round(p.appearSec * 1000.0);
+        st.timerDisappearMs  = (int) Math.round(p.endSec() * 1000.0);
+        st.timerAppearEffect = p.entrance;
+        st.timerAppearEasing = p.easing;
+        st.timerAppearDurMs  = Math.max(0, p.animMs);
+        return st;
+    }
 
-        // ---- backdrop for the popup segment ----
-        BufferedImage bg = new BufferedImage(videoW, videoH, BufferedImage.TYPE_INT_RGB);
+    /** Build the shared segment backdrop (RGB) from the config and an optional
+     *  base frame (the video's last frame at export, or a rendered stand-in in
+     *  the live preview). Applies blur and the dim overlay. */
+    static BufferedImage buildSummaryBackdrop(SummaryConfig cfg, BufferedImage baseFrame, int w, int h) {
+        BufferedImage bg = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
         Graphics2D bgG = bg.createGraphics();
         bgG.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-        BufferedImage last = null;
-        if (!"Solid Color".equals(cfg.bgMode)) {
-            last = extractLastVideoFrame(video, videoW, videoH, tempDir);
-        }
-        if (last != null) {
-            if ("Blur Last Frame".equals(cfg.bgMode)) last = applyStackBlur(last, 45);
-            bgG.drawImage(last, 0, 0, videoW, videoH, null);
+        BufferedImage base = "Solid Color".equals(cfg.bgMode) ? null : baseFrame;
+        if (base != null) {
+            if ("Blur Last Frame".equals(cfg.bgMode)) base = applyStackBlur(base, 45);
+            bgG.drawImage(base, 0, 0, w, h, null);
         } else {
             bgG.setColor(cfg.bgColor != null ? cfg.bgColor : Color.BLACK);
-            bgG.fillRect(0, 0, videoW, videoH);
+            bgG.fillRect(0, 0, w, h);
         }
         int dim = Math.max(0, Math.min(100, cfg.bgDim));
         if (dim > 0) {
             bgG.setColor(new Color(0, 0, 0, (int) (dim / 100.0 * 255)));
-            bgG.fillRect(0, 0, videoW, videoH);
+            bgG.fillRect(0, 0, w, h);
         }
         bgG.dispose();
+        return bg;
+    }
 
-        // ---- the popup text object (reuses SlideTextData box styling + effects) ----
-        int style = (cfg.bold ? Font.BOLD : 0) | (cfg.italic ? Font.ITALIC : 0);
-        SlideTextData st = new SlideTextData(
-                true, text, cfg.fontName, cfg.fontSize, style, cfg.textColor,
-                cfg.xPct, cfg.yPct, cfg.boxOpacity, cfg.boxColor,
-                false, cfg.widthPct, 0, cfg.alignment,
-                cfg.textEffect, cfg.textEffectIntensity,
-                "", null, null, 0, "None", "", "", "", "", null,
-                false, false, 0, 0, "Sequential",
-                false, "From Left", 1500, 0, "Ease Out",
-                0, 0, cfg.lineSpacing, 100);
-        // Fancy-box styling.
-        st.bgColor2       = cfg.boxColor;
-        st.bgRoundPct     = cfg.boxRoundPct;
-        st.bgPaddingPct   = cfg.boxPadPct;
-        st.bgPaddingYPct  = cfg.boxPadYPct;
-        st.bgShape        = "Rounded";
-        st.bgShadow       = cfg.boxShadow;
-        st.bgOuterGlow    = cfg.boxGlow;
-        st.bgOuterGlowColor = cfg.boxGlowColor;
-        st.bgBorderStyle  = cfg.boxBorderStyle;
-        st.bgBorderColor  = cfg.boxBorderColor;
-        st.bgBorderWidth  = cfg.boxBorderWidth;
-        // Entrance animation, driven through the Texts-Timer fields.
-        st.timerAppearMs      = 0;
-        st.timerDisappearMs   = -1;
-        st.timerAppearEffect  = cfg.entrance;
-        st.timerAppearEasing  = cfg.easing;
-        st.timerAppearDurMs   = Math.max(0, cfg.animMs);
+    /** Render a single fully-composited summary frame at {@code elapsedMs} into
+     *  the segment: the live popups drawn (with entrance/text effects at the
+     *  right moment) over the given backdrop. Used identically by the export and
+     *  the live preview, so the preview matches the video exactly. */
+    static BufferedImage renderSummaryFrame(SummaryConfig cfg, BufferedImage backdrop,
+                                            int w, int h, int fps, long elapsedMs) {
+        java.util.List<SlideTextData> list = new java.util.ArrayList<>();
+        for (SummaryPopup p : cfg.popups) if (p.isLive()) list.add(buildSummaryTextData(p));
+        applyQuizHideMask(list, null, elapsedMs, true);
+        int frameIdx = (int) Math.round(elapsedMs * fps / 1000.0);
+        BufferedImage overlay = renderFrame(
+                null, "", "Segoe UI", 40, Font.PLAIN, Color.WHITE,
+                SwingConstants.CENTER, false, w, h, "Direct", 0, 0,
+                false, null, null, 0, 0, 0, null, "None", "None",
+                list,
+                false, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                "None", 0,
+                false, null, null, null, 0, 0, 0,
+                frameIdx,
+                false, 100, null, null, 0,
+                null, 0, true);
+        BufferedImage frame = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        Graphics2D fg = frame.createGraphics();
+        fg.drawImage(backdrop, 0, 0, null);
+        fg.drawImage(overlay, 0, 0, null);
+        fg.dispose();
+        return frame;
+    }
 
-        java.util.List<SlideTextData> list = java.util.Collections.singletonList(st);
+    /**
+     * Append the end-of-video summary segment to a finished MP4, extending its
+     * length by the segment duration. One or more fancy textboxes are drawn over
+     * a shared backdrop and animated in with their entrance + text effects, then
+     * the segment is concatenated after the main video. Silent audio is added to
+     * the segment when the base has an audio track so the streams line up for
+     * concat. Non-destructive: any failure leaves the input file untouched (the
+     * exception is caught by the caller).
+     */
+    private static void appendSummaryPopup(File video, SummaryConfig cfg,
+                                           int videoW, int videoH, int fps, int crf, File tempDir)
+            throws IOException, InterruptedException {
+        if (video == null || !video.exists() || cfg == null || !cfg.active()) return;
+        double segSec = cfg.segmentDurationSec();
+        if (segSec <= 0) return;
+        int frames = Math.max(1, (int) Math.round(segSec * fps));
 
-        // ---- render the frames ----
+        // ---- shared backdrop (freeze / blur last frame, or solid colour) ----
+        BufferedImage last = null;
+        if (!"Solid Color".equals(cfg.bgMode)) {
+            last = extractLastVideoFrame(video, videoW, videoH, tempDir);
+        }
+        BufferedImage bg = buildSummaryBackdrop(cfg, last, videoW, videoH);
+
+        // ---- render the frames (same renderer the live preview uses) ----
         File popDir = new File(tempDir, "summary_frames_" + System.currentTimeMillis());
         if (!popDir.mkdirs() && !popDir.exists()) {
             throw new IOException("Failed to create summary temp dir: " + popDir);
         }
         for (int i = 0; i < frames; i++) {
             long elapsedMs = (long) (i * 1000.0 / fps);
-            applyQuizHideMask(list, null, elapsedMs, true);
-            BufferedImage overlay = renderFrame(
-                    null, "", cfg.fontName, cfg.fontSize, style, cfg.textColor,
-                    cfg.alignment, false, videoW, videoH, "Direct", 0, 0,
-                    false, null, null, 0, 0, 0, null, "None", "None",
-                    list,
-                    false, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    "None", 0,
-                    false, null, null, null, 0, 0, 0,
-                    i,
-                    false, cfg.widthPct, null, null, 0,
-                    null, 0, true);
-            BufferedImage frame = new BufferedImage(videoW, videoH, BufferedImage.TYPE_INT_RGB);
-            Graphics2D fg = frame.createGraphics();
-            fg.drawImage(bg, 0, 0, null);
-            fg.drawImage(overlay, 0, 0, null);
-            fg.dispose();
+            BufferedImage frame = renderSummaryFrame(cfg, bg, videoW, videoH, fps, elapsedMs);
             ImageIO.write(frame, "png", new File(popDir, String.format("%05d.png", i)));
         }
 
@@ -18092,24 +18486,23 @@ public class GifSlideShowApp extends JFrame {
         }
     }
 
-    // ==================== SummaryPopup ====================
+    // ==================== SummaryPopup / SummaryConfig ====================
 
     /**
-     * End-of-video summary popup. A single "fancy textbox" that appears after the
-     * whole slideshow finishes, holds on screen for {@code durationSec}, and adds
-     * that time to the exported MP4's length. It reuses the app's existing text
-     * machinery: the Texts-Timer entrance effects (Fade / Slide In / Pop / …), the
-     * per-text style effects (Glow / Neon / Rainbow / Typewriter / …) and the
-     * SlideTextData box styling (rounded corners, shadow, glow, border), so the
-     * popup is drawn by the same renderFrame path as everything else.
-     *
-     * Project-level (one per video), edited via the "Summary…" toolbar button and
-     * persisted with the preset. Applied as a final concat pass in createMp4().
+     * One "fancy textbox" shown during the end-of-video summary segment. Several
+     * of these can be placed at different locations and times. Each reuses the
+     * app's existing text machinery: the Texts-Timer entrance effects (Fade /
+     * Slide In / Pop / …), the per-text style effects (Glow / Neon / Rainbow /
+     * Typewriter / …) and the SlideTextData box styling (rounded corners, shadow,
+     * glow, border), so a popup is drawn by the same renderFrame path as
+     * everything else — which is what makes the live preview identical to the
+     * exported video.
      */
     static class SummaryPopup {
-        boolean enabled = false;
+        boolean enabled = true;
         String  text = "";
-        double  durationSec = 5.0;
+        double  appearSec = 0.0;         // when this popup appears, seconds into the segment
+        double  durationSec = 5.0;       // how long it stays visible once it appears
 
         // ---- Entrance animation (same names as the Texts-Timer APPEAR_EFFECTS) ----
         String  entrance = "Pop";        // None, Fade, Slide In Top/Bottom/Left/Right,
@@ -18146,15 +18539,14 @@ public class GifSlideShowApp extends JFrame {
         Color   boxBorderColor = Color.WHITE;
         int     boxBorderWidth = 3;
 
-        // ---- Background behind the box during the popup segment ----
-        String  bgMode = "Freeze Last Frame"; // Solid Color, Freeze Last Frame, Blur Last Frame
-        Color   bgColor = Color.BLACK;
-        int     bgDim = 45;              // darken 0..100 over the frozen / blurred frame
+        /** True when this popup contributes anything to the segment. */
+        boolean isLive() { return enabled && text != null && !text.trim().isEmpty(); }
 
-        /** Copy every field from {@code o} into this instance (used to commit the
-         *  dialog's working copy, or discard it on Cancel by simply not calling it). */
+        /** Seconds from segment start until this popup is gone. */
+        double endSec() { return appearSec + Math.max(0.0, durationSec); }
+
         void copyFrom(SummaryPopup o) {
-            enabled = o.enabled; text = o.text; durationSec = o.durationSec;
+            enabled = o.enabled; text = o.text; appearSec = o.appearSec; durationSec = o.durationSec;
             entrance = o.entrance; easing = o.easing; animMs = o.animMs;
             fontName = o.fontName; fontSize = o.fontSize; bold = o.bold; italic = o.italic;
             textColor = o.textColor; alignment = o.alignment;
@@ -18166,10 +18558,46 @@ public class GifSlideShowApp extends JFrame {
             boxShadow = o.boxShadow; boxGlow = o.boxGlow; boxGlowColor = o.boxGlowColor;
             boxBorderStyle = o.boxBorderStyle; boxBorderColor = o.boxBorderColor;
             boxBorderWidth = o.boxBorderWidth;
-            bgMode = o.bgMode; bgColor = o.bgColor; bgDim = o.bgDim;
         }
 
         SummaryPopup duplicate() { SummaryPopup c = new SummaryPopup(); c.copyFrom(this); return c; }
+    }
+
+    /**
+     * The whole end-of-video summary segment: a shared backdrop plus a list of
+     * {@link SummaryPopup} boxes. Plays after the slideshow finishes and adds its
+     * length ({@link #segmentDurationSec}) to the exported MP4. Project-level,
+     * edited via the "Summary…" toolbar button, persisted with the preset, and
+     * applied as a final concat pass in createMp4().
+     */
+    static class SummaryConfig {
+        boolean enabled = false;
+        // Backdrop behind the popups for the whole segment.
+        String  bgMode = "Freeze Last Frame"; // Solid Color, Freeze Last Frame, Blur Last Frame
+        Color   bgColor = Color.BLACK;
+        int     bgDim = 45;                    // darken 0..100 over the frozen / blurred frame
+        final java.util.List<SummaryPopup> popups = new java.util.ArrayList<>();
+
+        SummaryConfig() { popups.add(new SummaryPopup()); }
+
+        /** Length of the appended segment = the moment the last live popup ends. */
+        double segmentDurationSec() {
+            double m = 0;
+            for (SummaryPopup p : popups) if (p.isLive()) m = Math.max(m, p.endSec());
+            return m;
+        }
+
+        /** True when the segment should actually be appended at export. */
+        boolean active() { return enabled && segmentDurationSec() > 0.0; }
+
+        void copyFrom(SummaryConfig o) {
+            enabled = o.enabled; bgMode = o.bgMode; bgColor = o.bgColor; bgDim = o.bgDim;
+            popups.clear();
+            for (SummaryPopup p : o.popups) popups.add(p.duplicate());
+            if (popups.isEmpty()) popups.add(new SummaryPopup());
+        }
+
+        SummaryConfig duplicate() { SummaryConfig c = new SummaryConfig(); c.copyFrom(this); return c; }
     }
 
     // ==================== SlidePictureData ====================
