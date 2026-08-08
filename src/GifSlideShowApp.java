@@ -519,6 +519,7 @@ public class GifSlideShowApp extends JFrame {
                 props.setProperty(q + "bold",        String.valueOf(sp.bold));
                 props.setProperty(q + "italic",      String.valueOf(sp.italic));
                 props.setProperty(q + "textColor",   colorToHex(sp.textColor));
+                props.setProperty(q + "accentColor", colorToHex(sp.accentColor));
                 props.setProperty(q + "alignment",   String.valueOf(sp.alignment));
                 props.setProperty(q + "textEffect",  sp.textEffect != null ? sp.textEffect : "None");
                 props.setProperty(q + "textEffectIntensity", String.valueOf(sp.textEffectIntensity));
@@ -1702,6 +1703,7 @@ public class GifSlideShowApp extends JFrame {
         sp.bold        = Boolean.parseBoolean(props.getProperty(q + "bold", String.valueOf(def.bold)));
         sp.italic      = Boolean.parseBoolean(props.getProperty(q + "italic", String.valueOf(def.italic)));
         sp.textColor   = hexToColor(props.getProperty(q + "textColor", colorToHex(def.textColor)));
+        sp.accentColor = hexToColor(props.getProperty(q + "accentColor", colorToHex(def.accentColor)));
         sp.alignment   = parseIntOr(props.getProperty(q + "alignment"), def.alignment);
         sp.textEffect  = props.getProperty(q + "textEffect", def.textEffect);
         sp.textEffectIntensity = parseIntOr(props.getProperty(q + "textEffectIntensity"), def.textEffectIntensity);
@@ -11647,6 +11649,10 @@ public class GifSlideShowApp extends JFrame {
         final JCheckBox italic = new JCheckBox("Italic");
         final Color[] textColor = { Color.WHITE };
         final JButton textColorBtn = makeColorButton("Text colour", textColor);
+        final Color[] accentColor = { new Color(120, 80, 210) };
+        final JButton accentColorBtn = makeColorButton("Effect colour 2", accentColor);
+        accentColorBtn.setToolTipText("Second colour for two-colour effects (Cartoon Pop, Gold Pop, "
+                + "Neon + Shadow, Glow + Outline, Outline + Shadow) — the outline / glow accent.");
         final JComboBox<String> align = new JComboBox<>(ALIGN_LABELS);
         final JComboBox<String> textEffect = new JComboBox<>(TEXT_EFFECTS);
         final JSpinner textEffectIntensity = new JSpinner(new SpinnerNumberModel(60, 0, 100, 5));
@@ -11658,8 +11664,10 @@ public class GifSlideShowApp extends JFrame {
         final JButton boxColorBtn = makeColorButton("Box colour", boxColor);
         final JSpinner boxOpacity = new JSpinner(new SpinnerNumberModel(82, 0, 100, 1));
         final JSpinner boxRound = new JSpinner(new SpinnerNumberModel(28, 0, 100, 1));
-        final JSpinner boxPad = new JSpinner(new SpinnerNumberModel(70, 0, 100, 1));
-        final JSpinner boxPadY = new JSpinner(new SpinnerNumberModel(70, 0, 100, 1));
+        // Padding = how far the text sits from the box edges. 100 ≈ default; goes
+        // much higher so the text can be pushed well inside a large box.
+        final JSpinner boxPad = new JSpinner(new SpinnerNumberModel(70, 0, 600, 5));
+        final JSpinner boxPadY = new JSpinner(new SpinnerNumberModel(70, 0, 600, 5));
         final JCheckBox boxShadow = new JCheckBox("Drop shadow");
         final JCheckBox boxGlow = new JCheckBox("Outer glow");
         final Color[] boxGlowColor = { new Color(90, 160, 255) };
@@ -11678,6 +11686,9 @@ public class GifSlideShowApp extends JFrame {
 
         final int[] sel = { 0 };
         final boolean[] loading = { false };
+        // Forward hook to the live preview (wired once the preview is built below),
+        // so list edits made before that point can still refresh the preview.
+        final Runnable[] previewHook = { () -> {} };
 
         // Read current form controls into popup p.
         final java.util.function.Consumer<SummaryPopup> commitInto = p -> {
@@ -11693,6 +11704,7 @@ public class GifSlideShowApp extends JFrame {
             p.bold = bold.isSelected();
             p.italic = italic.isSelected();
             p.textColor = textColor[0];
+            p.accentColor = accentColor[0];
             p.alignment = ALIGN_VALUES[Math.max(0, align.getSelectedIndex())];
             p.textEffect = (String) textEffect.getSelectedItem();
             p.textEffectIntensity = ((Number) textEffectIntensity.getValue()).intValue();
@@ -11732,6 +11744,7 @@ public class GifSlideShowApp extends JFrame {
             bold.setSelected(p.bold);
             italic.setSelected(p.italic);
             textColor[0] = p.textColor; repaintColorButton(textColorBtn, textColor[0]);
+            accentColor[0] = p.accentColor; repaintColorButton(accentColorBtn, accentColor[0]);
             align.setSelectedIndex(Math.max(0, indexOfInt(ALIGN_VALUES, p.alignment)));
             textEffect.setSelectedItem(p.textEffect);
             textEffectIntensity.setValue(p.textEffectIntensity);
@@ -11807,6 +11820,7 @@ public class GifSlideShowApp extends JFrame {
             popupList.setSelectedIndex(sel[0]);
             loadForm.accept(p);
             updateSegLen.run();
+            previewHook[0].run();
         });
         dupBtn.addActionListener(e -> {
             commitCurrent.run();
@@ -11819,6 +11833,7 @@ public class GifSlideShowApp extends JFrame {
             popupList.setSelectedIndex(sel[0]);
             loadForm.accept(p);
             updateSegLen.run();
+            previewHook[0].run();
         });
         delBtn.addActionListener(e -> {
             if (wc.popups.size() <= 1) { wc.popups.get(0).text = ""; loadForm.accept(wc.popups.get(0)); }
@@ -11830,6 +11845,7 @@ public class GifSlideShowApp extends JFrame {
             refreshList.run();
             popupList.setSelectedIndex(sel[0]);
             updateSegLen.run();
+            previewHook[0].run();
         });
 
         // ---- form layout ----
@@ -11880,11 +11896,14 @@ public class GifSlideShowApp extends JFrame {
         field2.accept("Colour / align:", new Component[]{ textColorBtn, new JLabel("Align:"), align,
                 new JLabel("Line gap:"), lineSpacing });
         field2.accept("Style effect:", new Component[]{ textEffect, new JLabel("Intensity:"), textEffectIntensity });
+        field2.accept("Effect colour 2:", new Component[]{ accentColorBtn,
+                new JLabel("(outline / glow for 2-colour effects)") });
 
         section.accept(r[0]++, "Box");
         field2.accept("Fill:", new Component[]{ boxColorBtn, new JLabel("Opacity %:"), boxOpacity,
                 new JLabel("Round %:"), boxRound });
-        field2.accept("Padding:", new Component[]{ new JLabel("X %:"), boxPad, new JLabel("Y %:"), boxPadY });
+        field2.accept("Text→edge pad:", new Component[]{ new JLabel("X:"), boxPad, new JLabel("Y:"), boxPadY,
+                new JLabel("(space from text to box edges)") });
         field2.accept("Effects:", new Component[]{ boxShadow, boxGlow, boxGlowColorBtn });
         field2.accept("Border:", new Component[]{ border, borderColorBtn, new JLabel("Width:"), borderWidth });
 
@@ -11924,38 +11943,7 @@ public class GifSlideShowApp extends JFrame {
         formScroll.setBorder(BorderFactory.createEmptyBorder());
         formScroll.getVerticalScrollBar().setUnitIncrement(16);
 
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, formScroll);
-        split.setResizeWeight(0.28);
-        split.setDividerLocation(230);
-
-        // ---- enable/disable form when master off ----
-        final Component[] segControls = { bgMode, bgColorBtn, bgDim };
-        final Component[] popControls = { popEnabled, textArea, appearSec, duration, animMs, entrance, easing,
-                font, fontSize, bold, italic, textColorBtn, align, textEffect, textEffectIntensity, lineSpacing,
-                xPct, yPct, widthPct, boxColorBtn, boxOpacity, boxRound, boxPad, boxPadY, boxShadow, boxGlow,
-                boxGlowColorBtn, border, borderColorBtn, borderWidth, popupList, addBtn, dupBtn, delBtn };
-        Runnable masterToggle = () -> {
-            boolean on = masterEnabled.isSelected();
-            for (Component c : segControls) c.setEnabled(on);
-            for (Component c : popControls) c.setEnabled(on);
-        };
-        masterEnabled.addActionListener(e -> masterToggle.run());
-        bgMode.addActionListener(e -> {});
-
-        // ---- south buttons ----
-        JButton preview = new JButton("▶ Live Preview");
-        preview.setToolTipText("Play the summary segment exactly as it will look in the exported video — no rendering needed.");
-        JButton ok = new JButton("OK");
-        JButton cancel = new JButton("Cancel");
-        JPanel south = new JPanel(new BorderLayout());
-        JPanel southLeft = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        southLeft.add(preview);
-        southLeft.add(segLenLabel);
-        JPanel southRight = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        southRight.add(cancel); southRight.add(ok);
-        south.add(southLeft, BorderLayout.WEST);
-        south.add(southRight, BorderLayout.EAST);
-
+        // ---- commit helper (segment + current popup) ----
         Runnable commitSegment = () -> {
             wc.enabled = masterEnabled.isSelected();
             wc.bgMode = (String) bgMode.getSelectedItem();
@@ -11964,30 +11952,197 @@ public class GifSlideShowApp extends JFrame {
             commitCurrent.run();
         };
 
-        preview.addActionListener(e -> {
+        // ---- embedded LIVE preview (updates as you edit) ----
+        final int baseW = isPortrait() ? 1080 : 1920;
+        final int baseH = isPortrait() ? 1920 : 1080;
+        final int fps = 30;
+        final BufferedImage previewBase = summaryPreviewBaseFrame(baseW, baseH);
+        final BufferedImage[] backdropCache = { null };
+        final String[] backdropSig = { null };
+        final BufferedImage[] frameImg = { null };
+        final int[] curMs = { 0 };
+        final long[] playAnchor = { 0 };
+
+        final java.util.function.Supplier<BufferedImage> getBackdrop = () -> {
+            String sig = wc.bgMode + "|" + colorToHex(wc.bgColor) + "|" + wc.bgDim;
+            if (!sig.equals(backdropSig[0]) || backdropCache[0] == null) {
+                backdropCache[0] = buildSummaryBackdrop(wc, previewBase, baseW, baseH);
+                backdropSig[0] = sig;
+            }
+            return backdropCache[0];
+        };
+
+        final JPanel canvas = new JPanel() {
+            @Override protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g;
+                g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                g2.setColor(new Color(30, 30, 34));
+                g2.fillRect(0, 0, getWidth(), getHeight());
+                if (frameImg[0] == null) return;
+                double fit = Math.min(getWidth() / (double) baseW, getHeight() / (double) baseH);
+                int dw = Math.max(1, (int) (baseW * fit)), dh = Math.max(1, (int) (baseH * fit));
+                g2.drawImage(frameImg[0], (getWidth() - dw) / 2, (getHeight() - dh) / 2, dw, dh, null);
+            }
+        };
+        canvas.setBackground(new Color(30, 30, 34));
+        int prevW = isPortrait() ? 240 : 400;
+        int prevH = isPortrait() ? 427 : 225;
+        canvas.setPreferredSize(new Dimension(prevW, prevH));
+
+        final JSlider scrub = new JSlider(0, 1000, 0);
+        final JLabel timeLbl = new JLabel("0.0 / 0.0 s");
+        timeLbl.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+        final JButton playBtn = new JButton("▶");
+        playBtn.setMargin(new Insets(1, 6, 1, 6));
+        final JButton popOut = new JButton("⧉ Pop out");
+        popOut.setMargin(new Insets(1, 6, 1, 6));
+        popOut.setToolTipText("Open the preview in a large resizable window.");
+
+        // Render the current frame (commits UI into wc first so it's exact).
+        final Runnable renderNow = () -> {
+            commitSegment.run();
+            int segMs = Math.max(0, (int) Math.round(wc.segmentDurationSec() * 1000.0));
+            scrub.setMaximum(Math.max(1, segMs));
+            if (curMs[0] > segMs) curMs[0] = segMs;
+            frameImg[0] = renderSummaryFrame(wc, getBackdrop.get(), baseW, baseH, fps, curMs[0]);
+            timeLbl.setText(String.format(java.util.Locale.US, "%.1f / %.1f s", curMs[0] / 1000.0, segMs / 1000.0));
+            canvas.repaint();
+        };
+
+        // Debounce so rapid edits don't render every keystroke.
+        final javax.swing.Timer previewDebounce = new javax.swing.Timer(90, e -> renderNow.run());
+        previewDebounce.setRepeats(false);
+        final Runnable schedulePreview = () -> { if (!loading[0]) previewDebounce.restart(); };
+        previewHook[0] = schedulePreview; // list edits (add/dup/remove) now refresh the preview too
+
+        // Playback timer.
+        final javax.swing.Timer playTimer = new javax.swing.Timer(1000 / fps, null);
+        playTimer.addActionListener(e -> {
+            int segMs = Math.max(1, (int) Math.round(wc.segmentDurationSec() * 1000.0));
+            int t = (int) ((System.nanoTime() - playAnchor[0]) / 1_000_000L);
+            if (t >= segMs) { playAnchor[0] = System.nanoTime(); t = 0; }
+            curMs[0] = t;
+            scrub.setValue(t);
+            frameImg[0] = renderSummaryFrame(wc, getBackdrop.get(), baseW, baseH, fps, curMs[0]);
+            timeLbl.setText(String.format(java.util.Locale.US, "%.1f / %.1f s", curMs[0] / 1000.0, segMs / 1000.0));
+            canvas.repaint();
+        });
+        playBtn.addActionListener(e -> {
+            if (playTimer.isRunning()) { playTimer.stop(); playBtn.setText("▶"); }
+            else {
+                commitSegment.run();
+                if (wc.segmentDurationSec() <= 0) return;
+                playAnchor[0] = System.nanoTime() - (long) curMs[0] * 1_000_000L;
+                playTimer.start(); playBtn.setText("❚❚");
+            }
+        });
+        scrub.addChangeListener(e -> {
+            if (playTimer.isRunning()) return;
+            curMs[0] = scrub.getValue();
+            frameImg[0] = renderSummaryFrame(wc, getBackdrop.get(), baseW, baseH, fps, curMs[0]);
+            int segMs = Math.max(0, (int) Math.round(wc.segmentDurationSec() * 1000.0));
+            timeLbl.setText(String.format(java.util.Locale.US, "%.1f / %.1f s", curMs[0] / 1000.0, segMs / 1000.0));
+            canvas.repaint();
+        });
+        popOut.addActionListener(e -> {
             commitSegment.run();
             if (wc.segmentDurationSec() <= 0) {
                 JOptionPane.showMessageDialog(dlg,
                         "Add some summary text (and enable the summary) first — there's nothing to preview yet.",
-                        "Live Preview", JOptionPane.INFORMATION_MESSAGE);
+                        "Preview", JOptionPane.INFORMATION_MESSAGE);
                 return;
             }
+            if (playTimer.isRunning()) { playTimer.stop(); playBtn.setText("▶"); }
             openSummaryPreview(dlg, wc.duplicate());
         });
-        cancel.addActionListener(e -> dlg.dispose());
+
+        JPanel previewControls = new JPanel(new BorderLayout(4, 0));
+        JPanel pcLeft = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 0));
+        pcLeft.add(playBtn); pcLeft.add(popOut);
+        previewControls.add(pcLeft, BorderLayout.WEST);
+        previewControls.add(scrub, BorderLayout.CENTER);
+        previewControls.add(timeLbl, BorderLayout.EAST);
+
+        JPanel previewPanel = new JPanel(new BorderLayout(0, 4));
+        previewPanel.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 8));
+        JLabel prevTitle = new JLabel("Live preview");
+        prevTitle.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        prevTitle.setForeground(new Color(90, 60, 150));
+        previewPanel.add(prevTitle, BorderLayout.NORTH);
+        previewPanel.add(canvas, BorderLayout.CENTER);
+        previewPanel.add(previewControls, BorderLayout.SOUTH);
+
+        // Re-render live whenever any control changes.
+        javax.swing.event.ChangeListener anyChange = e -> schedulePreview.run();
+        java.awt.event.ActionListener anyAction = e -> schedulePreview.run();
+        for (JSpinner sp : new JSpinner[]{ appearSec, duration, animMs, fontSize, textEffectIntensity,
+                lineSpacing, xPct, yPct, widthPct, boxOpacity, boxRound, boxPad, boxPadY, borderWidth, bgDim })
+            sp.addChangeListener(anyChange);
+        for (JComboBox<String> cb : java.util.Arrays.asList(entrance, easing, font, align, textEffect, border, bgMode))
+            cb.addActionListener(anyAction);
+        for (JCheckBox ck : new JCheckBox[]{ bold, italic, boxShadow, boxGlow, popEnabled, masterEnabled })
+            ck.addActionListener(anyAction);
+        textArea.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { schedulePreview.run(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { schedulePreview.run(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { schedulePreview.run(); }
+        });
+        // Colour buttons already repaint themselves; also refresh the preview.
+        for (JButton cbn : new JButton[]{ textColorBtn, accentColorBtn, boxColorBtn, boxGlowColorBtn,
+                borderColorBtn, bgColorBtn })
+            cbn.addActionListener(e -> schedulePreview.run());
+
+        // ---- enable/disable form when master off ----
+        final Component[] segControls = { bgMode, bgColorBtn, bgDim };
+        final Component[] popControls = { popEnabled, textArea, appearSec, duration, animMs, entrance, easing,
+                font, fontSize, bold, italic, textColorBtn, accentColorBtn, align, textEffect, textEffectIntensity, lineSpacing,
+                xPct, yPct, widthPct, boxColorBtn, boxOpacity, boxRound, boxPad, boxPadY, boxShadow, boxGlow,
+                boxGlowColorBtn, border, borderColorBtn, borderWidth, popupList, addBtn, dupBtn, delBtn };
+        Runnable masterToggle = () -> {
+            boolean on = masterEnabled.isSelected();
+            for (Component c : segControls) c.setEnabled(on);
+            for (Component c : popControls) c.setEnabled(on);
+            playBtn.setEnabled(on); popOut.setEnabled(on); scrub.setEnabled(on);
+        };
+        masterEnabled.addActionListener(e -> masterToggle.run());
+
+        // right side: form + preview
+        JSplitPane rightSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, formScroll, previewPanel);
+        rightSplit.setResizeWeight(0.62);
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, rightSplit);
+        split.setResizeWeight(0.20);
+        split.setDividerLocation(210);
+
+        // ---- south buttons ----
+        JButton ok = new JButton("OK");
+        JButton cancel = new JButton("Cancel");
+        JPanel south = new JPanel(new BorderLayout());
+        JPanel southLeft = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        southLeft.add(segLenLabel);
+        JPanel southRight = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        southRight.add(cancel); southRight.add(ok);
+        south.add(southLeft, BorderLayout.WEST);
+        south.add(southRight, BorderLayout.EAST);
+
+        cancel.addActionListener(e -> { playTimer.stop(); dlg.dispose(); });
         ok.addActionListener(e -> {
+            playTimer.stop();
             commitSegment.run();
             summaryConfig.copyFrom(wc);
             dlg.dispose();
+        });
+        dlg.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override public void windowClosed(java.awt.event.WindowEvent e) { playTimer.stop(); previewDebounce.stop(); }
         });
 
         // ---- assemble ----
         dlg.setLayout(new BorderLayout());
         JPanel north = new JPanel(new BorderLayout());
-        JLabel hint = new JLabel("<html><body style='width:640px'>The summary plays <b>after</b> the whole "
+        JLabel hint = new JLabel("<html><body style='width:720px'>The summary plays <b>after</b> the whole "
                 + "slideshow and adds its length to the video. Add multiple popups at different positions and times; "
-                + "each uses the same entrance and text effects as the rest of the app. Use <b>Live Preview</b> to "
-                + "see the exact result without exporting.</body></html>");
+                + "each uses the same entrance and text effects as the rest of the app. The <b>Live preview</b> on the "
+                + "right updates as you edit — no exporting needed.</body></html>");
         hint.setBorder(BorderFactory.createEmptyBorder(8, 12, 4, 12));
         hint.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         JPanel masterRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
@@ -12004,10 +12159,11 @@ public class GifSlideShowApp extends JFrame {
         loadForm.accept(wc.popups.get(0));
         updateSegLen.run();
         masterToggle.run();
+        renderNow.run();
 
         dlg.pack();
         Dimension scr = Toolkit.getDefaultToolkit().getScreenSize();
-        dlg.setSize(Math.min(Math.max(dlg.getWidth() + 20, 860), scr.width - 60),
+        dlg.setSize(Math.min(Math.max(dlg.getWidth() + 20, 1080), scr.width - 40),
                 Math.min(dlg.getHeight() + 10, scr.height - 80));
         dlg.setLocationRelativeTo(owner);
         dlg.setVisible(true);
@@ -15218,7 +15374,9 @@ public class GifSlideShowApp extends JFrame {
                 p.xPct, p.yPct, p.boxOpacity, p.boxColor,
                 false, p.widthPct, 0, p.alignment,
                 p.textEffect, p.textEffectIntensity,
-                "", null, null, 0, "None", "", "", "", "", null,
+                // highlightText stays empty (no highlight drawn); highlightColor
+                // carries the second/accent colour the two-colour effects read.
+                "", p.accentColor, null, 0, "None", "", "", "", "", null,
                 false, false, 0, 0, "Sequential",
                 false, "From Left", 1500, 0, "Ease Out",
                 0, 0, p.lineSpacing, 100);
@@ -18516,6 +18674,10 @@ public class GifSlideShowApp extends JFrame {
         boolean bold = true;
         boolean italic = false;
         Color   textColor = Color.WHITE;
+        // Second colour used by the effects that take two (Cartoon Pop, Gold Pop,
+        // Neon + Shadow, Glow + Outline, Outline + Shadow, …) as the outline / glow
+        // accent. Fed to the renderer as the text's highlight colour.
+        Color   accentColor = new Color(120, 80, 210);
         int     alignment = SwingConstants.CENTER;
         String  textEffect = "Glow";     // one of TEXT_EFFECTS
         int     textEffectIntensity = 60;
@@ -18549,7 +18711,7 @@ public class GifSlideShowApp extends JFrame {
             enabled = o.enabled; text = o.text; appearSec = o.appearSec; durationSec = o.durationSec;
             entrance = o.entrance; easing = o.easing; animMs = o.animMs;
             fontName = o.fontName; fontSize = o.fontSize; bold = o.bold; italic = o.italic;
-            textColor = o.textColor; alignment = o.alignment;
+            textColor = o.textColor; accentColor = o.accentColor; alignment = o.alignment;
             textEffect = o.textEffect; textEffectIntensity = o.textEffectIntensity;
             lineSpacing = o.lineSpacing;
             xPct = o.xPct; yPct = o.yPct; widthPct = o.widthPct;
