@@ -438,6 +438,8 @@ public class GifSlideShowApp extends JFrame {
                 props.setProperty(ap + "landScale", String.valueOf(a.landScale));
                 props.setProperty(ap + "landColor", a.landColor == null ? "none" : colorToHex(a.landColor));
                 props.setProperty(ap + "triggerTextIndex", String.valueOf(a.triggerTextIndex));
+                props.setProperty(ap + "triggerXPct", String.valueOf(a.triggerXPct));
+                props.setProperty(ap + "triggerYPct", String.valueOf(a.triggerYPct));
                 props.setProperty(ap + "word", a.word == null ? "" : a.word);
                 props.setProperty(ap + "wordOccurrence", String.valueOf(a.wordOccurrence));
             }
@@ -853,6 +855,8 @@ public class GifSlideShowApp extends JFrame {
                 String lc = props.getProperty(ap + "landColor", "none");
                 a.landColor = (lc == null || lc.equalsIgnoreCase("none")) ? null : hexToColor(lc);
                 a.triggerTextIndex = Integer.parseInt(props.getProperty(ap + "triggerTextIndex", "-1"));
+                a.triggerXPct = Integer.parseInt(props.getProperty(ap + "triggerXPct", "-1"));
+                a.triggerYPct = Integer.parseInt(props.getProperty(ap + "triggerYPct", "-1"));
                 a.word = props.getProperty(ap + "word", "");
                 a.wordOccurrence = Integer.parseInt(props.getProperty(ap + "wordOccurrence", "1"));
                 loaded.actions.add(a);
@@ -8241,9 +8245,17 @@ public class GifSlideShowApp extends JFrame {
                                 firstBaseline, stLineHeight);
                         if (loc == null) continue;
                         double wx = loc[0], wy = loc[1];
+                        double wwHalf = stFm.stringWidth(wm.word) / 2.0;
                         double px, py;
                         if (wm.isMove) {
-                            px = wx + (wm.destXFrac * targetW - wx) * wm.eased;
+                            // To X% marks the word's START (left edge), not its centre.
+                            // The copy is drawn centred and then scaled around px, so
+                            // aim the centre half a (scaled) word to the right of the
+                            // destination X — the left edge then lands exactly on X%,
+                            // and stays there through the landing scale/pop.
+                            double sc = wm.scale != 0.0 ? wm.scale : 1.0;
+                            double destCenterX = wm.destXFrac * targetW + wwHalf * sc;
+                            px = wx + (destCenterX - wx) * wm.eased;
                             py = wy + (wm.destYFrac * targetH - wy) * wm.eased;
                         } else {
                             px = wx + wm.dxFrac * targetW;
@@ -15085,6 +15097,7 @@ public class GifSlideShowApp extends JFrame {
         // the target text appear when the action lands (atMs + durMs), even if the
         // target's own appear time is later. Computed once so every row sees them.
         long[] triggerAppear = applyTimer ? computeActionTriggerAppear(texts) : null;
+        double[][] triggerPos = applyTimer ? computeActionTriggerPos(texts) : null;
         for (int i = 0; i < size; i++) {
             SlideTextData st = texts.get(i);
             boolean hidden = false;
@@ -15148,6 +15161,15 @@ public class GifSlideShowApp extends JFrame {
                         && !textTimerEntranceActive(st, elapsedMs, effAppear)) {
                     if (computeAlternation(st, elapsedMs, effAppear)) hidden = true;
                 }
+            }
+            // Trigger position override: a fired trigger can also relocate the
+            // target text to a chosen x/y (percent of frame). x/y are final, so
+            // apply it as a render translate (fraction of frame), composing on top
+            // of any entrance slide-in — the text slides in TO the new spot.
+            if (applyTimer && triggered && !hidden && triggerPos != null
+                    && i < triggerPos.length && triggerPos[i] != null) {
+                st.audioOtherDxFrac  += (triggerPos[i][0] - st.x) / 100.0;
+                st.shakeRenderDyFrac += (triggerPos[i][1] - st.y) / 100.0;
             }
             st.quizHidden = hidden;
             // Word-by-word reveal: count how many leading words are due by now.
@@ -15231,6 +15253,33 @@ public class GifSlideShowApp extends JFrame {
                 if (tgt < 0 || tgt >= n) continue;
                 long land = (long) a.atMs + Math.max(0, a.durMs);
                 if (land < out[tgt]) out[tgt] = land;
+            }
+        }
+        return out;
+    }
+
+    /** Position-override table for trigger actions, parallel to
+     *  {@link #computeActionTriggerAppear}: index t holds {xPct, yPct} for the
+     *  earliest-landing action that triggers text t AND sets a position, or null
+     *  when nothing relocates it. Same winner as the appear table, so the reveal
+     *  time and the reveal position always come from the same action. */
+    private static double[][] computeActionTriggerPos(List<SlideTextData> texts) {
+        int n = texts.size();
+        double[][] out = new double[n][];
+        long[] best = new long[n];
+        java.util.Arrays.fill(best, Long.MAX_VALUE);
+        for (SlideTextData st : texts) {
+            if (st == null || st.actions == null) continue;
+            for (SlideTextData.Action a : st.actions) {
+                if (a == null) continue;
+                int tgt = a.triggerTextIndex;
+                if (tgt < 0 || tgt >= n) continue;
+                long land = (long) a.atMs + Math.max(0, a.durMs);
+                if (land < best[tgt]) {
+                    best[tgt] = land;
+                    out[tgt] = (a.triggerXPct >= 0 && a.triggerYPct >= 0)
+                            ? new double[]{ a.triggerXPct, a.triggerYPct } : null;
+                }
             }
         }
         return out;
@@ -16974,6 +17023,10 @@ public class GifSlideShowApp extends JFrame {
             // the slide's text list, or -1 for none. Implemented as an effective
             // appear-time override so it survives edits and re-renders.
             int triggerTextIndex = -1;
+            // Optional position override for the triggered text, as a percentage
+            // of the frame (0..100); -1 leaves the triggered text at its own spot.
+            int triggerXPct = -1;
+            int triggerYPct = -1;
 
             // Optional word target. When non-empty, the action acts on just this
             // word inside the text instead of the whole block: a formatted COPY of
@@ -16998,6 +17051,7 @@ public class GifSlideShowApp extends JFrame {
                 a.toXPct = toXPct; a.toYPct = toYPct;
                 a.landFormat = landFormat; a.landScale = landScale; a.landColor = landColor;
                 a.triggerTextIndex = triggerTextIndex;
+                a.triggerXPct = triggerXPct; a.triggerYPct = triggerYPct;
                 a.word = word; a.wordOccurrence = wordOccurrence;
                 return a;
             }
@@ -17468,6 +17522,57 @@ public class GifSlideShowApp extends JFrame {
      * ElevenLabs Scribe and used by the renderer to highlight whichever source
      * word is being spoken at the current frame.
      */
+    /** Built-in motion "whoosh" — a short synthesized swept tone with a soft
+     *  attack/decay envelope, so a moving text gets an audible cue with no
+     *  external sound file. Rendered on the fly with javax.sound.sampled and
+     *  played asynchronously so it never blocks the animation timer. */
+    static final class MotionSound {
+        private static final javax.sound.sampled.AudioFormat FORMAT =
+                new javax.sound.sampled.AudioFormat(44100f, 16, 1, true, false);
+        private static byte[] cachedPcm;   // 16-bit mono PCM @ 44.1k
+
+        private static synchronized byte[] whooshPcm() {
+            if (cachedPcm != null) return cachedPcm;
+            final int sr = 44100;
+            final double durSec = 0.32;
+            final int n = (int) (sr * durSec);
+            byte[] buf = new byte[n * 2];
+            for (int i = 0; i < n; i++) {
+                double t = i / (double) sr;
+                double p = t / durSec;                          // 0..1 through the sound
+                double f = 320 + 900 * Math.sin(Math.PI * p);   // pitch rises then falls
+                double env = Math.sin(Math.PI * p);             // soft attack + decay
+                env *= env;
+                double s = Math.sin(2 * Math.PI * f * t)
+                         + 0.35 * Math.sin(2 * Math.PI * f * 2 * t);   // add a partial
+                s += 0.15 * (Math.random() * 2 - 1) * (1 - p);        // a breath of air
+                int v = (int) (Math.max(-1, Math.min(1, s / 1.5)) * env * 32767 * 0.7);
+                buf[i * 2]     = (byte) (v & 0xFF);
+                buf[i * 2 + 1] = (byte) ((v >> 8) & 0xFF);
+            }
+            cachedPcm = buf;
+            return buf;
+        }
+
+        /** Fire-and-forget: opens a fresh Clip, plays, and closes itself on stop.
+         *  Any audio failure (e.g. no mixer) falls back to the system beep. */
+        static void playWhoosh() {
+            try {
+                byte[] pcm = whooshPcm();
+                javax.sound.sampled.Clip clip = javax.sound.sampled.AudioSystem.getClip();
+                clip.open(FORMAT, pcm, 0, pcm.length);
+                clip.addLineListener(ev -> {
+                    if (ev.getType() == javax.sound.sampled.LineEvent.Type.STOP) {
+                        ev.getLine().close();
+                    }
+                });
+                clip.start();
+            } catch (Exception ignored) {
+                java.awt.Toolkit.getDefaultToolkit().beep();
+            }
+        }
+    }
+
     static class WordTiming {
         final String word;
         final double startSec;
@@ -25055,9 +25160,21 @@ public class GifSlideShowApp extends JFrame {
             dlg.add(status, BorderLayout.SOUTH);
 
             final long[] tms = {0};
+            // Play the built-in "whoosh" once per pass as each move action fires;
+            // reset when the loop wraps so it re-cues each time round.
+            final java.util.Set<SlideTextData.Action> firedSounds = new java.util.HashSet<>();
             final javax.swing.Timer timer = new javax.swing.Timer(1000 / fps, null);
             timer.addActionListener(ev -> {
                 long elapsed = tms[0];
+                for (SlideTextData st : texts) {
+                    if (st == null || st.actions == null) continue;
+                    for (SlideTextData.Action a : st.actions) {
+                        if (a != null && a.isMove() && elapsed >= a.atMs
+                                && firedSounds.add(a)) {
+                            MotionSound.playWhoosh();
+                        }
+                    }
+                }
                 applyQuizHideMask(texts, quiz, elapsed, true);
                 int frame = (int) (elapsed * fps / 1000);
                 BufferedImage img = renderFrame(
@@ -25088,7 +25205,7 @@ public class GifSlideShowApp extends JFrame {
                 status.setText(String.format("t = %.2f s   (loops at %.2f s)",
                         elapsed / 1000.0, totalMs / 1000.0));
                 tms[0] += 1000 / fps;
-                if (tms[0] > totalMs) tms[0] = 0;
+                if (tms[0] > totalMs) { tms[0] = 0; firedSounds.clear(); }
             });
             dlg.addWindowListener(new java.awt.event.WindowAdapter() {
                 @Override public void windowClosed(java.awt.event.WindowEvent e) { timer.stop(); }
@@ -25114,6 +25231,8 @@ public class GifSlideShowApp extends JFrame {
             private final JTextField scaleField = new JTextField(4);
             private final JButton colorBtn = new JButton("Colour…");
             private final JComboBox<String> triggerCombo;
+            private final JTextField trigXField = new JTextField(4);
+            private final JTextField trigYField = new JTextField(4);
             private final JTextField wordField = new JTextField(14);
             private final JSpinner occSpinner = new JSpinner(new SpinnerNumberModel(1, 1, 99, 1));
             private Color landColor;
@@ -25160,6 +25279,13 @@ public class GifSlideShowApp extends JFrame {
                         + "applies if earlier).");
                 int ti = a.triggerTextIndex;
                 triggerCombo.setSelectedIndex(ti >= 0 && ti + 1 < triggerChoices.length ? ti + 1 : 0);
+                triggerCombo.addActionListener(ev -> syncEnabled());
+                trigXField.setText(a.triggerXPct >= 0 ? String.valueOf(a.triggerXPct) : "");
+                trigYField.setText(a.triggerYPct >= 0 ? String.valueOf(a.triggerYPct) : "");
+                trigXField.setToolTipText("Optional: place the triggered text at this X% of the frame (0–100). "
+                        + "Leave empty to keep its own position.");
+                trigYField.setToolTipText("Optional: place the triggered text at this Y% of the frame (0–100). "
+                        + "Leave empty to keep its own position.");
 
                 wordField.setText(a.word == null ? "" : a.word);
                 wordField.setToolTipText("Optional: act on just this word inside the text — a formatted copy of "
@@ -25207,10 +25333,14 @@ public class GifSlideShowApp extends JFrame {
                 g.gridx = 2; g.gridwidth = 3; panel.add(wordField, g); g.gridwidth = 1;
                 g.gridx = 5; panel.add(new JLabel("Occurrence:"), g);
                 g.gridx = 6; panel.add(occSpinner, g);
-                // Line 4 — trigger
+                // Line 4 — trigger (+ optional position for the triggered text)
                 g.gridy = 3;
                 g.gridx = 1; panel.add(new JLabel("Trigger:"), g);
-                g.gridx = 2; g.gridwidth = 4; panel.add(triggerCombo, g); g.gridwidth = 1;
+                g.gridx = 2; g.gridwidth = 2; panel.add(triggerCombo, g); g.gridwidth = 1;
+                g.gridx = 4; panel.add(new JLabel("at X%:"), g);
+                g.gridx = 5; panel.add(trigXField, g);
+                g.gridx = 6; panel.add(new JLabel("Y%:"), g);
+                g.gridx = 7; panel.add(trigYField, g);
 
                 syncEnabled();
             }
@@ -25234,6 +25364,9 @@ public class GifSlideShowApp extends JFrame {
                 boolean fmt = move && landCheck.isSelected();
                 scaleField.setEnabled(fmt);
                 colorBtn.setEnabled(fmt);
+                boolean trig = triggerCombo.getSelectedIndex() > 0;
+                trigXField.setEnabled(trig);
+                trigYField.setEnabled(trig);
             }
 
             void setIndexLabel(int n) { idxLbl.setText("#" + n); }
@@ -25251,9 +25384,23 @@ public class GifSlideShowApp extends JFrame {
                 a.landColor = landColor;
                 int ti = triggerCombo.getSelectedIndex();
                 a.triggerTextIndex = ti <= 0 ? -1 : ti - 1;
+                if (a.triggerTextIndex < 0) {
+                    a.triggerXPct = -1; a.triggerYPct = -1;
+                } else {
+                    a.triggerXPct = parseOptPct(trigXField.getText());
+                    a.triggerYPct = parseOptPct(trigYField.getText());
+                }
                 a.word = wordField.getText().trim();
                 a.wordOccurrence = Math.max(1, (Integer) occSpinner.getValue());
                 return a;
+            }
+
+            /** Parse an optional 0–100 percentage field: empty or unparseable → -1
+             *  (meaning "no override"), otherwise clamped into range. */
+            private int parseOptPct(String s) {
+                if (s == null || s.trim().isEmpty()) return -1;
+                int v = pInt.apply(s, -1);
+                return v < 0 ? -1 : Math.min(100, v);
             }
 
             /** Mark this row as the active target (for the Word-timings picker)
@@ -25265,7 +25412,8 @@ public class GifSlideShowApp extends JFrame {
                     }
                 };
                 JComponent[] fields = { kindCombo, atField, durField, easeCombo,
-                        toXField, toYField, scaleField, wordField, occSpinner, triggerCombo };
+                        toXField, toYField, scaleField, wordField, occSpinner, triggerCombo,
+                        trigXField, trigYField };
                 for (JComponent c : fields) c.addFocusListener(fa);
                 panel.addMouseListener(new java.awt.event.MouseAdapter() {
                     @Override public void mousePressed(java.awt.event.MouseEvent e) {
