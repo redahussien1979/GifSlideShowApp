@@ -8248,13 +8248,15 @@ public class GifSlideShowApp extends JFrame {
                         double wwHalf = stFm.stringWidth(wm.word) / 2.0;
                         double px, py;
                         if (wm.isMove) {
-                            // To X% marks the word's START (left edge), not its centre.
-                            // The copy is drawn centred and then scaled around px, so
-                            // aim the centre half a (scaled) word to the right of the
-                            // destination X — the left edge then lands exactly on X%,
-                            // and stays there through the landing scale/pop.
+                            // To X% marks the word's START, not its centre. The copy is
+                            // drawn centred and scaled around px, so aim the centre half
+                            // a (scaled) word past the destination X so the START edge
+                            // lands exactly on X% and stays there through the landing
+                            // scale/pop. "Start" is the LEFT edge for LTR words and the
+                            // RIGHT edge for RTL (Arabic/Hebrew) words.
                             double sc = wm.scale != 0.0 ? wm.scale : 1.0;
-                            double destCenterX = wm.destXFrac * targetW + wwHalf * sc;
+                            double edgeSign = containsRtl(wm.word) ? -1.0 : 1.0;
+                            double destCenterX = wm.destXFrac * targetW + edgeSign * wwHalf * sc;
                             px = wx + (destCenterX - wx) * wm.eased;
                             py = wy + (wm.destYFrac * targetH - wy) * wm.eased;
                         } else {
@@ -9580,6 +9582,23 @@ public class GifSlideShowApp extends JFrame {
             }
         }
         return null;
+    }
+
+    /** True if the string contains any right-to-left script (Arabic/Hebrew), so
+     *  the renderer knows a word's reading "start" is its RIGHT edge. */
+    static boolean containsRtl(String s) {
+        if (s == null) return false;
+        for (int i = 0; i < s.length(); i++) {
+            int cp = s.codePointAt(i);
+            if ((cp >= 0x0590 && cp <= 0x05FF)      // Hebrew
+             || (cp >= 0x0600 && cp <= 0x06FF)      // Arabic
+             || (cp >= 0x0750 && cp <= 0x077F)      // Arabic Supplement
+             || (cp >= 0xFB50 && cp <= 0xFDFF)      // Arabic Presentation Forms-A
+             || (cp >= 0xFE70 && cp <= 0xFEFF)) {   // Arabic Presentation Forms-B
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Strip leading/trailing punctuation from a picked token so it matches the
@@ -13130,6 +13149,40 @@ public class GifSlideShowApp extends JFrame {
                             }
                         }
 
+                        // Built-in motion "whoosh": overlay a synthesized cue at each
+                        // move action's time onto the composited video. Placed BEFORE
+                        // the repeat/slow passes so it stretches and repeats along with
+                        // the video. Fully guarded and non-destructive — when there are
+                        // no move actions nothing runs (export byte-identical), and any
+                        // failure leaves finalOut exactly as it was.
+                        try {
+                            java.util.List<Long> whooshAtMs = new java.util.ArrayList<>();
+                            double offW = 0;
+                            double transSecW = finalTransitionMs / 1000.0;
+                            for (int i = 0; i < slides.size(); i++) {
+                                SlideData s = slides.get(i);
+                                long slideStartMs = (long) Math.round(offW * 1000.0);
+                                if (s.slideTexts != null) {
+                                    for (SlideTextData st : s.slideTexts) {
+                                        if (st == null || st.actions == null) continue;
+                                        for (SlideTextData.Action a : st.actions) {
+                                            if (a != null && a.isMove()) {
+                                                whooshAtMs.add(slideStartMs + Math.max(0, a.atMs));
+                                            }
+                                        }
+                                    }
+                                }
+                                offW += computeSlideDuration(s, duration) / 1000.0;
+                                if (scrollEnabled && i < slides.size() - 1) offW += transSecW;
+                            }
+                            if (!whooshAtMs.isEmpty()) {
+                                publish("Adding motion sound...");
+                                overlayMotionWhoosh(finalOut, whooshAtMs, tempDir);
+                            }
+                        } catch (Exception wex) {
+                            publish("Motion sound skipped: " + wex.getMessage());
+                        }
+
                         // Repeat chosen video part(s) on the finished, fully-composited
                         // output. Each slide's slide-relative ranges are shifted to the
                         // global timeline by that slide's start offset; the whole video
@@ -13878,6 +13931,65 @@ public class GifSlideShowApp extends JFrame {
     }
 
     /** Run an FFmpeg command and throw IOException on failure. */
+    /**
+     * Overlay the built-in motion "whoosh" onto a finished video at the given
+     * timeline offsets (ms). Non-destructive and best-effort: renders to a temp
+     * file and only replaces {@code videoFile} on success; on any failure it
+     * throws (leaving the original untouched — the caller swallows it). The video
+     * stream is copied unchanged (no re-encode, no quality loss); only the audio
+     * is rebuilt, mixing the whoosh cues over any existing track at reduced gain
+     * so it never drowns out or clips narration.
+     */
+    private static void overlayMotionWhoosh(File videoFile, java.util.List<Long> atMsList,
+            File tempDir) throws IOException, InterruptedException {
+        if (videoFile == null || !videoFile.exists() || atMsList == null || atMsList.isEmpty()) return;
+        File whoosh = MotionSound.writeWhooshWav(tempDir);
+        boolean baseHasAudio = probeHasAudio(videoFile);
+
+        java.util.List<String> cmd = new java.util.ArrayList<>();
+        cmd.add("ffmpeg");
+        cmd.add("-y");
+        cmd.add("-i");
+        cmd.add(videoFile.getAbsolutePath());
+        for (int k = 0; k < atMsList.size(); k++) {
+            cmd.add("-i");
+            cmd.add(whoosh.getAbsolutePath());
+        }
+        StringBuilder fc = new StringBuilder();
+        for (int k = 0; k < atMsList.size(); k++) {
+            long d = Math.max(0, atMsList.get(k));
+            fc.append("[").append(k + 1).append(":a]volume=0.6,adelay=").append(d).append("|").append(d)
+              .append("[w").append(k).append("];");
+        }
+        if (baseHasAudio) fc.append("[0:a]");
+        for (int k = 0; k < atMsList.size(); k++) fc.append("[w").append(k).append("]");
+        int inputs = atMsList.size() + (baseHasAudio ? 1 : 0);
+        fc.append("amix=inputs=").append(inputs)
+          .append(":duration=longest:dropout_transition=0:normalize=0[outa]");
+
+        File out = new File(tempDir, "with_whoosh.mp4");
+        cmd.add("-filter_complex");
+        cmd.add(fc.toString());
+        cmd.add("-map"); cmd.add("0:v");
+        cmd.add("-map"); cmd.add("[outa]");
+        cmd.add("-c:v"); cmd.add("copy");
+        cmd.add("-c:a"); cmd.add("aac");
+        cmd.add("-b:a"); cmd.add("192k");
+        cmd.add("-movflags"); cmd.add("+faststart");
+        cmd.add(out.getAbsolutePath());
+
+        runFfmpeg(cmd);
+
+        if (out.exists() && out.length() > 0) {
+            videoFile.delete();
+            if (!out.renameTo(videoFile)) {
+                java.nio.file.Files.copy(out.toPath(), videoFile.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                out.delete();
+            }
+        }
+    }
+
     private static void runFfmpeg(java.util.List<String> cmd) throws IOException, InterruptedException {
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.redirectErrorStream(true);
@@ -17570,6 +17682,19 @@ public class GifSlideShowApp extends JFrame {
             } catch (Exception ignored) {
                 java.awt.Toolkit.getDefaultToolkit().beep();
             }
+        }
+
+        /** Write the whoosh as a WAV file (for muxing into an exported video with
+         *  ffmpeg). Returns the written file. */
+        static File writeWhooshWav(File dir) throws IOException {
+            byte[] pcm = whooshPcm();
+            File f = new File(dir, "motion_whoosh.wav");
+            try (javax.sound.sampled.AudioInputStream ais = new javax.sound.sampled.AudioInputStream(
+                    new java.io.ByteArrayInputStream(pcm), FORMAT, pcm.length / FORMAT.getFrameSize())) {
+                javax.sound.sampled.AudioSystem.write(ais,
+                        javax.sound.sampled.AudioFileFormat.Type.WAVE, f);
+            }
+            return f;
         }
     }
 
