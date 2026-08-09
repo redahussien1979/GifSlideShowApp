@@ -23812,7 +23812,7 @@ public class GifSlideShowApp extends JFrame {
         }
 
         private static int clampPct(int v) {
-            return v < 0 ? 0 : (v > 100 ? 100 : v);
+            return v < -500 ? -500 : (v > 500 ? 500 : v);
         }
 
         // Layout Group getters — used by savePreset to capture the last-used knobs.
@@ -24275,8 +24275,8 @@ public class GifSlideShowApp extends JFrame {
             fillGroup.add(rowMajorBtn);
             fillGroup.add(colMajorBtn);
 
-            final JSpinner anchorXSp = new JSpinner(new SpinnerNumberModel(lgAnchorX, 0, 100, 1));
-            final JSpinner anchorYSp = new JSpinner(new SpinnerNumberModel(lgAnchorY, 0, 100, 1));
+            final JSpinner anchorXSp = new JSpinner(new SpinnerNumberModel(lgAnchorX, -500, 500, 1));
+            final JSpinner anchorYSp = new JSpinner(new SpinnerNumberModel(lgAnchorY, -500, 500, 1));
             final JSpinner colGapSp  = new JSpinner(new SpinnerNumberModel(lgColGap,  -100, 100, 1));
             final JSpinner rowGapSp  = new JSpinner(new SpinnerNumberModel(lgRowGap,   -50,  50, 1));
 
@@ -24411,11 +24411,11 @@ public class GifSlideShowApp extends JFrame {
                     // this column so it can be placed independently (X, and starting Y).
                     JCheckBox ovP = new JCheckBox("Pos", lgColOvPos.get(c));
                     JSpinner axSp = new JSpinner(new SpinnerNumberModel(
-                            lgColAnchorX.get(c).intValue(), 0, 100, 1));
+                            lgColAnchorX.get(c).intValue(), -500, 500, 1));
                     axSp.setPreferredSize(new Dimension(58, 24));
                     axSp.setToolTipText("Column " + (c + 1) + " Anchor X% (when Pos is on)");
                     JSpinner aySp = new JSpinner(new SpinnerNumberModel(
-                            lgColAnchorY.get(c).intValue(), 0, 100, 1));
+                            lgColAnchorY.get(c).intValue(), -500, 500, 1));
                     aySp.setPreferredSize(new Dimension(58, 24));
                     aySp.setToolTipText("Column " + (c + 1) + " Anchor Y% (when Pos is on)");
 
