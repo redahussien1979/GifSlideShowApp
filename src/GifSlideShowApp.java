@@ -18063,7 +18063,7 @@ public class GifSlideShowApp extends JFrame {
     }
 
     static class SlideTextData {
-        final boolean show;
+        boolean show;   // "Slide Text" visibility flag; mutable so the Show/Hide Texts box can toggle it in place
         final String text;
         final String fontName;
         final int fontSize;
@@ -20664,14 +20664,14 @@ public class GifSlideShowApp extends JFrame {
             toolbar4b.add(styledLabel("Opacity:"));
             toolbar4b.add(slideTextOpacitySpinner);
 
-            slideTextXSpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
+            slideTextXSpinner = new JSpinner(new SpinnerNumberModel(50, -500, 500, 1));
             slideTextXSpinner.setPreferredSize(new Dimension(50, 28));
-            slideTextXSpinner.setToolTipText("X position (% of width)");
+            slideTextXSpinner.setToolTipText("X position (% of width) — negatives and values above 100 place the text off-frame");
             slideTextXSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
-            slideTextYSpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
+            slideTextYSpinner = new JSpinner(new SpinnerNumberModel(50, -500, 500, 1));
             slideTextYSpinner.setPreferredSize(new Dimension(50, 28));
-            slideTextYSpinner.setToolTipText("Y position (% of height)");
+            slideTextYSpinner.setToolTipText("Y position (% of height) — negatives and values above 100 place the text off-frame");
             slideTextYSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
             slideTextBgSpinner = new JSpinner(new SpinnerNumberModel(0, -100, 200, 5));
@@ -20747,6 +20747,17 @@ public class GifSlideShowApp extends JFrame {
             textsTimerBtn.setToolTipText("Set when each text appears and (optionally) when it goes. Leave the Go time empty to keep a text on screen once it appears.");
             textsTimerBtn.addActionListener(e -> openTextsTimerDialog());
 
+            // "Show/Hide Texts" — one box listing every text with a checkbox for its
+            // "Slide Text" (show) flag, plus Select All / Unselect All. Saves going to
+            // each text and toggling its checkbox one by one.
+            JButton textsVisibilityBtn = new JButton("☑ Show/Hide Texts…");
+            textsVisibilityBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            textsVisibilityBtn.setPreferredSize(new Dimension(165, 24));
+            textsVisibilityBtn.setFocusPainted(false);
+            textsVisibilityBtn.setToolTipText("Pick which texts are shown on this slide — tick to show, untick to hide. "
+                    + "Select All / Unselect All toggle every text at once.");
+            textsVisibilityBtn.addActionListener(e -> openTextsVisibilityDialog());
+
             // "Shapes" — animated vector annotations (Lines / Arrows) with per-shape
             // timing, position, colour and entrance + idle animation.
             JButton shapesBtn = new JButton("◈ Shapes…");
@@ -20767,6 +20778,7 @@ public class GifSlideShowApp extends JFrame {
             toolbar4lg.add(lgTitleLbl);
             toolbar4lg.add(lgOpenBtn);
             toolbar4lg.add(textsTimerBtn);
+            toolbar4lg.add(textsVisibilityBtn);
             toolbar4lg.add(shapesBtn);
             toolbar4lg.add(shapesTimerBtn);
 
@@ -25533,6 +25545,108 @@ public class GifSlideShowApp extends JFrame {
          * of the slide. Appear defaults to 0 (visible from the start); leaving
          * the Go field empty means the text never disappears once it appears.
          */
+        /**
+         * "Show/Hide Texts" — one box listing every slide text with a checkbox for
+         * its "Slide Text" (show) flag, plus Select All / Unselect All. Lets the user
+         * pick which texts are displayed on this slide without visiting each one and
+         * toggling its checkbox individually. Applies the ticks to slideTextItems on
+         * Apply; Cancel leaves everything untouched.
+         */
+        private void openTextsVisibilityDialog() {
+            if (isTitleGridSlide) return;
+            // Flush the currently-edited text back into slideTextItems so its show
+            // flag (and everything else) is up to date before we list it.
+            saveCurrentSlideTextToItem();
+
+            if (slideTextItems.isEmpty()) {
+                JOptionPane.showMessageDialog(panel, "There are no texts on this slide yet.",
+                        "Show/Hide Texts", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+
+            final Window owner = SwingUtilities.getWindowAncestor(panel);
+            final JDialog dlg = new JDialog(owner, "Show / Hide Texts", Dialog.ModalityType.APPLICATION_MODAL);
+            dlg.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+
+            final java.util.List<JCheckBox> checks = new java.util.ArrayList<>();
+
+            JPanel rows = new JPanel(new GridBagLayout());
+            rows.setBackground(Color.WHITE);
+            GridBagConstraints gc = new GridBagConstraints();
+            gc.insets = new Insets(2, 8, 2, 8);
+            gc.anchor = GridBagConstraints.WEST;
+            gc.gridx = 0;
+
+            for (int i = 0; i < slideTextItems.size(); i++) {
+                SlideTextData st = slideTextItems.get(i);
+                String content = st.text == null ? "" : st.text.replace('\n', ' ').trim();
+                if (content.isEmpty()) content = "(empty)";
+                if (content.length() > 60) content = content.substring(0, 57) + "…";
+                JCheckBox cb = new JCheckBox("Text " + (i + 1) + ":  " + content, st.show);
+                cb.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+                cb.setBackground(Color.WHITE);
+                cb.setToolTipText("Ticked = shown on the slide, unticked = hidden.");
+                checks.add(cb);
+                gc.gridy = i;
+                rows.add(cb, gc);
+            }
+
+            JScrollPane rowsScroll = new JScrollPane(rows);
+            rowsScroll.setPreferredSize(new Dimension(460, Math.min(420, 20 + slideTextItems.size() * 26)));
+            rowsScroll.getVerticalScrollBar().setUnitIncrement(18);
+
+            JButton selectAllBtn   = new JButton("Select All");
+            JButton unselectAllBtn = new JButton("Unselect All");
+            selectAllBtn.setToolTipText("Show every text on this slide.");
+            unselectAllBtn.setToolTipText("Hide every text on this slide.");
+            selectAllBtn.addActionListener(e -> { for (JCheckBox c : checks) c.setSelected(true); });
+            unselectAllBtn.addActionListener(e -> { for (JCheckBox c : checks) c.setSelected(false); });
+
+            JButton cancelBtn = new JButton("Cancel");
+            JButton okBtn     = new JButton("Apply");
+            okBtn.addActionListener(e -> {
+                for (int i = 0; i < slideTextItems.size() && i < checks.size(); i++) {
+                    slideTextItems.get(i).show = checks.get(i).isSelected();
+                }
+                // Reflect the change on the main toolbar's "Slide Text" checkbox if
+                // the currently-selected text was toggled, then refresh the preview.
+                if (currentSlideTextIndex >= 0 && currentSlideTextIndex < slideTextItems.size()) {
+                    loadSlideTextFromItem(currentSlideTextIndex);
+                }
+                onFormatChanged();
+                dlg.dispose();
+            });
+            cancelBtn.addActionListener(e -> dlg.dispose());
+
+            JLabel help = new JLabel("<html>Tick a text to <b>show</b> it on this slide, untick to <b>hide</b> it. "
+                    + "This is the same flag as the <b>Slide Text</b> checkbox on the toolbar — "
+                    + "here you can set them all at once.</html>");
+            help.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            help.setBorder(BorderFactory.createEmptyBorder(0, 2, 8, 2));
+
+            JPanel root = new JPanel(new BorderLayout());
+            root.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+            root.add(help, BorderLayout.NORTH);
+            root.add(rowsScroll, BorderLayout.CENTER);
+
+            JPanel btnLeft = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6));
+            btnLeft.add(selectAllBtn);
+            btnLeft.add(unselectAllBtn);
+            JPanel btnRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 6));
+            btnRight.add(cancelBtn);
+            btnRight.add(okBtn);
+            JPanel btnRow = new JPanel(new BorderLayout());
+            btnRow.add(btnLeft, BorderLayout.WEST);
+            btnRow.add(btnRight, BorderLayout.EAST);
+
+            dlg.setLayout(new BorderLayout());
+            dlg.add(root, BorderLayout.CENTER);
+            dlg.add(btnRow, BorderLayout.SOUTH);
+            dlg.pack();
+            dlg.setLocationRelativeTo(owner);
+            dlg.setVisible(true);
+        }
+
         private void openTextsTimerDialog() {
             if (isTitleGridSlide) return;
             saveCurrentSlideTextToItem();
