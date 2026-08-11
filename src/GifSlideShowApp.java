@@ -12250,14 +12250,17 @@ public class GifSlideShowApp extends JFrame {
         textArea.getDocument().addDocumentListener(docPreview);
 
         // Word-highlight checklist: clicking the button opens a popup of checkboxes
-        // built live from the words in the text, so the user ticks which to highlight.
-        highlightWordsBtn.addActionListener(ev -> {
+        // built live from the words in the text, so the user ticks which to
+        // highlight; an "Add phrase…" entry covers multi-word highlights.
+        final Runnable[] showHlMenu = { null };
+        showHlMenu[0] = () -> {
             javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
             JPanel col = new JPanel();
             col.setLayout(new BoxLayout(col, BoxLayout.Y_AXIS));
             col.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
             java.util.List<String> words = uniqueWords(textArea.getText());
-            // Keep any already-chosen entries visible even if the text no longer has them.
+            // Keep any already-chosen entries (words or phrases) visible even if the
+            // text no longer contains them, so a selection is never silently lost.
             for (String w : hlWords) if (!words.contains(w)) words.add(w);
             if (words.isEmpty()) {
                 JLabel empty = new JLabel("Type some summary text first.");
@@ -12282,11 +12285,36 @@ public class GifSlideShowApp extends JFrame {
             sp.setBorder(null);
             int rows = Math.max(1, words.size());
             sp.setPreferredSize(new Dimension(
-                    Math.max(180, highlightWordsBtn.getWidth()),
+                    Math.max(200, highlightWordsBtn.getWidth()),
                     Math.min(240, rows * 26 + 12)));
             menu.add(sp);
+
+            // Multi-word phrase support: prompt for a phrase (pre-filled from any
+            // text the user has selected in the editor), add it as a checked entry.
+            menu.addSeparator();
+            JMenuItem addPhrase = new JMenuItem("＋ Add phrase…");
+            addPhrase.addActionListener(ae -> {
+                String selTxt = textArea.getSelectedText();
+                String init = selTxt != null ? selTxt.trim().replaceAll("\\s+", " ") : "";
+                Object in = JOptionPane.showInputDialog(dlg,
+                        "Phrase to highlight (words that appear together in the text):",
+                        "Add highlight phrase", JOptionPane.PLAIN_MESSAGE, null, null, init);
+                if (in != null) {
+                    // Commas delimit terms in storage, so fold them into spaces.
+                    String t = in.toString().replace(',', ' ').trim().replaceAll("\\s+", " ");
+                    if (!t.isEmpty()) {
+                        hlWords.add(t);
+                        refreshHlBtnText.run();
+                        commitCurrent.run();
+                        schedulePreview.run();
+                        showHlMenu[0].run(); // reopen so the new phrase shows checked
+                    }
+                }
+            });
+            menu.add(addPhrase);
             menu.show(highlightWordsBtn, 0, highlightWordsBtn.getHeight());
-        });
+        };
+        highlightWordsBtn.addActionListener(ev -> showHlMenu[0].run());
         // Colour picks refresh the preview via each button's onChange (previewHook),
         // which points at schedulePreview once it is assigned below.
 
