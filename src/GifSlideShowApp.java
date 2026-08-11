@@ -9349,6 +9349,12 @@ public class GifSlideShowApp extends JFrame {
                             10f, new float[]{w * 3f, w * 2f}, 0f));
                     g2st.draw(bgShape);
                     break;
+                case "Dotted":
+                    // Round-cap dots evenly spaced along the outline.
+                    g2st.setStroke(new BasicStroke(w, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
+                            10f, new float[]{0.1f, w * 2.2f}, 0f));
+                    g2st.draw(bgShape);
+                    break;
                 case "Double":
                     g2st.setStroke(new BasicStroke(w));
                     g2st.draw(bgShape);
@@ -9356,6 +9362,51 @@ public class GifSlideShowApp extends JFrame {
                     java.awt.Shape inner = insetShape(bgShape, w * 2f);
                     if (inner != null) g2st.draw(inner);
                     break;
+                case "Gradient": {
+                    // Metallic sheen: a diagonal light->base->dark ramp of the
+                    // border colour, so the edge catches the light like foil.
+                    java.awt.Rectangle gb = bgShape.getBounds();
+                    Paint oldPaint = g2st.getPaint();
+                    g2st.setPaint(new java.awt.LinearGradientPaint(
+                            new java.awt.geom.Point2D.Float(gb.x, gb.y),
+                            new java.awt.geom.Point2D.Float(gb.x + gb.width, gb.y + gb.height),
+                            new float[]{0f, 0.5f, 1f},
+                            new Color[]{scaleColor(bc, 1.6f), bc, scaleColor(bc, 0.55f)}));
+                    g2st.setStroke(new BasicStroke(w, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g2st.draw(bgShape);
+                    g2st.setPaint(oldPaint);
+                    break;
+                }
+                case "Groove": {
+                    // Engraved two-tone bevel: a lightened outer line with a
+                    // darkened inset line, reading as a frame carved into the box.
+                    float lw = Math.max(1f, w * 0.6f);
+                    g2st.setStroke(new BasicStroke(lw, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g2st.setColor(scaleColor(bc, 1.5f));
+                    g2st.draw(bgShape);
+                    java.awt.Shape groove = insetShape(bgShape, lw * 1.6f);
+                    if (groove != null) {
+                        g2st.setColor(scaleColor(bc, 0.5f));
+                        g2st.draw(groove);
+                    }
+                    g2st.setColor(bc);
+                    break;
+                }
+                case "Corners": {
+                    // Cinematic L-brackets at the four corners of the bounding box
+                    // — a luxury "framing" look that leaves the sides open.
+                    java.awt.Rectangle cb = bgShape.getBounds();
+                    int len = Math.max(8, Math.min(cb.width, cb.height) / 5);
+                    int x0 = cb.x, y0 = cb.y, x1 = cb.x + cb.width, y1 = cb.y + cb.height;
+                    java.awt.geom.Path2D cp = new java.awt.geom.Path2D.Float();
+                    cp.moveTo(x0, y0 + len); cp.lineTo(x0, y0); cp.lineTo(x0 + len, y0);       // TL
+                    cp.moveTo(x1 - len, y0); cp.lineTo(x1, y0); cp.lineTo(x1, y0 + len);       // TR
+                    cp.moveTo(x1, y1 - len); cp.lineTo(x1, y1); cp.lineTo(x1 - len, y1);       // BR
+                    cp.moveTo(x0 + len, y1); cp.lineTo(x0, y1); cp.lineTo(x0, y1 - len);       // BL
+                    g2st.setStroke(new BasicStroke(w, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g2st.draw(cp);
+                    break;
+                }
                 case "Solid":
                 default:
                     g2st.setStroke(new BasicStroke(w));
@@ -11620,7 +11671,8 @@ public class GifSlideShowApp extends JFrame {
         final int[]    ALIGN_VALUES = { SwingConstants.LEFT, SwingConstants.CENTER, SwingConstants.RIGHT };
         final String[] BG_MODES = { "Freeze Last Frame", "Blur Last Frame",
                 "Blur + Vignette", "Duotone", "Gradient", "Solid Color" };
-        final String[] BORDER_STYLES = { "None", "Solid", "Double", "Dashed" };
+        final String[] BORDER_STYLES = { "None", "Solid", "Double", "Dashed",
+                "Dotted", "Groove", "Gradient", "Corners" };
         // Highlight styles minus "None" (an empty word list is how you turn it off).
         final String[] HL_STYLES;
         {
@@ -18909,7 +18961,8 @@ public class GifSlideShowApp extends JFrame {
         boolean boxShadow = true;
         boolean boxGlow = false;
         Color   boxGlowColor = new Color(90, 160, 255);
-        String  boxBorderStyle = "None"; // None, Solid, Double, Dashed
+        // None, Solid, Double, Dashed, Dotted, Groove, Gradient, Corners
+        String  boxBorderStyle = "None";
         Color   boxBorderColor = Color.WHITE;
         int     boxBorderWidth = 3;
 
