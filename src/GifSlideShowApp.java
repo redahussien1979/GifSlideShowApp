@@ -25564,9 +25564,17 @@ public class GifSlideShowApp extends JFrame {
                 return;
             }
 
+            // Snapshot the current text items so Cancel (or closing with the X)
+            // can fully revert any live "Copy formatting" changes made while the
+            // dialog is open. Show/hide ticks already revert on Cancel because
+            // they are only written to the items by the Apply button below.
+            final java.util.List<SlideTextData> formatSnapshot = new java.util.ArrayList<>();
+            for (SlideTextData s : slideTextItems) formatSnapshot.add(deepCopySlideText(s));
+
             final Window owner = SwingUtilities.getWindowAncestor(panel);
             final JDialog dlg = new JDialog(owner, "Show / Hide Texts", Dialog.ModalityType.APPLICATION_MODAL);
-            dlg.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+            // DO_NOTHING so the window's X can run the same revert path as Cancel.
+            dlg.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
 
             final java.util.List<JCheckBox> checks = new java.util.ArrayList<>();
 
@@ -25616,7 +25624,22 @@ public class GifSlideShowApp extends JFrame {
                 onFormatChanged();
                 dlg.dispose();
             });
-            cancelBtn.addActionListener(e -> dlg.dispose());
+            // Cancel (and the window X) fully revert: restore the item snapshot
+            // taken when the dialog opened, so any live "Copy formatting" edits
+            // are undone and the slide returns to its previous state.
+            final Runnable doCancel = () -> {
+                slideTextItems.clear();
+                slideTextItems.addAll(formatSnapshot);
+                if (currentSlideTextIndex >= 0 && currentSlideTextIndex < slideTextItems.size()) {
+                    loadSlideTextFromItem(currentSlideTextIndex);
+                }
+                onFormatChanged();
+                dlg.dispose();
+            };
+            cancelBtn.addActionListener(e -> doCancel.run());
+            dlg.addWindowListener(new java.awt.event.WindowAdapter() {
+                @Override public void windowClosing(java.awt.event.WindowEvent we) { doCancel.run(); }
+            });
 
             JLabel help = new JLabel("<html>Tick a text to <b>show</b> it on this slide, untick to <b>hide</b> it. "
                     + "This is the same flag as the <b>Slide Text</b> checkbox on the toolbar — "
@@ -25900,6 +25923,17 @@ public class GifSlideShowApp extends JFrame {
                 loadSlideTextFromItem(currentSlideTextIndex);
             }
             onFormatChanged();
+        }
+
+        /** A full, independent deep copy of a text item (with fresh mutable
+         *  sub-objects). Reuses {@link #buildFormatMerged} with every group ticked
+         *  and src == dst, so the result carries every field of {@code s} while
+         *  sharing no Action/altTexts list with it. Used to snapshot slide texts
+         *  so the Show/Hide Texts dialog's Cancel can revert live edits. */
+        private SlideTextData deepCopySlideText(SlideTextData s) {
+            boolean[] all = new boolean[formatGroupLabels().length];
+            java.util.Arrays.fill(all, true);
+            return buildFormatMerged(s, s, all);
         }
 
         private void openTextsTimerDialog() {
