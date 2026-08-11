@@ -11618,7 +11618,8 @@ public class GifSlideShowApp extends JFrame {
         final String[] EASINGS = { "Linear", "Ease In", "Ease Out", "Ease In Out", "Bounce" };
         final String[] ALIGN_LABELS = { "Left", "Center", "Right" };
         final int[]    ALIGN_VALUES = { SwingConstants.LEFT, SwingConstants.CENTER, SwingConstants.RIGHT };
-        final String[] BG_MODES = { "Freeze Last Frame", "Blur Last Frame", "Solid Color" };
+        final String[] BG_MODES = { "Freeze Last Frame", "Blur Last Frame",
+                "Blur + Vignette", "Duotone", "Gradient", "Solid Color" };
         final String[] BORDER_STYLES = { "None", "Solid", "Double", "Dashed" };
         // Highlight styles minus "None" (an empty word list is how you turn it off).
         final String[] HL_STYLES;
@@ -15499,14 +15500,68 @@ public class GifSlideShowApp extends JFrame {
         BufferedImage bg = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
         Graphics2D bgG = bg.createGraphics();
         bgG.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-        BufferedImage base = "Solid Color".equals(cfg.bgMode) ? null : baseFrame;
-        if (base != null) {
-            if ("Blur Last Frame".equals(cfg.bgMode)) base = applyStackBlur(base, 45);
-            bgG.drawImage(base, 0, 0, w, h, null);
-        } else {
-            bgG.setColor(cfg.bgColor != null ? cfg.bgColor : Color.BLACK);
-            bgG.fillRect(0, 0, w, h);
+        bgG.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        String mode = cfg.bgMode != null ? cfg.bgMode : "Freeze Last Frame";
+        Color tint = cfg.bgColor != null ? cfg.bgColor : Color.BLACK;
+        // The frame-based modes fall back to a solid fill when there is no frame
+        // (e.g. a live-preview stand-in that could not be produced).
+        BufferedImage base = summaryModeUsesLastFrame(mode) ? baseFrame : null;
+
+        switch (mode) {
+            case "Gradient": {
+                // Clean radial wash: the chosen colour at the centre easing out to
+                // a darker shade at the corners. Needs no video frame, so it reads
+                // as a deliberate, modern backdrop rather than a fallback.
+                Color edge = scaleColor(tint, 0.32f);
+                float radius = Math.max(1f, (float) (Math.hypot(w, h) * 0.62));
+                bgG.setPaint(new RadialGradientPaint(
+                        new Point2D.Float(w / 2f, h / 2f), radius,
+                        new float[] { 0f, 1f }, new Color[] { tint, edge }));
+                bgG.fillRect(0, 0, w, h);
+                break;
+            }
+            case "Duotone": {
+                // Editorial two-tone: the last frame's luminance mapped onto a ramp
+                // from the chosen colour (shadows) to white (highlights). Gives a
+                // branded, magazine-cover monochrome that keeps all the detail.
+                if (base != null) {
+                    bgG.drawImage(duotone(base, scaleColor(tint, 0.9f), Color.WHITE),
+                            0, 0, w, h, null);
+                } else {
+                    bgG.setColor(tint);
+                    bgG.fillRect(0, 0, w, h);
+                }
+                break;
+            }
+            case "Blur + Vignette": {
+                // Cinematic focus: the softly blurred frame with a gentle radial
+                // vignette darkening the corners, drawing the eye to the popups.
+                if (base != null) {
+                    bgG.drawImage(applyStackBlur(base, 45), 0, 0, w, h, null);
+                } else {
+                    bgG.setColor(tint);
+                    bgG.fillRect(0, 0, w, h);
+                }
+                drawVignette(bgG, w, h, 0.82);
+                break;
+            }
+            case "Blur Last Frame": {
+                if (base != null) bgG.drawImage(applyStackBlur(base, 45), 0, 0, w, h, null);
+                else { bgG.setColor(tint); bgG.fillRect(0, 0, w, h); }
+                break;
+            }
+            case "Solid Color": {
+                bgG.setColor(tint);
+                bgG.fillRect(0, 0, w, h);
+                break;
+            }
+            default: { // "Freeze Last Frame"
+                if (base != null) bgG.drawImage(base, 0, 0, w, h, null);
+                else { bgG.setColor(tint); bgG.fillRect(0, 0, w, h); }
+            }
         }
+
         int dim = Math.max(0, Math.min(100, cfg.bgDim));
         if (dim > 0) {
             bgG.setColor(new Color(0, 0, 0, (int) (dim / 100.0 * 255)));
@@ -15514,6 +15569,64 @@ public class GifSlideShowApp extends JFrame {
         }
         bgG.dispose();
         return bg;
+    }
+
+    /** True when a backdrop mode is built from the video's last frame (and so the
+     *  export must extract it). Frame-free modes skip that work entirely. */
+    static boolean summaryModeUsesLastFrame(String mode) {
+        return !("Solid Color".equals(mode) || "Gradient".equals(mode));
+    }
+
+    /** Multiply a colour's RGB by {@code f} (0..1) for a darker/lighter shade,
+     *  keeping alpha. */
+    static Color scaleColor(Color c, float f) {
+        return new Color(
+                Math.max(0, Math.min(255, Math.round(c.getRed()   * f))),
+                Math.max(0, Math.min(255, Math.round(c.getGreen() * f))),
+                Math.max(0, Math.min(255, Math.round(c.getBlue()  * f))),
+                c.getAlpha());
+    }
+
+    /** Draw a soft radial vignette: transparent through the centre, easing to a
+     *  translucent black at the corners. {@code strength} (0..1) sets the corner
+     *  opacity. */
+    static void drawVignette(Graphics2D g, int w, int h, double strength) {
+        int a = Math.max(0, Math.min(255, (int) Math.round(strength * 255)));
+        float radius = Math.max(1f, (float) (Math.hypot(w, h) * 0.62));
+        // Stay clear through the middle, then ramp up so only the corners darken.
+        RadialGradientPaint p = new RadialGradientPaint(
+                new Point2D.Float(w / 2f, h / 2f), radius,
+                new float[] { 0f, 0.55f, 1f },
+                new Color[] { new Color(0, 0, 0, 0),
+                              new Color(0, 0, 0, a / 6),
+                              new Color(0, 0, 0, a) });
+        Paint old = g.getPaint();
+        g.setPaint(p);
+        g.fillRect(0, 0, w, h);
+        g.setPaint(old);
+    }
+
+    /** Map an image to a two-colour duotone by its per-pixel luminance: darkest
+     *  pixels become {@code shadow}, brightest become {@code highlight}, with a
+     *  smooth ramp between. */
+    static BufferedImage duotone(BufferedImage src, Color shadow, Color highlight) {
+        int w = src.getWidth(), h = src.getHeight();
+        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        int sr = shadow.getRed(),   sg = shadow.getGreen(),   sb = shadow.getBlue();
+        int hr = highlight.getRed(), hg = highlight.getGreen(), hb = highlight.getBlue();
+        int[] px = src.getRGB(0, 0, w, h, null, 0, w);
+        for (int i = 0; i < px.length; i++) {
+            int p = px[i];
+            int r = (p >> 16) & 0xFF, gch = (p >> 8) & 0xFF, b = p & 0xFF;
+            // Rec. 601 luma, 0..1.
+            double t = (0.299 * r + 0.587 * gch + 0.114 * b) / 255.0;
+            int or = (int) Math.round(sr + (hr - sr) * t);
+            int og = (int) Math.round(sg + (hg - sg) * t);
+            int ob = (int) Math.round(sb + (hb - sb) * t);
+            px[i] = (or << 16) | (og << 8) | ob;
+        }
+        out.setRGB(0, 0, w, h, px, 0, w);
+        return out;
     }
 
     /** Render a single fully-composited summary frame at {@code elapsedMs} into
@@ -15564,7 +15677,7 @@ public class GifSlideShowApp extends JFrame {
 
         // ---- shared backdrop (freeze / blur last frame, or solid colour) ----
         BufferedImage last = null;
-        if (!"Solid Color".equals(cfg.bgMode)) {
+        if (summaryModeUsesLastFrame(cfg.bgMode)) {
             last = extractLastVideoFrame(video, videoW, videoH, tempDir);
         }
         BufferedImage bg = buildSummaryBackdrop(cfg, last, videoW, videoH);
@@ -18835,7 +18948,8 @@ public class GifSlideShowApp extends JFrame {
     static class SummaryConfig {
         boolean enabled = false;
         // Backdrop behind the popups for the whole segment.
-        String  bgMode = "Freeze Last Frame"; // Solid Color, Freeze Last Frame, Blur Last Frame
+        // Freeze Last Frame, Blur Last Frame, Blur + Vignette, Duotone, Gradient, Solid Color
+        String  bgMode = "Freeze Last Frame";
         Color   bgColor = Color.BLACK;
         int     bgDim = 45;                    // darken 0..100 over the frozen / blurred frame
         final java.util.List<SummaryPopup> popups = new java.util.ArrayList<>();
