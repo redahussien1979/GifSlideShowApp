@@ -25620,14 +25620,109 @@ public class GifSlideShowApp extends JFrame {
 
             JLabel help = new JLabel("<html>Tick a text to <b>show</b> it on this slide, untick to <b>hide</b> it. "
                     + "This is the same flag as the <b>Slide Text</b> checkbox on the toolbar — "
-                    + "here you can set them all at once.</html>");
+                    + "here you can set them all at once.<br>"
+                    + "Use the panel below to <b>copy formatting</b> from one text onto every ticked text, "
+                    + "so you can style many texts together.</html>");
             help.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             help.setBorder(BorderFactory.createEmptyBorder(0, 2, 8, 2));
+
+            // ----- "Copy / apply formatting to multiple texts" panel -----
+            // Lets the user push any subset of the toolbar formatting groups from
+            // one source text onto every ticked text at once, and copy the full
+            // look from one text to another. Purely additive: it rebuilds the
+            // affected slideTextItems through buildFormatMerged and never touches
+            // the show/hide Apply path below.
+            final String[] groupLabels = formatGroupLabels();
+            final java.util.List<JCheckBox> groupChecks = new java.util.ArrayList<>();
+            JPanel groupsGrid = new JPanel(new GridLayout(0, 2, 6, 2));
+            groupsGrid.setBackground(Color.WHITE);
+            for (String gl : groupLabels) {
+                JCheckBox gcb = new JCheckBox(gl, true);
+                gcb.setBackground(Color.WHITE);
+                gcb.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+                groupChecks.add(gcb);
+                groupsGrid.add(gcb);
+            }
+
+            final JComboBox<String> srcCombo = new JComboBox<>();
+            for (int i = 0; i < slideTextItems.size(); i++) srcCombo.addItem("Text " + (i + 1));
+            if (currentSlideTextIndex >= 0 && currentSlideTextIndex < slideTextItems.size()) {
+                srcCombo.setSelectedIndex(currentSlideTextIndex);
+            }
+            srcCombo.setToolTipText("The text whose formatting is copied. Tip: set a text up on the toolbar first, then copy it from here.");
+
+            JButton groupsAllBtn  = new JButton("All");
+            JButton groupsNoneBtn = new JButton("None");
+            groupsAllBtn.setToolTipText("Tick every formatting group.");
+            groupsNoneBtn.setToolTipText("Untick every formatting group.");
+            groupsAllBtn.addActionListener(e -> { for (JCheckBox c : groupChecks) c.setSelected(true); });
+            groupsNoneBtn.addActionListener(e -> { for (JCheckBox c : groupChecks) c.setSelected(false); });
+
+            JButton applyFmtBtn = new JButton("Copy formatting → ticked texts");
+            applyFmtBtn.setToolTipText("Copy the ticked formatting groups from the source text into every ticked text above (the source itself is skipped).");
+            applyFmtBtn.addActionListener(e -> {
+                int srcIdx = srcCombo.getSelectedIndex();
+                boolean[] g = new boolean[groupChecks.size()];
+                boolean anyGroup = false;
+                for (int i = 0; i < g.length; i++) { g[i] = groupChecks.get(i).isSelected(); anyGroup |= g[i]; }
+                if (!anyGroup) {
+                    JOptionPane.showMessageDialog(dlg, "Tick at least one formatting group to copy.",
+                            "Copy Formatting", JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+                java.util.List<Integer> targets = new java.util.ArrayList<>();
+                for (int i = 0; i < checks.size(); i++) {
+                    if (i != srcIdx && checks.get(i).isSelected()) targets.add(i);
+                }
+                if (targets.isEmpty()) {
+                    JOptionPane.showMessageDialog(dlg,
+                            "Tick at least one target text above (other than the source) to copy formatting into.",
+                            "Copy Formatting", JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+                applyFormatToTexts(srcIdx, targets, g);
+                JOptionPane.showMessageDialog(dlg,
+                        "Copied formatting to " + targets.size() + " text" + (targets.size() == 1 ? "" : "s") + ".",
+                        "Copy Formatting", JOptionPane.INFORMATION_MESSAGE);
+            });
+
+            JPanel fmtSrcRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+            fmtSrcRow.setBackground(Color.WHITE);
+            fmtSrcRow.add(new JLabel("Copy formatting from:"));
+            fmtSrcRow.add(srcCombo);
+            fmtSrcRow.add(new JLabel("     Groups:"));
+            fmtSrcRow.add(groupsAllBtn);
+            fmtSrcRow.add(groupsNoneBtn);
+
+            JPanel fmtApplyRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+            fmtApplyRow.setBackground(Color.WHITE);
+            fmtApplyRow.add(applyFmtBtn);
+
+            JLabel fmtHint = new JLabel("<html><i>Copies the ticked groups into every <b>ticked</b> text above "
+                    + "(except the source). Each text keeps its own words &mdash; only formatting is copied. "
+                    + "Untick a group to leave that aspect of the targets untouched.</i></html>");
+            fmtHint.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+
+            JPanel fmtPanel = new JPanel();
+            fmtPanel.setLayout(new BoxLayout(fmtPanel, BoxLayout.Y_AXIS));
+            fmtPanel.setBackground(Color.WHITE);
+            fmtPanel.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createTitledBorder("Copy / apply formatting to multiple texts"),
+                    BorderFactory.createEmptyBorder(4, 6, 6, 6)));
+            fmtSrcRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+            groupsGrid.setAlignmentX(Component.LEFT_ALIGNMENT);
+            fmtApplyRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+            fmtHint.setAlignmentX(Component.LEFT_ALIGNMENT);
+            fmtPanel.add(fmtSrcRow);
+            fmtPanel.add(groupsGrid);
+            fmtPanel.add(fmtApplyRow);
+            fmtPanel.add(fmtHint);
 
             JPanel root = new JPanel(new BorderLayout());
             root.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
             root.add(help, BorderLayout.NORTH);
             root.add(rowsScroll, BorderLayout.CENTER);
+            root.add(fmtPanel, BorderLayout.SOUTH);
 
             JPanel btnLeft = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6));
             btnLeft.add(selectAllBtn);
@@ -25645,6 +25740,165 @@ public class GifSlideShowApp extends JFrame {
             dlg.pack();
             dlg.setLocationRelativeTo(owner);
             dlg.setVisible(true);
+        }
+
+        /** Human labels for the formatting groups offered by the Show/Hide Texts
+         *  "Copy formatting" panel. Index order is the contract used by
+         *  {@link #buildFormatMerged}. Kept as a local factory (not a static
+         *  field) because SlideRow is a non-static inner class. */
+        private String[] formatGroupLabels() {
+            return new String[] {
+                    "Font & size",
+                    "Text colour",
+                    "Alignment & width",
+                    "Position (X / Y / Shift / Tilt)",
+                    "Spacing & opacity",
+                    "Text effect & burst",
+                    "Background / box style",
+                    "Highlight words",
+                    "Bold / Italic / Underline / Colour words",
+                    "Odometer",
+                    "Entry animation",
+                    "Timer / Motion / Alternate" };
+        }
+
+        /**
+         * Build a new SlideTextData that keeps {@code dst}'s own text content,
+         * show flag and X-anchor role, but pulls each ticked formatting group's
+         * fields from {@code src}. The {@code g} flags follow the order returned
+         * by {@link #formatGroupLabels()}. A freshly-constructed SlideTextData
+         * starts its mutable (non-final) fields at defaults, so every one is
+         * assigned here — from src when its group is ticked, otherwise from dst —
+         * and mutable sub-objects (actions / altTexts) are deep-copied so the
+         * result never shares state with either input.
+         */
+        private SlideTextData buildFormatMerged(SlideTextData dst, SlideTextData src, boolean[] g) {
+            boolean gFont = g[0], gColor = g[1], gAlign = g[2], gPos = g[3], gSpace = g[4],
+                    gEffect = g[5], gBg = g[6], gHl = g[7], gWord = g[8], gOdo = g[9],
+                    gAnim = g[10], gTimer = g[11];
+
+            SlideTextData m = new SlideTextData(
+                    dst.show, dst.text,
+                    gFont  ? src.fontName  : dst.fontName,
+                    gFont  ? src.fontSize  : dst.fontSize,
+                    gFont  ? src.fontStyle : dst.fontStyle,
+                    gColor ? src.color     : dst.color,
+                    gPos   ? src.x         : dst.x,
+                    gPos   ? src.y         : dst.y,
+                    gBg    ? src.bgOpacity : dst.bgOpacity,
+                    gBg    ? src.bgColor   : dst.bgColor,
+                    gAlign ? src.justify   : dst.justify,
+                    gAlign ? src.widthPct  : dst.widthPct,
+                    gPos   ? src.shiftX    : dst.shiftX,
+                    gAlign ? src.alignment : dst.alignment,
+                    gEffect ? src.textEffect          : dst.textEffect,
+                    gEffect ? src.textEffectIntensity : dst.textEffectIntensity,
+                    gHl ? src.highlightText      : dst.highlightText,
+                    gHl ? src.highlightColor     : dst.highlightColor,
+                    gHl ? src.highlightStyle     : dst.highlightStyle,
+                    gHl ? src.highlightTightness : dst.highlightTightness,
+                    gWord ? src.underlineStyle : dst.underlineStyle,
+                    gWord ? src.underlineText  : dst.underlineText,
+                    gWord ? src.boldText       : dst.boldText,
+                    gWord ? src.italicText     : dst.italicText,
+                    gWord ? src.colorText      : dst.colorText,
+                    gWord ? src.colorTextColor : dst.colorTextColor,
+                    dst.xLeftAligned,
+                    gOdo ? src.odometer      : dst.odometer,
+                    gOdo ? src.odometerSpeed : dst.odometerSpeed,
+                    gOdo ? src.odometerRoll  : dst.odometerRoll,
+                    gOdo ? src.odometerLand  : dst.odometerLand,
+                    gAnim ? src.animEnabled    : dst.animEnabled,
+                    gAnim ? src.animPath       : dst.animPath,
+                    gAnim ? src.animDurationMs : dst.animDurationMs,
+                    gAnim ? src.animStartMs    : dst.animStartMs,
+                    gAnim ? src.animEasing     : dst.animEasing,
+                    gPos   ? src.tiltDegrees  : dst.tiltDegrees,
+                    gSpace ? src.letterSpacing : dst.letterSpacing,
+                    gSpace ? src.lineSpacing   : dst.lineSpacing,
+                    gSpace ? src.opacity       : dst.opacity);
+
+            // ---- Mutable (non-final) fields: pick the owning side per group ----
+            SlideTextData bgFrom = gBg ? src : dst;
+            m.bgPaddingPct      = bgFrom.bgPaddingPct;
+            m.bgPaddingYPct     = bgFrom.bgPaddingYPct;
+            m.bgRoundPct        = bgFrom.bgRoundPct;
+            m.bgColor2          = bgFrom.bgColor2;
+            m.bgFillKind        = bgFrom.bgFillKind;
+            m.bgFillAngle       = bgFrom.bgFillAngle;
+            m.bgFillSpacing     = bgFrom.bgFillSpacing;
+            m.bgNoiseKind       = bgFrom.bgNoiseKind;
+            m.bgNoiseIntensity  = bgFrom.bgNoiseIntensity;
+            m.bgFrostedBlur     = bgFrom.bgFrostedBlur;
+            m.bgShape           = bgFrom.bgShape;
+            m.bgCornerTL        = bgFrom.bgCornerTL;
+            m.bgCornerTR        = bgFrom.bgCornerTR;
+            m.bgCornerBL        = bgFrom.bgCornerBL;
+            m.bgCornerBR        = bgFrom.bgCornerBR;
+            m.bgBorderStyle     = bgFrom.bgBorderStyle;
+            m.bgBorderWidth     = bgFrom.bgBorderWidth;
+            m.bgBorderColor     = bgFrom.bgBorderColor;
+            m.bgShadow          = bgFrom.bgShadow;
+            m.bgShadowDx        = bgFrom.bgShadowDx;
+            m.bgShadowDy        = bgFrom.bgShadowDy;
+            m.bgShadowBlur      = bgFrom.bgShadowBlur;
+            m.bgInnerShadow     = bgFrom.bgInnerShadow;
+            m.bgInnerShadowSize = bgFrom.bgInnerShadowSize;
+            m.bgOuterGlow       = bgFrom.bgOuterGlow;
+            m.bgOuterGlowSize   = bgFrom.bgOuterGlowSize;
+            m.bgOuterGlowColor  = bgFrom.bgOuterGlowColor;
+
+            SlideTextData fxFrom = gEffect ? src : dst;
+            m.fxBurst      = fxFrom.fxBurst;
+            m.fxBurstStyle = fxFrom.fxBurstStyle;
+
+            SlideTextData tmFrom = gTimer ? src : dst;
+            m.timerAppearMs     = tmFrom.timerAppearMs;
+            m.timerDisappearMs  = tmFrom.timerDisappearMs;
+            m.timerAppearEffect = tmFrom.timerAppearEffect;
+            m.timerAppearEasing = tmFrom.timerAppearEasing;
+            m.timerAppearDurMs  = tmFrom.timerAppearDurMs;
+            m.wordRevealMs      = tmFrom.wordRevealMs;
+            m.actions = new java.util.ArrayList<>();
+            if (tmFrom.actions != null) {
+                for (SlideTextData.Action a : tmFrom.actions) if (a != null) m.actions.add(a.copy());
+            }
+            m.altEnabled     = tmFrom.altEnabled;
+            m.altPeriodMs    = tmFrom.altPeriodMs;
+            m.altStartMs     = tmFrom.altStartMs;
+            m.altDurationMs  = tmFrom.altDurationMs;
+            m.altTransition  = tmFrom.altTransition;
+            m.altTransitionMs = tmFrom.altTransitionMs;
+            m.altTexts = new java.util.ArrayList<>();
+            if (tmFrom.altTexts != null) m.altTexts.addAll(tmFrom.altTexts);
+
+            // Karaoke / audio-highlight styling isn't one of the toolbar groups
+            // in the image, so it always stays with the destination text.
+            m.karaokeStyle = dst.karaokeStyle;
+            m.karaokeColor = dst.karaokeColor;
+            m.audioOtherLightEffects = dst.audioOtherLightEffects;
+            return m;
+        }
+
+        /**
+         * Copy the chosen formatting groups from the source text into every
+         * target text (in place, rebuilding each SlideTextData). Each target
+         * keeps its own words, show flag and X-anchor role; the source itself is
+         * skipped if it appears in the target list. Refreshes the toolbar for the
+         * currently-selected text and repaints the preview.
+         */
+        private void applyFormatToTexts(int srcIndex, java.util.List<Integer> targets, boolean[] g) {
+            if (srcIndex < 0 || srcIndex >= slideTextItems.size()) return;
+            SlideTextData src = slideTextItems.get(srcIndex);
+            for (int idx : targets) {
+                if (idx < 0 || idx >= slideTextItems.size() || idx == srcIndex) continue;
+                SlideTextData dst = slideTextItems.get(idx);
+                slideTextItems.set(idx, buildFormatMerged(dst, src, g));
+            }
+            if (currentSlideTextIndex >= 0 && currentSlideTextIndex < slideTextItems.size()) {
+                loadSlideTextFromItem(currentSlideTextIndex);
+            }
+            onFormatChanged();
         }
 
         private void openTextsTimerDialog() {
