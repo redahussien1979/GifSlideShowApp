@@ -25751,7 +25751,8 @@ public class GifSlideShowApp extends JFrame {
                     "Font & size",
                     "Text colour",
                     "Alignment & width",
-                    "Position (X / Y / Shift / Tilt)",
+                    "Location (X / Y / Shift)",
+                    "Tilt (rotation)",
                     "Spacing & opacity",
                     "Text effect & burst",
                     "Background / box style",
@@ -25773,9 +25774,9 @@ public class GifSlideShowApp extends JFrame {
          * result never shares state with either input.
          */
         private SlideTextData buildFormatMerged(SlideTextData dst, SlideTextData src, boolean[] g) {
-            boolean gFont = g[0], gColor = g[1], gAlign = g[2], gPos = g[3], gSpace = g[4],
-                    gEffect = g[5], gBg = g[6], gHl = g[7], gWord = g[8], gOdo = g[9],
-                    gAnim = g[10], gTimer = g[11];
+            boolean gFont = g[0], gColor = g[1], gAlign = g[2], gLoc = g[3], gTilt = g[4],
+                    gSpace = g[5], gEffect = g[6], gBg = g[7], gHl = g[8], gWord = g[9],
+                    gOdo = g[10], gAnim = g[11], gTimer = g[12];
 
             SlideTextData m = new SlideTextData(
                     dst.show, dst.text,
@@ -25783,13 +25784,13 @@ public class GifSlideShowApp extends JFrame {
                     gFont  ? src.fontSize  : dst.fontSize,
                     gFont  ? src.fontStyle : dst.fontStyle,
                     gColor ? src.color     : dst.color,
-                    gPos   ? src.x         : dst.x,
-                    gPos   ? src.y         : dst.y,
+                    gLoc   ? src.x         : dst.x,
+                    gLoc   ? src.y         : dst.y,
                     gBg    ? src.bgOpacity : dst.bgOpacity,
                     gBg    ? src.bgColor   : dst.bgColor,
                     gAlign ? src.justify   : dst.justify,
                     gAlign ? src.widthPct  : dst.widthPct,
-                    gPos   ? src.shiftX    : dst.shiftX,
+                    gLoc   ? src.shiftX    : dst.shiftX,
                     gAlign ? src.alignment : dst.alignment,
                     gEffect ? src.textEffect          : dst.textEffect,
                     gEffect ? src.textEffectIntensity : dst.textEffectIntensity,
@@ -25813,7 +25814,7 @@ public class GifSlideShowApp extends JFrame {
                     gAnim ? src.animDurationMs : dst.animDurationMs,
                     gAnim ? src.animStartMs    : dst.animStartMs,
                     gAnim ? src.animEasing     : dst.animEasing,
-                    gPos   ? src.tiltDegrees  : dst.tiltDegrees,
+                    gTilt  ? src.tiltDegrees  : dst.tiltDegrees,
                     gSpace ? src.letterSpacing : dst.letterSpacing,
                     gSpace ? src.lineSpacing   : dst.lineSpacing,
                     gSpace ? src.opacity       : dst.opacity);
