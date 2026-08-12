@@ -527,6 +527,9 @@ public class GifSlideShowApp extends JFrame {
                 props.setProperty(q + "highlightWords", sp.highlightWords != null ? sp.highlightWords : "");
                 props.setProperty(q + "highlightColor", colorToHex(sp.highlightColor));
                 props.setProperty(q + "highlightStyle", sp.highlightStyle != null ? sp.highlightStyle : "Marker");
+                props.setProperty(q + "highlightIntensity", String.valueOf(sp.highlightIntensity));
+                props.setProperty(q + "highlightHeight",    String.valueOf(sp.highlightHeight));
+                props.setProperty(q + "highlightWidth",     String.valueOf(sp.highlightWidth));
                 props.setProperty(q + "xPct",        String.valueOf(sp.xPct));
                 props.setProperty(q + "yPct",        String.valueOf(sp.yPct));
                 props.setProperty(q + "widthPct",    String.valueOf(sp.widthPct));
@@ -1714,6 +1717,9 @@ public class GifSlideShowApp extends JFrame {
         sp.highlightWords = props.getProperty(q + "highlightWords", def.highlightWords);
         sp.highlightColor = hexToColor(props.getProperty(q + "highlightColor", colorToHex(def.highlightColor)));
         sp.highlightStyle = props.getProperty(q + "highlightStyle", def.highlightStyle);
+        sp.highlightIntensity = parseIntOr(props.getProperty(q + "highlightIntensity"), def.highlightIntensity);
+        sp.highlightHeight = parseIntOr(props.getProperty(q + "highlightHeight"), def.highlightHeight);
+        sp.highlightWidth  = parseIntOr(props.getProperty(q + "highlightWidth"),  def.highlightWidth);
         sp.xPct        = parseIntOr(props.getProperty(q + "xPct"), def.xPct);
         sp.yPct        = parseIntOr(props.getProperty(q + "yPct"), def.yPct);
         sp.widthPct    = parseIntOr(props.getProperty(q + "widthPct"), def.widthPct);
@@ -6030,6 +6036,25 @@ public class GifSlideShowApp extends JFrame {
                                 // Center the reduced-height rect vertically on the text
                                 int hlRectY = lineY - stFm.getAscent() - hlPadY + (fullH - hlRectH) / 2;
                                 int hlRectW = Math.max(1, hlW + hlPadX * 2);
+                                // Independent size / intensity tuning (100 = unchanged): scale the
+                                // mark's width and height about its centre, and its opacity.
+                                int hlWpct = st.highlightWidthPct  <= 0 ? 100 : st.highlightWidthPct;
+                                int hlHpct = st.highlightHeightPct <= 0 ? 100 : st.highlightHeightPct;
+                                if (hlWpct != 100) {
+                                    int nW = Math.max(1, Math.round(hlRectW * hlWpct / 100f));
+                                    hlRectX -= (nW - hlRectW) / 2;
+                                    hlRectW = nW;
+                                }
+                                if (hlHpct != 100) {
+                                    int nH = Math.max(2, Math.round(hlRectH * hlHpct / 100f));
+                                    hlRectY -= (nH - hlRectH) / 2;
+                                    hlRectH = nH;
+                                }
+                                if (st.highlightIntensityPct >= 0 && st.highlightIntensityPct != 100) {
+                                    int na = Math.max(0, Math.min(255,
+                                            Math.round(hlC.getAlpha() * st.highlightIntensityPct / 100f)));
+                                    hlC = new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), na);
+                                }
                                 int arc = (int) (4 * stScaleFactor);
                                 String rawHlStyle = st.highlightStyle != null ? st.highlightStyle : "Regular";
                                 // Support "Glow:<size>" to carry a glow spread multiplier.
@@ -9349,6 +9374,12 @@ public class GifSlideShowApp extends JFrame {
                             10f, new float[]{w * 3f, w * 2f}, 0f));
                     g2st.draw(bgShape);
                     break;
+                case "Dotted":
+                    // Round-cap dots evenly spaced along the outline.
+                    g2st.setStroke(new BasicStroke(w, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
+                            10f, new float[]{0.1f, w * 2.2f}, 0f));
+                    g2st.draw(bgShape);
+                    break;
                 case "Double":
                     g2st.setStroke(new BasicStroke(w));
                     g2st.draw(bgShape);
@@ -9356,6 +9387,51 @@ public class GifSlideShowApp extends JFrame {
                     java.awt.Shape inner = insetShape(bgShape, w * 2f);
                     if (inner != null) g2st.draw(inner);
                     break;
+                case "Gradient": {
+                    // Metallic sheen: a diagonal light->base->dark ramp of the
+                    // border colour, so the edge catches the light like foil.
+                    java.awt.Rectangle gb = bgShape.getBounds();
+                    Paint oldPaint = g2st.getPaint();
+                    g2st.setPaint(new java.awt.LinearGradientPaint(
+                            new java.awt.geom.Point2D.Float(gb.x, gb.y),
+                            new java.awt.geom.Point2D.Float(gb.x + gb.width, gb.y + gb.height),
+                            new float[]{0f, 0.5f, 1f},
+                            new Color[]{scaleColor(bc, 1.6f), bc, scaleColor(bc, 0.55f)}));
+                    g2st.setStroke(new BasicStroke(w, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g2st.draw(bgShape);
+                    g2st.setPaint(oldPaint);
+                    break;
+                }
+                case "Groove": {
+                    // Engraved two-tone bevel: a lightened outer line with a
+                    // darkened inset line, reading as a frame carved into the box.
+                    float lw = Math.max(1f, w * 0.6f);
+                    g2st.setStroke(new BasicStroke(lw, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g2st.setColor(scaleColor(bc, 1.5f));
+                    g2st.draw(bgShape);
+                    java.awt.Shape groove = insetShape(bgShape, lw * 1.6f);
+                    if (groove != null) {
+                        g2st.setColor(scaleColor(bc, 0.5f));
+                        g2st.draw(groove);
+                    }
+                    g2st.setColor(bc);
+                    break;
+                }
+                case "Corners": {
+                    // Cinematic L-brackets at the four corners of the bounding box
+                    // — a luxury "framing" look that leaves the sides open.
+                    java.awt.Rectangle cb = bgShape.getBounds();
+                    int len = Math.max(8, Math.min(cb.width, cb.height) / 5);
+                    int x0 = cb.x, y0 = cb.y, x1 = cb.x + cb.width, y1 = cb.y + cb.height;
+                    java.awt.geom.Path2D cp = new java.awt.geom.Path2D.Float();
+                    cp.moveTo(x0, y0 + len); cp.lineTo(x0, y0); cp.lineTo(x0 + len, y0);       // TL
+                    cp.moveTo(x1 - len, y0); cp.lineTo(x1, y0); cp.lineTo(x1, y0 + len);       // TR
+                    cp.moveTo(x1, y1 - len); cp.lineTo(x1, y1); cp.lineTo(x1 - len, y1);       // BR
+                    cp.moveTo(x0 + len, y1); cp.lineTo(x0, y1); cp.lineTo(x0, y1 - len);       // BL
+                    g2st.setStroke(new BasicStroke(w, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g2st.draw(cp);
+                    break;
+                }
                 case "Solid":
                 default:
                     g2st.setStroke(new BasicStroke(w));
@@ -11618,8 +11694,10 @@ public class GifSlideShowApp extends JFrame {
         final String[] EASINGS = { "Linear", "Ease In", "Ease Out", "Ease In Out", "Bounce" };
         final String[] ALIGN_LABELS = { "Left", "Center", "Right" };
         final int[]    ALIGN_VALUES = { SwingConstants.LEFT, SwingConstants.CENTER, SwingConstants.RIGHT };
-        final String[] BG_MODES = { "Freeze Last Frame", "Blur Last Frame", "Solid Color" };
-        final String[] BORDER_STYLES = { "None", "Solid", "Double", "Dashed" };
+        final String[] BG_MODES = { "Freeze Last Frame", "Blur Last Frame",
+                "Blur + Vignette", "Duotone", "Gradient", "Solid Color" };
+        final String[] BORDER_STYLES = { "None", "Solid", "Double", "Dashed",
+                "Dotted", "Groove", "Gradient", "Corners" };
         // Highlight styles minus "None" (an empty word list is how you turn it off).
         final String[] HL_STYLES;
         {
@@ -11675,12 +11753,23 @@ public class GifSlideShowApp extends JFrame {
         final JComboBox<String> textEffect = new JComboBox<>(TEXT_EFFECTS);
         final JSpinner textEffectIntensity = new JSpinner(new SpinnerNumberModel(60, 0, 100, 5));
         final JSpinner lineSpacing = new JSpinner(new SpinnerNumberModel(8, -20, 60, 1));
-        // Highlight specific word(s).
-        final JTextField highlightWords = new JTextField(18);
-        highlightWords.setToolTipText("Comma-separated word(s) or phrase(s) inside the text to highlight. Leave empty for none.");
+        // Highlight specific word(s): a checklist of the words in the text.
+        final java.util.LinkedHashSet<String> hlWords = new java.util.LinkedHashSet<>();
+        final JButton highlightWordsBtn = new JButton("(choose words…)");
+        highlightWordsBtn.setHorizontalAlignment(SwingConstants.LEFT);
+        highlightWordsBtn.setToolTipText("Pick which word(s) from the text to highlight.");
+        final Runnable refreshHlBtnText = () -> {
+            if (hlWords.isEmpty()) { highlightWordsBtn.setText("(choose words…)"); return; }
+            String s = String.join(", ", hlWords);
+            highlightWordsBtn.setText(s.length() > 30 ? s.substring(0, 29) + "…" : s);
+        };
         final Color[] highlightColor = { new Color(255, 210, 60) };
         final JButton highlightColorBtn = makeColorButton("Highlight colour", highlightColor, colorPicked);
         final JComboBox<String> highlightStyle = new JComboBox<>(HL_STYLES);
+        // Fine control of the highlight mark (percent; 100 = default look).
+        final JSpinner hlIntensity = new JSpinner(new SpinnerNumberModel(100, 0, 100, 5));
+        final JSpinner hlHeight    = new JSpinner(new SpinnerNumberModel(100, 50, 200, 5));
+        final JSpinner hlWidth     = new JSpinner(new SpinnerNumberModel(100, 50, 200, 5));
         final JSpinner xPct = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
         final JSpinner yPct = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
         final JSpinner widthPct = new JSpinner(new SpinnerNumberModel(80, 10, 100, 1));
@@ -11730,9 +11819,12 @@ public class GifSlideShowApp extends JFrame {
             p.textEffect = (String) textEffect.getSelectedItem();
             p.textEffectIntensity = ((Number) textEffectIntensity.getValue()).intValue();
             p.lineSpacing = ((Number) lineSpacing.getValue()).intValue();
-            p.highlightWords = highlightWords.getText();
+            p.highlightWords = String.join(",", hlWords);
             p.highlightColor = highlightColor[0];
             p.highlightStyle = (String) highlightStyle.getSelectedItem();
+            p.highlightIntensity = ((Number) hlIntensity.getValue()).intValue();
+            p.highlightHeight = ((Number) hlHeight.getValue()).intValue();
+            p.highlightWidth = ((Number) hlWidth.getValue()).intValue();
             p.xPct = ((Number) xPct.getValue()).intValue();
             p.yPct = ((Number) yPct.getValue()).intValue();
             p.widthPct = ((Number) widthPct.getValue()).intValue();
@@ -11773,9 +11865,18 @@ public class GifSlideShowApp extends JFrame {
             textEffect.setSelectedItem(p.textEffect);
             textEffectIntensity.setValue(p.textEffectIntensity);
             lineSpacing.setValue(p.lineSpacing);
-            highlightWords.setText(p.highlightWords);
+            hlWords.clear();
+            if (p.highlightWords != null)
+                for (String w : p.highlightWords.split(",")) {
+                    String t = w.trim();
+                    if (!t.isEmpty()) hlWords.add(t);
+                }
+            refreshHlBtnText.run();
             highlightColor[0] = p.highlightColor; repaintColorButton(highlightColorBtn, highlightColor[0]);
             highlightStyle.setSelectedItem(p.highlightStyle);
+            hlIntensity.setValue(p.highlightIntensity);
+            hlHeight.setValue(p.highlightHeight);
+            hlWidth.setValue(p.highlightWidth);
             xPct.setValue(p.xPct);
             yPct.setValue(p.yPct);
             widthPct.setValue(p.widthPct);
@@ -11947,8 +12048,10 @@ public class GifSlideShowApp extends JFrame {
                 new JLabel("(outline / glow for 2-colour effects)") });
 
         section.accept(r[0]++, "Highlight word(s)");
-        field.accept("Words:", highlightWords);
+        field.accept("Words:", highlightWordsBtn);
         field2.accept("Colour / style:", new Component[]{ highlightColorBtn, highlightStyle });
+        field2.accept("Mark size:", new Component[]{ new JLabel("Intensity %:"), hlIntensity,
+                new JLabel("Height %:"), hlHeight, new JLabel("Width %:"), hlWidth });
 
         section.accept(r[0]++, "Box");
         field2.accept("Fill:", new Component[]{ boxColorBtn, new JLabel("Opacity %:"), boxOpacity,
@@ -12132,7 +12235,8 @@ public class GifSlideShowApp extends JFrame {
         javax.swing.event.ChangeListener anyChange = e -> schedulePreview.run();
         java.awt.event.ActionListener anyAction = e -> schedulePreview.run();
         for (JSpinner sp : new JSpinner[]{ appearSec, duration, animMs, fontSize, textEffectIntensity,
-                lineSpacing, xPct, yPct, widthPct, boxOpacity, boxRound, boxPad, boxPadY, borderWidth, bgDim })
+                lineSpacing, hlIntensity, hlHeight, hlWidth,
+                xPct, yPct, widthPct, boxOpacity, boxRound, boxPad, boxPadY, borderWidth, bgDim })
             sp.addChangeListener(anyChange);
         for (JComboBox<String> cb : java.util.Arrays.asList(entrance, easing, font, align, textEffect, border, bgMode, highlightStyle))
             cb.addActionListener(anyAction);
@@ -12144,7 +12248,73 @@ public class GifSlideShowApp extends JFrame {
             public void changedUpdate(javax.swing.event.DocumentEvent e) { schedulePreview.run(); }
         };
         textArea.getDocument().addDocumentListener(docPreview);
-        highlightWords.getDocument().addDocumentListener(docPreview);
+
+        // Word-highlight checklist: clicking the button opens a popup of checkboxes
+        // built live from the words in the text, so the user ticks which to
+        // highlight; an "Add phrase…" entry covers multi-word highlights.
+        final Runnable[] showHlMenu = { null };
+        showHlMenu[0] = () -> {
+            javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+            JPanel col = new JPanel();
+            col.setLayout(new BoxLayout(col, BoxLayout.Y_AXIS));
+            col.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+            java.util.List<String> words = uniqueWords(textArea.getText());
+            // Keep any already-chosen entries (words or phrases) visible even if the
+            // text no longer contains them, so a selection is never silently lost.
+            for (String w : hlWords) if (!words.contains(w)) words.add(w);
+            if (words.isEmpty()) {
+                JLabel empty = new JLabel("Type some summary text first.");
+                empty.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+                col.add(empty);
+            } else {
+                for (String w : words) {
+                    JCheckBox cb = new JCheckBox(w, hlWords.contains(w));
+                    cb.setOpaque(false);
+                    cb.addActionListener(ae -> {
+                        if (cb.isSelected()) hlWords.add(w); else hlWords.remove(w);
+                        refreshHlBtnText.run();
+                        commitCurrent.run();
+                        schedulePreview.run();
+                    });
+                    col.add(cb);
+                }
+            }
+            JScrollPane sp = new JScrollPane(col,
+                    ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+                    ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+            sp.setBorder(null);
+            int rows = Math.max(1, words.size());
+            sp.setPreferredSize(new Dimension(
+                    Math.max(200, highlightWordsBtn.getWidth()),
+                    Math.min(240, rows * 26 + 12)));
+            menu.add(sp);
+
+            // Multi-word phrase support: prompt for a phrase (pre-filled from any
+            // text the user has selected in the editor), add it as a checked entry.
+            menu.addSeparator();
+            JMenuItem addPhrase = new JMenuItem("＋ Add phrase…");
+            addPhrase.addActionListener(ae -> {
+                String selTxt = textArea.getSelectedText();
+                String init = selTxt != null ? selTxt.trim().replaceAll("\\s+", " ") : "";
+                Object in = JOptionPane.showInputDialog(dlg,
+                        "Phrase to highlight (words that appear together in the text):",
+                        "Add highlight phrase", JOptionPane.PLAIN_MESSAGE, null, null, init);
+                if (in != null) {
+                    // Commas delimit terms in storage, so fold them into spaces.
+                    String t = in.toString().replace(',', ' ').trim().replaceAll("\\s+", " ");
+                    if (!t.isEmpty()) {
+                        hlWords.add(t);
+                        refreshHlBtnText.run();
+                        commitCurrent.run();
+                        schedulePreview.run();
+                        showHlMenu[0].run(); // reopen so the new phrase shows checked
+                    }
+                }
+            });
+            menu.add(addPhrase);
+            menu.show(highlightWordsBtn, 0, highlightWordsBtn.getHeight());
+        };
+        highlightWordsBtn.addActionListener(ev -> showHlMenu[0].run());
         // Colour picks refresh the preview via each button's onChange (previewHook),
         // which points at schedulePreview once it is assigned below.
 
@@ -12152,7 +12322,7 @@ public class GifSlideShowApp extends JFrame {
         final Component[] segControls = { bgMode, bgColorBtn, bgDim };
         final Component[] popControls = { popEnabled, textArea, appearSec, duration, animMs, entrance, easing,
                 font, fontSize, bold, italic, textColorBtn, accentColorBtn, align, textEffect, textEffectIntensity, lineSpacing,
-                highlightWords, highlightColorBtn, highlightStyle,
+                highlightWordsBtn, highlightColorBtn, highlightStyle, hlIntensity, hlHeight, hlWidth,
                 xPct, yPct, widthPct, boxColorBtn, boxOpacity, boxRound, boxPad, boxPadY, boxShadow, boxGlow,
                 boxGlowColorBtn, border, borderColorBtn, borderWidth, popupList, addBtn, dupBtn, delBtn, applyAllBtn };
         Runnable masterToggle = () -> {
@@ -12375,12 +12545,25 @@ public class GifSlideShowApp extends JFrame {
         dst.textEffect = src.textEffect; dst.textEffectIntensity = src.textEffectIntensity;
         dst.lineSpacing = src.lineSpacing;
         dst.highlightColor = src.highlightColor; dst.highlightStyle = src.highlightStyle;
+        dst.highlightIntensity = src.highlightIntensity; dst.highlightHeight = src.highlightHeight;
+        dst.highlightWidth = src.highlightWidth;
         dst.widthPct = src.widthPct;
         dst.boxColor = src.boxColor; dst.boxOpacity = src.boxOpacity; dst.boxRoundPct = src.boxRoundPct;
         dst.boxPadPct = src.boxPadPct; dst.boxPadYPct = src.boxPadYPct;
         dst.boxShadow = src.boxShadow; dst.boxGlow = src.boxGlow; dst.boxGlowColor = src.boxGlowColor;
         dst.boxBorderStyle = src.boxBorderStyle; dst.boxBorderColor = src.boxBorderColor;
         dst.boxBorderWidth = src.boxBorderWidth;
+    }
+
+    /** Distinct words in {@code text}, in first-seen order, split on any run of
+     *  non-letter/-digit characters (apostrophes kept so "don't" stays whole).
+     *  Used to build the highlight-word checklist. */
+    private static java.util.List<String> uniqueWords(String text) {
+        java.util.LinkedHashSet<String> set = new java.util.LinkedHashSet<>();
+        if (text != null)
+            for (String tok : text.split("[^\\p{L}\\p{N}']+"))
+                if (!tok.isEmpty()) set.add(tok);
+        return new java.util.ArrayList<>(set);
     }
 
     /** Index of {@code value} in {@code arr}, or 0 when not present. */
@@ -15472,6 +15655,9 @@ public class GifSlideShowApp extends JFrame {
                 false, false, 0, 0, "Sequential",
                 false, "From Left", 1500, 0, "Ease Out",
                 0, 0, p.lineSpacing, 100);
+        st.highlightIntensityPct = p.highlightIntensity;
+        st.highlightHeightPct    = p.highlightHeight;
+        st.highlightWidthPct     = p.highlightWidth;
         st.bgColor2       = p.boxColor;
         st.bgRoundPct     = p.boxRoundPct;
         st.bgPaddingPct   = p.boxPadPct;
@@ -15499,14 +15685,68 @@ public class GifSlideShowApp extends JFrame {
         BufferedImage bg = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
         Graphics2D bgG = bg.createGraphics();
         bgG.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-        BufferedImage base = "Solid Color".equals(cfg.bgMode) ? null : baseFrame;
-        if (base != null) {
-            if ("Blur Last Frame".equals(cfg.bgMode)) base = applyStackBlur(base, 45);
-            bgG.drawImage(base, 0, 0, w, h, null);
-        } else {
-            bgG.setColor(cfg.bgColor != null ? cfg.bgColor : Color.BLACK);
-            bgG.fillRect(0, 0, w, h);
+        bgG.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        String mode = cfg.bgMode != null ? cfg.bgMode : "Freeze Last Frame";
+        Color tint = cfg.bgColor != null ? cfg.bgColor : Color.BLACK;
+        // The frame-based modes fall back to a solid fill when there is no frame
+        // (e.g. a live-preview stand-in that could not be produced).
+        BufferedImage base = summaryModeUsesLastFrame(mode) ? baseFrame : null;
+
+        switch (mode) {
+            case "Gradient": {
+                // Clean radial wash: the chosen colour at the centre easing out to
+                // a darker shade at the corners. Needs no video frame, so it reads
+                // as a deliberate, modern backdrop rather than a fallback.
+                Color edge = scaleColor(tint, 0.32f);
+                float radius = Math.max(1f, (float) (Math.hypot(w, h) * 0.62));
+                bgG.setPaint(new RadialGradientPaint(
+                        new Point2D.Float(w / 2f, h / 2f), radius,
+                        new float[] { 0f, 1f }, new Color[] { tint, edge }));
+                bgG.fillRect(0, 0, w, h);
+                break;
+            }
+            case "Duotone": {
+                // Editorial two-tone: the last frame's luminance mapped onto a ramp
+                // from the chosen colour (shadows) to white (highlights). Gives a
+                // branded, magazine-cover monochrome that keeps all the detail.
+                if (base != null) {
+                    bgG.drawImage(duotone(base, scaleColor(tint, 0.9f), Color.WHITE),
+                            0, 0, w, h, null);
+                } else {
+                    bgG.setColor(tint);
+                    bgG.fillRect(0, 0, w, h);
+                }
+                break;
+            }
+            case "Blur + Vignette": {
+                // Cinematic focus: the softly blurred frame with a gentle radial
+                // vignette darkening the corners, drawing the eye to the popups.
+                if (base != null) {
+                    bgG.drawImage(applyStackBlur(base, 45), 0, 0, w, h, null);
+                } else {
+                    bgG.setColor(tint);
+                    bgG.fillRect(0, 0, w, h);
+                }
+                drawVignette(bgG, w, h, 0.82);
+                break;
+            }
+            case "Blur Last Frame": {
+                if (base != null) bgG.drawImage(applyStackBlur(base, 45), 0, 0, w, h, null);
+                else { bgG.setColor(tint); bgG.fillRect(0, 0, w, h); }
+                break;
+            }
+            case "Solid Color": {
+                bgG.setColor(tint);
+                bgG.fillRect(0, 0, w, h);
+                break;
+            }
+            default: { // "Freeze Last Frame"
+                if (base != null) bgG.drawImage(base, 0, 0, w, h, null);
+                else { bgG.setColor(tint); bgG.fillRect(0, 0, w, h); }
+            }
         }
+
         int dim = Math.max(0, Math.min(100, cfg.bgDim));
         if (dim > 0) {
             bgG.setColor(new Color(0, 0, 0, (int) (dim / 100.0 * 255)));
@@ -15514,6 +15754,64 @@ public class GifSlideShowApp extends JFrame {
         }
         bgG.dispose();
         return bg;
+    }
+
+    /** True when a backdrop mode is built from the video's last frame (and so the
+     *  export must extract it). Frame-free modes skip that work entirely. */
+    static boolean summaryModeUsesLastFrame(String mode) {
+        return !("Solid Color".equals(mode) || "Gradient".equals(mode));
+    }
+
+    /** Multiply a colour's RGB by {@code f} (0..1) for a darker/lighter shade,
+     *  keeping alpha. */
+    static Color scaleColor(Color c, float f) {
+        return new Color(
+                Math.max(0, Math.min(255, Math.round(c.getRed()   * f))),
+                Math.max(0, Math.min(255, Math.round(c.getGreen() * f))),
+                Math.max(0, Math.min(255, Math.round(c.getBlue()  * f))),
+                c.getAlpha());
+    }
+
+    /** Draw a soft radial vignette: transparent through the centre, easing to a
+     *  translucent black at the corners. {@code strength} (0..1) sets the corner
+     *  opacity. */
+    static void drawVignette(Graphics2D g, int w, int h, double strength) {
+        int a = Math.max(0, Math.min(255, (int) Math.round(strength * 255)));
+        float radius = Math.max(1f, (float) (Math.hypot(w, h) * 0.62));
+        // Stay clear through the middle, then ramp up so only the corners darken.
+        RadialGradientPaint p = new RadialGradientPaint(
+                new Point2D.Float(w / 2f, h / 2f), radius,
+                new float[] { 0f, 0.55f, 1f },
+                new Color[] { new Color(0, 0, 0, 0),
+                              new Color(0, 0, 0, a / 6),
+                              new Color(0, 0, 0, a) });
+        Paint old = g.getPaint();
+        g.setPaint(p);
+        g.fillRect(0, 0, w, h);
+        g.setPaint(old);
+    }
+
+    /** Map an image to a two-colour duotone by its per-pixel luminance: darkest
+     *  pixels become {@code shadow}, brightest become {@code highlight}, with a
+     *  smooth ramp between. */
+    static BufferedImage duotone(BufferedImage src, Color shadow, Color highlight) {
+        int w = src.getWidth(), h = src.getHeight();
+        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        int sr = shadow.getRed(),   sg = shadow.getGreen(),   sb = shadow.getBlue();
+        int hr = highlight.getRed(), hg = highlight.getGreen(), hb = highlight.getBlue();
+        int[] px = src.getRGB(0, 0, w, h, null, 0, w);
+        for (int i = 0; i < px.length; i++) {
+            int p = px[i];
+            int r = (p >> 16) & 0xFF, gch = (p >> 8) & 0xFF, b = p & 0xFF;
+            // Rec. 601 luma, 0..1.
+            double t = (0.299 * r + 0.587 * gch + 0.114 * b) / 255.0;
+            int or = (int) Math.round(sr + (hr - sr) * t);
+            int og = (int) Math.round(sg + (hg - sg) * t);
+            int ob = (int) Math.round(sb + (hb - sb) * t);
+            px[i] = (or << 16) | (og << 8) | ob;
+        }
+        out.setRGB(0, 0, w, h, px, 0, w);
+        return out;
     }
 
     /** Render a single fully-composited summary frame at {@code elapsedMs} into
@@ -15564,7 +15862,7 @@ public class GifSlideShowApp extends JFrame {
 
         // ---- shared backdrop (freeze / blur last frame, or solid colour) ----
         BufferedImage last = null;
-        if (!"Solid Color".equals(cfg.bgMode)) {
+        if (summaryModeUsesLastFrame(cfg.bgMode)) {
             last = extractLastVideoFrame(video, videoW, videoH, tempDir);
         }
         BufferedImage bg = buildSummaryBackdrop(cfg, last, videoW, videoH);
@@ -18373,6 +18671,13 @@ public class GifSlideShowApp extends JFrame {
         int bgRoundPct = 10;         // 0..100 (0=square corners, 100=fully rounded)
         Color bgColor2 = new Color(60, 60, 60);
 
+        // Independent word-highlight tuning, each a percentage where 100 = the
+        // highlight's natural look (mutable so they ride along without touching the
+        // constructor chain). Left at 100 everywhere except the summary popups.
+        int highlightIntensityPct = 100; // 0..100 scales the mark's opacity
+        int highlightHeightPct = 100;    // 50..200 scales the mark's height
+        int highlightWidthPct = 100;     // 50..200 scales the mark's width
+
         // --- Fill paint (Solid / Linear / Radial / Conic / Stripes / Checker / Dots / Lines) ---
         String bgFillKind = "Solid";
         int bgFillAngle = 90;        // degrees: 0=left→right, 90=top→bottom, 45=diagonal
@@ -18781,6 +19086,11 @@ public class GifSlideShowApp extends JFrame {
         String  highlightWords = "";
         Color   highlightColor = new Color(255, 210, 60);
         String  highlightStyle = "Marker"; // one of HIGHLIGHT_STYLES (excluding "None")
+        // Fine control over the highlight mark, each a percentage (100 = default):
+        // intensity scales the highlight's opacity, height/width scale its size.
+        int     highlightIntensity = 100; // 0..100
+        int     highlightHeight = 100;    // 50..200
+        int     highlightWidth = 100;     // 50..200
 
         // ---- Position + wrap width (percent of frame) ----
         int     xPct = 50;
@@ -18796,7 +19106,8 @@ public class GifSlideShowApp extends JFrame {
         boolean boxShadow = true;
         boolean boxGlow = false;
         Color   boxGlowColor = new Color(90, 160, 255);
-        String  boxBorderStyle = "None"; // None, Solid, Double, Dashed
+        // None, Solid, Double, Dashed, Dotted, Groove, Gradient, Corners
+        String  boxBorderStyle = "None";
         Color   boxBorderColor = Color.WHITE;
         int     boxBorderWidth = 3;
 
@@ -18814,6 +19125,7 @@ public class GifSlideShowApp extends JFrame {
             textEffect = o.textEffect; textEffectIntensity = o.textEffectIntensity;
             lineSpacing = o.lineSpacing;
             highlightWords = o.highlightWords; highlightColor = o.highlightColor; highlightStyle = o.highlightStyle;
+            highlightIntensity = o.highlightIntensity; highlightHeight = o.highlightHeight; highlightWidth = o.highlightWidth;
             xPct = o.xPct; yPct = o.yPct; widthPct = o.widthPct;
             boxColor = o.boxColor; boxOpacity = o.boxOpacity; boxRoundPct = o.boxRoundPct;
             boxPadPct = o.boxPadPct; boxPadYPct = o.boxPadYPct;
@@ -18835,7 +19147,8 @@ public class GifSlideShowApp extends JFrame {
     static class SummaryConfig {
         boolean enabled = false;
         // Backdrop behind the popups for the whole segment.
-        String  bgMode = "Freeze Last Frame"; // Solid Color, Freeze Last Frame, Blur Last Frame
+        // Freeze Last Frame, Blur Last Frame, Blur + Vignette, Duotone, Gradient, Solid Color
+        String  bgMode = "Freeze Last Frame";
         Color   bgColor = Color.BLACK;
         int     bgDim = 45;                    // darken 0..100 over the frozen / blurred frame
         final java.util.List<SummaryPopup> popups = new java.util.ArrayList<>();
