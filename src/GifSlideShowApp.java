@@ -9755,6 +9755,28 @@ public class GifSlideShowApp extends JFrame {
         g2.dispose();
     }
 
+    /** Estimate which word (0-based, whitespace-separated) of {@code text} is
+     *  being spoken at {@code segElapsedMs} into the audio segment, WITHOUT real
+     *  Scribe timings. Each word is allotted a small fixed overhead plus a span
+     *  proportional to its length (assuming an average speaking rate), and the
+     *  active word is the one whose cumulative window contains the elapsed time.
+     *  Past the estimated end of speech the last word stays lit. Returns -1 when
+     *  there are no words. Used by the "Words" (SpokenWords) highlight FX. */
+    static int estimateSpokenWordIndex(String text, long segElapsedMs) {
+        if (text == null || segElapsedMs < 0) return -1;
+        String[] words = text.trim().split("\\s+");
+        if (words.length == 0 || (words.length == 1 && words[0].isEmpty())) return -1;
+        final double charsPerSec        = 14.0;  // ~ natural speaking rate
+        final double perWordOverheadSec = 0.12;  // keeps short words from flashing by
+        double t   = segElapsedMs / 1000.0;
+        double acc = 0.0;
+        for (int i = 0; i < words.length; i++) {
+            acc += perWordOverheadSec + Math.max(1, words[i].length()) / charsPerSec;
+            if (t < acc) return i;
+        }
+        return words.length - 1; // past the estimated end → keep the last word lit
+    }
+
     /** Segments for the Nth word (0-based, whitespace-separated) across wrapped
      *  lines. Returns the same structure as {@link #computeWrapSegments} but
      *  with at most a single segment, located by position rather than by string
@@ -16557,7 +16579,7 @@ public class GifSlideShowApp extends JFrame {
         if (list == null) return false;
         for (String fx : list) {
             if (fx == null) continue;
-            if (fx.contains("Pulse") || fx.contains("Shake") || fx.contains("Bounce") || fx.contains("Other:")) return true;
+            if (fx.contains("Pulse") || fx.contains("Shake") || fx.contains("Bounce") || fx.contains("Other:") || fx.contains("SpokenWords")) return true;
         }
         return false;
     }
@@ -17581,6 +17603,27 @@ public class GifSlideShowApp extends JFrame {
                     }
                 }
 
+                // "Words" (SpokenWords): a Scribe-free progressive word highlight.
+                // When enabled and there are no real per-word timings driving the
+                // karaoke pass, estimate which word is being spoken by pacing the
+                // words of the active text across the segment's elapsed time, then
+                // reuse the karaoke per-word post-pass to light it up. Rendered
+                // with a filled highlight in this row's own HL color, so it is
+                // fully independent of the toolbar-7d "Word Sync" settings.
+                String  spokenStyle = karaokeStyle;
+                Color   spokenColor = karaokeColor;
+                if (fx.contains("SpokenWords") && karaokeIdx < 0
+                        && (wordTimings == null || wordTimings.isEmpty())) {
+                    int est = (segElapsedMs >= 0)
+                            ? estimateSpokenWordIndex(allText, segElapsedMs)
+                            : 0; // static preview: show the effect on the first word
+                    if (est >= 0) {
+                        karaokeIdx = est;
+                        spokenStyle = "Background";
+                        spokenColor = hlColor;
+                    }
+                }
+
                 // Glow: highlight all text with glow style + boost highlight layers
                 String useHlText = fx.contains("Glow") ? allText : st.highlightText;
                 Color useHlColor = fx.contains("Glow") ? hlColor : st.highlightColor;
@@ -17804,8 +17847,8 @@ public class GifSlideShowApp extends JFrame {
                 hl.audioOtherTiltDeg = otherTilt;
                 hl.audioOtherLightEffects = lightSb.toString();
                 hl.karaokeWordIndex = karaokeIdx;
-                if (karaokeStyle != null && !karaokeStyle.isEmpty()) hl.karaokeStyle = karaokeStyle;
-                if (karaokeColor != null) hl.karaokeColor = karaokeColor;
+                if (spokenStyle != null && !spokenStyle.isEmpty()) hl.karaokeStyle = spokenStyle;
+                if (spokenColor != null) hl.karaokeColor = spokenColor;
                 // Carry through the toolbar 4b2/3/4 BG style so the HL/effects render
                 // pass draws the same backdrop as the saved item.
                 SlideTextData.copyBgStyle(st, hl);
@@ -20228,6 +20271,9 @@ public class GifSlideShowApp extends JFrame {
         private Color audioHlColor = new Color(255, 200, 50, 160);
         private final JToggleButton audioFxGlow, audioFxEnlarge, audioFxBold,
                 audioFxUnderline, audioFxColor, audioFxShake, audioFxPulse, audioFxBounce;
+        // "Words" — progressively highlights each spoken word of the active
+        // audio segment (an estimated, Scribe-free word-by-word highlight).
+        private final JToggleButton audioFxSpokenWords;
         private final JToggleButton audioFxNone;
         private final JSpinner audioGlowSizeSp;
         // "Others" multi-select effects (button + checkbox popup). Effect names
@@ -22686,6 +22732,16 @@ public class GifSlideShowApp extends JFrame {
             audioFxBounce.addItemListener(fxToggleStyler);
             audioFxBounce.addItemListener(e -> onFormatChanged());
 
+            audioFxSpokenWords = new JToggleButton("Words");
+            audioFxSpokenWords.setFont(fxBtnFont); audioFxSpokenWords.setPreferredSize(new Dimension(56, 24));
+            audioFxSpokenWords.setFocusPainted(false);
+            audioFxSpokenWords.setToolTipText("Highlight spoken words: light up each word of the active text one-by-one, paced across the audio (animated video only)");
+            audioFxSpokenWords.setBackground(fxBtnOffBg); audioFxSpokenWords.setForeground(fxBtnOffFg);
+            audioFxSpokenWords.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
+            audioFxSpokenWords.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+            audioFxSpokenWords.addItemListener(fxToggleStyler);
+            audioFxSpokenWords.addItemListener(e -> onFormatChanged());
+
             audioFxNone = new JToggleButton("None");
             audioFxNone.setFont(fxBtnFont); audioFxNone.setPreferredSize(new Dimension(48, 24));
             audioFxNone.setFocusPainted(false); audioFxNone.setToolTipText("Disable all audio highlight effects");
@@ -22695,7 +22751,8 @@ public class GifSlideShowApp extends JFrame {
             audioFxNone.addItemListener(fxToggleStyler);
 
             JToggleButton[] fxGroup = { audioFxGlow, audioFxEnlarge, audioFxBold,
-                    audioFxUnderline, audioFxColor, audioFxShake, audioFxPulse, audioFxBounce };
+                    audioFxUnderline, audioFxColor, audioFxShake, audioFxPulse, audioFxBounce,
+                    audioFxSpokenWords };
             audioFxNone.addItemListener(e -> {
                 if (audioFxNone.isSelected()) {
                     for (JToggleButton b : fxGroup) b.setSelected(false);
@@ -22825,6 +22882,7 @@ public class GifSlideShowApp extends JFrame {
             toolbar7b.add(audioFxShake);
             toolbar7b.add(audioFxPulse);
             toolbar7b.add(audioFxBounce);
+            toolbar7b.add(audioFxSpokenWords);
             toolbar7b.add(audioFxOthersBtn);
             refreshAudioFxOthersBtnAppearance();
 
@@ -29261,6 +29319,7 @@ public class GifSlideShowApp extends JFrame {
             if (audioFxShake.isSelected())     sb.append("Shake,");
             if (audioFxPulse.isSelected())     sb.append("Pulse,");
             if (audioFxBounce.isSelected())    sb.append("Bounce,");
+            if (audioFxSpokenWords.isSelected()) sb.append("SpokenWords,");
             if (audioFxOthersChecks != null) {
                 for (java.util.Map.Entry<String, JCheckBox> e : audioFxOthersChecks.entrySet()) {
                     if (e.getValue().isSelected()) {
@@ -29316,6 +29375,7 @@ public class GifSlideShowApp extends JFrame {
                 audioFxShake.setSelected(fxSet.contains("Shake"));
                 audioFxPulse.setSelected(fxSet.contains("Pulse"));
                 audioFxBounce.setSelected(fxSet.contains("Bounce"));
+                audioFxSpokenWords.setSelected(fxSet.contains("SpokenWords"));
                 audioFxNone.setSelected(fxSet.contains("None") || effects.isEmpty());
 
                 for (java.util.Map.Entry<String, JCheckBox> e : audioFxOthersChecks.entrySet()) {
