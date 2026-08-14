@@ -10678,7 +10678,7 @@ public class GifSlideShowApp extends JFrame {
         final int total = allSlides.size();
         if (total < 2) return allSlides; // nothing to select from
 
-        String[] options = {"All Slides", "Some Slides…", "First & Last Only"};
+        String[] options = {"All Slides", "Some Slides…", "All Except…", "First & Last Only"};
         int choice = JOptionPane.showOptionDialog(this,
                 "Which slides should be included in the export?\n(Total slides: " + total + ")",
                 "Select Slides", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
@@ -10690,7 +10690,7 @@ public class GifSlideShowApp extends JFrame {
             return allSlides;
         }
 
-        if (choice == 2) {
+        if (choice == 3) {
             // First & last only
             List<SlideData> subset = new ArrayList<>();
             subset.add(allSlides.get(0));
@@ -10698,19 +10698,37 @@ public class GifSlideShowApp extends JFrame {
             return subset;
         }
 
-        // choice == 1: custom selection via range spec
+        final boolean exclude = (choice == 2); // choice 1 = include, choice 2 = all except
         while (true) {
-            String spec = JOptionPane.showInputDialog(this,
-                    "Enter slide numbers to include (1-" + total + ").\n"
-                            + "Use commas and ranges, e.g. 1-3,5,8-10:",
-                    "1-" + total);
+            String prompt = exclude
+                    ? "Enter slide numbers to EXCLUDE (1-" + total + ").\n"
+                            + "Everything else is included. Use commas and ranges, e.g. 2,4-6:"
+                    : "Enter slide numbers to include (1-" + total + ").\n"
+                            + "Use commas and ranges, e.g. 1-3,5,8-10:";
+            String spec = JOptionPane.showInputDialog(this, prompt,
+                    exclude ? "" : "1-" + total);
             if (spec == null) return null; // cancelled
             List<Integer> indices = parseSlideRangeSpec(spec, total);
-            if (indices == null || indices.isEmpty()) {
+            if (indices == null || (!exclude && indices.isEmpty())) {
                 JOptionPane.showMessageDialog(this,
                         "Please enter at least one valid slide number between 1 and " + total + ".",
                         "Invalid Selection", JOptionPane.ERROR_MESSAGE);
                 continue;
+            }
+            if (exclude) {
+                // Include everything not in the excluded set
+                java.util.Set<Integer> excluded = new java.util.HashSet<>(indices);
+                List<SlideData> subset = new ArrayList<>();
+                for (int i = 0; i < total; i++) {
+                    if (!excluded.contains(i)) subset.add(allSlides.get(i));
+                }
+                if (subset.isEmpty()) {
+                    JOptionPane.showMessageDialog(this,
+                            "That would exclude every slide. Leave at least one.",
+                            "Invalid Selection", JOptionPane.ERROR_MESSAGE);
+                    continue;
+                }
+                return subset;
             }
             List<SlideData> subset = new ArrayList<>();
             for (int idx : indices) subset.add(allSlides.get(idx));
