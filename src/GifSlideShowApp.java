@@ -10666,6 +10666,89 @@ public class GifSlideShowApp extends JFrame {
         return slides;
     }
 
+    /**
+     * Ask the user which slides to include in the export and return a filtered
+     * copy of {@code allSlides}. Options are: all slides, only the first and
+     * last slide, or a custom selection given as a range spec (e.g. "1-3,5,8-10").
+     * Returns the same list unchanged when there are fewer than 2 slides (nothing
+     * to choose from), or {@code null} if the user cancels.
+     */
+    private List<SlideData> selectSlideSubset(List<SlideData> allSlides) {
+        if (allSlides == null) return null;
+        final int total = allSlides.size();
+        if (total < 2) return allSlides; // nothing to select from
+
+        String[] options = {"All Slides", "Some Slides…", "First & Last Only"};
+        int choice = JOptionPane.showOptionDialog(this,
+                "Which slides should be included in the export?\n(Total slides: " + total + ")",
+                "Select Slides", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
+                null, options, options[0]);
+        if (choice < 0) return null; // cancelled
+
+        if (choice == 0) {
+            // All slides
+            return allSlides;
+        }
+
+        if (choice == 2) {
+            // First & last only
+            List<SlideData> subset = new ArrayList<>();
+            subset.add(allSlides.get(0));
+            subset.add(allSlides.get(total - 1));
+            return subset;
+        }
+
+        // choice == 1: custom selection via range spec
+        while (true) {
+            String spec = JOptionPane.showInputDialog(this,
+                    "Enter slide numbers to include (1-" + total + ").\n"
+                            + "Use commas and ranges, e.g. 1-3,5,8-10:",
+                    "1-" + total);
+            if (spec == null) return null; // cancelled
+            List<Integer> indices = parseSlideRangeSpec(spec, total);
+            if (indices == null || indices.isEmpty()) {
+                JOptionPane.showMessageDialog(this,
+                        "Please enter at least one valid slide number between 1 and " + total + ".",
+                        "Invalid Selection", JOptionPane.ERROR_MESSAGE);
+                continue;
+            }
+            List<SlideData> subset = new ArrayList<>();
+            for (int idx : indices) subset.add(allSlides.get(idx));
+            return subset;
+        }
+    }
+
+    /**
+     * Parse a slide range spec such as "1-3,5,8-10" into a sorted list of unique
+     * 0-based indices, keeping only values within [1, total]. Returns null if the
+     * spec is malformed.
+     */
+    private List<Integer> parseSlideRangeSpec(String spec, int total) {
+        if (spec == null) return null;
+        java.util.TreeSet<Integer> set = new java.util.TreeSet<>();
+        for (String part : spec.split(",")) {
+            part = part.trim();
+            if (part.isEmpty()) continue;
+            try {
+                int dash = part.indexOf('-');
+                if (dash > 0 && dash < part.length() - 1) {
+                    int lo = Integer.parseInt(part.substring(0, dash).trim());
+                    int hi = Integer.parseInt(part.substring(dash + 1).trim());
+                    if (lo > hi) { int t = lo; lo = hi; hi = t; }
+                    for (int n = lo; n <= hi; n++) {
+                        if (n >= 1 && n <= total) set.add(n - 1);
+                    }
+                } else {
+                    int n = Integer.parseInt(part);
+                    if (n >= 1 && n <= total) set.add(n - 1);
+                }
+            } catch (NumberFormatException ex) {
+                return null; // malformed token
+            }
+        }
+        return new ArrayList<>(set);
+    }
+
     private static int computeSlideDuration(SlideData s, int baseDuration) {
         int dur = baseDuration;
         if (s.videoOverlayDurationMs > 0 && s.videoOverlayDurationMs > dur) {
@@ -12670,6 +12753,10 @@ public class GifSlideShowApp extends JFrame {
         List<SlideData> allSlides = collectSlides();
         if (allSlides == null) return;
 
+        // Let the user pick which slides to include (all / some / first & last)
+        allSlides = selectSlideSubset(allSlides);
+        if (allSlides == null) return;
+
         // If "nSlides per Video" mode, ask for chunk size and split slides into chunks
         int chunkSize = 0; // 0 = single video (normal mode)
         if (modeChoice == 2) {
@@ -14538,8 +14625,13 @@ public class GifSlideShowApp extends JFrame {
     // ==================== Per-Slide MP4 Export ====================
 
     private void createMp4PerSlide() {
-        List<SlideData> slides = collectSlides();
-        if (slides == null) return;
+        List<SlideData> collected = collectSlides();
+        if (collected == null) return;
+
+        // Let the user pick which slides to include (all / some / first & last)
+        collected = selectSlideSubset(collected);
+        if (collected == null) return;
+        final List<SlideData> slides = collected;
 
         int duration = askDuration();
         if (duration < 0) return;
