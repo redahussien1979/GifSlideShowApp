@@ -75,6 +75,11 @@ public class GifSlideShowApp extends JFrame {
     private boolean isSyncingFormat = false;
     private boolean isLivePreviewActive = false;
 
+    // Export-time slide shuffle. Off by default; when on, exports use a fresh
+    // random order while the rows on screen (and therefore the master slide)
+    // stay exactly as they are.
+    private JCheckBox shuffleExportCheck;
+
     // Orientation: "Landscape" or "Portrait"
     private JComboBox<String> orientationCombo;
     private JLabel header;
@@ -231,6 +236,16 @@ public class GifSlideShowApp extends JFrame {
         JButton presetDeleteBtn = createStyledButton("Delete Preset", new Color(160, 60, 60));
         presetDeleteBtn.addActionListener(e -> deletePreset());
 
+        shuffleExportCheck = new JCheckBox("Shuffle on export");
+        shuffleExportCheck.setBackground(new Color(30, 30, 30));
+        shuffleExportCheck.setForeground(Color.LIGHT_GRAY);
+        shuffleExportCheck.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        shuffleExportCheck.setFocusPainted(false);
+        shuffleExportCheck.setToolTipText("<html>Randomize the slide order inside the exported GIF / MP4 / images."
+                + "<br>The slides on screen keep their order, so the master slide (slide 1) never changes."
+                + "<br>A new random order is drawn for each export."
+                + "<br>Applied after any \"which slides to include\" choice, and not to \"Separate MP4 per Slide\".</html>");
+
         JButton saveImagesBtn = createStyledButton("Save Images", new Color(120, 80, 180));
         saveImagesBtn.setToolTipText("Choose where to save and a layout, then save slides as HD PNGs (single or several per image)");
         saveImagesBtn.addActionListener(e -> saveSlidesAsImages());
@@ -241,6 +256,7 @@ public class GifSlideShowApp extends JFrame {
         botRow.add(presetLoadBtn);
         botRow.add(presetDeleteBtn);
         botRow.add(saveImagesBtn);
+        botRow.add(shuffleExportCheck);
 
         bottomPanel.add(topRow);
         bottomPanel.add(botRow);
@@ -1291,8 +1307,9 @@ public class GifSlideShowApp extends JFrame {
     };
 
     private void saveSlidesAsImages() {
-        List<SlideData> slides = collectSlides();
-        if (slides == null) return;
+        List<SlideData> collected = collectSlides();
+        if (collected == null) return;
+        final List<SlideData> slides = shuffleForExport(collected);
 
         SaveImagesOptions opts = showSaveImagesOptionsDialog(slides.size());
         if (opts == null) return; // user cancelled
@@ -10734,6 +10751,19 @@ public class GifSlideShowApp extends JFrame {
      * Returns the same list unchanged when there are fewer than 2 slides (nothing
      * to choose from), or {@code null} if the user cancels.
      */
+    // Export-time shuffle. Returns a randomly ordered copy when the "Shuffle on
+    // export" toggle is on, otherwise the list untouched. Only the exported
+    // sequence changes — slideRows keeps its order, so the first-slide-as-master
+    // sync and the on-screen numbering are unaffected. Call this AFTER any
+    // slide-subset selection so the user's picks still refer to what they see.
+    private List<SlideData> shuffleForExport(List<SlideData> slides) {
+        if (slides == null || slides.size() < 2) return slides;
+        if (shuffleExportCheck == null || !shuffleExportCheck.isSelected()) return slides;
+        List<SlideData> shuffled = new ArrayList<>(slides);
+        Collections.shuffle(shuffled);
+        return shuffled;
+    }
+
     private List<SlideData> selectSlideSubset(List<SlideData> allSlides) {
         if (allSlides == null) return null;
         final int total = allSlides.size();
@@ -11676,8 +11706,9 @@ public class GifSlideShowApp extends JFrame {
     // ==================== GIF Creation ====================
 
     private void createGif() {
-        List<SlideData> slides = collectSlides();
-        if (slides == null) return;
+        List<SlideData> collected = collectSlides();
+        if (collected == null) return;
+        final List<SlideData> slides = shuffleForExport(collected);
 
         int duration = askDuration();
         if (duration < 0) return;
@@ -12835,6 +12866,7 @@ public class GifSlideShowApp extends JFrame {
         // Let the user pick which slides to include (all / some / first & last)
         allSlides = selectSlideSubset(allSlides);
         if (allSlides == null) return;
+        allSlides = shuffleForExport(allSlides);
 
         // If "nSlides per Video" mode, ask for chunk size and split slides into chunks
         int chunkSize = 0; // 0 = single video (normal mode)
