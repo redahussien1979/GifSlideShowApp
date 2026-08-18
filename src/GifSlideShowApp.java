@@ -1992,6 +1992,18 @@ public class GifSlideShowApp extends JFrame {
         props.setProperty("timer.endSoundName",t.endSoundName != null ? t.endSoundName : "None");
         props.setProperty("timer.soundPath",   t.soundPath != null ? t.soundPath : "");
         props.setProperty("timer.soundVolume", String.valueOf(t.soundVolume));
+        // End-of-countdown actions.
+        props.setProperty("timer.endTextIndex",   String.valueOf(t.endTextIndex));
+        props.setProperty("timer.endRevealText",  String.valueOf(t.endRevealText));
+        props.setProperty("timer.endTextEffect",  t.endTextEffect != null ? t.endTextEffect : "None");
+        props.setProperty("timer.endBadge",       t.endBadge      != null ? t.endBadge      : "None");
+        props.setProperty("timer.endBadgeColor",  colorToHex(t.endBadgeColor  != null ? t.endBadgeColor  : d.endBadgeColor));
+        props.setProperty("timer.endBadgeColor2", colorToHex(t.endBadgeColor2 != null ? t.endBadgeColor2 : d.endBadgeColor2));
+        props.setProperty("timer.endBadgeText",   t.endBadgeText != null ? t.endBadgeText : "");
+        props.setProperty("timer.endHoldMs",      String.valueOf(t.endHoldMs));
+        props.setProperty("timer.endAudioPath",   t.endAudioPath != null ? t.endAudioPath : "");
+        props.setProperty("timer.endAudioDelayMs", String.valueOf(t.endAudioDelayMs));
+        props.setProperty("timer.endAudioVolume", String.valueOf(t.endAudioVolume));
     }
 
     /** Rebuild a timer from a preset, or null when the preset predates the feature. */
@@ -2036,6 +2048,17 @@ public class GifSlideShowApp extends JFrame {
         t.endSoundName = props.getProperty("timer.endSoundName", "None");
         t.soundPath    = props.getProperty("timer.soundPath", "");
         t.soundVolume  = parseIntOr(props.getProperty("timer.soundVolume"), 70);
+        t.endTextIndex   = parseIntOr(props.getProperty("timer.endTextIndex"), 0);
+        t.endRevealText  = Boolean.parseBoolean(props.getProperty("timer.endRevealText", "false"));
+        t.endTextEffect  = props.getProperty("timer.endTextEffect", "Pop In");
+        t.endBadge       = props.getProperty("timer.endBadge", "None");
+        t.endBadgeColor  = hexToColor(props.getProperty("timer.endBadgeColor", "#2ECC71"));
+        t.endBadgeColor2 = hexToColor(props.getProperty("timer.endBadgeColor2", "#FFFFFF"));
+        t.endBadgeText   = props.getProperty("timer.endBadgeText", "CORRECT");
+        t.endHoldMs      = parseIntOr(props.getProperty("timer.endHoldMs"), 3000);
+        t.endAudioPath   = props.getProperty("timer.endAudioPath", "");
+        t.endAudioDelayMs = parseIntOr(props.getProperty("timer.endAudioDelayMs"), 1000);
+        t.endAudioVolume = parseIntOr(props.getProperty("timer.endAudioVolume"), 100);
         return t;
     }
 
@@ -5634,6 +5657,15 @@ public class GifSlideShowApp extends JFrame {
 
         // ========== SLIDE TEXT OVERLAY(S) ==========
         if (slideTexts != null) {
+            // Stamp each text with its slot and start a fresh bounds board, so the
+            // rectangle every text ends up occupying on THIS frame is available to
+            // the post-passes that run right after renderFrame returns.
+            java.util.Map<Integer, int[]> boundsBoard = TEXT_BOUNDS.get();
+            boundsBoard.clear();
+            for (int bi = 0; bi < slideTexts.size(); bi++) {
+                SlideTextData bst = slideTexts.get(bi);
+                if (bst != null) bst.slideTextIndex = bi;
+            }
             // Expand any active alternating-text copies and "Move Copy" ghosts into
             // extra render entries (the original list is returned unchanged when
             // none are active).
@@ -5755,6 +5787,13 @@ public class GifSlideShowApp extends JFrame {
                         g.translate(animDx, animDy);
                         animApplied = true;
                     }
+                }
+
+                // Publish where this text landed. Base texts are drawn before any
+                // ghost/alternate copies, so first-write-wins keeps the real one.
+                if (st.slideTextIndex >= 0 && !boundsBoard.containsKey(st.slideTextIndex)) {
+                    boundsBoard.put(st.slideTextIndex, new int[] {
+                            (int) Math.round(bgX + animDx), (int) Math.round(bgY + animDy), bgW, bgH });
                 }
 
                 // ===== Tilt + opacity wrap the entire text-block render =====
@@ -10830,6 +10869,12 @@ public class GifSlideShowApp extends JFrame {
                 int[][] tl = audioTimeline(row.getSlideAudioDurationsMsList(),
                         row.getSlideAudioFilesList(), row.getAudioGapMs());
                 sd.slideTimerStartMs = sd.slideTimer.resolveStartMs(tl[0], tl[1], totalAudioMs(tl[1]));
+                // Probe the end-of-countdown sound once here, so computeSlideDuration
+                // can leave room for it without shelling out to ffprobe per frame.
+                if (sd.slideTimer.hasEndAudio()) {
+                    int ms = probeAudioDurationMs(new File(sd.slideTimer.endAudioPath));
+                    sd.slideTimerEndAudioMs = Math.max(0, ms);
+                }
             }
             slides.get(slides.size() - 1).slideNumberStyle = row.getSlideNumberStyle();
             slides.get(slides.size() - 1).slideNumberEffect = row.getSlideNumberEffect();
@@ -11000,6 +11045,15 @@ public class GifSlideShowApp extends JFrame {
         if (s.slideTimer != null && s.slideTimer.enabled) {
             int timerEnd = s.slideTimer.endMs(s.slideTimerStartMs);
             if (timerEnd > dur) dur = timerEnd;
+            // …and for whatever the countdown triggers at zero: the revealed text /
+            // badge hold, and the sound that fires a moment after it.
+            int zero = s.slideTimer.zeroMs(s.slideTimerStartMs);
+            int actionsEnd = zero + s.slideTimer.endActionsTailMs();
+            if (s.slideTimerEndAudioMs > 0) {
+                actionsEnd = Math.max(actionsEnd,
+                        zero + Math.max(0, s.slideTimer.endAudioDelayMs) + s.slideTimerEndAudioMs);
+            }
+            if (actionsEnd > dur) dur = actionsEnd;
         }
         if (isQuizSlide(s)) {
             long quizMs = s.quiz.revealAtMs();
@@ -13250,9 +13304,16 @@ public class GifSlideShowApp extends JFrame {
                                 boolean hasAudioAnim = anyAudioHlAnimates(s.audioHlEffects) || anyKaraokeTimings(s.audioWordTimings) || anyBulkPicAudioEffect(s.slidePictures);
                                 boolean hasTextTimer = anySlideTextTimer(s);
                                 boolean hasAnno = hasAnnotations(s);
-                                boolean needsAnimatedFx = hasAudioAnim || isQuizSlide(s) || hasTextTimer || hasAnno;
+                                // A countdown changes every frame, so it must force the
+                                // per-frame path — otherwise the slide takes the static
+                                // "render once, hard-copy the dwell" branch below and the
+                                // timer never reaches the video.
+                                boolean hasTimer = hasSlideTimer(s);
+                                boolean needsAnimatedFx = hasAudioAnim || isQuizSlide(s) || hasTextTimer
+                                        || hasAnno || hasTimer;
 
-                                if (hasMultiAudio || isQuizSlide(s) || hasAudioAnim || hasTextTimer || hasAnno) {
+                                if (hasMultiAudio || isQuizSlide(s) || hasAudioAnim || hasTextTimer
+                                        || hasAnno || hasTimer) {
                                     // Render dwell frames honoring per-segment audio highlight.
                                     // Pulse/Shake need animation → render every frame.
                                     // Other FX (Glow/Enlarge/Bold/Color/Underline/None) are
@@ -13263,6 +13324,7 @@ public class GifSlideShowApp extends JFrame {
                                     for (int df = 0; df < dwellFrames[i]; df++) {
                                         long elapsedMs = (long)(df * 1000.0 / fps);
                                         applyQuizHideMask(s.slideTexts, s.quiz, elapsedMs);
+                                        applyTimerEndActions(s, elapsedMs, false);
                                         int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
                                         activeAudioSegmentIdx.set(activeIdx);
                                         long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
@@ -13649,6 +13711,7 @@ public class GifSlideShowApp extends JFrame {
                                         for (int d = 0; d < slideFrames; d++) {
                                             long elapsedMs = (long)(d * 1000.0 / fps);
                                             applyQuizHideMask(s.slideTexts, s.quiz, elapsedMs);
+                                            applyTimerEndActions(s, elapsedMs, false);
                                             int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
                                         activeAudioSegmentIdx.set(activeIdx);
                                             long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
@@ -13715,6 +13778,10 @@ public class GifSlideShowApp extends JFrame {
                                         }
                                     }
 
+                                    // A countdown redraws every frame, so it has to keep the
+                                    // slide on a per-frame path instead of the cached/static ones.
+                                    if (hasSlideTimer(s)) hasAnimatedText = true;
+
                                     // Check for multi-audio (2+ valid audio files)
                                     int vaCount = 0;
                                     for (File af : s.audioFiles) { if (af != null && af.exists()) vaCount++; }
@@ -13728,6 +13795,7 @@ public class GifSlideShowApp extends JFrame {
                                             // Texts-Timer appear/disappear mask (runs before the HL
                                             // clone below so the clone inherits quizHidden).
                                             applyQuizHideMask(s.slideTexts, s.quiz, elapsedMs);
+                                            applyTimerEndActions(s, elapsedMs, false);
                                             int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
                                         activeAudioSegmentIdx.set(activeIdx);
                                             long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
@@ -13760,6 +13828,11 @@ public class GifSlideShowApp extends JFrame {
                                                     s.overlayEnabled,
                                                     s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
                                                     s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures, s.bgTransparency);
+                                            // Same post-passes as every other per-frame writer —
+                                            // without them shapes and the countdown never reach the
+                                            // video on this (no-transition) export path.
+                                            paintAnnotationsOverlay(frame, s, elapsedMs);
+                                            paintTimerOverlay(frame, s, elapsedMs);
                                             writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
                                             frameIndex++;
                                         }
@@ -13898,6 +13971,7 @@ public class GifSlideShowApp extends JFrame {
                                             // Texts-Timer appear/disappear mask for this frame (also
                                             // resets quizHidden when no timer/quiz is active).
                                             applyQuizHideMask(s.slideTexts, s.quiz, elapsedMs);
+                                            applyTimerEndActions(s, elapsedMs, false);
                                             // Keep the bulk-picture audio-effect gate in sync every frame,
                                             // even when there's no text highlight on this slide.
                                             activeAudioSegmentIdx.set(getActiveAudioTextIndex(s, elapsedMs));
@@ -13943,6 +14017,8 @@ public class GifSlideShowApp extends JFrame {
                                                     s.overlayEnabled,
                                                     s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
                                                     s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures, s.bgTransparency);
+                                            paintAnnotationsOverlay(frame, s, elapsedMs);
+                                            paintTimerOverlay(frame, s, elapsedMs);
                                             writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
                                             frameIndex++;
                                         }
@@ -14719,6 +14795,15 @@ public class GifSlideShowApp extends JFrame {
                                                 slideStartMs + Math.max(0, s.slideTimerStartMs), cueAudio, gain));
                                     }
                                 }
+                                // "When the timer finishes, play this file" — dropped at
+                                // zero plus the chosen shift (1 s by default).
+                                if (st != null && st.hasEndAudio()) {
+                                    timerCues.add(new TimerSoundCue(
+                                            slideStartMs + st.zeroMs(Math.max(0, s.slideTimerStartMs))
+                                                    + Math.max(0, st.endAudioDelayMs),
+                                            new File(st.endAudioPath),
+                                            Math.max(0, Math.min(1.0, st.endAudioVolume / 100.0))));
+                                }
                                 offT += computeSlideDuration(s, duration) / 1000.0;
                                 if (scrollEnabled && i < slides.size() - 1) offT += transSecT;
                             }
@@ -15047,6 +15132,9 @@ public class GifSlideShowApp extends JFrame {
                             }
                             // Quiz slides require per-frame rendering for the countdown timer.
                             if (isQuizSlide(s)) hasAnimatedText = true;
+                            // Same reason as the slideshow export: a countdown has to be
+                            // drawn per frame, so it can't take the single-PNG concat path.
+                            if (hasSlideTimer(s)) hasAnimatedText = true;
 
                             if (!hasAnimatedFx && !hasAnimatedText) {
                                 // Static slide — use concat demuxer
@@ -15265,6 +15353,7 @@ public class GifSlideShowApp extends JFrame {
                                     for (int d = 0; d < slideFrames; d++) {
                                         long elapsedMs = (long)(d * 1000.0 / fps);
                                         applyQuizHideMask(s.slideTexts, s.quiz, elapsedMs);
+                                        applyTimerEndActions(s, elapsedMs, false);
                                         int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
                                         activeAudioSegmentIdx.set(activeIdx);
                                         long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
@@ -15333,6 +15422,7 @@ public class GifSlideShowApp extends JFrame {
                                     for (int d = 0; d < slideFrames; d++) {
                                         long elapsedMs = (long)(d * 1000.0 / fps);
                                         applyQuizHideMask(s.slideTexts, s.quiz, elapsedMs);
+                                        applyTimerEndActions(s, elapsedMs, false);
                                         // Keep the bulk-picture audio-effect gate in sync every frame,
                                         // even when there's no text highlight on this slide.
                                         activeAudioSegmentIdx.set(getActiveAudioTextIndex(s, elapsedMs));
@@ -15436,6 +15526,44 @@ public class GifSlideShowApp extends JFrame {
                                 applyVideoOverlay(slideOutFile, s.videoOverlayFile,
                                         videoW, videoH, s.videoOverlayX, s.videoOverlayY, s.videoOverlaySize, crf, tempDir,
                                         s.videoOverlayFill, s.videoOverlayBehind);
+                            }
+
+                            // Slide Timer sound on this slide's own file: the countdown bed
+                            // at the timer's start and the finish sound at zero + its shift.
+                            // Slide-relative times, since this file starts at the slide's 0.
+                            if (slideOutFile.exists() && s.slideTimer != null && s.slideTimer.enabled) {
+                                try {
+                                    java.util.List<TimerSoundCue> cues = new java.util.ArrayList<>();
+                                    SlideTimer stt = s.slideTimer;
+                                    if (stt.hasSound()) {
+                                        File cueAudio;
+                                        double gain;
+                                        if ("File".equals(stt.soundMode)) {
+                                            cueAudio = new File(stt.soundPath);
+                                            gain = Math.max(0, Math.min(1.0, stt.soundVolume / 100.0));
+                                        } else {
+                                            cueAudio = stt.writeWav(tempDir, "timer_sound.wav");
+                                            gain = 1.0;
+                                        }
+                                        if (cueAudio != null && cueAudio.isFile()) {
+                                            cues.add(new TimerSoundCue(
+                                                    Math.max(0, s.slideTimerStartMs), cueAudio, gain));
+                                        }
+                                    }
+                                    if (stt.hasEndAudio()) {
+                                        cues.add(new TimerSoundCue(
+                                                stt.zeroMs(Math.max(0, s.slideTimerStartMs))
+                                                        + Math.max(0, stt.endAudioDelayMs),
+                                                new File(stt.endAudioPath),
+                                                Math.max(0, Math.min(1.0, stt.endAudioVolume / 100.0))));
+                                    }
+                                    if (!cues.isEmpty()) {
+                                        publish("Adding timer sound to slide " + (si + 1) + "...");
+                                        overlayTimerSounds(slideOutFile, cues, tempDir);
+                                    }
+                                } catch (Exception tex) {
+                                    publish("Timer sound skipped for slide " + (si + 1) + ": " + tex.getMessage());
+                                }
                             }
 
                             // Repeat chosen part(s) of this slide's video — done last
@@ -17141,6 +17269,26 @@ public class GifSlideShowApp extends JFrame {
         QuizSlide.applyOverlay(frame, s.quiz, elapsedMs, s.slideTexts);
     }
 
+    /**
+     * Frame-pixel bounds of each slide text as renderFrame last drew it on THIS
+     * thread — index → {x, y, w, h}. Rendering is single-threaded per export
+     * worker (and on the EDT for the editor preview), so a thread-local board is
+     * enough to hand the geometry to the post-passes that composite on top.
+     */
+    private static final ThreadLocal<java.util.Map<Integer, int[]>> TEXT_BOUNDS =
+            ThreadLocal.withInitial(java.util.HashMap::new);
+
+    /** Where slide text {@code idx} was drawn on the frame just rendered, or null. */
+    static int[] lastTextBounds(int idx) {
+        if (idx < 0) return null;
+        return TEXT_BOUNDS.get().get(idx);
+    }
+
+    /** True when this slide carries a countdown timer that has to be drawn. */
+    private static boolean hasSlideTimer(SlideData s) {
+        return s != null && s.slideTimer != null && s.slideTimer.enabled;
+    }
+
     /** True when this slide carries any animated vector annotations. */
     private static boolean hasAnnotations(SlideData s) {
         return s != null && s.slideAnnotations != null && !s.slideAnnotations.isEmpty();
@@ -17164,6 +17312,63 @@ public class GifSlideShowApp extends JFrame {
     private static void paintTimerOverlay(BufferedImage frame, SlideData s, long elapsedMs) {
         if (frame == null || s == null || s.slideTimer == null || !s.slideTimer.enabled) return;
         SlideTimer.paint(frame, s.slideTimer, s.slideTimerStartMs, elapsedMs, false);
+        // End-of-countdown decoration, drawn around wherever the target text just
+        // landed on this very frame (null bounds = it isn't on screen, so nothing).
+        SlideTimer.paintEndBadge(frame, s.slideTimer, s.slideTimerStartMs, elapsedMs,
+                lastTextBounds(s.slideTimer.endTextIndex - 1), false);
+    }
+
+    /**
+     * Drive the Slide Timer's end-of-countdown actions on the target slide text:
+     * hold it back until zero when "reveal at the end" is on, then play the chosen
+     * animation on it for the hold window. Writes only the transient render hooks
+     * (the same ones the quiz reveal and Texts-Timer entrances use), so the text's
+     * own styling is untouched and everything is re-derived every frame.
+     *
+     * <p>Must run AFTER applyQuizHideMask, which resets those hooks each frame.
+     *
+     * @param editorPreview true in the editor's static preview: never hide the
+     *                      target text and show the effect at its settled state
+     */
+    private static void applyTimerEndActions(SlideData s, long elapsedMs, boolean editorPreview) {
+        if (s == null) return;
+        applyTimerEndActions(s.slideTexts, s.slideTimer, s.slideTimerStartMs, elapsedMs, editorPreview);
+    }
+
+    /** Same, straight from a text list + timer — used by the editor's live preview. */
+    private static void applyTimerEndActions(List<SlideTextData> texts, SlideTimer t,
+                                             int startMs, long elapsedMs, boolean editorPreview) {
+        if (t == null || !t.enabled) return;
+        int idx = t.endTextIndex - 1;
+        if (idx < 0 || texts == null || idx >= texts.size()) return;
+        SlideTextData st = texts.get(idx);
+        if (st == null) return;
+
+        int zero = t.zeroMs(startMs);
+        boolean landed = editorPreview || elapsedMs >= zero;
+        if (t.endRevealText) {
+            if (landed) {
+                st.quizHidden = false;
+                st.forceShow = true;      // reveal even a text marked hidden
+            } else {
+                st.quizHidden = true;     // keep it back until the countdown ends
+                return;
+            }
+        }
+        if (!landed) return;
+
+        long since = editorPreview ? 700 : elapsedMs - zero;
+        if (!editorPreview && t.endHoldMs > 0 && since > t.endHoldMs) return;
+
+        double[] f = SlideTimer.endEffectFields(t.endTextEffect, since, t.endHoldMs);
+        st.pulseRenderScale  *= f[0];
+        st.shakeRenderDyFrac += f[1];
+        st.audioOtherDxFrac  += f[2];
+        st.audioOtherAlpha   *= f[3];
+        st.audioOtherTiltDeg += f[4];
+        if (SlideTimer.endEffectRecolours(t.endTextEffect) && t.endBadgeColor != null) {
+            st.renderColorOverride = t.endBadgeColor;
+        }
     }
 
     /**
@@ -18550,6 +18755,7 @@ public class GifSlideShowApp extends JFrame {
      */
     private static boolean hasAnimatedDecoration(SlideData s) {
         if (hasAnnotations(s)) return true;
+        if (hasSlideTimer(s)) return true;
         if (anyBulkPicAudioEffect(s.slidePictures)) return true;
         if (s.slideTexts != null) {
             for (SlideTextData stx : s.slideTexts) {
@@ -18645,6 +18851,7 @@ public class GifSlideShowApp extends JFrame {
             // Apply quiz hide/reveal mask so the delayed-reveal text behaves
             // the same on video-bg slides as on image-bg slides.
             applyQuizHideMask(framedTexts, s.quiz, elapsedMs);
+            applyTimerEndActions(s, elapsedMs, false);
             if (audioHl) {
                 int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
                 if (activeIdx >= 0) {
@@ -19051,6 +19258,10 @@ public class GifSlideShowApp extends JFrame {
         // UL / Clr / Shake / Pulse / Others) keeps its full-text semantics and is
         // not touched by the karaoke layer.
         int karaokeWordIndex = -1;
+        // Slot this text occupies in the list handed to renderFrame — stamped by
+        // renderFrame itself so a post-pass (the Slide Timer's answer badge) can
+        // look up where a given text was drawn. Transient, not persisted.
+        int slideTextIndex = -1;
         // Per-frame quiz visibility mask. When true (set by applyQuizHideMask
         // just before renderFrame), the render loop skips this text entirely.
         // Used by the quiz "delayed reveal text" feature so the picked text
@@ -20418,6 +20629,8 @@ public class GifSlideShowApp extends JFrame {
         // the slide-relative moment its schedule resolves to.
         SlideTimer slideTimer;
         int slideTimerStartMs;
+        /** Length of the timer's "play this when it finishes" file, ms (0 = none). */
+        int slideTimerEndAudioMs;
         // Video "repeat part" ranges — each entry is {startMs, endMs} (relative to
         // the start of this slide). During export the finished, fully-composited
         // slide video has each range duplicated back-to-back so that part plays
@@ -26534,6 +26747,11 @@ public class GifSlideShowApp extends JFrame {
             return b;
         }
 
+        /** True when the badge colour is still the stock tick-green. */
+        private static boolean isDefaultBadgeGreen(Color c) {
+            return c == null || (c.getRed() == 46 && c.getGreen() == 204 && c.getBlue() == 113);
+        }
+
         /** Format ms as a short seconds string ("2.5s"). */
         private static String timerSecs(long ms) {
             return String.format(java.util.Locale.US, "%.1fs", ms / 1000.0);
@@ -26582,6 +26800,10 @@ public class GifSlideShowApp extends JFrame {
             final JLabel timingInfo = new JLabel(" ");
             final JSlider scrubSlider = new JSlider(0, live.totalMs() + 900, initialScrub);
 
+            // The scrub has to reach past zero so the end actions can be previewed.
+            final Runnable syncScrubRange = () -> scrubSlider.setMaximum(
+                    live.totalMs() + Math.max(900, live.endHoldMs + 700));
+
             final JPanel canvas = new JPanel() {
                 @Override protected void paintComponent(Graphics g) {
                     super.paintComponent(g);
@@ -26609,6 +26831,10 @@ public class GifSlideShowApp extends JFrame {
                     }
                     sg.dispose();
                     SlideTimer.paint(shot, live, 0, scrub[0], true);
+                    // Bounds come from the last live-preview render of this slide,
+                    // which is the same size as this canvas's base image.
+                    SlideTimer.paintEndBadge(shot, live, 0, scrub[0],
+                            lastTextBounds(live.endTextIndex - 1), false);
                     double sc = Math.min(cw / (double) bw, chh / (double) bh);
                     int dw = Math.max(1, (int) (bw * sc)), dh = Math.max(1, (int) (bh * sc));
                     g2.drawImage(shot, (cw - dw) / 2, (chh - dh) / 2, dw, dh, null);
@@ -26783,7 +27009,7 @@ public class GifSlideShowApp extends JFrame {
                 int secs = parseIntOr(v == null ? "" : v.toString().trim(), live.seconds);
                 live.seconds = Math.max(1, Math.min(3600, secs));
                 countUpCheck.setToolTipText("Count 0 → " + live.seconds + " instead of " + live.seconds + " → 0.");
-                scrubSlider.setMaximum(live.totalMs() + 900);
+                syncScrubRange.run();
                 refresh.run();
             });
             addTimerRow(timing, r++, "Timer length (seconds):", lenCombo);
@@ -26969,6 +27195,154 @@ public class GifSlideShowApp extends JFrame {
             addTimerSlider(fx, r++, "…for the last:", 0, 15, live.urgentSeconds, "s",
                     v -> live.urgentSeconds = v, refresh);
             tabs.addTab("Effects", wrapTimerTab(fx));
+
+            // ===== At the End: what the countdown triggers when it reaches zero =====
+            final JPanel end = new JPanel(new GridBagLayout());
+            r = 0;
+            final java.util.List<Integer> endIdxs = new java.util.ArrayList<>();
+            final DefaultComboBoxModel<String> endTextModel = new DefaultComboBoxModel<>();
+            endTextModel.addElement("(no text — badge and sound only)");
+            endIdxs.add(0);
+            for (int i = 0; i < slideTextItems.size(); i++) {
+                SlideTextData sti = slideTextItems.get(i);
+                String content = sti == null || sti.text == null ? "" : sti.text.replace('\n', ' ').trim();
+                if (content.length() > 40) content = content.substring(0, 37) + "…";
+                if (content.isEmpty()) content = "(empty)";
+                endTextModel.addElement("Text " + (i + 1) + " — " + content
+                        + (sti != null && !sti.show ? "   [hidden]" : ""));
+                endIdxs.add(i + 1);
+            }
+            final JComboBox<String> endTextCombo = new JComboBox<>(endTextModel);
+            int selEnd = endIdxs.indexOf(live.endTextIndex);
+            endTextCombo.setSelectedIndex(selEnd >= 0 ? selEnd : 0);
+            endTextCombo.addActionListener(e -> {
+                int i = endTextCombo.getSelectedIndex();
+                live.endTextIndex = (i >= 0 && i < endIdxs.size()) ? endIdxs.get(i) : 0;
+                refresh.run();
+            });
+            addTimerRow(end, r++, "Target text:", endTextCombo);
+
+            final JCheckBox revealCheck = new JCheckBox(
+                    "Keep this text hidden until the timer ends, then bring it in", live.endRevealText);
+            revealCheck.setOpaque(false);
+            revealCheck.setToolTipText("Works even for a text you unticked in “Show/Hide Texts” — "
+                    + "the countdown is what reveals it.");
+            revealCheck.addActionListener(e -> { live.endRevealText = revealCheck.isSelected(); refresh.run(); });
+            addTimerRow(end, r++, null, revealCheck);
+
+            final JComboBox<String> endFxCombo = new JComboBox<>(SlideTimer.endTextEffects());
+            endFxCombo.setSelectedItem(live.endTextEffect);
+            endFxCombo.addActionListener(e -> {
+                live.endTextEffect = (String) endFxCombo.getSelectedItem();
+                refresh.run();
+            });
+            addTimerRow(end, r++, "Text animation:", endFxCombo);
+
+            final JComboBox<String> badgeCombo = new JComboBox<>(SlideTimer.endBadges());
+            badgeCombo.setSelectedItem(live.endBadge);
+            final JButton badgeCol1 = timerColorButton(dlg, "Badge colour",
+                    () -> live.endBadgeColor, c -> live.endBadgeColor = c, refresh);
+            badgeCombo.addActionListener(e -> {
+                String was = live.endBadge;
+                live.endBadge = (String) badgeCombo.getSelectedItem();
+                // A "wrong" badge in tick-green reads as a mistake, so flip the colour
+                // when the user hasn't already chosen one of their own.
+                if ("Wrong Cross".equals(live.endBadge) && !"Wrong Cross".equals(was)
+                        && isDefaultBadgeGreen(live.endBadgeColor)) {
+                    live.endBadgeColor = new Color(231, 76, 60);
+                    badgeCol1.setBackground(live.endBadgeColor);
+                }
+                refresh.run();
+            });
+            addTimerRow(end, r++, "Badge around it:", badgeCombo);
+
+            JPanel badgeCols = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            badgeCols.setOpaque(false);
+            badgeCols.add(new JLabel("Main"));
+            badgeCols.add(badgeCol1);
+            badgeCols.add(new JLabel("Mark"));
+            badgeCols.add(timerColorButton(dlg, "Tick / text colour",
+                    () -> live.endBadgeColor2, c -> live.endBadgeColor2 = c, refresh));
+            addTimerRow(end, r++, "Badge colours:", badgeCols);
+
+            final JTextField badgeTextField = new JTextField(
+                    live.endBadgeText == null ? "" : live.endBadgeText);
+            badgeTextField.setToolTipText("Wording for the Stamp and Ribbon badges.");
+            badgeTextField.getDocument().addDocumentListener(new DocumentListener() {
+                private void ch() { live.endBadgeText = badgeTextField.getText(); refresh.run(); }
+                public void insertUpdate(DocumentEvent e) { ch(); }
+                public void removeUpdate(DocumentEvent e) { ch(); }
+                public void changedUpdate(DocumentEvent e) { ch(); }
+            });
+            addTimerRow(end, r++, "Badge wording:", badgeTextField);
+
+            addTimerSlider(end, r++, "Keep it on screen:", 0, 12000, live.endHoldMs, "ms",
+                    v -> { live.endHoldMs = v; syncScrubRange.run(); }, refresh);
+
+            final JLabel endAudioLbl = new JLabel(live.endAudioPath == null || live.endAudioPath.isEmpty()
+                    ? "(no file chosen)" : new File(live.endAudioPath).getName());
+            endAudioLbl.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            JPanel endAudioBtns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            endAudioBtns.setOpaque(false);
+            JButton pickEndAudio = new JButton("Choose audio…");
+            pickEndAudio.addActionListener(e -> {
+                JFileChooser fc = new JFileChooser();
+                fc.setFileFilter(new FileNameExtensionFilter(
+                        "Audio (wav, mp3, m4a, aac, ogg, flac)",
+                        "wav", "mp3", "m4a", "aac", "ogg", "flac", "aiff", "aif"));
+                if (fc.showOpenDialog(dlg) == JFileChooser.APPROVE_OPTION) {
+                    live.endAudioPath = fc.getSelectedFile().getAbsolutePath();
+                    endAudioLbl.setText(fc.getSelectedFile().getName());
+                    refresh.run();
+                }
+            });
+            JButton clearEndAudio = new JButton("Clear");
+            clearEndAudio.addActionListener(e -> {
+                live.endAudioPath = "";
+                endAudioLbl.setText("(no file chosen)");
+                refresh.run();
+            });
+            JButton playEndAudio = new JButton("▶");
+            playEndAudio.setToolTipText("Audition this file");
+            playEndAudio.addActionListener(e -> {
+                File f = live.endAudioPath == null || live.endAudioPath.isEmpty()
+                        ? null : new File(live.endAudioPath);
+                if (!SlideTimer.playFilePreview(f)) {
+                    JOptionPane.showMessageDialog(dlg,
+                            "Java can't play this file type here (MP3/AAC need a decoder),\n"
+                            + "but it will still be mixed into the exported video by FFmpeg.",
+                            "Preview sound", JOptionPane.INFORMATION_MESSAGE);
+                }
+            });
+            endAudioBtns.add(pickEndAudio);
+            endAudioBtns.add(clearEndAudio);
+            endAudioBtns.add(playEndAudio);
+            addTimerRow(end, r++, "Play when it ends:", endAudioBtns);
+            addTimerRow(end, r++, " ", endAudioLbl);
+
+            final JTextField endDelayField = new JTextField(
+                    String.format(java.util.Locale.US, "%.1f", live.endAudioDelayMs / 1000.0), 6);
+            endDelayField.setToolTipText("Shift after the countdown hits zero. 1.0 = one second later.");
+            endDelayField.getDocument().addDocumentListener(new DocumentListener() {
+                private void ch() {
+                    live.endAudioDelayMs = Math.max(0, secStrToMs(endDelayField.getText(), live.endAudioDelayMs));
+                    refresh.run();
+                }
+                public void insertUpdate(DocumentEvent e) { ch(); }
+                public void removeUpdate(DocumentEvent e) { ch(); }
+                public void changedUpdate(DocumentEvent e) { ch(); }
+            });
+            addTimerRow(end, r++, "…after a shift of (s):", endDelayField);
+            addTimerSlider(end, r++, "Its volume:", 0, 100, live.endAudioVolume, "%",
+                    v -> live.endAudioVolume = v, () -> { });
+
+            JLabel endNote = new JLabel("<html><body style='width:300px'><i>Drag the preview slider past "
+                    + "the end of the countdown to watch all of this play out. The slide is stretched "
+                    + "automatically so the reveal, the badge and the sound all fit.</i></body></html>");
+            endNote.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            endNote.setForeground(new Color(90, 90, 100));
+            addTimerRow(end, r++, null, endNote);
+            tabs.addTab("At the End", wrapTimerTab(end));
 
             // ---------- preview transport ----------
             final javax.swing.Timer anim = new javax.swing.Timer(33, null);
@@ -29889,6 +30263,12 @@ public class GifSlideShowApp extends JFrame {
             // preview — the user still needs to see and position every text
             // regardless of when it appears/leaves in the exported video.
             applyQuizHideMask(getSlideTextDataList(), quiz, 0L, false);
+            // Countdown end-actions. While the Slide Timer dialog is open this runs
+            // on real time so scrubbing shows exactly what the export will do; with
+            // the dialog closed it uses the settled state and never hides a text,
+            // matching how the editor shows every text regardless of its timeline.
+            applyTimerEndActions(getSlideTextDataList(), slideTimer, 0,
+                    timerPreviewTimeMs(), !timerDialogOpen);
             BufferedImage preview = renderFrame(
                     frameImage, textArea.getText(),
                     getSelectedFont(), getFontSize(), getFontStyle(),
@@ -30001,6 +30381,8 @@ public class GifSlideShowApp extends JFrame {
                     timerPreviewBase = base;
                 }
                 SlideTimer.paint(preview, slideTimer, 0, timerPreviewTimeMs(), true);
+                SlideTimer.paintEndBadge(preview, slideTimer, 0, timerPreviewTimeMs(),
+                        lastTextBounds(slideTimer.endTextIndex - 1), !timerDialogOpen);
             } else if (timerDialogOpen) {
                 BufferedImage base = new BufferedImage(
                         preview.getWidth(), preview.getHeight(), BufferedImage.TYPE_INT_ARGB);

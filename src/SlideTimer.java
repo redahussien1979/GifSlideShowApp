@@ -116,6 +116,27 @@ public class SlideTimer {
     public boolean urgentColor = true;
     public int urgentSeconds = 3;
 
+    // ---- model: what happens when the countdown reaches zero --------------
+    /** 1-based slide-text the end actions target; 0 = no target text. */
+    public int endTextIndex = 0;
+    /** Keep the target text off screen until zero, then bring it in. */
+    public boolean endRevealText = false;
+    /** Animation played on the target text at zero. */
+    public String endTextEffect = "Pop In";
+    /** Decoration drawn around the target text at zero. */
+    public String endBadge = "Correct Box";
+    public Color endBadgeColor = new Color(46, 204, 113);
+    public Color endBadgeColor2 = Color.WHITE;
+    /** Wording for the badges that carry a label (Stamp / Ribbon). */
+    public String endBadgeText = "CORRECT";
+    /** How long the end effect + badge stay on screen, ms. 0 = to the slide's end. */
+    public int endHoldMs = 3000;
+    /** Extra sound played at zero — the "when the timer finishes play this" file. */
+    public String endAudioPath = "";
+    /** Shift of that sound relative to zero, ms (1000 = one second after). */
+    public int endAudioDelayMs = 1000;
+    public int endAudioVolume = 100;
+
     // ---- model: sound -----------------------------------------------------
     /** "None" | "Built-in" | "File". */
     public String soundMode = "Built-in";
@@ -146,6 +167,12 @@ public class SlideTimer {
         t.urgentColor = urgentColor; t.urgentSeconds = urgentSeconds;
         t.soundMode = soundMode; t.soundName = soundName; t.endSoundName = endSoundName;
         t.soundPath = soundPath; t.soundVolume = soundVolume;
+        t.endTextIndex = endTextIndex; t.endRevealText = endRevealText;
+        t.endTextEffect = endTextEffect; t.endBadge = endBadge;
+        t.endBadgeColor = endBadgeColor; t.endBadgeColor2 = endBadgeColor2;
+        t.endBadgeText = endBadgeText; t.endHoldMs = endHoldMs;
+        t.endAudioPath = endAudioPath; t.endAudioDelayMs = endAudioDelayMs;
+        t.endAudioVolume = endAudioVolume;
         return t;
     }
 
@@ -191,6 +218,87 @@ public class SlideTimer {
                 "Power Down", "Whoosh", "Fanfare" };
     }
     public static String[] soundModes() { return new String[] { "None", "Built-in", "File" }; }
+    /** Animations the target text can play when the countdown ends. */
+    public static String[] endTextEffects() {
+        return new String[] { "None", "Pop In", "Zoom In", "Fade In", "Slide Up", "Drop In",
+                "Bounce In", "Flip In", "Flash", "Pulse", "Shake", "Wobble", "Colour Flash",
+                "Glow Rise" };
+    }
+    /** Decorations that can be drawn around the target text when the countdown ends. */
+    public static String[] endBadges() {
+        return new String[] { "None", "Correct Box", "Correct Tick", "Wrong Cross", "Glow Frame",
+                "Star Burst", "Ribbon Banner", "Spotlight", "Underline Sweep", "Stamp",
+                "Confetti Pop", "Corner Brackets", "Answer Card" };
+    }
+
+    // ---- end-of-countdown helpers -----------------------------------------
+
+    /** Slide-relative ms at which the countdown hits zero. */
+    public int zeroMs(int startMs) { return startMs + totalMs(); }
+
+    /** True when the end actions (text effect + badge) are on screen right now. */
+    public boolean endActive(int startMs, long elapsedMs) {
+        long since = elapsedMs - zeroMs(startMs);
+        if (since < 0) return false;
+        return endHoldMs <= 0 || since <= endHoldMs;
+    }
+
+    /** True when this timer plays an extra sound file at zero. */
+    public boolean hasEndAudio() {
+        return enabled && endAudioPath != null && !endAudioPath.trim().isEmpty()
+                && endAudioVolume > 0 && new File(endAudioPath).isFile();
+    }
+
+    /** How long past the countdown the end actions keep the slide busy, ms. */
+    public int endActionsTailMs() {
+        int tail = Math.max(0, endHoldMs);
+        if (hasEndAudio()) tail = Math.max(tail, Math.max(0, endAudioDelayMs));
+        return tail;
+    }
+
+    /**
+     * Render hooks for the target text's end animation:
+     * {@code {scale, dyFrac, dxFrac, alpha, tiltDeg}}. Identity values (1,0,0,1,0)
+     * mean "draw the text exactly as it is". {@code sinceMs} is time past zero.
+     */
+    public static double[] endEffectFields(String effect, long sinceMs, int holdMs) {
+        double[] id = { 1, 0, 0, 1, 0 };
+        if (effect == null || "None".equals(effect) || sinceMs < 0) return id;
+        final double INTRO = 620.0;
+        double p = clamp01(sinceMs / INTRO);
+        double eo = easeOutCubic(p), eb = easeOutBack(p);
+        switch (effect) {
+            case "Pop In":    return new double[] { 0.55 + 0.45 * eb, 0, 0, eo, 0 };
+            case "Zoom In":   return new double[] { 0.12 + 0.88 * eo, 0, 0, eo, 0 };
+            case "Fade In":   return new double[] { 1, 0, 0, eo, 0 };
+            case "Slide Up":  return new double[] { 1, 0.10 * (1 - eo), 0, eo, 0 };
+            case "Drop In":   return new double[] { 1, -0.14 * (1 - easeOutBounce(p)), 0, 1, 0 };
+            case "Bounce In": return new double[] { easeOutBounce(p), 0, 0, eo, 0 };
+            case "Flip In":   return new double[] { 0.6 + 0.4 * eo, 0, 0, eo, 90 * (1 - eb) };
+            case "Flash": {
+                double a = 0.35 + 0.65 * Math.abs(Math.sin(sinceMs / 110.0));
+                return new double[] { 1, 0, 0, sinceMs < 900 ? a : 1, 0 };
+            }
+            case "Pulse": {
+                double beat = (sinceMs % 900) / 900.0;
+                return new double[] { 1 + 0.10 * Math.pow(1 - beat, 3), 0, 0, 1, 0 };
+            }
+            case "Shake":
+                return new double[] { 1, 0, sinceMs < 800 ? 0.010 * Math.sin(sinceMs / 26.0) : 0, 1, 0 };
+            case "Wobble":
+                return new double[] { 1, 0, 0, 1, 6 * Math.sin(sinceMs / 190.0) * Math.max(0, 1 - sinceMs / 1600.0) };
+            case "Colour Flash":
+                return new double[] { 1 + 0.05 * Math.pow(1 - p, 2), 0, 0, 1, 0 };
+            case "Glow Rise":
+                return new double[] { 1 + 0.06 * eo, 0.03 * (1 - eo), 0, eo, 0 };
+            default: return id;
+        }
+    }
+
+    /** True when this end effect wants the text recoloured to the badge colour. */
+    public static boolean endEffectRecolours(String effect) {
+        return "Colour Flash".equals(effect) || "Glow Rise".equals(effect);
+    }
 
     // ---- timing ------------------------------------------------------------
 
@@ -1551,4 +1659,390 @@ public class SlideTimer {
                 break;
         }
     }
+
+    // ======================= end-of-countdown badge ========================
+    //
+    // Drawn as a post-pass around the target slide text once the countdown hits
+    // zero — the "fancy box with a tick", the stamp, the spotlight and friends.
+    // `bounds` is that text's rectangle on this very frame, in frame pixels,
+    // captured by the renderer while it drew the text.
+
+    /** How long the badge takes to animate in, ms. */
+    private static final double BADGE_IN_MS = 560.0;
+
+    /**
+     * Draw the end-of-countdown decoration around the target text.
+     *
+     * @param bounds  {x, y, w, h} of the target text on this frame, or null when
+     *                the text is not on screen (nothing is drawn then)
+     * @param preview editor preview: draws the settled state regardless of time
+     */
+    public static void paintEndBadge(BufferedImage frame, SlideTimer t, int startMs,
+                                     long elapsedMs, int[] bounds, boolean preview) {
+        if (frame == null || t == null || !t.enabled) return;
+        if (t.endBadge == null || "None".equals(t.endBadge)) return;
+        if (bounds == null || bounds[2] <= 0 || bounds[3] <= 0) return;
+        long since = elapsedMs - t.zeroMs(startMs);
+        if (!preview) {
+            if (since < 0) return;
+            if (t.endHoldMs > 0 && since > t.endHoldMs) return;
+        } else if (since < 0) {
+            return;
+        }
+        double p = clamp01(since / BADGE_IN_MS);          // intro progress
+        double out = 1;                                   // fade-out at the very end
+        if (t.endHoldMs > 0) {
+            double fadeStart = Math.max(0, t.endHoldMs - 320);
+            if (since > fadeStart) out = clamp01(1 - (since - fadeStart) / 320.0);
+        }
+        if (out <= 0.01) return;
+
+        double x = bounds[0], y = bounds[1], w = bounds[2], h = bounds[3];
+        Color c1 = t.endBadgeColor  != null ? t.endBadgeColor  : new Color(46, 204, 113);
+        Color c2 = t.endBadgeColor2 != null ? t.endBadgeColor2 : Color.WHITE;
+
+        Graphics2D g = frame.createGraphics();
+        try {
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+            g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) out));
+            switch (t.endBadge) {
+                case "Correct Box":     badgeBox(g, t, x, y, w, h, c1, c2, p, since, true);  break;
+                case "Wrong Cross":     badgeBox(g, t, x, y, w, h, c1, c2, p, since, false); break;
+                case "Correct Tick":    badgeTick(g, x, y, w, h, c1, c2, p, true);           break;
+                case "Glow Frame":      badgeGlowFrame(g, x, y, w, h, c1, p, since);         break;
+                case "Star Burst":      badgeStarBurst(g, x, y, w, h, c1, c2, p, since);     break;
+                case "Ribbon Banner":   badgeRibbon(g, t, x, y, w, h, c1, c2, p);            break;
+                case "Spotlight":       badgeSpotlight(g, frame, x, y, w, h, p);             break;
+                case "Underline Sweep": badgeUnderline(g, x, y, w, h, c1, c2, p);            break;
+                case "Stamp":           badgeStamp(g, t, x, y, w, h, c1, p);                 break;
+                case "Confetti Pop":    badgeConfetti(g, x, y, w, h, c1, c2, since);         break;
+                case "Corner Brackets": badgeBrackets(g, x, y, w, h, c1, p);                 break;
+                case "Answer Card":     badgeAnswerCard(g, t, x, y, w, h, c1, c2, p);        break;
+                default: break;
+            }
+        } finally {
+            g.dispose();
+        }
+    }
+
+    /** The headline look: a rounded frame that draws itself on, plus a tick / cross seal. */
+    private static void badgeBox(Graphics2D g, SlideTimer t, double x, double y, double w, double h,
+                                 Color c1, Color c2, double p, long since, boolean correct) {
+        double pad = Math.max(6, h * 0.22);
+        double bx = x - pad, by = y - pad, bw = w + pad * 2, bh = h + pad * 2;
+        double arc = Math.min(bw, bh) * 0.30;
+        double sw = Math.max(2.5, Math.min(bw, bh) * 0.045);
+        double grow = 1.06 - 0.06 * easeOutBack(p);       // settles from slightly large
+        AffineTransform sv = g.getTransform();
+        g.translate(bx + bw / 2, by + bh / 2);
+        g.scale(grow, grow);
+        g.translate(-(bx + bw / 2), -(by + bh / 2));
+
+        RoundRectangle2D.Double box = new RoundRectangle2D.Double(bx, by, bw, bh, arc, arc);
+        g.setColor(withAlpha(c1, (int) (34 * easeOutCubic(p))));
+        g.fill(box);
+        // breathing halo so the frame keeps a little life while it holds
+        double breathe = 0.75 + 0.25 * Math.sin(since / 380.0);
+        for (int i = 3; i >= 1; i--) {
+            g.setColor(withAlpha(c1, (int) (26 * i / 3.0 * breathe * easeOutCubic(p))));
+            g.setStroke(new BasicStroke((float) (sw * (1 + i * 0.9)), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g.draw(box);
+        }
+        g.setStroke(new BasicStroke((float) sw, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.setColor(withAlpha(c1, (int) (255 * easeOutCubic(p))));
+        g.draw(box);
+        g.setTransform(sv);
+
+        double seal = Math.max(18, Math.min(bh * 0.72, bw * 0.22));
+        badgeSeal(g, bx + bw - seal * 0.28, by + seal * 0.12, seal, c1, c2, p, correct);
+    }
+
+    /** A round seal with a tick or a cross inside — the "correct answer" mark. */
+    private static void badgeSeal(Graphics2D g, double cx, double cy, double d,
+                                  Color c1, Color c2, double p, boolean correct) {
+        double s = d * (0.4 + 0.6 * easeOutBack(p));
+        double r = s / 2;
+        g.setColor(new Color(0, 0, 0, 70));
+        g.fill(new Ellipse2D.Double(cx - r + s * 0.05, cy - r + s * 0.07, s, s));
+        try {
+            g.setPaint(new RadialGradientPaint(
+                    new Point2D.Double(cx - r * 0.3, cy - r * 0.4), (float) (s * 0.95),
+                    new float[] { 0f, 1f },
+                    new Color[] { brighten(c1, 0.45), darken(c1, 0.12) },
+                    MultipleGradientPaint.CycleMethod.NO_CYCLE));
+        } catch (Exception ex) {
+            g.setPaint(c1);
+        }
+        g.fill(new Ellipse2D.Double(cx - r, cy - r, s, s));
+        g.setColor(withAlpha(c2, 210));
+        g.setStroke(new BasicStroke((float) Math.max(1, s * 0.06)));
+        g.draw(new Ellipse2D.Double(cx - r, cy - r, s, s));
+
+        // the mark itself draws on with a short delay so it reads as "stamped"
+        double mp = clamp01((p - 0.30) / 0.70);
+        if (mp <= 0) return;
+        g.setColor(c2);
+        g.setStroke(new BasicStroke((float) Math.max(2, s * 0.13), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        if (correct) {
+            // two strokes of a tick, drawn in sequence
+            double ax = cx - r * 0.44, ay = cy + r * 0.02;
+            double bxp = cx - r * 0.12, byp = cy + r * 0.38;
+            double dx = cx + r * 0.48, dy = cy - r * 0.36;
+            double t1 = Math.min(1, mp / 0.42);
+            g.draw(new java.awt.geom.Line2D.Double(ax, ay, ax + (bxp - ax) * t1, ay + (byp - ay) * t1));
+            if (mp > 0.42) {
+                double t2 = (mp - 0.42) / 0.58;
+                g.draw(new java.awt.geom.Line2D.Double(bxp, byp, bxp + (dx - bxp) * t2, byp + (dy - byp) * t2));
+            }
+        } else {
+            double k = r * 0.40 * mp;
+            g.draw(new java.awt.geom.Line2D.Double(cx - k, cy - k, cx + k, cy + k));
+            g.draw(new java.awt.geom.Line2D.Double(cx + k, cy - k, cx - k, cy + k));
+        }
+    }
+
+    /** Just the seal, parked at the right-hand end of the text. */
+    private static void badgeTick(Graphics2D g, double x, double y, double w, double h,
+                                  Color c1, Color c2, double p, boolean correct) {
+        double d = Math.max(20, h * 1.05);
+        badgeSeal(g, x + w + d * 0.75, y + h / 2, d, c1, c2, p, correct);
+    }
+
+    /** A soft glowing frame that pulses — no seal, just emphasis. */
+    private static void badgeGlowFrame(Graphics2D g, double x, double y, double w, double h,
+                                       Color c1, double p, long since) {
+        double pad = Math.max(5, h * 0.20);
+        double bx = x - pad, by = y - pad, bw = w + pad * 2, bh = h + pad * 2;
+        double arc = Math.min(bw, bh) * 0.35;
+        double pulse = 0.65 + 0.35 * Math.sin(since / 300.0);
+        RoundRectangle2D.Double box = new RoundRectangle2D.Double(bx, by, bw, bh, arc, arc);
+        for (int i = 5; i >= 1; i--) {
+            g.setColor(withAlpha(c1, (int) (30 * i / 5.0 * pulse * easeOutCubic(p))));
+            g.setStroke(new BasicStroke((float) (Math.max(2, bh * 0.03) * i * 1.15),
+                    BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g.draw(box);
+        }
+        g.setColor(withAlpha(brighten(c1, 0.35), (int) (240 * easeOutCubic(p))));
+        g.setStroke(new BasicStroke((float) Math.max(2, bh * 0.03), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.draw(box);
+    }
+
+    /** Stars firing outward from the text — celebratory, no frame. */
+    private static void badgeStarBurst(Graphics2D g, double x, double y, double w, double h,
+                                       Color c1, Color c2, double p, long since) {
+        double cx = x + w / 2, cy = y + h / 2;
+        double rad = Math.max(w, h) * 0.55;
+        int n = 14;
+        // The burst runs on its own ~1.4 s clock, then leaves a gentle twinkle.
+        double travel = easeOutCubic(clamp01(since / 1400.0));
+        for (int i = 0; i < n; i++) {
+            double a = i * 2 * Math.PI / n + 0.25;
+            double rr = rad * (0.35 + 0.85 * travel);
+            double sx = cx + Math.cos(a) * rr * 1.25;
+            double sy = cy + Math.sin(a) * rr;
+            double size = Math.max(5, h * 0.34) * (1 - 0.40 * travel)
+                    * (0.75 + 0.25 * Math.sin(since / 160.0 + i));
+            g.setColor(withAlpha(i % 2 == 0 ? c1 : c2, (int) (245 * (1 - travel * 0.45) * easeOutCubic(p))));
+            Path2D.Double star = new Path2D.Double();
+            for (int k = 0; k < 8; k++) {
+                double aa = k * Math.PI / 4;
+                double rrr = (k % 2 == 0) ? size : size * 0.42;
+                double px = sx + Math.cos(aa) * rrr, py = sy + Math.sin(aa) * rrr;
+                if (k == 0) star.moveTo(px, py); else star.lineTo(px, py);
+            }
+            star.closePath();
+            g.fill(star);
+        }
+    }
+
+    /** A small ribbon banner sitting above the text with a word on it. */
+    private static void badgeRibbon(Graphics2D g, SlideTimer t, double x, double y, double w, double h,
+                                    Color c1, Color c2, double p) {
+        String label = t.endBadgeText == null || t.endBadgeText.trim().isEmpty()
+                ? "CORRECT" : t.endBadgeText.trim();
+        double rh = Math.max(16, h * 0.62);
+        Font f = new Font(t.fontName != null && !t.fontName.isEmpty() ? t.fontName : "SansSerif",
+                Font.BOLD, Math.max(8, (int) (rh * 0.56)));
+        g.setFont(f);
+        FontMetrics fm = g.getFontMetrics();
+        double rw = fm.stringWidth(label) + rh * 1.5;
+        double cx = x + w / 2;
+        double ry = y - rh * 1.35;
+        double drop = (1 - easeOutBack(p)) * rh * 1.6;
+        ry += drop;
+        double rx = cx - rw / 2;
+        // ribbon body with notched tails
+        Path2D.Double body = new Path2D.Double();
+        double tail = rh * 0.38;
+        body.moveTo(rx, ry);
+        body.lineTo(rx + rw, ry);
+        body.lineTo(rx + rw - tail, ry + rh / 2);
+        body.lineTo(rx + rw, ry + rh);
+        body.lineTo(rx, ry + rh);
+        body.lineTo(rx + tail, ry + rh / 2);
+        body.closePath();
+        g.setColor(new Color(0, 0, 0, 80));
+        g.translate(rh * 0.06, rh * 0.09);
+        g.fill(body);
+        g.translate(-rh * 0.06, -rh * 0.09);
+        g.setPaint(new GradientPaint(0, (float) ry, brighten(c1, 0.28), 0, (float) (ry + rh), darken(c1, 0.16)));
+        g.fill(body);
+        g.setColor(withAlpha(c2, 170));
+        g.setStroke(new BasicStroke((float) Math.max(1, rh * 0.06)));
+        g.draw(body);
+        g.setColor(c2);
+        g.drawString(label, (float) (cx - fm.stringWidth(label) / 2.0),
+                (float) (ry + rh / 2 + (fm.getAscent() - fm.getDescent()) / 2.0));
+    }
+
+    /** Dim everything except a soft ellipse around the text. */
+    private static void badgeSpotlight(Graphics2D g, BufferedImage frame,
+                                       double x, double y, double w, double h, double p) {
+        double cx = x + w / 2, cy = y + h / 2;
+        double rx = w * 0.80 + h * 0.6, ry = h * 1.5;
+        double k = 0.55 + 0.45 * easeOutCubic(p);
+        rx *= k; ry *= k;
+        Area dim = new Area(new Rectangle2D.Double(0, 0, frame.getWidth(), frame.getHeight()));
+        dim.subtract(new Area(new Ellipse2D.Double(cx - rx, cy - ry, rx * 2, ry * 2)));
+        g.setColor(new Color(0, 0, 0, (int) (150 * easeOutCubic(p))));
+        g.fill(dim);
+        // a soft rim so the cut-out doesn't look like a hard hole
+        try {
+            g.setPaint(new RadialGradientPaint(
+                    new Point2D.Double(cx, cy), (float) Math.max(rx, ry),
+                    new float[] { 0.72f, 1f },
+                    new Color[] { new Color(0, 0, 0, 0), new Color(0, 0, 0, (int) (110 * easeOutCubic(p))) },
+                    MultipleGradientPaint.CycleMethod.NO_CYCLE));
+            g.fill(new Ellipse2D.Double(cx - rx, cy - ry, rx * 2, ry * 2));
+        } catch (Exception ignored) { }
+    }
+
+    /** A thick marker underline that sweeps in left-to-right. */
+    private static void badgeUnderline(Graphics2D g, double x, double y, double w, double h,
+                                       Color c1, Color c2, double p) {
+        double uh = Math.max(3, h * 0.17);
+        double uy = y + h + uh * 0.55;
+        double uw = w * easeOutCubic(p);
+        g.setColor(withAlpha(c1, 90));
+        g.fill(new RoundRectangle2D.Double(x, uy, uw, uh, uh, uh));
+        g.setPaint(new GradientPaint((float) x, 0, c1, (float) (x + w), 0, brighten(c1, 0.45)));
+        g.fill(new RoundRectangle2D.Double(x, uy + uh * 0.18, uw, uh * 0.64, uh, uh));
+        if (p > 0.85) {   // a little spark at the head when it lands
+            g.setColor(withAlpha(c2, (int) (220 * (1 - (p - 0.85) / 0.15))));
+            g.fill(new Ellipse2D.Double(x + uw - uh * 0.5, uy - uh * 0.2, uh, uh));
+        }
+    }
+
+    /** A rotated rubber stamp slapped across the text. */
+    private static void badgeStamp(Graphics2D g, SlideTimer t, double x, double y, double w, double h,
+                                   Color c1, double p) {
+        String label = t.endBadgeText == null || t.endBadgeText.trim().isEmpty()
+                ? "CORRECT" : t.endBadgeText.trim();
+        // Sits over the top-right corner, overlapping just enough to read as a
+        // stamp on the answer without covering the answer itself.
+        double cx = x + w * 0.92, cy = y - h * 0.18;
+        double scale = 2.2 - 1.2 * easeOutCubic(Math.min(1, p * 1.4));   // slams down
+        int alpha = (int) (235 * easeOutCubic(p));
+        AffineTransform sv = g.getTransform();
+        g.translate(cx, cy);
+        g.rotate(Math.toRadians(-12));
+        g.scale(scale, scale);
+        Font f = new Font(t.fontName != null && !t.fontName.isEmpty() ? t.fontName : "SansSerif",
+                Font.BOLD, Math.max(10, (int) (h * 0.46)));
+        g.setFont(f);
+        FontMetrics fm = g.getFontMetrics();
+        double tw = fm.stringWidth(label), th = fm.getAscent();
+        double pad = th * 0.42;
+        RoundRectangle2D.Double box = new RoundRectangle2D.Double(
+                -tw / 2 - pad, -th / 2 - pad * 0.7, tw + pad * 2, th + pad * 1.4, pad, pad);
+        g.setColor(withAlpha(c1, alpha));
+        g.setStroke(new BasicStroke((float) Math.max(2, th * 0.10)));
+        g.draw(box);
+        g.setStroke(new BasicStroke((float) Math.max(1, th * 0.05)));
+        g.draw(new RoundRectangle2D.Double(box.x + th * 0.11, box.y + th * 0.11,
+                box.width - th * 0.22, box.height - th * 0.22, pad, pad));
+        g.drawString(label, (float) (-tw / 2), (float) (th / 2 - fm.getDescent() * 0.3));
+        g.setTransform(sv);
+    }
+
+    /** Confetti bursting up out of the text and drifting down. */
+    private static void badgeConfetti(Graphics2D g, double x, double y, double w, double h,
+                                      Color c1, Color c2, long since) {
+        double cx = x + w / 2, cy = y + h / 2;
+        double life = 2200.0;
+        double tsec = Math.min(1, since / life);
+        int n = 30;
+        java.util.Random rnd = new java.util.Random(4242);
+        for (int i = 0; i < n; i++) {
+            double a = -Math.PI / 2 + (rnd.nextDouble() - 0.5) * 2.4;
+            double v = (0.7 + rnd.nextDouble() * 1.1) * Math.max(w, h) * 1.25;
+            double px = cx + Math.cos(a) * v * tsec * 1.4;
+            double py = cy + Math.sin(a) * v * tsec + 0.9 * v * tsec * tsec * 1.6;   // gravity
+            double sz = Math.max(4, h * 0.26) * (0.6 + rnd.nextDouble() * 0.8);
+            double rot = rnd.nextDouble() * Math.PI + since / 220.0 * (rnd.nextBoolean() ? 1 : -1);
+            int alpha = (int) (255 * Math.max(0, 1 - tsec * tsec));
+            if (alpha <= 3) continue;
+            Color c = i % 3 == 0 ? c2 : (i % 3 == 1 ? c1 : brighten(c1, 0.5));
+            g.setColor(withAlpha(c, alpha));
+            AffineTransform sv = g.getTransform();
+            g.translate(px, py);
+            g.rotate(rot);
+            g.fill(new Rectangle2D.Double(-sz / 2, -sz / 4, sz, sz / 2));
+            g.setTransform(sv);
+        }
+    }
+
+    /** Four corner brackets closing in on the text — clean and editorial. */
+    private static void badgeBrackets(Graphics2D g, double x, double y, double w, double h,
+                                      Color c1, double p) {
+        double pad = Math.max(6, h * 0.30) * (2.2 - 1.2 * easeOutCubic(p));
+        double bx = x - pad, by = y - pad, bw = w + pad * 2, bh = h + pad * 2;
+        double len = Math.min(bw, bh) * 0.32;
+        double sw = Math.max(2, Math.min(bw, bh) * 0.05);
+        g.setColor(withAlpha(c1, (int) (255 * easeOutCubic(p))));
+        g.setStroke(new BasicStroke((float) sw, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        double[][] corners = { {bx, by, 1, 1}, {bx + bw, by, -1, 1}, {bx, by + bh, 1, -1}, {bx + bw, by + bh, -1, -1} };
+        for (double[] c : corners) {
+            Path2D.Double pth = new Path2D.Double();
+            pth.moveTo(c[0] + c[2] * len, c[1]);
+            pth.lineTo(c[0], c[1]);
+            pth.lineTo(c[0], c[1] + c[3] * len);
+            g.draw(pth);
+        }
+    }
+
+    /** A frosted card slid in behind the text, with a tick chip on its left edge. */
+    private static void badgeAnswerCard(Graphics2D g, SlideTimer t, double x, double y, double w, double h,
+                                        Color c1, Color c2, double p) {
+        double pad = Math.max(8, h * 0.34);
+        double chip = Math.max(16, h * 0.90);
+        double bx = x - pad - chip, by = y - pad * 0.7, bw = w + pad * 2 + chip, bh = h + pad * 1.4;
+        double arc = bh * 0.34;
+        double slide = (1 - easeOutCubic(p)) * bw * 0.25;
+        AffineTransform sv = g.getTransform();
+        g.translate(-slide, 0);
+        g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER,
+                (float) (g.getComposite() instanceof AlphaComposite
+                        ? ((AlphaComposite) g.getComposite()).getAlpha() * easeOutCubic(p)
+                        : easeOutCubic(p))));
+        RoundRectangle2D.Double card = new RoundRectangle2D.Double(bx, by, bw, bh, arc, arc);
+        g.setColor(new Color(0, 0, 0, 55));
+        g.fill(new RoundRectangle2D.Double(bx + bh * 0.04, by + bh * 0.06, bw, bh, arc, arc));
+        // The card is a post-pass, drawn AFTER the text — so it stays frosted
+        // rather than opaque, letting the answer read straight through it.
+        Color base = t.panelColor != null ? t.panelColor : new Color(12, 16, 26);
+        g.setPaint(new GradientPaint(0, (float) by, withAlpha(brighten(base, 0.30), 104),
+                0, (float) (by + bh), withAlpha(base, 118)));
+        g.fill(card);
+        g.setColor(withAlpha(c1, 40));
+        g.fill(card);
+        g.setColor(withAlpha(c1, 215));
+        g.setStroke(new BasicStroke((float) Math.max(1.5, bh * 0.045)));
+        g.draw(card);
+        badgeSeal(g, bx + chip * 0.75, by + bh / 2, chip, c1, c2, p, true);
+        g.setTransform(sv);
+    }
+
 }
