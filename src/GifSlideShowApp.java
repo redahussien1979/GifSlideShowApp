@@ -232,7 +232,7 @@ public class GifSlideShowApp extends JFrame {
         presetDeleteBtn.addActionListener(e -> deletePreset());
 
         JButton saveImagesBtn = createStyledButton("Save Images", new Color(120, 80, 180));
-        saveImagesBtn.setToolTipText("Choose a layout, then save slides as HD PNGs (single or several per image)");
+        saveImagesBtn.setToolTipText("Choose where to save and a layout, then save slides as HD PNGs (single or several per image)");
         saveImagesBtn.addActionListener(e -> saveSlidesAsImages());
 
         botRow.add(presetLabel);
@@ -1260,7 +1260,12 @@ public class GifSlideShowApp extends JFrame {
         int margin = 0;        // pixels around the outer edge
         Color background = Color.BLACK;
         boolean platformExports = true; // also write Facebook / Instagram / TikTok sized copies
+        File destination = null; // folder the time-stamped output folder is created in
     }
+
+    // Remembers the folder picked in the Save Images dialog so the next save
+    // starts where the last one did.
+    private File lastSaveImagesDir = null;
 
     // Target canvas for a social platform's feed/post image. Each saved sheet is
     // refitted (aspect-ratio preserved, centered, no cropping) into these exact
@@ -1292,9 +1297,11 @@ public class GifSlideShowApp extends JFrame {
         SaveImagesOptions opts = showSaveImagesOptionsDialog(slides.size());
         if (opts == null) return; // user cancelled
 
-        File parent = new File(".").getAbsoluteFile().getParentFile();
+        File parent = (opts.destination != null)
+                ? opts.destination
+                : new File(".").getAbsoluteFile().getParentFile();
         String stamp = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
-        File outDir = new File(parent, "image_" + stamp);
+        final File outDir = new File(parent, "image_" + stamp);
         if (!outDir.mkdirs() && !outDir.isDirectory()) {
             JOptionPane.showMessageDialog(this,
                     "Could not create folder:\n" + outDir.getAbsolutePath(),
@@ -1422,14 +1429,34 @@ public class GifSlideShowApp extends JFrame {
                         }
                     }
                     msg.append("\n\nFolder: ").append(outDir.getAbsolutePath());
-                    JOptionPane.showMessageDialog(GifSlideShowApp.this,
-                            msg.toString(),
-                            "Save Images", JOptionPane.INFORMATION_MESSAGE);
+                    String[] btns = {"Open Folder", "OK"};
+                    int choice = JOptionPane.showOptionDialog(GifSlideShowApp.this,
+                            msg.toString(), "Save Images",
+                            JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE,
+                            null, btns, btns[0]);
+                    if (choice == 0) openFolder(outDir);
                 }
             }
         };
         worker.execute();
         progressDialog.setVisible(true);
+    }
+
+    // Open a folder in the system file browser, reporting failures instead of
+    // silently doing nothing when the platform has no desktop integration.
+    private void openFolder(File dir) {
+        try {
+            if (Desktop.isDesktopSupported()
+                    && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
+                Desktop.getDesktop().open(dir);
+                return;
+            }
+        } catch (Exception ex) {
+            // fall through to the message below
+        }
+        JOptionPane.showMessageDialog(this,
+                "Could not open the folder automatically.\n\n" + dir.getAbsolutePath(),
+                "Open Folder", JOptionPane.WARNING_MESSAGE);
     }
 
     // Compose several full-frame slides into one grid sheet. Every frame is
@@ -1495,7 +1522,7 @@ public class GifSlideShowApp extends JFrame {
         final Color panelBg = new Color(45, 45, 50);
         final Color fg = new Color(230, 230, 235);
 
-        JDialog dialog = new JDialog(this, "Save Images — Layout Options", true);
+        JDialog dialog = new JDialog(this, "Save Images — Options", true);
         JPanel panel = new JPanel(new GridBagLayout());
         panel.setBackground(panelBg);
         panel.setBorder(BorderFactory.createEmptyBorder(18, 22, 18, 22));
@@ -1506,6 +1533,35 @@ public class GifSlideShowApp extends JFrame {
         gc.fill = GridBagConstraints.HORIZONTAL;
 
         int rowIdx = 0;
+
+        // Destination folder. The save itself still creates a time-stamped
+        // "image_<stamp>" folder, but now inside whichever folder is chosen here.
+        File startDir = (lastSaveImagesDir != null && lastSaveImagesDir.isDirectory())
+                ? lastSaveImagesDir
+                : new File(".").getAbsoluteFile().getParentFile();
+        final File[] destDir = { startDir };
+        JTextField destField = new JTextField(startDir.getAbsolutePath(), 24);
+        destField.setEditable(false);
+        destField.setToolTipText("Images are saved into a new time-stamped folder inside this location");
+        JButton browseBtn = new JButton("Browse…");
+        browseBtn.setToolTipText("Choose where to save the images");
+        browseBtn.addActionListener(e -> {
+            JFileChooser fc = new JFileChooser(destDir[0]);
+            fc.setDialogTitle("Choose Where to Save Images");
+            fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            fc.setAcceptAllFileFilterUsed(false);
+            if (fc.showSaveDialog(dialog) == JFileChooser.APPROVE_OPTION) {
+                File chosen = fc.getSelectedFile();
+                if (chosen != null) {
+                    destDir[0] = chosen;
+                    destField.setText(chosen.getAbsolutePath());
+                }
+            }
+        });
+        JPanel destRow = new JPanel(new BorderLayout(6, 0));
+        destRow.setBackground(panelBg);
+        destRow.add(destField, BorderLayout.CENTER);
+        destRow.add(browseBtn, BorderLayout.EAST);
 
         // Arrangement selector
         JComboBox<String> arrangeCombo = new JComboBox<>(new String[]{
@@ -1578,6 +1634,9 @@ public class GifSlideShowApp extends JFrame {
         colsSpinner.addChangeListener(e -> refresh.run());
 
         // Lay out labelled rows.
+        gc.gridx = 0; gc.gridy = rowIdx; panel.add(styledLabel("Save to:", fg), gc);
+        gc.gridx = 1; panel.add(destRow, gc); rowIdx++;
+
         gc.gridx = 0; gc.gridy = rowIdx; panel.add(styledLabel("Arrangement:", fg), gc);
         gc.gridx = 1; panel.add(arrangeCombo, gc); rowIdx++;
 
@@ -1641,6 +1700,8 @@ public class GifSlideShowApp extends JFrame {
         opts.margin = (Integer) marginSpinner.getValue();
         opts.background = bgColor[0];
         opts.platformExports = platformCheck.isSelected();
+        opts.destination = destDir[0];
+        lastSaveImagesDir = destDir[0];
         return opts;
     }
 
