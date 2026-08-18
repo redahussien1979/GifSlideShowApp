@@ -912,7 +912,7 @@ public class SlideTimer {
         int n = s.length();
         // A seven-segment glyph is roughly 3:5, so drive the size off the panel
         // height and only shrink when a long string (e.g. "12:05") won't fit.
-        double dh = h * 0.60;
+        double dh = h * 0.66;
         double dw = dh * 0.58;
         double gap = dw * 0.26;
         double totalW = n * dw + (n - 1) * gap;
@@ -925,8 +925,8 @@ public class SlideTimer {
         for (int i = 0; i < n; i++) {
             char c = s.charAt(i);
             double cw = (c == ':' || c == '.') ? dw * 0.45 : dw;
-            drawSevenSeg(g, c, x + (dw - cw) / 2, -dh / 2 - h * 0.05, cw, dh, accent,
-                    withAlpha(t.trackColor != null ? t.trackColor : Color.GRAY, 45));
+            drawSevenSeg(g, c, x + (dw - cw) / 2, -dh / 2 - h * 0.04, cw, dh, accent,
+                    withAlpha(t.trackColor != null ? t.trackColor : Color.GRAY, 26));
             x += dw + gap;
         }
         double bw = w * 0.80, bh = Math.max(2, h * 0.05), by = h / 2 - bh * 2.4;
@@ -956,7 +956,7 @@ public class SlideTimer {
             g.setColor(seg[i] ? on : off);
             g.fill(shapes[i]);
             if (seg[i]) {   // a soft bloom over lit segments
-                g.setColor(withAlpha(brighten(on, 0.5), 60));
+                g.setColor(withAlpha(brighten(on, 0.55), 95));
                 g.fill(shapes[i]);
             }
         }
@@ -989,49 +989,63 @@ public class SlideTimer {
     /** Hourglass whose upper chamber drains into the lower one, with a falling stream. */
     private static void drawSandTimer(Graphics2D g, SlideTimer t, double w, double h,
                                       double frac, String txt, Color accent, long local) {
-        // Reserve the bottom fifth of the box for the digits so nothing spills out.
-        double bw = w * 0.68, bh = h * 0.72;
+        // Stack the box: glass on top, digits under it, caption last — sized from
+        // what is actually shown so no part can ever run into another.
+        boolean hasLabel = t.label != null && !t.label.trim().isEmpty();
+        boolean hasText = txt != null && !txt.isEmpty();
+        double labelH = hasLabel ? h * 0.13 : 0;
+        double digitsH = hasText ? h * 0.20 : 0;
+        double bh = h - digitsH - labelH;
+        double bw = Math.min(w * 0.72, bh * 0.78);
         double neck = bw * 0.10;
+        double glassCy = -h / 2 + bh / 2;
+
         AffineTransform svSand = g.getTransform();
-        g.translate(0, -h * 0.11);
+        g.translate(0, glassCy);
         Path2D.Double top = new Path2D.Double();
-        top.moveTo(-bw / 2, -bh / 2); top.lineTo(bw / 2, -bh / 2);
+        top.moveTo(-bw / 2, -bh / 2 + bh * 0.05); top.lineTo(bw / 2, -bh / 2 + bh * 0.05);
         top.lineTo(neck / 2, 0); top.lineTo(-neck / 2, 0); top.closePath();
         Path2D.Double bot = new Path2D.Double();
         bot.moveTo(-neck / 2, 0); bot.lineTo(neck / 2, 0);
-        bot.lineTo(bw / 2, bh / 2); bot.lineTo(-bw / 2, bh / 2); bot.closePath();
+        bot.lineTo(bw / 2, bh / 2 - bh * 0.05); bot.lineTo(-bw / 2, bh / 2 - bh * 0.05); bot.closePath();
 
         if (t.panelOpacity > 0) {
             g.setColor(withAlpha(t.panelColor, (int) (150 * t.panelOpacity / 100.0)));
             g.fill(top); g.fill(bot);
         }
-        // sand in the top chamber shrinks toward the neck
+        double half = bh / 2 - bh * 0.05;
+        // sand in the top chamber drains toward the neck …
         Area topSand = new Area(top);
-        topSand.intersect(new Area(new Rectangle2D.Double(-bw, -bh / 2 + (bh / 2) * (1 - frac), bw * 2, bh)));
-        g.setPaint(new GradientPaint(0, (float) (-bh / 2), brighten(accent, 0.35), 0, 0, accent));
+        topSand.intersect(new Area(new Rectangle2D.Double(-bw, -half + half * (1 - frac), bw * 2, bh)));
+        g.setPaint(new GradientPaint(0, (float) -half, brighten(accent, 0.35), 0, 0, accent));
         g.fill(topSand);
-        // and piles up as a mound in the bottom chamber
+        // … and piles up as a mound in the bottom one
         Area botSand = new Area(bot);
-        botSand.intersect(new Area(new Rectangle2D.Double(-bw, bh / 2 - (bh / 2) * (1 - frac), bw * 2, bh)));
-        g.setPaint(new GradientPaint(0, 0, accent, 0, (float) (bh / 2), darken(accent, 0.20)));
+        botSand.intersect(new Area(new Rectangle2D.Double(-bw, half - half * (1 - frac), bw * 2, bh)));
+        g.setPaint(new GradientPaint(0, 0, accent, 0, (float) half, darken(accent, 0.20)));
         g.fill(botSand);
         if (frac > 0.002) {   // the trickle
             double jitter = Math.sin(local / 45.0) * neck * 0.10;
             g.setColor(withAlpha(brighten(accent, 0.5), 200));
-            g.fill(new Rectangle2D.Double(-neck * 0.10 + jitter, 0, neck * 0.20, bh / 2 - (bh / 2) * (1 - frac)));
+            g.fill(new Rectangle2D.Double(-neck * 0.10 + jitter, 0, neck * 0.20,
+                    Math.max(0, half - half * (1 - frac))));
         }
         g.setColor(withAlpha(Color.WHITE, 180));
-        g.setStroke(new BasicStroke((float) Math.max(1.2, w * 0.018), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.setStroke(new BasicStroke((float) Math.max(1.2, bw * 0.020), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
         g.draw(top); g.draw(bot);
-        // wooden caps
+        double cap = bh * 0.05;
         g.setColor(withAlpha(t.textColor, 220));
-        double cap = h * 0.045;
-        g.fill(new RoundRectangle2D.Double(-bw * 0.60, -bh / 2 - cap, bw * 1.20, cap * 1.2, cap, cap));
-        g.fill(new RoundRectangle2D.Double(-bw * 0.60, bh / 2 - cap * 0.2, bw * 1.20, cap * 1.2, cap, cap));
+        g.fill(new RoundRectangle2D.Double(-bw * 0.58, -bh / 2, bw * 1.16, cap * 1.4, cap, cap));
+        g.fill(new RoundRectangle2D.Double(-bw * 0.58, bh / 2 - cap * 1.4, bw * 1.16, cap * 1.4, cap, cap));
         g.setTransform(svSand);
-        boolean sandLabel = t.label != null && !t.label.trim().isEmpty();
-        drawCenteredText(g, t, txt, 0, h * 0.34, w * 0.30, t.textColor, true);
-        if (sandLabel) drawLabel(g, t, h * 0.46, w * 0.11, t.textColor);
+
+        if (hasText) {
+            drawCenteredText(g, t, txt, 0, -h / 2 + bh + digitsH / 2, digitsH * 0.95, t.textColor, true);
+        }
+        if (hasLabel) {
+            drawCenteredText(g, t, t.label.trim(), 0, -h / 2 + bh + digitsH + labelH / 2,
+                    labelH * 0.80, withAlpha(t.textColor, 205), false);
+        }
     }
 
     /** Pie wedge of remaining time over a soft disc — bold and instantly readable. */
