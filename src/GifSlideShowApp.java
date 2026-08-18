@@ -732,6 +732,9 @@ public class GifSlideShowApp extends JFrame {
         // Animated shapes (reactions, cards, images, lines/arrows) on the slide.
         writeAnnotations(props, source.getSlideAnnotationList());
 
+        // On-slide countdown timer (design, placement, schedule, sound, effects).
+        writeTimer(props, source.getSlideTimer());
+
         File file = new File(PRESETS_DIR, name + ".preset");
         try (FileOutputStream fos = new FileOutputStream(file)) {
             props.store(fos, "GifSlideShowApp Preset: " + name);
@@ -1169,12 +1172,17 @@ public class GifSlideShowApp extends JFrame {
         // preset predates this feature — in that case existing shapes are kept.
         List<SlideAnnotation> presetShapes = readAnnotations(props);
 
+        // Countdown timer. Null when the preset predates this feature — existing
+        // timers are then left as they are.
+        SlideTimer presetTimer = readTimer(props);
+
         // Apply to all non-title-grid slides
         isSyncingFormat = true;
         try {
             for (SlideRow row : targets) {
                 if (row.isTitleGridSlide) continue;
                 if (presetShapes != null) row.applySlideAnnotations(presetShapes);
+                if (presetTimer != null) row.applySlideTimer(presetTimer);
                 row.applyFormatting(fontName, fontSize, fontStyle, fontColor, alignment, showPin, displayMode,
                         subtitleY, subtitleBgOpacity, sourceVideoVolume,
                         bgTransparency,
@@ -1936,6 +1944,99 @@ public class GifSlideShowApp extends JFrame {
             out.add(a);
         }
         return out;
+    }
+
+    // ---- Slide Timer preset serialization ---------------------------------
+    // Persist the slide's countdown timer (design, placement, schedule, sound and
+    // effects). Absence of the "timer.enabled" key means the preset predates this
+    // feature, in which case Load Preset leaves the existing timer alone.
+    private static void writeTimer(Properties props, SlideTimer t) {
+        if (t == null) t = new SlideTimer();
+        props.setProperty("timer.enabled",     String.valueOf(t.enabled));
+        props.setProperty("timer.style",       t.style != null ? t.style : "Neon Ring");
+        props.setProperty("timer.seconds",     String.valueOf(t.seconds));
+        props.setProperty("timer.x",           String.valueOf(t.xPct));
+        props.setProperty("timer.y",           String.valueOf(t.yPct));
+        props.setProperty("timer.w",           String.valueOf(t.sizePct));
+        props.setProperty("timer.h",           String.valueOf(t.heightPct));
+        props.setProperty("timer.rot",         String.valueOf(t.rotationDeg));
+        props.setProperty("timer.opacity",     String.valueOf(t.opacity));
+        // colorToHex would NPE on a null, so fall back to the class defaults.
+        SlideTimer d = new SlideTimer();
+        props.setProperty("timer.color",       colorToHex(t.color      != null ? t.color      : d.color));
+        props.setProperty("timer.color2",      colorToHex(t.color2     != null ? t.color2     : d.color2));
+        props.setProperty("timer.trackColor",  colorToHex(t.trackColor != null ? t.trackColor : d.trackColor));
+        props.setProperty("timer.textColor",   colorToHex(t.textColor  != null ? t.textColor  : d.textColor));
+        props.setProperty("timer.panelColor",  colorToHex(t.panelColor != null ? t.panelColor : d.panelColor));
+        props.setProperty("timer.panelOpacity",String.valueOf(t.panelOpacity));
+        props.setProperty("timer.font",        t.fontName != null ? t.fontName : "SansSerif");
+        props.setProperty("timer.format",      t.format != null ? t.format : "Seconds");
+        props.setProperty("timer.label",       t.label != null ? t.label : "");
+        props.setProperty("timer.glowOn",      String.valueOf(t.glowOn));
+        props.setProperty("timer.glowPct",     String.valueOf(t.glowPct));
+        props.setProperty("timer.shadow",      String.valueOf(t.shadow));
+        props.setProperty("timer.countUp",     String.valueOf(t.countUp));
+        props.setProperty("timer.startMode",   t.startMode != null ? t.startMode : SlideTimer.START_AFTER_ALL_AUDIO);
+        props.setProperty("timer.startTextIndex", String.valueOf(t.startTextIndex));
+        props.setProperty("timer.startAtMs",   String.valueOf(t.startAtMs));
+        props.setProperty("timer.offsetMs",    String.valueOf(t.offsetMs));
+        props.setProperty("timer.hideAfterEnd",String.valueOf(t.hideAfterEnd));
+        props.setProperty("timer.lingerMs",    String.valueOf(t.lingerMs));
+        props.setProperty("timer.entrance",    t.entrance != null ? t.entrance : "None");
+        props.setProperty("timer.effect",      t.effect   != null ? t.effect   : "None");
+        props.setProperty("timer.finish",      t.finish   != null ? t.finish   : "None");
+        props.setProperty("timer.urgentColor", String.valueOf(t.urgentColor));
+        props.setProperty("timer.urgentSeconds", String.valueOf(t.urgentSeconds));
+        props.setProperty("timer.soundMode",   t.soundMode != null ? t.soundMode : "None");
+        props.setProperty("timer.soundName",   t.soundName != null ? t.soundName : "None");
+        props.setProperty("timer.endSoundName",t.endSoundName != null ? t.endSoundName : "None");
+        props.setProperty("timer.soundPath",   t.soundPath != null ? t.soundPath : "");
+        props.setProperty("timer.soundVolume", String.valueOf(t.soundVolume));
+    }
+
+    /** Rebuild a timer from a preset, or null when the preset predates the feature. */
+    private static SlideTimer readTimer(Properties props) {
+        if (props.getProperty("timer.enabled") == null) return null;
+        SlideTimer t = new SlideTimer();
+        t.enabled      = Boolean.parseBoolean(props.getProperty("timer.enabled", "false"));
+        t.style        = props.getProperty("timer.style", "Neon Ring");
+        t.seconds      = parseIntOr(props.getProperty("timer.seconds"), 10);
+        t.xPct         = parseDoubleOr(props.getProperty("timer.x"), 50);
+        t.yPct         = parseDoubleOr(props.getProperty("timer.y"), 78);
+        t.sizePct      = parseDoubleOr(props.getProperty("timer.w"), 16);
+        t.heightPct    = parseDoubleOr(props.getProperty("timer.h"), 0);
+        t.rotationDeg  = parseDoubleOr(props.getProperty("timer.rot"), 0);
+        t.opacity      = parseIntOr(props.getProperty("timer.opacity"), 100);
+        t.color        = hexToColor(props.getProperty("timer.color", "#40D6FF"));
+        t.color2       = hexToColor(props.getProperty("timer.color2", "#FF4C5C"));
+        t.trackColor   = hexToColor(props.getProperty("timer.trackColor", "#FFFFFF3C"));
+        t.textColor    = hexToColor(props.getProperty("timer.textColor", "#FFFFFF"));
+        t.panelColor   = hexToColor(props.getProperty("timer.panelColor", "#0A0E18"));
+        t.panelOpacity = parseIntOr(props.getProperty("timer.panelOpacity"), 55);
+        t.fontName     = props.getProperty("timer.font", "SansSerif");
+        t.format       = props.getProperty("timer.format", "Seconds");
+        t.label        = props.getProperty("timer.label", "");
+        t.glowOn       = Boolean.parseBoolean(props.getProperty("timer.glowOn", "true"));
+        t.glowPct      = parseIntOr(props.getProperty("timer.glowPct"), 65);
+        t.shadow       = Boolean.parseBoolean(props.getProperty("timer.shadow", "true"));
+        t.countUp      = Boolean.parseBoolean(props.getProperty("timer.countUp", "false"));
+        t.startMode    = props.getProperty("timer.startMode", SlideTimer.START_AFTER_ALL_AUDIO);
+        t.startTextIndex = parseIntOr(props.getProperty("timer.startTextIndex"), 1);
+        t.startAtMs    = parseIntOr(props.getProperty("timer.startAtMs"), 0);
+        t.offsetMs     = parseIntOr(props.getProperty("timer.offsetMs"), 1000);
+        t.hideAfterEnd = Boolean.parseBoolean(props.getProperty("timer.hideAfterEnd", "true"));
+        t.lingerMs     = parseIntOr(props.getProperty("timer.lingerMs"), 900);
+        t.entrance     = props.getProperty("timer.entrance", "Pop");
+        t.effect       = props.getProperty("timer.effect", "Pulse");
+        t.finish       = props.getProperty("timer.finish", "Flash");
+        t.urgentColor  = Boolean.parseBoolean(props.getProperty("timer.urgentColor", "true"));
+        t.urgentSeconds= parseIntOr(props.getProperty("timer.urgentSeconds"), 3);
+        t.soundMode    = props.getProperty("timer.soundMode", "None");
+        t.soundName    = props.getProperty("timer.soundName", "None");
+        t.endSoundName = props.getProperty("timer.endSoundName", "None");
+        t.soundPath    = props.getProperty("timer.soundPath", "");
+        t.soundVolume  = parseIntOr(props.getProperty("timer.soundVolume"), 70);
+        return t;
     }
 
     // Serialize / restore a Layout Group BoxStyle (dialog knobs) to a preset.
@@ -10718,6 +10819,18 @@ public class GifSlideShowApp extends JFrame {
             slides.get(slides.size() - 1).quiz = row.getQuiz() != null
                     ? row.getQuiz().copy() : null;
             slides.get(slides.size() - 1).slideAnnotations = row.getSlideAnnotationList();
+            // Countdown timer: copy the snapshot and resolve its start against
+            // THIS slide's audio timeline, so "after text 2's audio" (or the
+            // default "after all audio + 1s") becomes one plain ms offset the
+            // per-frame overlay can use without re-deriving anything.
+            SlideTimer st = row.getSlideTimer();
+            if (st != null && st.enabled) {
+                SlideData sd = slides.get(slides.size() - 1);
+                sd.slideTimer = st.copy();
+                int[][] tl = audioTimeline(row.getSlideAudioDurationsMsList(),
+                        row.getSlideAudioFilesList(), row.getAudioGapMs());
+                sd.slideTimerStartMs = sd.slideTimer.resolveStartMs(tl[0], tl[1], totalAudioMs(tl[1]));
+            }
             slides.get(slides.size() - 1).slideNumberStyle = row.getSlideNumberStyle();
             slides.get(slides.size() - 1).slideNumberEffect = row.getSlideNumberEffect();
             slides.get(slides.size() - 1).sourceVideoVolume = row.getSourceVideoVolume();
@@ -10881,6 +10994,13 @@ public class GifSlideShowApp extends JFrame {
         // of (timerStart + timerSeconds) and lastNonReplayAudioEndMs,
         // and timerStartMs() handles every timer-start mode including
         // "AfterCue", so this single value covers them all.
+        // A countdown must be able to finish: stretch the slide so the timer's
+        // start + length (+ its linger) fits. Without this a timer scheduled
+        // after the last audio would be clipped the moment the audio ends.
+        if (s.slideTimer != null && s.slideTimer.enabled) {
+            int timerEnd = s.slideTimer.endMs(s.slideTimerStartMs);
+            if (timerEnd > dur) dur = timerEnd;
+        }
         if (isQuizSlide(s)) {
             long quizMs = s.quiz.revealAtMs();
             if (quizMs > dur) dur = (int) Math.min(Integer.MAX_VALUE, quizMs);
@@ -13181,6 +13301,7 @@ public class GifSlideShowApp extends JFrame {
                                                     s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures, s.bgTransparency);
                                             paintQuizOverlay(frame, s, elapsedMs);
                                             paintAnnotationsOverlay(frame, s, elapsedMs);
+                                            paintTimerOverlay(frame, s, elapsedMs);
                                             ImageIO.write(frame, "png", frameFile);
                                             lastWrittenName = frameName;
                                             lastActive = activeIdx;
@@ -13214,6 +13335,7 @@ public class GifSlideShowApp extends JFrame {
                                             }
                                             paintQuizOverlay(frame, s, elapsedMs);
                                             paintAnnotationsOverlay(frame, s, elapsedMs);
+                                            paintTimerOverlay(frame, s, elapsedMs);
                                             ImageIO.write(frame, "png", frameFile);
                                             lastWrittenName = frameName;
                                             lastActive = activeIdx;
@@ -13563,6 +13685,7 @@ public class GifSlideShowApp extends JFrame {
                                                     s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures, s.bgTransparency);
                                             paintQuizOverlay(frame, s, elapsedMs);
                                             paintAnnotationsOverlay(frame, s, elapsedMs);
+                                            paintTimerOverlay(frame, s, elapsedMs);
                                             writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
                                             frameIndex++;
                                         }
@@ -14567,6 +14690,46 @@ public class GifSlideShowApp extends JFrame {
                             publish("Motion sound skipped: " + wex.getMessage());
                         }
 
+                        // Slide Timer sound: each slide's countdown gets its cue laid
+                        // down at the exact moment its timer starts. Built-in sounds are
+                        // synthesized to the countdown's length (a tick per second plus
+                        // the chosen sound at zero); a user-picked file is used as-is.
+                        // Same guarantees as the whoosh pass above — nothing runs when no
+                        // slide has a timer sound, and any failure leaves finalOut alone.
+                        try {
+                            java.util.List<TimerSoundCue> timerCues = new java.util.ArrayList<>();
+                            double offT = 0;
+                            double transSecT = finalTransitionMs / 1000.0;
+                            for (int i = 0; i < slides.size(); i++) {
+                                SlideData s = slides.get(i);
+                                long slideStartMs = (long) Math.round(offT * 1000.0);
+                                SlideTimer st = s.slideTimer;
+                                if (st != null && st.hasSound()) {
+                                    File cueAudio;
+                                    double gain;
+                                    if ("File".equals(st.soundMode)) {
+                                        cueAudio = new File(st.soundPath);
+                                        gain = Math.max(0, Math.min(1.0, st.soundVolume / 100.0));
+                                    } else {
+                                        cueAudio = st.writeWav(tempDir, "timer_sound_" + i + ".wav");
+                                        gain = 1.0;   // the volume is already baked into the samples
+                                    }
+                                    if (cueAudio != null && cueAudio.isFile()) {
+                                        timerCues.add(new TimerSoundCue(
+                                                slideStartMs + Math.max(0, s.slideTimerStartMs), cueAudio, gain));
+                                    }
+                                }
+                                offT += computeSlideDuration(s, duration) / 1000.0;
+                                if (scrollEnabled && i < slides.size() - 1) offT += transSecT;
+                            }
+                            if (!timerCues.isEmpty()) {
+                                publish("Adding timer sound...");
+                                overlayTimerSounds(finalOut, timerCues, tempDir);
+                            }
+                        } catch (Exception tex) {
+                            publish("Timer sound skipped: " + tex.getMessage());
+                        }
+
                         // Repeat chosen video part(s) on the finished, fully-composited
                         // output. Each slide's slide-relative ranges are shifted to the
                         // global timeline by that slide's start offset; the whole video
@@ -15136,6 +15299,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures, s.bgTransparency);
                                         paintQuizOverlay(frame, s, elapsedMs);
                                         paintAnnotationsOverlay(frame, s, elapsedMs);
+                                        paintTimerOverlay(frame, s, elapsedMs);
                                         writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
                                     }
                                 } else if (hasAnimatedFx && !hasAnimatedText) {
@@ -15215,6 +15379,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures, s.bgTransparency);
                                         paintQuizOverlay(frame, s, elapsedMs);
                                         paintAnnotationsOverlay(frame, s, elapsedMs);
+                                        paintTimerOverlay(frame, s, elapsedMs);
                                         writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
                                     }
                                 }
@@ -15375,6 +15540,75 @@ public class GifSlideShowApp extends JFrame {
           .append(":duration=longest:dropout_transition=0:normalize=0[outa]");
 
         File out = new File(tempDir, "with_whoosh.mp4");
+        cmd.add("-filter_complex");
+        cmd.add(fc.toString());
+        cmd.add("-map"); cmd.add("0:v");
+        cmd.add("-map"); cmd.add("[outa]");
+        cmd.add("-c:v"); cmd.add("copy");
+        cmd.add("-c:a"); cmd.add("aac");
+        cmd.add("-b:a"); cmd.add("192k");
+        cmd.add("-movflags"); cmd.add("+faststart");
+        cmd.add(out.getAbsolutePath());
+
+        runFfmpeg(cmd);
+
+        if (out.exists() && out.length() > 0) {
+            videoFile.delete();
+            if (!out.renameTo(videoFile)) {
+                java.nio.file.Files.copy(out.toPath(), videoFile.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                out.delete();
+            }
+        }
+    }
+
+    /** One timer sound to drop onto the finished video at {@code atMs}. */
+    private static final class TimerSoundCue {
+        final long atMs;
+        final File audio;
+        final double gain;
+        TimerSoundCue(long atMs, File audio, double gain) {
+            this.atMs = atMs; this.audio = audio; this.gain = gain;
+        }
+    }
+
+    /**
+     * Mix each slide's countdown sound onto a finished video at the moment that
+     * slide's timer starts. Built exactly like {@link #overlayMotionWhoosh}: the
+     * video stream is copied untouched (no re-encode, no quality loss) and only
+     * the audio is rebuilt, so a failure can never damage the export — the caller
+     * swallows it and keeps the original file.
+     */
+    private static void overlayTimerSounds(File videoFile, java.util.List<TimerSoundCue> cues,
+            File tempDir) throws IOException, InterruptedException {
+        if (videoFile == null || !videoFile.exists() || cues == null || cues.isEmpty()) return;
+        boolean baseHasAudio = probeHasAudio(videoFile);
+
+        java.util.List<String> cmd = new java.util.ArrayList<>();
+        cmd.add("ffmpeg");
+        cmd.add("-y");
+        cmd.add("-i");
+        cmd.add(videoFile.getAbsolutePath());
+        for (TimerSoundCue c : cues) {
+            cmd.add("-i");
+            cmd.add(c.audio.getAbsolutePath());
+        }
+        StringBuilder fc = new StringBuilder();
+        for (int k = 0; k < cues.size(); k++) {
+            TimerSoundCue c = cues.get(k);
+            long d = Math.max(0, c.atMs);
+            fc.append("[").append(k + 1).append(":a]")
+              .append("volume=").append(String.format(java.util.Locale.US, "%.3f", c.gain)).append(",")
+              .append("adelay=").append(d).append("|").append(d)
+              .append("[tm").append(k).append("];");
+        }
+        if (baseHasAudio) fc.append("[0:a]");
+        for (int k = 0; k < cues.size(); k++) fc.append("[tm").append(k).append("]");
+        int inputs = cues.size() + (baseHasAudio ? 1 : 0);
+        fc.append("amix=inputs=").append(inputs)
+          .append(":duration=longest:dropout_transition=0:normalize=0[outa]");
+
+        File out = new File(tempDir, "with_timer_sound.mp4");
         cmd.add("-filter_complex");
         cmd.add(fc.toString());
         cmd.add("-map"); cmd.add("0:v");
@@ -16923,6 +17157,49 @@ public class GifSlideShowApp extends JFrame {
     }
 
     /**
+     * Composite this slide's countdown timer onto an already rendered frame.
+     * No-op when the slide has no timer. Mirrors paintAnnotationsOverlay: a
+     * self-contained post-pass, so renderFrame's signature stays untouched.
+     */
+    private static void paintTimerOverlay(BufferedImage frame, SlideData s, long elapsedMs) {
+        if (frame == null || s == null || s.slideTimer == null || !s.slideTimer.enabled) return;
+        SlideTimer.paint(frame, s.slideTimer, s.slideTimerStartMs, elapsedMs, false);
+    }
+
+    /**
+     * Per-text audio start / end times relative to the start of the slide.
+     * Returns {starts, ends}; entry N is -1 when text N carries no audio. The
+     * walk (skip empty slots, insert audioGapMs between real clips) mirrors
+     * getActiveSegmentStartMs exactly, so the Slide Timer's "after / before
+     * text audio" modes line up with what is actually heard.
+     */
+    static int[][] audioTimeline(List<Integer> durs, List<File> files, int gapMs) {
+        int n = durs == null ? 0 : durs.size();
+        int[] starts = new int[n];
+        int[] ends = new int[n];
+        long cumulative = 0;
+        int audioIdx = 0;
+        for (int i = 0; i < n; i++) {
+            int dur = durs.get(i) == null ? 0 : durs.get(i);
+            boolean real = dur > 0 && files != null && i < files.size() && files.get(i) != null;
+            if (!real) { starts[i] = -1; ends[i] = -1; continue; }
+            if (audioIdx > 0) cumulative += Math.max(0, gapMs);
+            starts[i] = (int) cumulative;
+            cumulative += dur;
+            ends[i] = (int) cumulative;
+            audioIdx++;
+        }
+        return new int[][] { starts, ends };
+    }
+
+    /** End of the last audio on the slide, ms (0 when the slide is silent). */
+    static int totalAudioMs(int[] ends) {
+        int total = 0;
+        if (ends != null) for (int e : ends) if (e > total) total = e;
+        return total;
+    }
+
+    /**
      * Flip {@code quizHidden} on every slide text BEFORE renderFrame runs so
      * the quiz's chosen "delayed reveal text" stays out of the rendered frame
      * until the countdown ends. Must be paired with a call right before each
@@ -18406,6 +18683,7 @@ public class GifSlideShowApp extends JFrame {
             // it appears over the source video (no-op for non-quiz slides).
             paintQuizOverlay(img, s, elapsedMs);
             paintAnnotationsOverlay(img, s, elapsedMs);
+            paintTimerOverlay(img, s, elapsedMs);
             File out = new File(outDir, String.format("%05d.png", f + 1));
             ImageIO.write(img, "png", out);
         }
@@ -20135,6 +20413,11 @@ public class GifSlideShowApp extends JFrame {
         // construction (like quiz) so no arg is threaded through the giant ctor.
         // Composited per-frame by paintAnnotationsOverlay(...).
         List<SlideAnnotation> slideAnnotations = new ArrayList<>();
+        // On-slide countdown timer (the "⏳ Slide Timer" toolbar button). Set
+        // externally after construction like quiz/slideAnnotations, together with
+        // the slide-relative moment its schedule resolves to.
+        SlideTimer slideTimer;
+        int slideTimerStartMs;
         // Video "repeat part" ranges — each entry is {startMs, endMs} (relative to
         // the start of this slide). During export the finished, fully-composited
         // slide video has each range duplicated back-to-back so that part plays
@@ -20567,6 +20850,9 @@ public class GifSlideShowApp extends JFrame {
         private final List<SlidePictureData> slidePictureItems = new ArrayList<>();
         // Animated vector annotations (Lines / Arrows) belonging to this slide.
         private final List<SlideAnnotation> slideAnnotationItems = new ArrayList<>();
+        // On-slide countdown timer, edited in the "⏳ Slide Timer" dialog. Always
+        // present so the dialog can pre-fill; disabled until the user ticks it on.
+        private SlideTimer slideTimer = new SlideTimer();
         private int currentSlidePictureIndex = 0;
         private boolean isLoadingSlidePicture = false;
         private final JComboBox<String> slidePicSelector;
@@ -21379,9 +21665,9 @@ public class GifSlideShowApp extends JFrame {
             lgTitleLbl.setForeground(lgFg);
             lgTitleLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
 
-            JButton lgOpenBtn = new JButton("Open Layout Group…");
-            lgOpenBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            lgOpenBtn.setPreferredSize(new Dimension(180, 24));
+            JButton lgOpenBtn = new JButton("◧ Layout Group…");
+            lgOpenBtn.setFont(new Font("Segoe UI", Font.BOLD, 10));
+            lgOpenBtn.setMargin(new Insets(1, 6, 1, 6));
             lgOpenBtn.setFocusPainted(false);
             lgOpenBtn.setToolTipText("Pick texts, arrange them in a grid (rows × columns), tweak position & style — live preview, Cancel reverts.");
             lgOpenBtn.addActionListener(e -> openLayoutGroupDialog());
@@ -21390,8 +21676,8 @@ public class GifSlideShowApp extends JFrame {
             // and a Go (disappear) time. Leaving Go empty means the text never
             // leaves once it appears.
             JButton textsTimerBtn = new JButton("⏱ Texts Timer…");
-            textsTimerBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            textsTimerBtn.setPreferredSize(new Dimension(150, 24));
+            textsTimerBtn.setFont(new Font("Segoe UI", Font.BOLD, 10));
+            textsTimerBtn.setMargin(new Insets(1, 6, 1, 6));
             textsTimerBtn.setFocusPainted(false);
             textsTimerBtn.setToolTipText("Set when each text appears and (optionally) when it goes. Leave the Go time empty to keep a text on screen once it appears.");
             textsTimerBtn.addActionListener(e -> openTextsTimerDialog());
@@ -21399,9 +21685,9 @@ public class GifSlideShowApp extends JFrame {
             // "Show/Hide Texts" — one box listing every text with a checkbox for its
             // "Slide Text" (show) flag, plus Select All / Unselect All. Saves going to
             // each text and toggling its checkbox one by one.
-            JButton textsVisibilityBtn = new JButton("☑ Show/Hide Texts…");
-            textsVisibilityBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            textsVisibilityBtn.setPreferredSize(new Dimension(165, 24));
+            JButton textsVisibilityBtn = new JButton("☑ Show/Hide…");
+            textsVisibilityBtn.setFont(new Font("Segoe UI", Font.BOLD, 10));
+            textsVisibilityBtn.setMargin(new Insets(1, 6, 1, 6));
             textsVisibilityBtn.setFocusPainted(false);
             textsVisibilityBtn.setToolTipText("Pick which texts are shown on this slide — tick to show, untick to hide. "
                     + "Select All / Unselect All toggle every text at once.");
@@ -21410,19 +21696,37 @@ public class GifSlideShowApp extends JFrame {
             // "Shapes" — animated vector annotations (Lines / Arrows) with per-shape
             // timing, position, colour and entrance + idle animation.
             JButton shapesBtn = new JButton("◈ Shapes…");
-            shapesBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            shapesBtn.setPreferredSize(new Dimension(110, 24));
+            shapesBtn.setFont(new Font("Segoe UI", Font.BOLD, 10));
+            shapesBtn.setMargin(new Insets(1, 6, 1, 6));
             shapesBtn.setFocusPainted(false);
             shapesBtn.setToolTipText("Add animated Lines & Arrows onto this slide — pick several at once, each with its own colour, position and entrance/idle animation.");
             shapesBtn.addActionListener(e -> openShapesDialog());
 
             // "Shapes Timer" — one screen to set every shape's appear time / duration.
             JButton shapesTimerBtn = new JButton("◈ Shapes Timer…");
-            shapesTimerBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            shapesTimerBtn.setPreferredSize(new Dimension(140, 24));
+            shapesTimerBtn.setFont(new Font("Segoe UI", Font.BOLD, 10));
+            shapesTimerBtn.setMargin(new Insets(1, 6, 1, 6));
             shapesTimerBtn.setFocusPainted(false);
             shapesTimerBtn.setToolTipText("Set when each shape appears and how long it stays. Duration 0 = stay until the slide ends.");
             shapesTimerBtn.addActionListener(e -> openShapesTimerDialog());
+
+            // "Slide Timer" — the on-slide countdown: pick one of the ready-made
+            // timer designs, place and size it with a live preview, choose when it
+            // starts (default: 1 s after all of the slide's audio has played),
+            // give it a sound and entrance / idle / finish effects. Painted in an
+            // accent colour so it stands out as the newest tool on the row.
+            JButton slideTimerBtn = new JButton("⏳ Slide Timer…");
+            slideTimerBtn.setFont(new Font("Segoe UI", Font.BOLD, 10));
+            slideTimerBtn.setMargin(new Insets(1, 7, 1, 7));
+            slideTimerBtn.setFocusPainted(false);
+            slideTimerBtn.setOpaque(true);
+            slideTimerBtn.setBackground(new Color(255, 196, 74));
+            slideTimerBtn.setForeground(new Color(38, 30, 12));
+            slideTimerBtn.setBorder(BorderFactory.createLineBorder(new Color(255, 226, 150), 1, true));
+            slideTimerBtn.setToolTipText("Add a professional countdown timer to this slide — choose a design, "
+                    + "place and size it with a live preview, set its length, when it starts "
+                    + "(after/before a text's audio or at an exact time), its sound and its effects.");
+            slideTimerBtn.addActionListener(e -> openSlideTimerDialog());
 
             toolbar4lg.add(lgTitleLbl);
             toolbar4lg.add(lgOpenBtn);
@@ -21430,6 +21734,7 @@ public class GifSlideShowApp extends JFrame {
             toolbar4lg.add(textsVisibilityBtn);
             toolbar4lg.add(shapesBtn);
             toolbar4lg.add(shapesTimerBtn);
+            toolbar4lg.add(slideTimerBtn);
 
             // ===== Toolbar 4b2: BG Fill (opacity / color / padding / round / fill paint) =====
             final Color bgRowFg = new Color(140, 210, 160);
@@ -26162,6 +26467,629 @@ public class GifSlideShowApp extends JFrame {
             dlg.setVisible(true);
         }
 
+        // ===== Slide Timer =====================================================
+        // One screen that owns everything about the on-slide countdown: which of
+        // the ready-made designs it uses, where it sits and how big it is (both
+        // live-previewed), how long it runs, WHEN it starts relative to this
+        // slide's audio, its sound, and its entrance / idle / finish effects.
+
+        /** Small helper: one labelled slider row, returns the slider so callers can drive it. */
+        private JSlider addTimerSlider(JPanel p, int row, String label, int min, int max, int val,
+                                       String suffix, java.util.function.IntConsumer apply,
+                                       Runnable refresh) {
+            JSlider sl = new JSlider(min, max, Math.max(min, Math.min(max, val)));
+            sl.setOpaque(false);
+            JLabel out = new JLabel(val + suffix);
+            out.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            out.setPreferredSize(new Dimension(46, 18));
+            sl.addChangeListener(e -> {
+                apply.accept(sl.getValue());
+                out.setText(sl.getValue() + suffix);
+                refresh.run();
+            });
+            JPanel wrap = new JPanel(new BorderLayout(6, 0));
+            wrap.setOpaque(false);
+            wrap.add(sl, BorderLayout.CENTER);
+            wrap.add(out, BorderLayout.EAST);
+            addTimerRow(p, row, label, wrap);
+            return sl;
+        }
+
+        /** Small helper: one "label : component" row in a GridBagLayout panel. */
+        private static void addTimerRow(JPanel p, int row, String label, Component c) {
+            GridBagConstraints gc = new GridBagConstraints();
+            gc.insets = new Insets(4, 9, 4, 9);
+            gc.gridy = row;
+            gc.gridx = 0;
+            gc.anchor = GridBagConstraints.WEST;
+            if (label != null) {
+                JLabel l = new JLabel(label);
+                l.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+                p.add(l, gc);
+                gc.gridx = 1;
+            } else {
+                gc.gridwidth = 2;
+            }
+            gc.weightx = 1;
+            gc.fill = GridBagConstraints.HORIZONTAL;
+            p.add(c, gc);
+        }
+
+        /** Small helper: a colour swatch button wired to pickColorLive. */
+        private JButton timerColorButton(Component parent, String title,
+                                         java.util.function.Supplier<Color> get,
+                                         java.util.function.Consumer<Color> set,
+                                         Runnable refresh) {
+            JButton b = new JButton();
+            b.setPreferredSize(new Dimension(58, 20));
+            b.setFocusPainted(false);
+            b.setOpaque(true);
+            b.setBackground(get.get() != null ? get.get() : Color.WHITE);
+            b.setToolTipText(title);
+            b.addActionListener(e -> pickColorLive(parent, title, get.get(), c -> {
+                set.accept(c);
+                b.setBackground(c);
+                refresh.run();
+            }));
+            return b;
+        }
+
+        /** Format ms as a short seconds string ("2.5s"). */
+        private static String timerSecs(long ms) {
+            return String.format(java.util.Locale.US, "%.1fs", ms / 1000.0);
+        }
+
+        /**
+         * Open the Slide Timer dialog. The timer object is edited in place so the
+         * canvas (and the row's own live preview) follow every change instantly;
+         * Cancel — or closing with the X — puts the opening snapshot back.
+         */
+        private void openSlideTimerDialog() {
+            if (isTitleGridSlide) {
+                JOptionPane.showMessageDialog(panel,
+                        "Title grid slides don't carry a countdown timer.",
+                        "Slide Timer", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            saveCurrentSlideTextToItem();
+            if (slideTimer == null) slideTimer = new SlideTimer();
+            final SlideTimer live = slideTimer;
+            final SlideTimer snapshot = live.copy();
+            // Opening this box IS the request for a timer, so switch it on and show
+            // it right away instead of making the user hunt for the tick box first.
+            // Cancel (and the window's X) still restore the snapshot taken above.
+            live.enabled = true;
+            if (live.fontName == null || live.fontName.isEmpty()) {
+                live.fontName = loadedFontNames.length > 0 ? loadedFontNames[0] : "SansSerif";
+            }
+
+            // This slide's audio timeline, resolved once — the dialog labels the
+            // per-text audio choices with it and shows where the timer lands.
+            final java.util.List<Integer> audDurs = getSlideAudioDurationsMsList();
+            final java.util.List<File> audFiles = getSlideAudioFilesList();
+            final int[][] tl = audioTimeline(audDurs, audFiles, getAudioGapMs());
+            final int audioTotalMs = totalAudioMs(tl[1]);
+
+            final Window owner = SwingUtilities.getWindowAncestor(panel);
+            final JDialog dlg = new JDialog(owner, "Slide Timer", Dialog.ModalityType.APPLICATION_MODAL);
+            dlg.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+
+            // ---------- live preview canvas ----------
+            // Start the scrub a third of the way in: at 0 an entrance effect like Pop
+            // is still fading up, so the timer would open invisible.
+            final int initialScrub = (int) (live.totalMs() * 0.35);
+            final long[] scrub = { initialScrub };
+            final JLabel timingInfo = new JLabel(" ");
+            final JSlider scrubSlider = new JSlider(0, live.totalMs() + 900, initialScrub);
+
+            final JPanel canvas = new JPanel() {
+                @Override protected void paintComponent(Graphics g) {
+                    super.paintComponent(g);
+                    BufferedImage base = timerPreviewBase;
+                    int cw = getWidth(), chh = getHeight();
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                            RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                    g2.setColor(new Color(24, 26, 32));
+                    g2.fillRect(0, 0, cw, chh);
+                    int bw = base != null ? base.getWidth() : getPreviewWidth();
+                    int bh = base != null ? base.getHeight() : getPreviewHeight();
+                    BufferedImage shot = new BufferedImage(bw, bh, BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D sg = shot.createGraphics();
+                    if (base != null) {
+                        sg.drawImage(base, 0, 0, null);
+                    } else {
+                        sg.setPaint(new GradientPaint(0, 0, new Color(46, 52, 64),
+                                0, bh, new Color(24, 27, 34)));
+                        sg.fillRect(0, 0, bw, bh);
+                        sg.setColor(new Color(255, 255, 255, 90));
+                        sg.setFont(new Font("Segoe UI", Font.PLAIN, Math.max(10, bh / 22)));
+                        sg.drawString("Add an image to this slide to preview over it",
+                                bw / 12, bh / 2);
+                    }
+                    sg.dispose();
+                    SlideTimer.paint(shot, live, 0, scrub[0], true);
+                    double sc = Math.min(cw / (double) bw, chh / (double) bh);
+                    int dw = Math.max(1, (int) (bw * sc)), dh = Math.max(1, (int) (bh * sc));
+                    g2.drawImage(shot, (cw - dw) / 2, (chh - dh) / 2, dw, dh, null);
+                    g2.setColor(new Color(255, 255, 255, 40));
+                    g2.drawRect((cw - dw) / 2, (chh - dh) / 2, dw - 1, dh - 1);
+                    g2.dispose();
+                }
+            };
+            canvas.setPreferredSize(new Dimension(520, 300));
+            canvas.setBackground(new Color(24, 26, 32));
+
+            final Runnable[] refreshHolder = new Runnable[1];
+            final Runnable refresh = () -> refreshHolder[0].run();
+
+            // ---------- tabs ----------
+            final JTabbedPane tabs = new JTabbedPane();
+            tabs.setFont(new Font("Segoe UI", Font.BOLD, 12));
+
+            // ===== Design =====
+            final JPanel design = new JPanel(new GridBagLayout());
+            int r = 0;
+            final JComboBox<String> styleCombo = new JComboBox<>(SlideTimer.styles());
+            styleCombo.setSelectedItem(live.style);
+            styleCombo.addActionListener(e -> {
+                live.style = (String) styleCombo.getSelectedItem();
+                refresh.run();
+            });
+            addTimerRow(design, r++, "Timer design:", styleCombo);
+
+            final JComboBox<String> formatCombo = new JComboBox<>(SlideTimer.formats());
+            formatCombo.setSelectedItem(live.format);
+            formatCombo.addActionListener(e -> {
+                live.format = (String) formatCombo.getSelectedItem();
+                refresh.run();
+            });
+            addTimerRow(design, r++, "Number format:", formatCombo);
+
+            final JComboBox<String> fontCombo2 = new JComboBox<>(allFontNames());
+            fontCombo2.setSelectedItem(live.fontName);
+            fontCombo2.addActionListener(e -> {
+                live.fontName = (String) fontCombo2.getSelectedItem();
+                refresh.run();
+            });
+            addTimerRow(design, r++, "Font:", fontCombo2);
+
+            final JTextField labelField = new JTextField(live.label == null ? "" : live.label);
+            labelField.getDocument().addDocumentListener(new DocumentListener() {
+                private void ch() { live.label = labelField.getText(); refresh.run(); }
+                public void insertUpdate(DocumentEvent e) { ch(); }
+                public void removeUpdate(DocumentEvent e) { ch(); }
+                public void changedUpdate(DocumentEvent e) { ch(); }
+            });
+            addTimerRow(design, r++, "Caption (optional):", labelField);
+
+            final JCheckBox countUpCheck = new JCheckBox("Count up instead of down", live.countUp);
+            countUpCheck.setOpaque(false);
+            countUpCheck.setToolTipText("Count 0 → " + live.seconds + " instead of " + live.seconds + " → 0.");
+            countUpCheck.addActionListener(e -> { live.countUp = countUpCheck.isSelected(); refresh.run(); });
+            addTimerRow(design, r++, null, countUpCheck);
+
+            JPanel colors = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            colors.setOpaque(false);
+            colors.add(new JLabel("Accent"));
+            colors.add(timerColorButton(dlg, "Timer accent colour", () -> live.color,
+                    c -> live.color = c, refresh));
+            colors.add(new JLabel("Last"));
+            colors.add(timerColorButton(dlg, "Final-seconds colour", () -> live.color2,
+                    c -> live.color2 = c, refresh));
+            colors.add(new JLabel("Track"));
+            colors.add(timerColorButton(dlg, "Track colour", () -> live.trackColor,
+                    c -> live.trackColor = c, refresh));
+            addTimerRow(design, r++, "Colours:", colors);
+
+            JPanel colors2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            colors2.setOpaque(false);
+            colors2.add(new JLabel("Digits"));
+            colors2.add(timerColorButton(dlg, "Digit colour", () -> live.textColor,
+                    c -> live.textColor = c, refresh));
+            colors2.add(new JLabel("Panel"));
+            colors2.add(timerColorButton(dlg, "Backing panel colour", () -> live.panelColor,
+                    c -> live.panelColor = c, refresh));
+            addTimerRow(design, r++, " ", colors2);
+
+            addTimerSlider(design, r++, "Panel opacity:", 0, 100, live.panelOpacity, "%",
+                    v -> live.panelOpacity = v, refresh);
+            addTimerSlider(design, r++, "Overall opacity:", 5, 100, live.opacity, "%",
+                    v -> live.opacity = v, refresh);
+
+            final JCheckBox glowCheck = new JCheckBox("Glow", live.glowOn);
+            glowCheck.setOpaque(false);
+            glowCheck.addActionListener(e -> { live.glowOn = glowCheck.isSelected(); refresh.run(); });
+            final JCheckBox shadowCheck = new JCheckBox("Shadow", live.shadow);
+            shadowCheck.setOpaque(false);
+            shadowCheck.addActionListener(e -> { live.shadow = shadowCheck.isSelected(); refresh.run(); });
+            JPanel fxToggles = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+            fxToggles.setOpaque(false);
+            fxToggles.add(glowCheck);
+            fxToggles.add(shadowCheck);
+            addTimerRow(design, r++, null, fxToggles);
+            addTimerSlider(design, r++, "Glow strength:", 0, 100, live.glowPct, "%",
+                    v -> live.glowPct = v, refresh);
+            tabs.addTab("Design", wrapTimerTab(design));
+
+            // ===== Position & size =====
+            final JPanel place = new JPanel(new GridBagLayout());
+            r = 0;
+            final JSlider xSlider = addTimerSlider(place, r++, "Position X:", 0, 100, (int) Math.round(live.xPct), "%",
+                    v -> live.xPct = v, refresh);
+            final JSlider ySlider = addTimerSlider(place, r++, "Position Y:", 0, 100, (int) Math.round(live.yPct), "%",
+                    v -> live.yPct = v, refresh);
+            addTimerSlider(place, r++, "Width:", 3, 90, (int) Math.round(live.sizePct), "%",
+                    v -> live.sizePct = v, refresh);
+            addTimerSlider(place, r++, "Height (0 = auto):", 0, 90, (int) Math.round(live.heightPct), "%",
+                    v -> live.heightPct = v, refresh);
+            addTimerSlider(place, r++, "Rotation:", -180, 180, (int) Math.round(live.rotationDeg), "°",
+                    v -> live.rotationDeg = v, refresh);
+
+            JPanel anchors = new JPanel(new GridLayout(3, 3, 3, 3));
+            anchors.setOpaque(false);
+            final int[][] spots = {
+                    {12, 14}, {50, 14}, {88, 14},
+                    {12, 50}, {50, 50}, {88, 50},
+                    {12, 86}, {50, 86}, {88, 86} };
+            final String[] spotNames = { "↖", "↑", "↗", "←", "•", "→", "↙", "↓", "↘" };
+            for (int i = 0; i < 9; i++) {
+                final int[] sp = spots[i];
+                JButton b = new JButton(spotNames[i]);
+                b.setFont(new Font("Segoe UI", Font.BOLD, 12));
+                b.setMargin(new Insets(1, 1, 1, 1));
+                b.setFocusPainted(false);
+                b.setToolTipText("Snap the timer to this corner / edge");
+                b.addActionListener(e -> { xSlider.setValue(sp[0]); ySlider.setValue(sp[1]); });
+                anchors.add(b);
+            }
+            addTimerRow(place, r++, "Snap to:", anchors);
+            JLabel hint = new JLabel("<html><body style='width:300px'><i>Tip: click anywhere on the "
+                    + "preview to drop the timer there.</i></body></html>");
+            hint.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            hint.setForeground(new Color(90, 90, 100));
+            addTimerRow(place, r++, null, hint);
+            tabs.addTab("Position & Size", wrapTimerTab(place));
+
+            // click / drag on the preview to place the timer
+            MouseAdapter placer = new MouseAdapter() {
+                private void place(java.awt.event.MouseEvent ev) {
+                    BufferedImage base = timerPreviewBase;
+                    int bw = base != null ? base.getWidth() : getPreviewWidth();
+                    int bh = base != null ? base.getHeight() : getPreviewHeight();
+                    double sc = Math.min(canvas.getWidth() / (double) bw, canvas.getHeight() / (double) bh);
+                    int dw = (int) (bw * sc), dh = (int) (bh * sc);
+                    int ox = (canvas.getWidth() - dw) / 2, oy = (canvas.getHeight() - dh) / 2;
+                    if (dw <= 0 || dh <= 0) return;
+                    int nx = (int) Math.round((ev.getX() - ox) * 100.0 / dw);
+                    int ny = (int) Math.round((ev.getY() - oy) * 100.0 / dh);
+                    xSlider.setValue(Math.max(0, Math.min(100, nx)));
+                    ySlider.setValue(Math.max(0, Math.min(100, ny)));
+                }
+                @Override public void mousePressed(java.awt.event.MouseEvent ev) { place(ev); }
+                @Override public void mouseDragged(java.awt.event.MouseEvent ev) { place(ev); }
+            };
+            canvas.addMouseListener(placer);
+            canvas.addMouseMotionListener(placer);
+
+            // ===== Timing =====
+            final JPanel timing = new JPanel(new GridBagLayout());
+            r = 0;
+            final JComboBox<String> lenCombo = new JComboBox<>(SlideTimer.lengths());
+            lenCombo.setEditable(true);
+            lenCombo.setSelectedItem(String.valueOf(live.seconds));
+            lenCombo.addActionListener(e -> {
+                Object v = lenCombo.getSelectedItem();
+                int secs = parseIntOr(v == null ? "" : v.toString().trim(), live.seconds);
+                live.seconds = Math.max(1, Math.min(3600, secs));
+                countUpCheck.setToolTipText("Count 0 → " + live.seconds + " instead of " + live.seconds + " → 0.");
+                scrubSlider.setMaximum(live.totalMs() + 900);
+                refresh.run();
+            });
+            addTimerRow(timing, r++, "Timer length (seconds):", lenCombo);
+
+            // Which audios exist, for the after/before-a-text's-audio modes.
+            final java.util.List<Integer> audioIdxs = new java.util.ArrayList<>();
+            final DefaultComboBoxModel<String> audioModel = new DefaultComboBoxModel<>();
+            for (int i = 0; i < tl[0].length; i++) {
+                if (tl[0][i] < 0) continue;
+                String content = "";
+                if (i < slideTextItems.size() && slideTextItems.get(i) != null
+                        && slideTextItems.get(i).text != null) {
+                    content = slideTextItems.get(i).text.replace('\n', ' ').trim();
+                }
+                if (content.length() > 34) content = content.substring(0, 31) + "…";
+                audioIdxs.add(i + 1);
+                audioModel.addElement("Text " + (i + 1)
+                        + (content.isEmpty() ? "" : " — " + content)
+                        + "   [" + timerSecs(tl[0][i]) + " → " + timerSecs(tl[1][i]) + "]");
+            }
+            final JComboBox<String> audioCombo = new JComboBox<>(audioModel);
+            if (audioModel.getSize() == 0) {
+                audioModel.addElement("(this slide has no audio yet)");
+                audioCombo.setEnabled(false);
+            } else {
+                int sel = audioIdxs.indexOf(live.startTextIndex);
+                audioCombo.setSelectedIndex(sel >= 0 ? sel : 0);
+                if (sel < 0) live.startTextIndex = audioIdxs.get(0);
+            }
+            audioCombo.addActionListener(e -> {
+                int i = audioCombo.getSelectedIndex();
+                if (i >= 0 && i < audioIdxs.size()) live.startTextIndex = audioIdxs.get(i);
+                refresh.run();
+            });
+
+            final JTextField atField = new JTextField(String.format(java.util.Locale.US, "%.1f", live.startAtMs / 1000.0), 6);
+            final JTextField offField = new JTextField(String.format(java.util.Locale.US, "%.1f", live.offsetMs / 1000.0), 6);
+            final JComboBox<String> startCombo = new JComboBox<>(SlideTimer.startModes());
+            startCombo.setSelectedItem(live.startMode);
+
+            final Runnable syncStartEnable = () -> {
+                String m = (String) startCombo.getSelectedItem();
+                boolean needsText = SlideTimer.START_AFTER_AUDIO.equals(m) || SlideTimer.START_BEFORE_AUDIO.equals(m);
+                audioCombo.setEnabled(needsText && !audioIdxs.isEmpty());
+                atField.setEnabled(SlideTimer.START_AT_TIME.equals(m));
+            };
+            startCombo.addActionListener(e -> {
+                live.startMode = (String) startCombo.getSelectedItem();
+                syncStartEnable.run();
+                refresh.run();
+            });
+            addTimerRow(timing, r++, "Show the timer:", startCombo);
+            addTimerRow(timing, r++, "…relative to:", audioCombo);
+            addTimerRow(timing, r++, "At time (s):", atField);
+            addTimerRow(timing, r++, "Offset (s, can be −):", offField);
+
+            DocumentListener numListener = new DocumentListener() {
+                private void ch() {
+                    live.startAtMs = Math.max(0, secStrToMs(atField.getText(), live.startAtMs));
+                    live.offsetMs = secStrToMs(offField.getText(), live.offsetMs);
+                    refresh.run();
+                }
+                public void insertUpdate(DocumentEvent e) { ch(); }
+                public void removeUpdate(DocumentEvent e) { ch(); }
+                public void changedUpdate(DocumentEvent e) { ch(); }
+            };
+            atField.getDocument().addDocumentListener(numListener);
+            offField.getDocument().addDocumentListener(numListener);
+
+            final JCheckBox hideCheck = new JCheckBox("Hide the timer once it reaches zero", live.hideAfterEnd);
+            hideCheck.setOpaque(false);
+            hideCheck.addActionListener(e -> { live.hideAfterEnd = hideCheck.isSelected(); refresh.run(); });
+            addTimerRow(timing, r++, null, hideCheck);
+            addTimerSlider(timing, r++, "Stay after zero:", 0, 5000, live.lingerMs, "ms",
+                    v -> live.lingerMs = v, refresh);
+
+            timingInfo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            timingInfo.setForeground(new Color(30, 90, 140));
+            addTimerRow(timing, r++, null, timingInfo);
+            tabs.addTab("Timing", wrapTimerTab(timing));
+
+            // ===== Sound =====
+            final JPanel sound = new JPanel(new GridBagLayout());
+            r = 0;
+            final JComboBox<String> soundModeCombo = new JComboBox<>(SlideTimer.soundModes());
+            soundModeCombo.setSelectedItem(live.soundMode);
+            final JComboBox<String> tickCombo = new JComboBox<>(SlideTimer.tickSounds());
+            tickCombo.setSelectedItem(live.soundName);
+            final JComboBox<String> endCombo = new JComboBox<>(SlideTimer.endSounds());
+            endCombo.setSelectedItem(live.endSoundName);
+            final JLabel fileLbl = new JLabel(live.soundPath == null || live.soundPath.isEmpty()
+                    ? "(no file chosen)" : new File(live.soundPath).getName());
+            fileLbl.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            final JButton browseSound = new JButton("Choose sound file…");
+
+            final Runnable syncSoundEnable = () -> {
+                String m = (String) soundModeCombo.getSelectedItem();
+                boolean builtin = "Built-in".equals(m);
+                boolean file = "File".equals(m);
+                tickCombo.setEnabled(builtin);
+                endCombo.setEnabled(builtin);
+                browseSound.setEnabled(file);
+            };
+            soundModeCombo.addActionListener(e -> {
+                live.soundMode = (String) soundModeCombo.getSelectedItem();
+                syncSoundEnable.run();
+            });
+            tickCombo.addActionListener(e -> live.soundName = (String) tickCombo.getSelectedItem());
+            endCombo.addActionListener(e -> live.endSoundName = (String) endCombo.getSelectedItem());
+            browseSound.addActionListener(e -> {
+                JFileChooser fc = new JFileChooser();
+                fc.setFileFilter(new FileNameExtensionFilter(
+                        "Audio (wav, mp3, m4a, aac, ogg, flac)",
+                        "wav", "mp3", "m4a", "aac", "ogg", "flac", "aiff", "aif"));
+                if (fc.showOpenDialog(dlg) == JFileChooser.APPROVE_OPTION) {
+                    live.soundPath = fc.getSelectedFile().getAbsolutePath();
+                    fileLbl.setText(fc.getSelectedFile().getName());
+                }
+            });
+            addTimerRow(sound, r++, "Sound source:", soundModeCombo);
+            addTimerRow(sound, r++, "Ticking sound:", tickCombo);
+            addTimerRow(sound, r++, "Sound at zero:", endCombo);
+            addTimerRow(sound, r++, "Sound file:", browseSound);
+            addTimerRow(sound, r++, " ", fileLbl);
+            addTimerSlider(sound, r++, "Volume:", 0, 100, live.soundVolume, "%",
+                    v -> live.soundVolume = v, () -> { });
+
+            JPanel soundBtns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            soundBtns.setOpaque(false);
+            JButton playSound = new JButton("▶ Preview sound");
+            playSound.addActionListener(e -> {
+                if ("File".equals(live.soundMode)) {
+                    File f = live.soundPath == null || live.soundPath.isEmpty() ? null : new File(live.soundPath);
+                    if (!SlideTimer.playFilePreview(f)) {
+                        JOptionPane.showMessageDialog(dlg,
+                                "Java can't play this file type here (MP3/AAC need a decoder),\n"
+                                + "but it will still be mixed into the exported video by FFmpeg.",
+                                "Preview sound", JOptionPane.INFORMATION_MESSAGE);
+                    }
+                } else if ("Built-in".equals(live.soundMode)) {
+                    live.playPreview();
+                } else {
+                    JOptionPane.showMessageDialog(dlg, "Sound source is set to None.",
+                            "Preview sound", JOptionPane.INFORMATION_MESSAGE);
+                }
+            });
+            JButton stopSound = new JButton("■ Stop");
+            stopSound.addActionListener(e -> SlideTimer.stopPreview());
+            soundBtns.add(playSound);
+            soundBtns.add(stopSound);
+            addTimerRow(sound, r++, null, soundBtns);
+            JLabel soundNote = new JLabel("<html><body style='width:300px'><i>Built-in sounds are generated "
+                    + "for the exact length of your countdown — a tick every second plus the chosen sound at "
+                    + "zero — and are mixed onto the finished video at the moment the timer starts.</i>"
+                    + "</body></html>");
+            soundNote.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            soundNote.setForeground(new Color(90, 90, 100));
+            addTimerRow(sound, r++, null, soundNote);
+            tabs.addTab("Sound", wrapTimerTab(sound));
+
+            // ===== Effects =====
+            final JPanel fx = new JPanel(new GridBagLayout());
+            r = 0;
+            final JComboBox<String> entCombo = new JComboBox<>(SlideTimer.entrances());
+            entCombo.setSelectedItem(live.entrance);
+            entCombo.addActionListener(e -> { live.entrance = (String) entCombo.getSelectedItem(); refresh.run(); });
+            addTimerRow(fx, r++, "Entrance:", entCombo);
+
+            final JComboBox<String> idleCombo2 = new JComboBox<>(SlideTimer.effects());
+            idleCombo2.setSelectedItem(live.effect);
+            idleCombo2.addActionListener(e -> { live.effect = (String) idleCombo2.getSelectedItem(); refresh.run(); });
+            addTimerRow(fx, r++, "While counting:", idleCombo2);
+
+            final JComboBox<String> finCombo = new JComboBox<>(SlideTimer.finishes());
+            finCombo.setSelectedItem(live.finish);
+            finCombo.addActionListener(e -> { live.finish = (String) finCombo.getSelectedItem(); refresh.run(); });
+            addTimerRow(fx, r++, "At zero:", finCombo);
+
+            final JCheckBox urgentCheck = new JCheckBox("Switch to the “last seconds” colour near the end", live.urgentColor);
+            urgentCheck.setOpaque(false);
+            urgentCheck.addActionListener(e -> { live.urgentColor = urgentCheck.isSelected(); refresh.run(); });
+            addTimerRow(fx, r++, null, urgentCheck);
+            addTimerSlider(fx, r++, "…for the last:", 0, 15, live.urgentSeconds, "s",
+                    v -> live.urgentSeconds = v, refresh);
+            tabs.addTab("Effects", wrapTimerTab(fx));
+
+            // ---------- preview transport ----------
+            final javax.swing.Timer anim = new javax.swing.Timer(33, null);
+            final JButton playBtn = new JButton("▶ Play");
+            anim.addActionListener(e -> {
+                scrub[0] += 33;
+                if (scrub[0] > live.totalMs() + 900) scrub[0] = 0;
+                scrubSlider.setValue((int) Math.min(scrubSlider.getMaximum(), scrub[0]));
+            });
+            playBtn.addActionListener(e -> {
+                if (anim.isRunning()) { anim.stop(); playBtn.setText("▶ Play"); }
+                else { anim.start(); playBtn.setText("❚❚ Pause"); }
+            });
+            scrubSlider.addChangeListener(e -> {
+                scrub[0] = scrubSlider.getValue();
+                timerScrubMs = scrub[0];
+                canvas.repaint();
+                schedulePreview();
+            });
+
+            JPanel transport = new JPanel(new BorderLayout(6, 0));
+            transport.add(playBtn, BorderLayout.WEST);
+            transport.add(scrubSlider, BorderLayout.CENTER);
+
+            // ---------- enable + buttons ----------
+            final JCheckBox onCheck = new JCheckBox("Show a countdown timer on this slide", live.enabled);
+            onCheck.setFont(new Font("Segoe UI", Font.BOLD, 13));
+            onCheck.addActionListener(e -> { live.enabled = onCheck.isSelected(); refresh.run(); });
+
+            refreshHolder[0] = () -> {
+                canvas.repaint();
+                int start = live.resolveStartMs(tl[0], tl[1], audioTotalMs);
+                timingInfo.setText("<html><body style='width:300px'><b>Starts at " + timerSecs(start)
+                        + "</b> · hits zero at " + timerSecs(start + live.totalMs())
+                        + " · slide audio ends at " + timerSecs(audioTotalMs)
+                        + "<br>The slide is stretched automatically if the countdown needs more room."
+                        + "</body></html>");
+                schedulePreview();
+            };
+            syncStartEnable.run();
+            syncSoundEnable.run();
+
+            JButton applyBtn = new JButton("Apply");
+            JButton cancelBtn = new JButton("Cancel");
+            JButton resetBtn = new JButton("Reset to defaults");
+            final Runnable close = () -> {
+                anim.stop();
+                SlideTimer.stopPreview();
+                timerDialogOpen = false;
+                timerPreviewBase = null;
+                timerScrubMs = -1;
+                schedulePreview();
+                dlg.dispose();
+            };
+            applyBtn.addActionListener(e -> { onFormatChanged(); close.run(); });
+            cancelBtn.addActionListener(e -> { slideTimer = snapshot; close.run(); });
+            resetBtn.addActionListener(e -> {
+                SlideTimer def = new SlideTimer();
+                def.enabled = live.enabled;
+                slideTimer = def;
+                close.run();
+                openSlideTimerDialog();
+            });
+            dlg.addWindowListener(new WindowAdapter() {
+                @Override public void windowClosing(WindowEvent e) {
+                    slideTimer = snapshot;
+                    close.run();
+                }
+            });
+
+            JPanel south = new JPanel(new BorderLayout(8, 0));
+            south.setBorder(BorderFactory.createEmptyBorder(6, 8, 8, 8));
+            south.add(resetBtn, BorderLayout.WEST);
+            JPanel okCancel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+            okCancel.add(cancelBtn);
+            okCancel.add(applyBtn);
+            south.add(okCancel, BorderLayout.EAST);
+
+            JPanel north = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 5));
+            north.setBackground(new Color(255, 244, 214));
+            north.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(226, 200, 140)));
+            onCheck.setOpaque(false);
+            north.add(onCheck);
+
+            JPanel right = new JPanel(new BorderLayout(6, 6));
+            right.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 8));
+            right.add(canvas, BorderLayout.CENTER);
+            right.add(transport, BorderLayout.SOUTH);
+
+            JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, tabs, right);
+            split.setResizeWeight(0.44);
+            split.setBorder(null);
+
+            JPanel main = new JPanel(new BorderLayout());
+            main.add(north, BorderLayout.NORTH);
+            main.add(split, BorderLayout.CENTER);
+            main.add(south, BorderLayout.SOUTH);
+
+            dlg.setContentPane(main);
+            dlg.setSize(1080, 610);
+            dlg.setMinimumSize(new Dimension(880, 520));
+            dlg.setLocationRelativeTo(owner);
+
+            // Prime the preview base (the slide as rendered WITHOUT the timer).
+            timerDialogOpen = true;
+            timerScrubMs = initialScrub;
+            updateLivePreview();
+            refresh.run();
+            dlg.setVisible(true);
+        }
+
+        /** Put a settings tab in a scroll pane with a bit of breathing room. */
+        private static JComponent wrapTimerTab(JPanel p) {
+            JPanel pad = new JPanel(new BorderLayout());
+            pad.add(p, BorderLayout.NORTH);
+            JScrollPane sp = new JScrollPane(pad);
+            sp.setBorder(BorderFactory.createEmptyBorder());
+            sp.getVerticalScrollBar().setUnitIncrement(16);
+            return sp;
+        }
+
         /**
          * "Shapes Timer" dialog — one screen listing every shape on the slide with
          * its Appear time and Stay duration (seconds). Duration blank/0 = stay until
@@ -28618,6 +29546,41 @@ public class GifSlideShowApp extends JFrame {
             schedulePreview();
         }
 
+        /** True while the Slide Timer dialog is open — turns on the preview-base cache. */
+        private boolean timerDialogOpen = false;
+        /** Latest live-preview frame WITHOUT the timer, for the dialog's own canvas. */
+        private BufferedImage timerPreviewBase = null;
+        /** Scrub position the dialog is showing, ms into the countdown; -1 = auto. */
+        private long timerScrubMs = -1;
+
+        /** Countdown instant the editor preview freezes at. */
+        private long timerPreviewTimeMs() {
+            if (timerScrubMs >= 0) return timerScrubMs;
+            return slideTimer == null ? 0 : (long) (slideTimer.totalMs() * 0.35);
+        }
+
+        /** This slide's countdown timer (live object — the dialog edits it in place). */
+        SlideTimer getSlideTimer() { return slideTimer; }
+
+        /** Replace this slide's timer with a copy of {@code src} (used by Load Preset). */
+        void applySlideTimer(SlideTimer src) {
+            if (src == null) return;
+            slideTimer = src.copy();
+            schedulePreview();
+        }
+
+        /**
+         * Where the timer starts on THIS slide's timeline, in ms — the same
+         * resolution the exporter does in collectSlides, so the editor preview and
+         * the exported video agree on "after all audio + 1 s".
+         */
+        int resolvedTimerStartMs() {
+            if (slideTimer == null) return 0;
+            int[][] tl = audioTimeline(getSlideAudioDurationsMsList(),
+                    getSlideAudioFilesList(), getAudioGapMs());
+            return slideTimer.resolveStartMs(tl[0], tl[1], totalAudioMs(tl[1]));
+        }
+
         List<SlidePictureData> getSlidePictureDataList() {
             saveCurrentSlidePictureToItem();
             List<SlidePictureData> result = new ArrayList<>(slidePictureItems);
@@ -29011,6 +29974,40 @@ public class GifSlideShowApp extends JFrame {
                 int ty = ovPxY + (ovH + fm.getAscent()) / 2;
                 pg.drawString(voText, tx, ty);
                 pg.dispose();
+            }
+
+            // Countdown timer preview: drawn last so it sits on top of everything,
+            // frozen at the scrub position the Slide Timer dialog is showing (or
+            // a third of the way through the countdown when the dialog is closed,
+            // which is the most representative still of any of the designs).
+            if (slideTimer != null && slideTimer.enabled) {
+                if (preview.getType() != BufferedImage.TYPE_INT_ARGB) {
+                    BufferedImage argbPreview = new BufferedImage(
+                            preview.getWidth(), preview.getHeight(), BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D copyG = argbPreview.createGraphics();
+                    copyG.drawImage(preview, 0, 0, null);
+                    copyG.dispose();
+                    preview = argbPreview;
+                }
+                // The dialog paints the timer itself on top of this untouched
+                // base, so its scrub slider can animate without re-rendering the
+                // whole slide on every tick. Only cached while it is open.
+                if (timerDialogOpen) {
+                    BufferedImage base = new BufferedImage(
+                            preview.getWidth(), preview.getHeight(), BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D bg2 = base.createGraphics();
+                    bg2.drawImage(preview, 0, 0, null);
+                    bg2.dispose();
+                    timerPreviewBase = base;
+                }
+                SlideTimer.paint(preview, slideTimer, 0, timerPreviewTimeMs(), true);
+            } else if (timerDialogOpen) {
+                BufferedImage base = new BufferedImage(
+                        preview.getWidth(), preview.getHeight(), BufferedImage.TYPE_INT_ARGB);
+                Graphics2D bg2 = base.createGraphics();
+                bg2.drawImage(preview, 0, 0, null);
+                bg2.dispose();
+                timerPreviewBase = base;
             }
 
             int lw = livePreviewLabel.getWidth();
