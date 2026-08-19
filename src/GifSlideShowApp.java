@@ -26,6 +26,11 @@ public class GifSlideShowApp extends JFrame {
     private static final int PREVIEW_WIDTH = 640;
     private static final int PREVIEW_HEIGHT = 360;
 
+    /** Upper bound for the text BG "Tight"/"Tall" padding spinners. 50 is the
+     *  baseline look and 100 was the old ceiling; the range runs well past it so
+     *  a caption box can be pushed as wide/tall as a full banner. */
+    static final int BG_PAD_MAX_PCT = 600;
+
     private static final Map<String, Font> loadedFonts = new LinkedHashMap<>();
     private static String[] loadedFontNames = new String[0];
     static {
@@ -5738,8 +5743,10 @@ public class GifSlideShowApp extends JFrame {
                 }
 
                 // BG padding scales independently on each axis: 50=baseline (6px,4px),
-                // 0=very tight (~1px,1px), 100=loose (~16px,12px). bgPaddingPct controls
-                // horizontal (width) padding; bgPaddingYPct controls vertical (height).
+                // 0=very tight (~1px,1px), 100=loose (~16px,12px), and on up to
+                // BG_PAD_MAX_PCT (~72px,48px) for a deliberately roomy box.
+                // bgPaddingPct controls horizontal (width) padding;
+                // bgPaddingYPct controls vertical (height).
                 double stBgPadScaleX = Math.max(0.05, st.bgPaddingPct / 50.0);
                 double stBgPadScaleY = Math.max(0.05, st.bgPaddingYPct / 50.0);
                 int stPadX = (int) Math.max(1, 6 * stScaleFactor * stBgPadScaleX);
@@ -19466,8 +19473,8 @@ public class GifSlideShowApp extends JFrame {
         // Defaults are mutable (not final) so they can persist via SlideTextData without
         // touching the long chain of overloaded constructors. Tight=50 reproduces the
         // pre-feature padding (6px,4px). Round=10 reproduces the pre-feature arc.
-        int bgPaddingPct = 50;       // 0..100 horizontal (width) padding: 0=tight, 50=normal, 100=loose
-        int bgPaddingYPct = 50;      // 0..100 vertical (height) padding: 0=tight, 50=normal, 100=loose
+        int bgPaddingPct = 50;       // 0..600 horizontal (width) padding: 0=tight, 50=normal, 100=loose
+        int bgPaddingYPct = 50;      // 0..600 vertical (height) padding: 0=tight, 50=normal, 100=loose
         int bgRoundPct = 10;         // 0..100 (0=square corners, 100=fully rounded)
         Color bgColor2 = new Color(60, 60, 60);
 
@@ -20790,8 +20797,8 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner slideTextBgSpinner;
         // ===== BG style controls (toolbars 4b2 / 4b3 / 4b4) =====
         // 4b2 — Fill core
-        private final JSpinner slideTextBgTightSpinner;     // 0..100, horizontal (width) padding
-        private final JSpinner slideTextBgTightYSpinner;    // 0..100, vertical (height) padding
+        private final JSpinner slideTextBgTightSpinner;     // 0..600, horizontal (width) padding
+        private final JSpinner slideTextBgTightYSpinner;    // 0..600, vertical (height) padding
         private final JSpinner slideTextBgRoundSpinner;     // 0..100, corner radius
         private final JComboBox<String> slideTextBgFillCombo;  // Solid / Linear / Radial / Conic / Stripes / Checker / Dots / Lines
         private final JButton slideTextBgColor2Btn;
@@ -21959,14 +21966,18 @@ public class GifSlideShowApp extends JFrame {
                 return L;
             };
 
-            slideTextBgTightSpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 5));
-            slideTextBgTightSpinner.setPreferredSize(new Dimension(50, 24));
-            slideTextBgTightSpinner.setToolTipText("BG width padding (horizontal) — 0=very tight, 50=normal, 100=loose");
+            slideTextBgTightSpinner = new JSpinner(new SpinnerNumberModel(50, 0, BG_PAD_MAX_PCT, 5));
+            slideTextBgTightSpinner.setPreferredSize(new Dimension(58, 24));
+            slideTextBgTightSpinner.setToolTipText(
+                    "BG width padding (horizontal) — 0=very tight, 50=normal, 100=loose, up to "
+                    + BG_PAD_MAX_PCT + " for a very wide box");
             slideTextBgTightSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
-            slideTextBgTightYSpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 5));
-            slideTextBgTightYSpinner.setPreferredSize(new Dimension(50, 24));
-            slideTextBgTightYSpinner.setToolTipText("BG height padding (vertical) — 0=very tight, 50=normal, 100=loose");
+            slideTextBgTightYSpinner = new JSpinner(new SpinnerNumberModel(50, 0, BG_PAD_MAX_PCT, 5));
+            slideTextBgTightYSpinner.setPreferredSize(new Dimension(58, 24));
+            slideTextBgTightYSpinner.setToolTipText(
+                    "BG height padding (vertical) — 0=very tight, 50=normal, 100=loose, up to "
+                    + BG_PAD_MAX_PCT + " for a very tall box");
             slideTextBgTightYSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
             slideTextBgRoundSpinner = new JSpinner(new SpinnerNumberModel(10, 0, 100, 5));
@@ -25186,8 +25197,11 @@ public class GifSlideShowApp extends JFrame {
                 b.bgColor = c; bgColBtn.setForeground(c); onChange.run();
             }));
 
-            JSpinner tightSp = new JSpinner(new SpinnerNumberModel(clampRange(b.bgPaddingPct, 0, 100), 0, 100, 5));
+            JSpinner tightSp = new JSpinner(
+                    new SpinnerNumberModel(clampRange(b.bgPaddingPct, 0, BG_PAD_MAX_PCT), 0, BG_PAD_MAX_PCT, 5));
             tightSp.setPreferredSize(new Dimension(55, 24));
+            tightSp.setToolTipText("BG padding — 0=very tight, 50=normal, 100=loose, up to "
+                    + BG_PAD_MAX_PCT + " for a very wide box");
             tightSp.addChangeListener(e -> { b.bgPaddingPct = (int) tightSp.getValue(); onChange.run(); });
 
             JSpinner roundSp = new JSpinner(new SpinnerNumberModel(clampRange(b.bgRoundPct, 0, 100), 0, 100, 5));
