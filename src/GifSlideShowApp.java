@@ -385,6 +385,7 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(p + "bgColor", colorToHex(t.bgColor));
             props.setProperty(p + "bgPaddingPct", String.valueOf(t.bgPaddingPct));
             props.setProperty(p + "bgPaddingYPct", String.valueOf(t.bgPaddingYPct));
+            props.setProperty(p + "bgFixedWidthPct", String.valueOf(t.bgFixedWidthPct));
             props.setProperty(p + "bgRoundPct", String.valueOf(t.bgRoundPct));
             props.setProperty(p + "bgColor2", colorToHex(t.bgColor2 != null ? t.bgColor2 : new Color(60, 60, 60)));
             props.setProperty(p + "bgFillKind", t.bgFillKind != null ? t.bgFillKind : "Solid");
@@ -878,6 +879,7 @@ public class GifSlideShowApp extends JFrame {
             );
             loaded.bgPaddingPct      = Integer.parseInt(props.getProperty(p + "bgPaddingPct", "50"));
             loaded.bgPaddingYPct     = Integer.parseInt(props.getProperty(p + "bgPaddingYPct", "50"));
+            loaded.bgFixedWidthPct   = parseIntOr(props.getProperty(p + "bgFixedWidthPct"), 0);
             loaded.bgRoundPct        = Integer.parseInt(props.getProperty(p + "bgRoundPct", "10"));
             loaded.fxBurst           = Boolean.parseBoolean(props.getProperty(p + "fxBurst", "false"));
             loaded.fxBurstStyle      = props.getProperty(p + "fxBurstStyle", "Stars");
@@ -5774,6 +5776,24 @@ public class GifSlideShowApp extends JFrame {
                 int bgY = stCenterY - totalTextHeight / 2 - stPadY;
                 int bgW = stMaxLineWidth + stPadX * 2;
                 int bgH = totalTextHeight + stPadY * 2;
+
+                // Fixed BG width: pin the box to an exact % of the frame width so
+                // several texts carrying the same number end up with identical
+                // boxes no matter how long each line is. The box keeps the anchor
+                // the auto-width box had — Left keeps its left edge, Right keeps
+                // its right edge, everything else grows/shrinks around the middle —
+                // so only the width changes, never where the text sits.
+                if (st.bgFixedWidthPct > 0) {
+                    int fixedW = Math.max(1, (int) Math.round(targetW * (st.bgFixedWidthPct / 100.0)));
+                    boolean pinLeft  = !st.justify && st.alignment == SwingConstants.LEFT;
+                    boolean pinRight = !st.justify && st.alignment == SwingConstants.RIGHT;
+                    if (pinRight) {
+                        bgX = bgX + bgW - fixedW;      // right edge stays put
+                    } else if (!pinLeft) {
+                        bgX = bgX + (bgW - fixedW) / 2; // centred / justified: grow around the middle
+                    }                                   // pinLeft: left edge stays put
+                    bgW = fixedW;
+                }
 
                 // ===== Entry animation: fly text in from a start location to its final x/y.
                 // We apply a translate on the shared Graphics2D `g` so every subsequent
@@ -19475,6 +19495,11 @@ public class GifSlideShowApp extends JFrame {
         // pre-feature padding (6px,4px). Round=10 reproduces the pre-feature arc.
         int bgPaddingPct = 50;       // 0..600 horizontal (width) padding: 0=tight, 50=normal, 100=loose
         int bgPaddingYPct = 50;      // 0..600 vertical (height) padding: 0=tight, 50=normal, 100=loose
+        // Fixed BG width as a % of the frame width. 0 = Auto: the box hugs the
+        // text and Tight decides its width. Any value 1..100 pins the box to
+        // exactly that width regardless of how long the text is, so several
+        // texts set to the same number get BG boxes of identical width.
+        int bgFixedWidthPct = 0;     // 0=Auto (fit text), 1..100 = % of frame width
         int bgRoundPct = 10;         // 0..100 (0=square corners, 100=fully rounded)
         Color bgColor2 = new Color(60, 60, 60);
 
@@ -19542,6 +19567,7 @@ public class GifSlideShowApp extends JFrame {
         static void copyBgStyle(SlideTextData src, SlideTextData dst) {
             dst.bgPaddingPct      = src.bgPaddingPct;
             dst.bgPaddingYPct     = src.bgPaddingYPct;
+            dst.bgFixedWidthPct   = src.bgFixedWidthPct;
             dst.bgRoundPct        = src.bgRoundPct;
             dst.bgColor2          = src.bgColor2;
             dst.bgFillKind        = src.bgFillKind;
@@ -20799,6 +20825,7 @@ public class GifSlideShowApp extends JFrame {
         // 4b2 — Fill core
         private final JSpinner slideTextBgTightSpinner;     // 0..600, horizontal (width) padding
         private final JSpinner slideTextBgTightYSpinner;    // 0..600, vertical (height) padding
+        private final JSpinner slideTextBgFixedWSpinner;    // 0=Auto, 1..100 = fixed width as % of frame
         private final JSpinner slideTextBgRoundSpinner;     // 0..100, corner radius
         private final JComboBox<String> slideTextBgFillCombo;  // Solid / Linear / Radial / Conic / Stripes / Checker / Dots / Lines
         private final JButton slideTextBgColor2Btn;
@@ -21980,6 +22007,13 @@ public class GifSlideShowApp extends JFrame {
                     + BG_PAD_MAX_PCT + " for a very tall box");
             slideTextBgTightYSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
+            slideTextBgFixedWSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 100, 1));
+            slideTextBgFixedWSpinner.setPreferredSize(new Dimension(58, 24));
+            slideTextBgFixedWSpinner.setToolTipText(
+                    "Fixed BG width as % of the frame — 0 = Auto (box hugs the text). "
+                    + "Give several texts the same number to get BG boxes of exactly the same width.");
+            slideTextBgFixedWSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
             slideTextBgRoundSpinner = new JSpinner(new SpinnerNumberModel(10, 0, 100, 5));
             slideTextBgRoundSpinner.setPreferredSize(new Dimension(50, 24));
             slideTextBgRoundSpinner.setToolTipText("BG corner radius (0=square, 100=fully rounded)");
@@ -22023,6 +22057,8 @@ public class GifSlideShowApp extends JFrame {
             toolbar4b2.add(slideTextBgTightSpinner);
             toolbar4b2.add(mkLbl.apply("Tall:", bgRowFg));
             toolbar4b2.add(slideTextBgTightYSpinner);
+            toolbar4b2.add(mkLbl.apply("Width%:", bgRowFg));
+            toolbar4b2.add(slideTextBgFixedWSpinner);
             toolbar4b2.add(mkLbl.apply("Round:", bgRowFg));
             toolbar4b2.add(slideTextBgRoundSpinner);
             toolbar4b2.add(mkLbl.apply("Fill:", bgRowFg));
@@ -24665,6 +24701,7 @@ public class GifSlideShowApp extends JFrame {
                     (int) slideTextOpacitySpinner.getValue());
             newItem.bgPaddingPct = (int) slideTextBgTightSpinner.getValue();
             newItem.bgPaddingYPct = (int) slideTextBgTightYSpinner.getValue();
+            newItem.bgFixedWidthPct = (int) slideTextBgFixedWSpinner.getValue();
             newItem.bgRoundPct = (int) slideTextBgRoundSpinner.getValue();
             newItem.bgColor2 = slideTextBgColor2;
             newItem.bgFillKind = (String) slideTextBgFillCombo.getSelectedItem();
@@ -24737,6 +24774,7 @@ public class GifSlideShowApp extends JFrame {
                 slideTextBgColorBtn.setForeground(item.bgColor);
                 slideTextBgTightSpinner.setValue(item.bgPaddingPct);
                 slideTextBgTightYSpinner.setValue(item.bgPaddingYPct);
+                slideTextBgFixedWSpinner.setValue(clampRange(item.bgFixedWidthPct, 0, 100));
                 slideTextBgRoundSpinner.setValue(item.bgRoundPct);
                 slideTextBgColor2 = item.bgColor2 != null ? item.bgColor2 : new Color(60, 60, 60);
                 slideTextBgColor2Btn.setForeground(slideTextBgColor2);
@@ -27850,6 +27888,7 @@ public class GifSlideShowApp extends JFrame {
             SlideTextData bgFrom = gBg ? src : dst;
             m.bgPaddingPct      = bgFrom.bgPaddingPct;
             m.bgPaddingYPct     = bgFrom.bgPaddingYPct;
+            m.bgFixedWidthPct   = bgFrom.bgFixedWidthPct;
             m.bgRoundPct        = bgFrom.bgRoundPct;
             m.bgColor2          = bgFrom.bgColor2;
             m.bgFillKind        = bgFrom.bgFillKind;
