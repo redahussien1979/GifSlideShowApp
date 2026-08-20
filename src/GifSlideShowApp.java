@@ -29443,13 +29443,63 @@ public class GifSlideShowApp extends JFrame {
             schedulePreview();
         }
 
+        /** Rebuild a text item with one or two fields swapped, carrying every
+         *  other field across. Pass null for anything that should stay as it is.
+         *
+         *  The import setters below used to call one of the short SlideTextData
+         *  constructors directly, and every field that overload does not take was
+         *  silently reset to its default: the whole BG block (Tight / Tall /
+         *  Width% / Round / Fill / Shape / Border / Shadow / Glow), the entrance
+         *  animation, tilt, letter and line spacing, opacity, the Texts-Timer
+         *  timeline, timed actions and alternating text. Importing a CSV or a
+         *  text file over already-styled slides therefore wiped their styling.
+         *  Going through the full constructor plus copyBgStyle keeps all of it. */
+        private SlideTextData rebuildSlideTextItem(SlideTextData old, Boolean show, String text,
+                                                   Integer x, Integer y, Integer fontSize,
+                                                   String hlText, String ulText, String boldText,
+                                                   String italicText, String colorText,
+                                                   Boolean xLeftAligned) {
+            SlideTextData c = new SlideTextData(
+                    show != null ? show : old.show,
+                    text != null ? text : old.text,
+                    old.fontName,
+                    fontSize != null ? fontSize : old.fontSize,
+                    old.fontStyle, old.color,
+                    x != null ? x : old.x,
+                    y != null ? y : old.y,
+                    old.bgOpacity, old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
+                    old.textEffect, old.textEffectIntensity,
+                    hlText != null ? hlText : old.highlightText,
+                    old.highlightColor, old.highlightStyle, old.highlightTightness,
+                    old.underlineStyle,
+                    ulText != null ? ulText : old.underlineText,
+                    boldText != null ? boldText : old.boldText,
+                    italicText != null ? italicText : old.italicText,
+                    colorText != null ? colorText : old.colorText,
+                    old.colorTextColor,
+                    xLeftAligned != null ? xLeftAligned : old.xLeftAligned,
+                    old.odometer, old.odometerSpeed, old.odometerRoll, old.odometerLand,
+                    old.animEnabled, old.animPath, old.animDurationMs, old.animStartMs, old.animEasing,
+                    old.tiltDegrees, old.letterSpacing, old.lineSpacing, old.opacity);
+            SlideTextData.copyBgStyle(old, c);
+            // Highlight sizing is mutable and lives outside the BG block.
+            c.highlightIntensityPct = old.highlightIntensityPct;
+            c.highlightHeightPct    = old.highlightHeightPct;
+            c.highlightWidthPct     = old.highlightWidthPct;
+            // The word-by-word reveal schedule is keyed to the exact words it was
+            // built from, so a genuinely new string starts without one.
+            if (text != null && !text.equals(old.text)) {
+                c.wordRevealMs = null;
+                c.wordRevealCount = -1;
+            }
+            return c;
+        }
+
         void setSlideText(String text) {
             if (!slideTextItems.isEmpty()) {
                 SlideTextData old = slideTextItems.get(0);
-                slideTextItems.set(0, new SlideTextData(true, text, old.fontName, old.fontSize,
-                        old.fontStyle, old.color, old.x, old.y, old.bgOpacity,
-                        old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
-                        old.textEffect, old.textEffectIntensity));
+                slideTextItems.set(0, rebuildSlideTextItem(old, true, text != null ? text : "",
+                        null, null, null, null, null, null, null, null, null));
                 if (currentSlideTextIndex == 0) {
                     loadSlideTextFromItem(0);
                 }
@@ -29465,12 +29515,8 @@ public class GifSlideShowApp extends JFrame {
                         false, 100, 0, SwingConstants.CENTER));
             }
             SlideTextData old = slideTextItems.get(textIndex);
-            slideTextItems.set(textIndex, new SlideTextData(true, text, old.fontName, old.fontSize,
-                    old.fontStyle, old.color, old.x, old.y, old.bgOpacity,
-                    old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
-                    old.textEffect, old.textEffectIntensity,
-                    old.highlightText, old.highlightColor, old.highlightStyle,
-                    old.highlightTightness, old.underlineStyle, old.underlineText));
+            slideTextItems.set(textIndex, rebuildSlideTextItem(old, true, text != null ? text : "",
+                    null, null, null, null, null, null, null, null, null));
             // Rebuild the selector dropdown to show all items
             isLoadingSlideText = true;
             try {
@@ -29493,13 +29539,8 @@ public class GifSlideShowApp extends JFrame {
                         false, 100, 0, SwingConstants.CENTER));
             }
             SlideTextData old = slideTextItems.get(textIndex);
-            slideTextItems.set(textIndex, new SlideTextData(old.show, old.text, old.fontName, old.fontSize,
-                    old.fontStyle, old.color, xVal, old.y, old.bgOpacity,
-                    old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
-                    old.textEffect, old.textEffectIntensity,
-                    old.highlightText, old.highlightColor, old.highlightStyle,
-                    old.highlightTightness, old.underlineStyle, old.underlineText,
-                    old.boldText, old.italicText, old.colorText, old.colorTextColor, true, old.odometer, old.odometerSpeed));
+            slideTextItems.set(textIndex, rebuildSlideTextItem(old, null, null,
+                    xVal, null, null, null, null, null, null, null, true));
             if (currentSlideTextIndex == textIndex) loadSlideTextFromItem(textIndex);
         }
 
@@ -29512,13 +29553,8 @@ public class GifSlideShowApp extends JFrame {
                         false, 100, 0, SwingConstants.CENTER));
             }
             SlideTextData old = slideTextItems.get(textIndex);
-            slideTextItems.set(textIndex, new SlideTextData(old.show, old.text, old.fontName, old.fontSize,
-                    old.fontStyle, old.color, old.x, yVal, old.bgOpacity,
-                    old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
-                    old.textEffect, old.textEffectIntensity,
-                    old.highlightText, old.highlightColor, old.highlightStyle,
-                    old.highlightTightness, old.underlineStyle, old.underlineText,
-                    old.boldText, old.italicText, old.colorText, old.colorTextColor, old.xLeftAligned, old.odometer, old.odometerSpeed));
+            slideTextItems.set(textIndex, rebuildSlideTextItem(old, null, null,
+                    null, yVal, null, null, null, null, null, null, null));
             if (currentSlideTextIndex == textIndex) loadSlideTextFromItem(textIndex);
         }
 
@@ -29531,13 +29567,8 @@ public class GifSlideShowApp extends JFrame {
                         false, 100, 0, SwingConstants.CENTER));
             }
             SlideTextData old = slideTextItems.get(textIndex);
-            slideTextItems.set(textIndex, new SlideTextData(old.show, old.text, old.fontName, sizeVal,
-                    old.fontStyle, old.color, old.x, old.y, old.bgOpacity,
-                    old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
-                    old.textEffect, old.textEffectIntensity,
-                    old.highlightText, old.highlightColor, old.highlightStyle,
-                    old.highlightTightness, old.underlineStyle, old.underlineText,
-                    old.boldText, old.italicText, old.colorText, old.colorTextColor, old.xLeftAligned, old.odometer, old.odometerSpeed));
+            slideTextItems.set(textIndex, rebuildSlideTextItem(old, null, null,
+                    null, null, sizeVal, null, null, null, null, null, null));
             if (currentSlideTextIndex == textIndex) loadSlideTextFromItem(textIndex);
         }
 
@@ -29565,13 +29596,8 @@ public class GifSlideShowApp extends JFrame {
         void setSlideTextHighlightText(String text) {
             for (int i = 0; i < slideTextItems.size(); i++) {
                 SlideTextData old = slideTextItems.get(i);
-                slideTextItems.set(i, new SlideTextData(old.show, old.text, old.fontName, old.fontSize,
-                        old.fontStyle, old.color, old.x, old.y, old.bgOpacity,
-                        old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
-                        old.textEffect, old.textEffectIntensity,
-                        text != null ? text : "", old.highlightColor, old.highlightStyle,
-                        old.highlightTightness, old.underlineStyle, old.underlineText,
-                        old.boldText, old.italicText, old.colorText, old.colorTextColor, old.xLeftAligned, old.odometer, old.odometerSpeed));
+                slideTextItems.set(i, rebuildSlideTextItem(old, null, null,
+                        null, null, null, text != null ? text : "", null, null, null, null, null));
             }
             if (currentSlideTextIndex < slideTextItems.size()) {
                 loadSlideTextFromItem(currentSlideTextIndex);
@@ -29582,13 +29608,8 @@ public class GifSlideShowApp extends JFrame {
         void setSlideTextUnderlineText(String text) {
             for (int i = 0; i < slideTextItems.size(); i++) {
                 SlideTextData old = slideTextItems.get(i);
-                slideTextItems.set(i, new SlideTextData(old.show, old.text, old.fontName, old.fontSize,
-                        old.fontStyle, old.color, old.x, old.y, old.bgOpacity,
-                        old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
-                        old.textEffect, old.textEffectIntensity,
-                        old.highlightText, old.highlightColor, old.highlightStyle,
-                        old.highlightTightness, old.underlineStyle, text != null ? text : "",
-                        old.boldText, old.italicText, old.colorText, old.colorTextColor, old.xLeftAligned, old.odometer, old.odometerSpeed));
+                slideTextItems.set(i, rebuildSlideTextItem(old, null, null,
+                        null, null, null, null, text != null ? text : "", null, null, null, null));
             }
             if (currentSlideTextIndex < slideTextItems.size()) {
                 loadSlideTextFromItem(currentSlideTextIndex);
@@ -29599,13 +29620,8 @@ public class GifSlideShowApp extends JFrame {
         void setSlideTextBoldText(String text) {
             for (int i = 0; i < slideTextItems.size(); i++) {
                 SlideTextData old = slideTextItems.get(i);
-                slideTextItems.set(i, new SlideTextData(old.show, old.text, old.fontName, old.fontSize,
-                        old.fontStyle, old.color, old.x, old.y, old.bgOpacity,
-                        old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
-                        old.textEffect, old.textEffectIntensity,
-                        old.highlightText, old.highlightColor, old.highlightStyle,
-                        old.highlightTightness, old.underlineStyle, old.underlineText,
-                        text != null ? text : "", old.italicText, old.colorText, old.colorTextColor, old.xLeftAligned, old.odometer, old.odometerSpeed));
+                slideTextItems.set(i, rebuildSlideTextItem(old, null, null,
+                        null, null, null, null, null, text != null ? text : "", null, null, null));
             }
             if (currentSlideTextIndex < slideTextItems.size()) {
                 loadSlideTextFromItem(currentSlideTextIndex);
@@ -29616,13 +29632,8 @@ public class GifSlideShowApp extends JFrame {
         void setSlideTextItalicText(String text) {
             for (int i = 0; i < slideTextItems.size(); i++) {
                 SlideTextData old = slideTextItems.get(i);
-                slideTextItems.set(i, new SlideTextData(old.show, old.text, old.fontName, old.fontSize,
-                        old.fontStyle, old.color, old.x, old.y, old.bgOpacity,
-                        old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
-                        old.textEffect, old.textEffectIntensity,
-                        old.highlightText, old.highlightColor, old.highlightStyle,
-                        old.highlightTightness, old.underlineStyle, old.underlineText,
-                        old.boldText, text != null ? text : "", old.colorText, old.colorTextColor, old.xLeftAligned, old.odometer, old.odometerSpeed));
+                slideTextItems.set(i, rebuildSlideTextItem(old, null, null,
+                        null, null, null, null, null, null, text != null ? text : "", null, null));
             }
             if (currentSlideTextIndex < slideTextItems.size()) {
                 loadSlideTextFromItem(currentSlideTextIndex);
@@ -29633,13 +29644,8 @@ public class GifSlideShowApp extends JFrame {
         void setSlideTextColorText(String text) {
             for (int i = 0; i < slideTextItems.size(); i++) {
                 SlideTextData old = slideTextItems.get(i);
-                slideTextItems.set(i, new SlideTextData(old.show, old.text, old.fontName, old.fontSize,
-                        old.fontStyle, old.color, old.x, old.y, old.bgOpacity,
-                        old.bgColor, old.justify, old.widthPct, old.shiftX, old.alignment,
-                        old.textEffect, old.textEffectIntensity,
-                        old.highlightText, old.highlightColor, old.highlightStyle,
-                        old.highlightTightness, old.underlineStyle, old.underlineText,
-                        old.boldText, old.italicText, text != null ? text : "", old.colorTextColor, old.xLeftAligned, old.odometer, old.odometerSpeed));
+                slideTextItems.set(i, rebuildSlideTextItem(old, null, null,
+                        null, null, null, null, null, null, null, text != null ? text : "", null));
             }
             if (currentSlideTextIndex < slideTextItems.size()) {
                 loadSlideTextFromItem(currentSlideTextIndex);
