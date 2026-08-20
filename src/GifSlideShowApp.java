@@ -167,22 +167,12 @@ public class GifSlideShowApp extends JFrame {
         bulkTextBtn.addActionListener(e -> bulkImportText());
 
         JButton dictImportBtn = createStyledButton("Dict Import", new Color(50, 180, 160));
-        dictImportBtn.setToolTipText("Import CSV/TSV: each row=slide, each column=slide text (A→Text1, B→Text2...). Optional headers: HL/UL/BOLD/ITALIC/COLOR, AUDIOLINK, AUDIO1.. (two comma-separated paths in a quoted cell = primary+second audio for that text, sharing the Gap), X-AXIS/Y-AXIS/TEXT-SIZE, and TEXT1TIME/TEXT2TIME.. for appear,go timing per text (cell=\"appear,go\" in seconds; \"appear\" alone = never leaves).");
+        dictImportBtn.setToolTipText("Import CSV/TSV: each row=slide, each column=slide text (A→Text1, B→Text2...). Optional headers: HL/UL/BOLD/ITALIC/COLOR, AUDIOLINK, AUDIO1.. (two comma-separated paths in a quoted cell = primary+second audio for that text, sharing the Gap), X-AXIS/Y-AXIS/TEXT-SIZE, TEXT1TIME/TEXT2TIME.. for appear,go timing per text (cell=\"appear,go\" in seconds; \"appear\" alone = never leaves), and TIMER_TARGET for the Slide Timer's target text — the text the countdown reveals at zero, given as a text number (1 = Text 1, 0 = none) or as the text itself.");
         dictImportBtn.addActionListener(e -> dictionaryImport());
 
         JButton quizImportBtn = createStyledButton("Quiz Import", new Color(180, 120, 200));
         quizImportBtn.setToolTipText("Import CSV/TSV of quiz settings: each row = one slide. Headers: QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD, QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO, QUIZ_TIMER_STYLE/X/Y/SIZE/WIDTH/COLOR/TEXT_COLOR/FONT/LABEL/START_MODE, QUIZ_BAR_SHAPE, QUIZ_REVEAL_MARK_STYLE/SIZE/COLOR, QUIZ_REVEAL_PAD, QUIZ_TIMER_ANIM/_STRENGTH/_TRIGGER/_EASING, QUIZ_TIMER_RED_COLOR, QUIZ_CUE1_AUDIO..QUIZ_CUEn_AUDIO, QUIZ_CUE_SPECIAL_AUDIO, QUIZ_CUE_REPLAY (comma-list of Text-cue targets / all / none — Special is excluded), QUIZ_USE_SPECIAL_TIMELINE, QUIZ_SPECIAL_TIMELINE_AUDIO, QUIZ_SPECIAL_TIMELINE_AT (comma-separated seconds; Nth value → Text #N+1), QUIZ_USE_AFTER_REVEAL_TIMELINE, QUIZ_AFTER_REVEAL_AUDIO, QUIZ_AFTER_REVEAL_AT (same shape; plays after reveal).");
         quizImportBtn.addActionListener(e -> quizImport());
-
-        JButton timerImportBtn = createStyledButton("Timer Import", new Color(200, 150, 60));
-        timerImportBtn.setToolTipText("Import the Slide Timer's per-slide settings from CSV/TSV: each row = one slide. "
-                + "TIMER_TARGET is the target text the countdown reveals / badges at zero — either a text number "
-                + "(1 = Text 1, 0 = none) or the text itself, matched against that slide's texts. Also: TIMER_ENABLED, "
-                + "TIMER_SECONDS, TIMER_REVEAL, TIMER_TEXT_EFFECT, TIMER_BADGE, TIMER_BADGE_TEXT, TIMER_BADGE_COLOR, "
-                + "TIMER_BADGE_MARK_COLOR, TIMER_HOLD (s), TIMER_END_AUDIO, TIMER_END_DELAY (s), TIMER_END_VOLUME, "
-                + "TIMER_STYLE, TIMER_LABEL, TIMER_START_MODE, TIMER_AT (s), TIMER_OFFSET (s). Imported values stay "
-                + "per slide when the first slide's timer is broadcast to the deck.");
-        timerImportBtn.addActionListener(e -> timerImport());
 
         JButton titleGridBtn = createStyledButton("Title Grid", new Color(60, 160, 200));
         titleGridBtn.addActionListener(e -> addTitleGridSlide());
@@ -223,7 +213,6 @@ public class GifSlideShowApp extends JFrame {
         topRow.add(bulkTextBtn);
         topRow.add(dictImportBtn);
         topRow.add(quizImportBtn);
-        topRow.add(timerImportBtn);
         topRow.add(titleGridBtn);
         topRow.add(gifBtn);
         topRow.add(mp4Btn);
@@ -756,7 +745,7 @@ public class GifSlideShowApp extends JFrame {
         // The master's timer is what Load Preset broadcasts; each slide's own copy
         // is stored alongside it so imported target texts come back with the deck.
         writeTimer(props, source.getSlideTimer());
-        writeSlideTimers(props);
+        writeSlideTimerTargets(props);
 
         File file = new File(PRESETS_DIR, name + ".preset");
         try (FileOutputStream fos = new FileOutputStream(file)) {
@@ -1199,9 +1188,9 @@ public class GifSlideShowApp extends JFrame {
         // Countdown timer. Null when the preset predates this feature — existing
         // timers are then left as they are.
         SlideTimer presetTimer = readTimer(props);
-        // Per-slide timers, written by writeSlideTimers. Only meaningful for a
-        // whole-deck load: the row-level preset override (one row) takes the
-        // master timer, since another deck's slide N has nothing to say about it.
+        // Per-slide timer targets, written by writeSlideTimerTargets. Only
+        // meaningful for a whole-deck load: the row-level preset override (one row)
+        // keeps its own target, since another deck's slide N says nothing about it.
         boolean deckWideLoad = (targets == slideRows);
         int savedTimerSlides = deckWideLoad
                 ? parseIntOr(props.getProperty("timer.slideCount"), 0) : 0;
@@ -1221,14 +1210,16 @@ public class GifSlideShowApp extends JFrame {
                 if (row.isTitleGridSlide) continue;
                 if (presetShapes != null) row.applySlideAnnotations(presetShapes);
                 if (presetTimer != null) {
+                    // The design comes from the preset's shared timer; the target
+                    // text is this slide's own, so it is restored from the preset's
+                    // per-slide list, or left alone when the preset has none for it
+                    // (older preset, or a deck longer than the one saved).
                     Integer pos = timerSlidePos.get(row);
-                    SlideTimer own = (pos != null && pos < savedTimerSlides)
-                            ? readTimer(props, "timer.slide" + pos + ".") : null;
-                    // No stored slide of its own (older preset, or a longer deck
-                    // than the one saved): take the master's timer but leave this
-                    // slide's own target text / badge wording / end sound in place.
-                    if (own != null) row.applySlideTimer(own);
-                    else              row.propagateSlideTimerFrom(presetTimer);
+                    Integer savedTarget = (pos != null && pos < savedTimerSlides)
+                            ? parseIntOr(props.getProperty("timer.slide" + pos + ".target"), 0)
+                            : null;
+                    row.propagateSlideTimerFrom(presetTimer);
+                    if (savedTarget != null) row.setSlideTimerTarget(savedTarget);
                 }
                 row.applyFormatting(fontName, fontSize, fontStyle, fontColor, alignment, showPin, displayMode,
                         subtitleY, subtitleBgOpacity, sourceVideoVolume,
@@ -2007,22 +1998,24 @@ public class GifSlideShowApp extends JFrame {
     }
 
     /**
-     * Store every slide's own countdown timer under "timer.slideN.", N counting
-     * the non-title-grid slides. Load Preset puts them straight back, so a deck
-     * whose target texts came from a spreadsheet reloads exactly as it was saved.
+     * Store each slide's timer target text under "timer.slideN.target", N counting
+     * the non-title-grid slides. The rest of the timer is shared with the master
+     * slide, but the target is that slide's own answer — so a deck whose targets
+     * came from a Dict Import sheet reloads pointing at the same texts.
      */
-    private void writeSlideTimers(Properties props) {
+    private void writeSlideTimerTargets(Properties props) {
         int n = 0;
         for (SlideRow row : slideRows) {
             if (row.isTitleGridSlide) continue;
-            writeTimer(props, "timer.slide" + n + ".", row.getSlideTimer());
+            SlideTimer t = row.getSlideTimer();
+            props.setProperty("timer.slide" + n + ".target",
+                    String.valueOf(t == null ? 0 : t.endTextIndex));
             n++;
         }
         props.setProperty("timer.slideCount", String.valueOf(n));
     }
 
-    /** Write one timer under {@code p} ("timer." for the deck's master timer,
-     *  "timer.slideN." for slide N's own). */
+    /** Write one timer under {@code p} — "timer." for the deck's shared timer. */
     private static void writeTimer(Properties props, String p, SlideTimer t) {
         if (t == null) t = new SlideTimer();
         props.setProperty(p + "enabled",     String.valueOf(t.enabled));
@@ -2077,9 +2070,6 @@ public class GifSlideShowApp extends JFrame {
         props.setProperty(p + "endAudioPath",   t.endAudioPath != null ? t.endAudioPath : "");
         props.setProperty(p + "endAudioDelayMs", String.valueOf(t.endAudioDelayMs));
         props.setProperty(p + "endAudioVolume", String.valueOf(t.endAudioVolume));
-        // Which of these settings this slide keeps as its own when the master
-        // slide's timer is broadcast over the deck.
-        props.setProperty(p + "perSlide", t.perSlideKeys());
     }
 
     /** Rebuild the timer stored under {@code p}, or null when it isn't there. */
@@ -2135,7 +2125,6 @@ public class GifSlideShowApp extends JFrame {
         t.endAudioPath   = props.getProperty(p + "endAudioPath", "");
         t.endAudioDelayMs = parseIntOr(props.getProperty(p + "endAudioDelayMs"), 1000);
         t.endAudioVolume = parseIntOr(props.getProperty(p + "endAudioVolume"), 100);
-        t.setPerSlideKeys(props.getProperty(p + "perSlide", ""));
         return t;
     }
 
@@ -3562,7 +3551,7 @@ public class GifSlideShowApp extends JFrame {
 
         // Ask whether first row is a header
         int headerChoice = JOptionPane.showOptionDialog(this,
-                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting,\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.\nFor TWO audios on one text, put both paths comma-separated in that\ntext's audio cell, quoted: \"first.mp3,second.mp3\" (2nd plays after the\nfirst, separated by the Gap value).\nX-AXIS/Y-AXIS/TEXT-SIZE for position & size per text item.\nTEXT1TIME/TEXT2TIME/... for appear,go timing per text item\n(cell = \"appear,go\" in seconds; \"appear\" alone = never leaves).)",
+                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting,\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.\nFor TWO audios on one text, put both paths comma-separated in that\ntext's audio cell, quoted: \"first.mp3,second.mp3\" (2nd plays after the\nfirst, separated by the Gap value).\nX-AXIS/Y-AXIS/TEXT-SIZE for position & size per text item.\nTEXT1TIME/TEXT2TIME/... for appear,go timing per text item\n(cell = \"appear,go\" in seconds; \"appear\" alone = never leaves).\nTIMER_TARGET for the Slide Timer's target text — the text the countdown\nreveals and badges at zero. Either a text number (1 = Text 1, 0 = none)\nor the text itself, matched against that row's texts. Everything else\nabout the timer comes from the first slide.)",
                 "Dictionary Import", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,
                 null, new String[]{"Yes, skip first row", "No, first row is data"}, "No, first row is data");
 
@@ -3576,6 +3565,8 @@ public class GifSlideShowApp extends JFrame {
         int xAxisColIndex = -1;
         int yAxisColIndex = -1;
         int textSizeColIndex = -1;
+        // Slide Timer target text: the one setting the countdown keeps per slide.
+        int timerTargetColIndex = -1;
         // Multi-audio: AUDIO1, AUDIO2, AUDIOLINK1, AUDIOLINK2, etc.
         java.util.Map<Integer, Integer> audioColByTextIndex = new java.util.TreeMap<>();
         // Texts Timer: TEXT1TIME, TEXT2TIME, … each cell = "appear,go" (seconds).
@@ -3606,6 +3597,12 @@ public class GifSlideShowApp extends JFrame {
                     yAxisColIndex = c;
                 } else if (h.equals("TEXT-SIZE") || h.equals("TEXTSIZE") || h.equals("TEXT_SIZE") || h.equals("SIZE")) {
                     textSizeColIndex = c;
+                } else if (h.equals("TIMER_TARGET") || h.equals("TIMER-TARGET")
+                        || h.equals("TIMERTARGET") || h.equals("TIMER_TARGET_TEXT")
+                        || h.equals("TARGET_TEXT") || h.equals("TARGET-TEXT")
+                        || h.equals("TARGET") || h.equals("TIMER_ANSWER")) {
+                    // The Slide Timer's target text for this slide.
+                    timerTargetColIndex = c;
                 } else if (h.matches("TEXT\\d+TIME")) {
                     // Texts-Timer columns: TEXT1TIME, TEXT2TIME, … map to text items.
                     // Each cell is "appear,go" in seconds ("appear" alone = never leaves).
@@ -3651,6 +3648,7 @@ public class GifSlideShowApp extends JFrame {
             if (c != hlColIndex && c != ulColIndex && c != boldColIndex
                     && c != italicColIndex && c != colorColIndex && c != audioLinkColIndex
                     && c != xAxisColIndex && c != yAxisColIndex && c != textSizeColIndex
+                    && c != timerTargetColIndex
                     && !audioColIndices.contains(c) && !timeColIndices.contains(c)) {
                 textColIndices.add(c);
             }
@@ -3665,7 +3663,9 @@ public class GifSlideShowApp extends JFrame {
         }
 
         int assigned = 0;
+        int timerTargetsSet = 0;
         List<String> missingAudioFiles = new ArrayList<>();
+        List<String> unmatchedTimerTargets = new ArrayList<>();
         for (int i = 0; i < allRows.size(); i++) {
             List<String> fields = allRows.get(i);
             SlideRow slide;
@@ -3827,6 +3827,22 @@ public class GifSlideShowApp extends JFrame {
                 slide.setSlideTextTimerAt(textIdx, appearMs, goMs);
             }
 
+            // Apply the TIMER_TARGET column — the slide text the countdown reveals
+            // and badges when it reaches zero. Done after this row's texts are in
+            // place so a cell naming the text itself ("Paris") can be matched.
+            if (timerTargetColIndex >= 0 && timerTargetColIndex < fields.size()) {
+                String targetCell = fields.get(timerTargetColIndex).trim();
+                if (!targetCell.isEmpty()) {
+                    int target = resolveTimerTarget(targetCell, slide.getSlideTextDataList());
+                    if (target < 0) {
+                        unmatchedTimerTargets.add("Row " + (i + 1) + ": \"" + targetCell + "\"");
+                    } else {
+                        slide.setSlideTimerTarget(target);
+                        timerTargetsSet++;
+                    }
+                }
+            }
+
             assigned++;
         }
 
@@ -3846,6 +3862,28 @@ public class GifSlideShowApp extends JFrame {
         if (yAxisColIndex >= 0) importMsg += "\nY-AXIS column detected — Y positions imported per text item.";
         if (textSizeColIndex >= 0) importMsg += "\nTEXT-SIZE column detected — text sizes imported per text item.";
         if (!timeColByTextIndex.isEmpty()) importMsg += "\nTEXTnTIME column(s) detected — appear/go timing imported per text item.";
+        if (timerTargetColIndex >= 0) {
+            importMsg += "\nTIMER_TARGET column detected — Slide Timer target text set on "
+                    + timerTargetsSet + " slide(s).";
+            SlideTimer masterTimer = null;
+            for (SlideRow row : slideRows) {
+                if (!row.isTitleGridSlide) { masterTimer = row.getSlideTimer(); break; }
+            }
+            if (masterTimer == null || !masterTimer.enabled) {
+                importMsg += "\n  The countdown is switched off on the first slide, so nothing "
+                        + "is revealed yet —\n  switch it on there (⏳ Slide Timer) and it reaches "
+                        + "the whole deck.";
+            }
+            if (!unmatchedTimerTargets.isEmpty()) {
+                importMsg += "\n  " + unmatchedTimerTargets.size()
+                        + " TIMER_TARGET cell(s) matched none of their slide's texts:";
+                int show = Math.min(unmatchedTimerTargets.size(), 12);
+                for (int w = 0; w < show; w++) importMsg += "\n    " + unmatchedTimerTargets.get(w);
+                if (unmatchedTimerTargets.size() > show) {
+                    importMsg += "\n    …and " + (unmatchedTimerTargets.size() - show) + " more.";
+                }
+            }
+        }
         importMsg += "\nSlides: " + slideRows.size() + " total.";
         if (!missingAudioFiles.isEmpty()) {
             importMsg += "\n\nWARNING: " + missingAudioFiles.size() + " audio file(s) not found:";
@@ -3855,7 +3893,63 @@ public class GifSlideShowApp extends JFrame {
             importMsg += "\n\nMake sure audio files exist relative to the CSV file location.";
         }
         JOptionPane.showMessageDialog(this, importMsg, "Dictionary Import",
-                missingAudioFiles.isEmpty() ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+                missingAudioFiles.isEmpty() && unmatchedTimerTargets.isEmpty()
+                        ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+    }
+
+    /** Loosen a cell / slide text for matching: casefold, collapse whitespace,
+     *  drop the punctuation Excel and typists sprinkle around answers. */
+    private static String looseText(String s) {
+        if (s == null) return "";
+        String v = s.replace('\n', ' ').replace(' ', ' ').trim().toLowerCase(Locale.ROOT);
+        StringBuilder b = new StringBuilder(v.length());
+        boolean lastSpace = false;
+        for (int i = 0; i < v.length(); i++) {
+            char c = v.charAt(i);
+            if (Character.isLetterOrDigit(c)) { b.append(c); lastSpace = false; }
+            else if (!lastSpace) { b.append(' '); lastSpace = true; }
+        }
+        return b.toString().trim();
+    }
+
+    /**
+     * Work out which slide text a TIMER_TARGET cell means. A plain number is the
+     * text number itself (1 = Text 1, 0 / "none" = no target text); anything else
+     * is matched against the slide's own texts — exact first, then loosely, then
+     * as a contained phrase. Returns -1 when nothing matches.
+     */
+    private static int resolveTimerTarget(String cell, List<SlideTextData> texts) {
+        String v = cell == null ? "" : cell.trim();
+        if (v.isEmpty()) return -1;
+        String low = v.toLowerCase(Locale.ROOT);
+        if (low.equals("none") || low.equals("-") || low.equals("no") || low.equals("0")) return 0;
+        if (v.matches("\\d+")) {
+            try { return Integer.parseInt(v); } catch (NumberFormatException ignored) { }
+        }
+        // "Text 3" / "TEXT3" — the wording the dialog's own dropdown uses.
+        java.util.regex.Matcher m =
+                java.util.regex.Pattern.compile("^text\\s*#?\\s*(\\d+)$").matcher(low);
+        if (m.matches()) {
+            try { return Integer.parseInt(m.group(1)); } catch (NumberFormatException ignored) { }
+        }
+        if (texts == null) return -1;
+        for (int i = 0; i < texts.size(); i++) {
+            SlideTextData d = texts.get(i);
+            String t = d == null || d.text == null ? "" : d.text.trim();
+            if (!t.isEmpty() && t.equalsIgnoreCase(v)) return i + 1;
+        }
+        String want = looseText(v);
+        if (want.isEmpty()) return -1;
+        for (int i = 0; i < texts.size(); i++) {
+            SlideTextData d = texts.get(i);
+            if (looseText(d == null ? "" : d.text).equals(want)) return i + 1;
+        }
+        for (int i = 0; i < texts.size(); i++) {
+            SlideTextData d = texts.get(i);
+            String have = looseText(d == null ? "" : d.text);
+            if (!have.isEmpty() && (have.contains(want) || want.contains(have))) return i + 1;
+        }
+        return -1;
     }
 
     // ==================== Quiz Import ====================
@@ -4630,579 +4724,6 @@ public class GifSlideShowApp extends JFrame {
             c.playAfterReveal = (c.targetTextIndex >= 1)
                     && on.contains(c.targetTextIndex);
         }
-    }
-
-    // ===== "Slide Timer" import (target text + per-slide timer settings) =====
-
-    /**
-     * Read CSV/TSV rows for an import: either from a file (UTF-8 with or without
-     * BOM, UTF-16 LE/BE, falling back to Windows-1252) or from a paste copied out
-     * of Excel. Returns null when the user backs out; trailing blank rows are
-     * dropped. {@code dirOut[0]} receives the chosen file's folder so relative
-     * paths in the sheet can be resolved against it.
-     */
-    private List<String> readImportRows(String title, String intro, File[] dirOut) {
-        String[] options = {"From File (CSV/TSV)", "From Clipboard / Paste"};
-        int choice = JOptionPane.showOptionDialog(this, intro, title,
-                JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
-                null, options, options[0]);
-        if (choice < 0) return null;
-
-        List<String> rawLines = null;
-        if (choice == 0) {
-            JFileChooser fc = new JFileChooser();
-            fc.setFileFilter(new FileNameExtensionFilter(
-                    "CSV / TSV files (*.csv, *.tsv, *.txt)", "csv", "tsv", "txt"));
-            if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return null;
-            if (dirOut != null && dirOut.length > 0) {
-                dirOut[0] = fc.getSelectedFile().getParentFile();
-            }
-            try {
-                byte[] fileBytes = Files.readAllBytes(fc.getSelectedFile().toPath());
-                int offset = 0;
-                if (fileBytes.length >= 3 && (fileBytes[0] & 0xFF) == 0xEF
-                        && (fileBytes[1] & 0xFF) == 0xBB && (fileBytes[2] & 0xFF) == 0xBF) {
-                    offset = 3;
-                } else if (fileBytes.length >= 2 && (fileBytes[0] & 0xFF) == 0xFF
-                        && (fileBytes[1] & 0xFF) == 0xFE) {
-                    rawLines = splitCsvRows(stripBom(new String(fileBytes,
-                            java.nio.charset.Charset.forName("UTF-16LE"))));
-                    offset = -1;
-                } else if (fileBytes.length >= 2 && (fileBytes[0] & 0xFF) == 0xFE
-                        && (fileBytes[1] & 0xFF) == 0xFF) {
-                    rawLines = splitCsvRows(stripBom(new String(fileBytes,
-                            java.nio.charset.Charset.forName("UTF-16BE"))));
-                    offset = -1;
-                }
-                if (offset >= 0) {
-                    String content = new String(fileBytes, offset,
-                            fileBytes.length - offset, StandardCharsets.UTF_8);
-                    if (content.contains("�")) {
-                        content = new String(fileBytes, offset, fileBytes.length - offset,
-                                java.nio.charset.Charset.forName("windows-1252"));
-                    }
-                    rawLines = splitCsvRows(content);
-                }
-            } catch (IOException ex) {
-                try {
-                    rawLines = Files.readAllLines(fc.getSelectedFile().toPath());
-                } catch (IOException ex2) {
-                    JOptionPane.showMessageDialog(this,
-                            "Failed to read file:\n" + ex2.getMessage(),
-                            "Error", JOptionPane.ERROR_MESSAGE);
-                    return null;
-                }
-            }
-        } else {
-            JTextArea pasteArea = new JTextArea(12, 50);
-            pasteArea.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-            pasteArea.setLineWrap(false);
-            JScrollPane sp = new JScrollPane(pasteArea);
-            sp.setPreferredSize(new Dimension(600, 300));
-            int result = JOptionPane.showConfirmDialog(this, sp,
-                    "Paste CSV/TSV rows (header row required):",
-                    JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-            if (result != JOptionPane.OK_OPTION) return null;
-            String text = pasteArea.getText();
-            if (text.trim().isEmpty()) {
-                JOptionPane.showMessageDialog(this, "No data entered.",
-                        "Empty", JOptionPane.WARNING_MESSAGE);
-                return null;
-            }
-            rawLines = splitCsvRows(text);
-        }
-
-        ArrayList<String> trimmed = new ArrayList<>(rawLines);
-        while (!trimmed.isEmpty() && trimmed.get(trimmed.size() - 1).trim().isEmpty()) {
-            trimmed.remove(trimmed.size() - 1);
-        }
-        return trimmed;
-    }
-
-    private static String stripBom(String s) {
-        return (s.length() > 0 && s.charAt(0) == '﻿') ? s.substring(1) : s;
-    }
-
-    /** Canonical Slide-Timer column name for a header cell, or null if it isn't one. */
-    private static String timerHeaderKey(String rawHeader) {
-        String h = normalizeHeader(rawHeader);
-        if (h.isEmpty()) return null;
-        if (h.startsWith("TIMER.")) h = "TIMER_" + h.substring(6);
-        h = h.replace(' ', '_').replace('-', '_');
-        switch (h) {
-            // The target text: what the countdown reveals / badges at zero.
-            case "TIMER_TARGET": case "TIMER_TARGET_TEXT": case "TIMER_TEXT":
-            case "TARGET_TEXT":  case "TARGET":            case "TIMER_ANSWER":
-            case "ANSWER":       case "CORRECT_TEXT":
-                return "TIMER_TARGET";
-            case "TIMER_ENABLED": case "TIMER_ON":            return "TIMER_ENABLED";
-            case "TIMER_SECONDS": case "TIMER_LENGTH":        return "TIMER_SECONDS";
-            case "TIMER_STYLE":   case "TIMER_DESIGN":        return "TIMER_STYLE";
-            case "TIMER_LABEL":                               return "TIMER_LABEL";
-            case "TIMER_START_MODE": case "TIMER_START":      return "TIMER_START_MODE";
-            case "TIMER_AT":      case "TIMER_START_AT":      return "TIMER_AT";
-            case "TIMER_OFFSET":                              return "TIMER_OFFSET";
-            case "TIMER_REVEAL":  case "TIMER_HIDE_UNTIL_END": return "TIMER_REVEAL";
-            case "TIMER_TEXT_EFFECT": case "TIMER_TEXT_ANIM": return "TIMER_TEXT_EFFECT";
-            case "TIMER_BADGE":                               return "TIMER_BADGE";
-            case "TIMER_BADGE_TEXT": case "TIMER_BADGE_WORDING": return "TIMER_BADGE_TEXT";
-            case "TIMER_BADGE_COLOR":                         return "TIMER_BADGE_COLOR";
-            case "TIMER_BADGE_MARK_COLOR": case "TIMER_BADGE_COLOR2":
-                return "TIMER_BADGE_MARK_COLOR";
-            case "TIMER_HOLD":                                return "TIMER_HOLD";
-            case "TIMER_END_AUDIO": case "TIMER_END_SOUND_FILE":
-                return "TIMER_END_AUDIO";
-            case "TIMER_END_DELAY":                           return "TIMER_END_DELAY";
-            case "TIMER_END_VOLUME":                          return "TIMER_END_VOLUME";
-            default: return null;
-        }
-    }
-
-    /** Loosen a cell / slide text for matching: casefold, collapse whitespace,
-     *  drop the punctuation Excel and typists sprinkle around answers. */
-    private static String looseText(String s) {
-        if (s == null) return "";
-        String v = s.replace('\n', ' ').replace(' ', ' ').trim().toLowerCase(Locale.ROOT);
-        StringBuilder b = new StringBuilder(v.length());
-        boolean lastSpace = false;
-        for (int i = 0; i < v.length(); i++) {
-            char c = v.charAt(i);
-            if (Character.isLetterOrDigit(c)) { b.append(c); lastSpace = false; }
-            else if (!lastSpace) { b.append(' '); lastSpace = true; }
-        }
-        return b.toString().trim();
-    }
-
-    /**
-     * Work out which slide text a TIMER_TARGET cell means. A plain number is the
-     * text number itself (1 = Text 1, 0 / "none" = no target text); anything else
-     * is matched against the slide's own texts — exact first, then loosely, then
-     * as a contained phrase. Returns -1 when nothing matches.
-     */
-    private static int resolveTimerTarget(String cell, List<SlideTextData> texts) {
-        String v = cell == null ? "" : cell.trim();
-        if (v.isEmpty()) return -1;
-        String low = v.toLowerCase(Locale.ROOT);
-        if (low.equals("none") || low.equals("-") || low.equals("no") || low.equals("0")) return 0;
-        if (v.matches("\\d+")) {
-            try { return Integer.parseInt(v); } catch (NumberFormatException ignored) { }
-        }
-        // "Text 3" / "TEXT3" — the wording the dialog's own dropdown uses.
-        java.util.regex.Matcher m =
-                java.util.regex.Pattern.compile("^text\\s*#?\\s*(\\d+)$").matcher(low);
-        if (m.matches()) {
-            try { return Integer.parseInt(m.group(1)); } catch (NumberFormatException ignored) { }
-        }
-        if (texts == null) return -1;
-        for (int i = 0; i < texts.size(); i++) {
-            SlideTextData d = texts.get(i);
-            String t = d == null || d.text == null ? "" : d.text.trim();
-            if (!t.isEmpty() && t.equalsIgnoreCase(v)) return i + 1;
-        }
-        String want = looseText(v);
-        if (want.isEmpty()) return -1;
-        for (int i = 0; i < texts.size(); i++) {
-            SlideTextData d = texts.get(i);
-            if (looseText(d == null ? "" : d.text).equals(want)) return i + 1;
-        }
-        for (int i = 0; i < texts.size(); i++) {
-            SlideTextData d = texts.get(i);
-            String have = looseText(d == null ? "" : d.text);
-            if (!have.isEmpty() && (have.contains(want) || want.contains(have))) return i + 1;
-        }
-        return -1;
-    }
-
-    /** Nearest entry of {@code options} for a spreadsheet cell, or null. */
-    private static String matchTimerOption(String[] options, String cell) {
-        String want = looseText(cell);
-        if (want.isEmpty()) return null;
-        for (String o : options) if (looseText(o).equals(want)) return o;
-        for (String o : options) if (looseText(o).startsWith(want)) return o;
-        return null;
-    }
-
-    /** Seconds cell ("2", "2.5") as ms, or null when it isn't a number. */
-    private static Integer timerSecCell(String cell, String field, int rowNum,
-                                        List<String> warnings) {
-        try {
-            return (int) Math.round(Double.parseDouble(cell.trim()) * 1000.0);
-        } catch (NumberFormatException nfe) {
-            warnings.add("Row " + rowNum + ": " + field + " '" + cell
-                    + "' is not a number of seconds. Ignored.");
-            return null;
-        }
-    }
-
-    /**
-     * Bulk-load the on-slide countdown timer's per-slide settings from a CSV/TSV
-     * file (or a paste out of Excel). Row N → slide N, title-grid slides skipped —
-     * the same shape as Dict Import and Quiz Import.
-     *
-     * The column that carries the work is TIMER_TARGET: the slide text the
-     * countdown reveals and badges when it reaches zero, given either as a text
-     * number (1 = Text 1) or as the text itself, matched against that slide's
-     * texts. Everything a row sets is remembered as that slide's own value, so a
-     * later tweak on the master slide still broadcasts the design without
-     * flattening the imported answers.
-     */
-    private void timerImport() {
-        List<SlideRow> targetSlides = new ArrayList<>();
-        for (SlideRow row : slideRows) {
-            if (!row.isTitleGridSlide) targetSlides.add(row);
-        }
-        if (targetSlides.isEmpty()) {
-            JOptionPane.showMessageDialog(this,
-                    "There are no slides to import timer settings into.",
-                    "Timer Import", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        File[] dirOut = new File[1];
-        List<String> trimmed = readImportRows("Timer Import",
-                "Import the Slide Timer's per-slide settings from a spreadsheet.\n"
-                        + "Each row = one slide (row 2 → slide 1), header row required.\n\n"
-                        + "  TIMER_TARGET   the target text the countdown reveals /\n"
-                        + "                 badges at zero. Either a text number\n"
-                        + "                 (1 = Text 1, 0 = none) or the text itself,\n"
-                        + "                 matched against that slide's texts.\n"
-                        + "  TIMER_ENABLED  true / false — show the countdown on that slide\n"
-                        + "  TIMER_SECONDS  countdown length in seconds\n"
-                        + "  TIMER_REVEAL   true = keep the target text hidden until zero\n"
-                        + "  TIMER_TEXT_EFFECT, TIMER_BADGE, TIMER_BADGE_TEXT,\n"
-                        + "  TIMER_BADGE_COLOR, TIMER_BADGE_MARK_COLOR, TIMER_HOLD (s),\n"
-                        + "  TIMER_END_AUDIO (file, relative to the sheet), TIMER_END_DELAY (s),\n"
-                        + "  TIMER_END_VOLUME (0-100), TIMER_STYLE, TIMER_LABEL,\n"
-                        + "  TIMER_START_MODE, TIMER_AT (s), TIMER_OFFSET (s)\n\n"
-                        + "Empty cell = leave that value unchanged.\n"
-                        + "Imported values stay that slide's own: a later change on the\n"
-                        + "first slide broadcasts the timer's design without overwriting them.\n"
-                        + "Tip: For Unicode/IPA, save Excel as \"CSV UTF-8\".\n"
-                        + "(Title grid slides are skipped.)",
-                dirOut);
-        if (trimmed == null) return;
-        File importSourceDir = dirOut[0];
-
-        if (trimmed.size() < 2) {
-            JOptionPane.showMessageDialog(this,
-                    "Need a header row plus at least one data row.\n"
-                            + "First row must name the TIMER_* columns "
-                            + "(TIMER_TARGET at the very least).",
-                    "Timer Import", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        List<String> headerFields = parseCsvLine(trimmed.get(0));
-        Map<String, Integer> col = new HashMap<>();
-        for (int i = 0; i < headerFields.size(); i++) {
-            String key = timerHeaderKey(headerFields.get(i));
-            if (key != null && !col.containsKey(key)) col.put(key, i);
-        }
-        if (col.isEmpty()) {
-            StringBuilder seen = new StringBuilder();
-            for (String raw : headerFields) {
-                if (seen.length() > 0) seen.append(" | ");
-                seen.append('"').append(raw).append('"');
-            }
-            JOptionPane.showMessageDialog(this,
-                    "No Slide Timer columns in the header row.\n"
-                            + "Expected at least TIMER_TARGET (the target text).\n\n"
-                            + "Header cells found: " + seen,
-                    "Timer Import", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        int updated = 0, targetsSet = 0;
-        List<String> warnings = new ArrayList<>();
-        List<SlideRow> touched = new ArrayList<>();
-
-        for (int r = 1; r < trimmed.size(); r++) {
-            if (trimmed.get(r).trim().isEmpty()) continue;
-            List<String> fields = parseCsvLine(trimmed.get(r));
-            int slideIdx = r - 1;
-            if (slideIdx >= targetSlides.size()) {
-                warnings.add("Row " + (r + 1) + ": no matching slide (only "
-                        + targetSlides.size() + " non-title-grid slides). Skipped.");
-                continue;
-            }
-            SlideRow slide = targetSlides.get(slideIdx);
-            SlideTimer t = slide.getSlideTimer();
-            if (t == null) continue;
-            boolean rowChanged = false;
-            String s;
-
-            s = quizCellAt(fields, col.get("TIMER_TARGET"));
-            if (s != null && !s.trim().isEmpty()) {
-                List<SlideTextData> texts = slide.getSlideTextDataList();
-                int idx = resolveTimerTarget(s, texts);
-                if (idx < 0) {
-                    warnings.add("Row " + (r + 1) + ": TIMER_TARGET '" + s.trim()
-                            + "' matches none of this slide's " + texts.size()
-                            + " text(s). Left unchanged.");
-                } else {
-                    if (idx > texts.size()) {
-                        warnings.add("Row " + (r + 1) + ": TIMER_TARGET points at Text "
-                                + idx + " but this slide has only " + texts.size()
-                                + " text(s). Set anyway.");
-                    }
-                    t.endTextIndex = idx;
-                    slide.markTimerPerSlide(SlideTimer.PS_TARGET);
-                    rowChanged = true;
-                    targetsSet++;
-                }
-            }
-
-            s = quizCellAt(fields, col.get("TIMER_ENABLED"));
-            if (s != null && !s.trim().isEmpty()) {
-                t.enabled = parseQuizBool(s, t.enabled);
-                slide.markTimerPerSlide(SlideTimer.PS_ENABLED);
-                rowChanged = true;
-            }
-
-            s = quizCellAt(fields, col.get("TIMER_SECONDS"));
-            if (s != null && !s.trim().isEmpty()) {
-                try {
-                    int v = Integer.parseInt(s.trim());
-                    if (v >= 1) {
-                        t.seconds = v;
-                        slide.markTimerPerSlide(SlideTimer.PS_SECONDS);
-                        rowChanged = true;
-                    } else {
-                        warnings.add("Row " + (r + 1)
-                                + ": TIMER_SECONDS must be at least 1. Ignored.");
-                    }
-                } catch (NumberFormatException nfe) {
-                    warnings.add("Row " + (r + 1) + ": TIMER_SECONDS '" + s.trim()
-                            + "' is not a whole number of seconds. Ignored.");
-                }
-            }
-
-            s = quizCellAt(fields, col.get("TIMER_STYLE"));
-            if (s != null && !s.trim().isEmpty()) {
-                String v = matchTimerOption(SlideTimer.styles(), s);
-                if (v == null) {
-                    warnings.add("Row " + (r + 1) + ": TIMER_STYLE '" + s.trim()
-                            + "' is not one of the timer designs. Ignored.");
-                } else {
-                    t.style = v;
-                    slide.markTimerPerSlide(SlideTimer.PS_STYLE);
-                    rowChanged = true;
-                }
-            }
-
-            s = quizCellAt(fields, col.get("TIMER_LABEL"));
-            if (s != null && !s.trim().isEmpty()) {
-                t.label = s.trim();
-                slide.markTimerPerSlide(SlideTimer.PS_LABEL);
-                rowChanged = true;
-            }
-
-            s = quizCellAt(fields, col.get("TIMER_START_MODE"));
-            if (s != null && !s.trim().isEmpty()) {
-                String v = matchTimerOption(SlideTimer.startModes(), s);
-                if (v == null) {
-                    warnings.add("Row " + (r + 1) + ": TIMER_START_MODE '" + s.trim()
-                            + "' is not a known start mode. Ignored.");
-                } else {
-                    t.startMode = v;
-                    slide.markTimerPerSlide(SlideTimer.PS_START);
-                    rowChanged = true;
-                }
-            }
-
-            s = quizCellAt(fields, col.get("TIMER_AT"));
-            if (s != null && !s.trim().isEmpty()) {
-                Integer ms = timerSecCell(s, "TIMER_AT", r + 1, warnings);
-                if (ms != null) {
-                    t.startAtMs = Math.max(0, ms);
-                    slide.markTimerPerSlide(SlideTimer.PS_START);
-                    rowChanged = true;
-                }
-            }
-
-            s = quizCellAt(fields, col.get("TIMER_OFFSET"));
-            if (s != null && !s.trim().isEmpty()) {
-                Integer ms = timerSecCell(s, "TIMER_OFFSET", r + 1, warnings);
-                if (ms != null) {
-                    t.offsetMs = ms;
-                    slide.markTimerPerSlide(SlideTimer.PS_START);
-                    rowChanged = true;
-                }
-            }
-
-            s = quizCellAt(fields, col.get("TIMER_REVEAL"));
-            if (s != null && !s.trim().isEmpty()) {
-                t.endRevealText = parseQuizBool(s, t.endRevealText);
-                slide.markTimerPerSlide(SlideTimer.PS_REVEAL);
-                rowChanged = true;
-            }
-
-            s = quizCellAt(fields, col.get("TIMER_TEXT_EFFECT"));
-            if (s != null && !s.trim().isEmpty()) {
-                String v = matchTimerOption(SlideTimer.endTextEffects(), s);
-                if (v == null) {
-                    warnings.add("Row " + (r + 1) + ": TIMER_TEXT_EFFECT '" + s.trim()
-                            + "' is not one of the text animations. Ignored.");
-                } else {
-                    t.endTextEffect = v;
-                    slide.markTimerPerSlide(SlideTimer.PS_TEXT_EFFECT);
-                    rowChanged = true;
-                }
-            }
-
-            s = quizCellAt(fields, col.get("TIMER_BADGE"));
-            if (s != null && !s.trim().isEmpty()) {
-                String v = matchTimerOption(SlideTimer.endBadges(), s);
-                if (v == null) {
-                    warnings.add("Row " + (r + 1) + ": TIMER_BADGE '" + s.trim()
-                            + "' is not one of the badges. Ignored.");
-                } else {
-                    t.endBadge = v;
-                    slide.markTimerPerSlide(SlideTimer.PS_BADGE);
-                    rowChanged = true;
-                }
-            }
-
-            s = quizCellAt(fields, col.get("TIMER_BADGE_TEXT"));
-            if (s != null && !s.trim().isEmpty()) {
-                t.endBadgeText = s.trim();
-                slide.markTimerPerSlide(SlideTimer.PS_BADGE_TEXT);
-                rowChanged = true;
-            }
-
-            s = quizCellAt(fields, col.get("TIMER_BADGE_COLOR"));
-            if (s != null && !s.trim().isEmpty()) {
-                Color c = parseQuizColor(s.trim());
-                if (c == null) {
-                    warnings.add("Row " + (r + 1) + ": TIMER_BADGE_COLOR '" + s.trim()
-                            + "' not recognised. Ignored.");
-                } else {
-                    t.endBadgeColor = c;
-                    slide.markTimerPerSlide(SlideTimer.PS_BADGE_COLOR);
-                    rowChanged = true;
-                }
-            }
-
-            s = quizCellAt(fields, col.get("TIMER_BADGE_MARK_COLOR"));
-            if (s != null && !s.trim().isEmpty()) {
-                Color c = parseQuizColor(s.trim());
-                if (c == null) {
-                    warnings.add("Row " + (r + 1) + ": TIMER_BADGE_MARK_COLOR '" + s.trim()
-                            + "' not recognised. Ignored.");
-                } else {
-                    t.endBadgeColor2 = c;
-                    slide.markTimerPerSlide(SlideTimer.PS_BADGE_COLOR);
-                    rowChanged = true;
-                }
-            }
-
-            s = quizCellAt(fields, col.get("TIMER_HOLD"));
-            if (s != null && !s.trim().isEmpty()) {
-                Integer ms = timerSecCell(s, "TIMER_HOLD", r + 1, warnings);
-                if (ms != null) {
-                    t.endHoldMs = Math.max(0, ms);
-                    slide.markTimerPerSlide(SlideTimer.PS_HOLD);
-                    rowChanged = true;
-                }
-            }
-
-            s = quizCellAt(fields, col.get("TIMER_END_AUDIO"));
-            if (s != null && !s.trim().isEmpty()) {
-                String cell = s.trim();
-                if (cell.equalsIgnoreCase("none") || cell.equals("-")) {
-                    t.endAudioPath = "";
-                    slide.markTimerPerSlide(SlideTimer.PS_END_AUDIO);
-                    rowChanged = true;
-                } else {
-                    File f = resolveQuizPath(cell, importSourceDir);
-                    if (!f.exists()) {
-                        warnings.add("Row " + (r + 1) + ": TIMER_END_AUDIO '" + cell
-                                + "' not found (looked in "
-                                + (importSourceDir == null ? "the working folder"
-                                        : importSourceDir.getPath()) + "). Ignored.");
-                    } else {
-                        t.endAudioPath = f.getAbsolutePath();
-                        slide.markTimerPerSlide(SlideTimer.PS_END_AUDIO);
-                        rowChanged = true;
-                    }
-                }
-            }
-
-            s = quizCellAt(fields, col.get("TIMER_END_DELAY"));
-            if (s != null && !s.trim().isEmpty()) {
-                Integer ms = timerSecCell(s, "TIMER_END_DELAY", r + 1, warnings);
-                if (ms != null) {
-                    t.endAudioDelayMs = Math.max(0, ms);
-                    slide.markTimerPerSlide(SlideTimer.PS_END_AUDIO);
-                    rowChanged = true;
-                }
-            }
-
-            s = quizCellAt(fields, col.get("TIMER_END_VOLUME"));
-            if (s != null && !s.trim().isEmpty()) {
-                try {
-                    int v = Integer.parseInt(s.trim());
-                    t.endAudioVolume = Math.max(0, Math.min(100, v));
-                    slide.markTimerPerSlide(SlideTimer.PS_END_AUDIO);
-                    rowChanged = true;
-                } catch (NumberFormatException nfe) {
-                    warnings.add("Row " + (r + 1) + ": TIMER_END_VOLUME '" + s.trim()
-                            + "' is not a number. Ignored.");
-                }
-            }
-
-            if (rowChanged) {
-                slide.schedulePreview();
-                touched.add(slide);
-                updated++;
-            }
-        }
-
-        revalidate();
-        repaint();
-
-        // A target text with the countdown switched off does nothing on screen, so
-        // offer to switch it on rather than leaving the user wondering.
-        int off = 0;
-        for (SlideRow row : touched) {
-            SlideTimer t = row.getSlideTimer();
-            if (t != null && !t.enabled) off++;
-        }
-        if (off > 0) {
-            int yes = JOptionPane.showConfirmDialog(this,
-                    off + " of the imported slide(s) still have their countdown switched off,\n"
-                            + "so the target text won't be revealed there.\n\n"
-                            + "Switch the countdown on for those slides now?",
-                    "Timer Import", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
-            if (yes == JOptionPane.YES_OPTION) {
-                for (SlideRow row : touched) {
-                    SlideTimer t = row.getSlideTimer();
-                    if (t != null && !t.enabled) {
-                        t.enabled = true;
-                        row.markTimerPerSlide(SlideTimer.PS_ENABLED);
-                        row.schedulePreview();
-                    }
-                }
-            }
-        }
-
-        StringBuilder msg = new StringBuilder();
-        msg.append("Timer Import complete.\n")
-                .append("Slides updated: ").append(updated).append("\n")
-                .append("Target texts set: ").append(targetsSet).append("\n")
-                .append("Columns used: ").append(String.join(", ", new TreeSet<>(col.keySet())));
-        if (!warnings.isEmpty()) {
-            msg.append("\n\nWarnings (").append(warnings.size()).append("):");
-            int show = Math.min(warnings.size(), 60);
-            for (int i = 0; i < show; i++) msg.append("\n  • ").append(warnings.get(i));
-            if (warnings.size() > show) {
-                msg.append("\n  …and ").append(warnings.size() - show).append(" more.");
-            }
-        }
-        msg.append("\n\nSave a preset to keep these per-slide targets with the deck.");
-        JOptionPane.showMessageDialog(this, msg.toString(), "Timer Import",
-                warnings.isEmpty() ? JOptionPane.INFORMATION_MESSAGE
-                        : JOptionPane.WARNING_MESSAGE);
     }
 
     private static void applyQuizVisualFields(QuizSlide q, List<String> fields,
@@ -22621,10 +22142,10 @@ public class GifSlideShowApp extends JFrame {
             slideTimerBtn.setToolTipText("<html>Add a professional countdown timer to this slide — choose a design, "
                     + "place and size it with a live preview, set its length, when it starts "
                     + "(after/before a text's audio or at an exact time), its sound and its effects.<br>"
-                    + "The first slide's timer is broadcast to the whole deck; each slide keeps its own "
-                    + "target text, badge wording and end sound.<br>"
-                    + "“At the End → Import target text…” fills those in for every slide from a "
-                    + "CSV/Excel sheet.</html>");
+                    + "The first slide's timer is broadcast to the whole deck — everything except the "
+                    + "target text, which each slide keeps as its own answer.<br>"
+                    + "Dict Import's TIMER_TARGET column sets that target text for every slide at "
+                    + "once.</html>");
             slideTimerBtn.addActionListener(e -> openSlideTimerDialog());
 
             toolbar4lg.add(lgTitleLbl);
@@ -27714,7 +27235,6 @@ public class GifSlideShowApp extends JFrame {
                 Object v = lenCombo.getSelectedItem();
                 int secs = parseIntOr(v == null ? "" : v.toString().trim(), live.seconds);
                 live.seconds = Math.max(1, Math.min(3600, secs));
-                markTimerPerSlide(SlideTimer.PS_SECONDS);
                 countUpCheck.setToolTipText("Count 0 → " + live.seconds + " instead of " + live.seconds + " → 0.");
                 syncScrubRange.run();
                 refresh.run();
@@ -27925,9 +27445,6 @@ public class GifSlideShowApp extends JFrame {
             endTextCombo.addActionListener(e -> {
                 int i = endTextCombo.getSelectedIndex();
                 live.endTextIndex = (i >= 0 && i < endIdxs.size()) ? endIdxs.get(i) : 0;
-                // Away from the master slide this is now this slide's own answer,
-                // so the master's broadcast must not flatten it.
-                markTimerPerSlide(SlideTimer.PS_TARGET);
                 refresh.run();
             });
             addTimerRow(end, r++, "Target text:", endTextCombo);
@@ -27939,7 +27456,6 @@ public class GifSlideShowApp extends JFrame {
                     + "the countdown is what reveals it.");
             revealCheck.addActionListener(e -> {
                 live.endRevealText = revealCheck.isSelected();
-                markTimerPerSlide(SlideTimer.PS_REVEAL);
                 refresh.run();
             });
             addTimerRow(end, r++, null, revealCheck);
@@ -27948,7 +27464,6 @@ public class GifSlideShowApp extends JFrame {
             endFxCombo.setSelectedItem(live.endTextEffect);
             endFxCombo.addActionListener(e -> {
                 live.endTextEffect = (String) endFxCombo.getSelectedItem();
-                markTimerPerSlide(SlideTimer.PS_TEXT_EFFECT);
                 refresh.run();
             });
             addTimerRow(end, r++, "Text animation:", endFxCombo);
@@ -27957,8 +27472,7 @@ public class GifSlideShowApp extends JFrame {
             badgeCombo.setSelectedItem(live.endBadge);
             final JButton badgeCol1 = timerColorButton(dlg, "Badge colour",
                     () -> live.endBadgeColor,
-                    c -> { live.endBadgeColor = c; markTimerPerSlide(SlideTimer.PS_BADGE_COLOR); },
-                    refresh);
+                    c -> live.endBadgeColor = c, refresh);
             badgeCombo.addActionListener(e -> {
                 String was = live.endBadge;
                 live.endBadge = (String) badgeCombo.getSelectedItem();
@@ -27969,7 +27483,6 @@ public class GifSlideShowApp extends JFrame {
                     live.endBadgeColor = new Color(231, 76, 60);
                     badgeCol1.setBackground(live.endBadgeColor);
                 }
-                markTimerPerSlide(SlideTimer.PS_BADGE);
                 refresh.run();
             });
             addTimerRow(end, r++, "Badge around it:", badgeCombo);
@@ -27981,8 +27494,7 @@ public class GifSlideShowApp extends JFrame {
             badgeCols.add(new JLabel("Mark"));
             badgeCols.add(timerColorButton(dlg, "Tick / text colour",
                     () -> live.endBadgeColor2,
-                    c -> { live.endBadgeColor2 = c; markTimerPerSlide(SlideTimer.PS_BADGE_COLOR); },
-                    refresh));
+                    c -> live.endBadgeColor2 = c, refresh));
             addTimerRow(end, r++, "Badge colours:", badgeCols);
 
             final JTextField badgeTextField = new JTextField(
@@ -27991,8 +27503,7 @@ public class GifSlideShowApp extends JFrame {
             badgeTextField.getDocument().addDocumentListener(new DocumentListener() {
                 private void ch() {
                     live.endBadgeText = badgeTextField.getText();
-                    markTimerPerSlide(SlideTimer.PS_BADGE_TEXT);
-                    refresh.run();
+                        refresh.run();
                 }
                 public void insertUpdate(DocumentEvent e) { ch(); }
                 public void removeUpdate(DocumentEvent e) { ch(); }
@@ -28017,15 +27528,13 @@ public class GifSlideShowApp extends JFrame {
                 if (fc.showOpenDialog(dlg) == JFileChooser.APPROVE_OPTION) {
                     live.endAudioPath = fc.getSelectedFile().getAbsolutePath();
                     endAudioLbl.setText(fc.getSelectedFile().getName());
-                    markTimerPerSlide(SlideTimer.PS_END_AUDIO);
-                    refresh.run();
+                        refresh.run();
                 }
             });
             JButton clearEndAudio = new JButton("Clear");
             clearEndAudio.addActionListener(e -> {
                 live.endAudioPath = "";
                 endAudioLbl.setText("(no file chosen)");
-                markTimerPerSlide(SlideTimer.PS_END_AUDIO);
                 refresh.run();
             });
             JButton playEndAudio = new JButton("▶");
@@ -28065,9 +27574,10 @@ public class GifSlideShowApp extends JFrame {
             JLabel endNote = new JLabel("<html><body style='width:300px'><i>Drag the preview slider past "
                     + "the end of the countdown to watch all of this play out. The slide is stretched "
                     + "automatically so the reveal, the badge and the sound all fit.<br><br>"
-                    + "The target text, the badge wording and the end sound stay this slide's own: "
-                    + "the first slide's timer design is broadcast over the deck without touching them. "
-                    + "Set them for every slide at once with “Import target text…” below.</i></body></html>");
+                    + "The target text is the one setting that stays this slide's own — the rest of "
+                    + "the timer is broadcast from the first slide. Set the target for every slide at "
+                    + "once with Dict Import's TIMER_TARGET column (“Import target text” below)."
+                    + "</i></body></html>");
             endNote.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             endNote.setForeground(new Color(90, 90, 100));
             addTimerRow(end, r++, null, endNote);
@@ -28101,7 +27611,6 @@ public class GifSlideShowApp extends JFrame {
             onCheck.setFont(new Font("Segoe UI", Font.BOLD, 13));
             onCheck.addActionListener(e -> {
                 live.enabled = onCheck.isSelected();
-                markTimerPerSlide(SlideTimer.PS_ENABLED);
                 refresh.run();
             });
 
@@ -28145,13 +27654,12 @@ public class GifSlideShowApp extends JFrame {
             // "I designed it here, on slide 7" — and for a one-off re-broadcast.
             JButton allSlidesBtn = new JButton("→ Apply to all slides");
             allSlidesBtn.setToolTipText("Copy this countdown timer to every slide. "
-                    + "Each slide's own target text, badge wording and end sound are kept "
-                    + "unless you tick the box.");
+                    + "Each slide keeps its own target text unless you tick the box.");
             allSlidesBtn.addActionListener(e -> {
                 JCheckBox alsoAnswers = new JCheckBox(
-                        "Also copy the target text, badge wording and end sound", false);
+                        "Also copy the target text", false);
                 alsoAnswers.setToolTipText("Leave this off to keep the per-slide answers "
-                        + "you set by hand or imported from a spreadsheet.");
+                        + "imported from your Dict Import sheet.");
                 JPanel ask = new JPanel(new BorderLayout(0, 8));
                 ask.add(new JLabel("<html><body style='width:330px'>Copy this slide's countdown "
                         + "timer — design, placement, timing, sound and end actions — to every "
@@ -28164,34 +27672,30 @@ public class GifSlideShowApp extends JFrame {
                 for (SlideRow row : slideRows) {
                     if (row == SlideRow.this || row.isTitleGridSlide) continue;
                     if (row.isLocked()) { locked++; continue; }
-                    if (alsoAnswers.isSelected()) {
-                        SlideTimer full = live.copy();
-                        full.clearPerSlide();      // the answers come from here now
-                        row.applySlideTimer(full);
-                    } else {
-                        row.propagateSlideTimerFrom(live);
-                    }
+                    if (alsoAnswers.isSelected()) row.applySlideTimer(live);
+                    else                          row.propagateSlideTimerFrom(live);
                     applied++;
                 }
                 String msg = "Copied this countdown timer to " + applied + " slide(s).";
                 if (!alsoAnswers.isSelected()) {
-                    msg += "\nEach slide kept its own target text, badge wording and end sound.";
+                    msg += "\nEach slide kept its own target text.";
                 }
                 if (locked > 0) msg += "\n" + locked + " locked slide(s) were left alone.";
                 JOptionPane.showMessageDialog(dlg, msg, "Apply to all slides",
                         JOptionPane.INFORMATION_MESSAGE);
             });
 
-            // Per-slide target texts come from a spreadsheet. Nested modal dialogs
-            // would be unreachable behind this one, so apply and close first.
-            JButton importBtn = new JButton("⤓ Import target text…");
-            importBtn.setToolTipText("Set the target text (and other per-slide timer values) for the "
-                    + "whole deck from a CSV/Excel sheet — one row per slide. This applies the "
-                    + "settings above and closes this box first.");
+            // Target texts come from the Dict Import sheet's TIMER_TARGET column.
+            // Nested modal dialogs would be unreachable behind this one, so apply
+            // and close before handing over.
+            JButton importBtn = new JButton("⤓ Import target text (Dict Import)…");
+            importBtn.setToolTipText("Open Dict Import, whose TIMER_TARGET column sets the target "
+                    + "text for every slide — a text number (1 = Text 1, 0 = none) or the text "
+                    + "itself. This applies the settings above and closes this box first.");
             importBtn.addActionListener(e -> {
                 onFormatChanged();
                 close.run();
-                timerImport();
+                dictionaryImport();
             });
 
             dlg.addWindowListener(new WindowAdapter() {
@@ -30744,31 +30248,16 @@ public class GifSlideShowApp extends JFrame {
         void propagateSlideTimerFrom(SlideTimer src) {
             if (src == null) return;
             if (slideTimer == null) slideTimer = new SlideTimer();
-            // A master slide with no timer of its own says nothing about the rest of
-            // the deck, so it never switches a slide's countdown off behind the
-            // user's back — the "Apply to all slides" button does that on request.
-            boolean keepOwnOn = slideTimer.enabled && !src.enabled;
             slideTimer.copyPropagatedFrom(src);
-            if (keepOwnOn) slideTimer.enabled = true;
             schedulePreview();
         }
 
-        /** True when this row is the one the whole deck's formatting follows. */
-        boolean isMasterSlideRow() {
-            for (SlideRow row : slideRows) {
-                if (!row.isTitleGridSlide) return row == this;
-            }
-            return false;
-        }
-
-        /**
-         * Claim one timer setting for this slide so the master's broadcast leaves it
-         * alone. Only matters away from the master slide — the master IS the source,
-         * so nothing there needs protecting.
-         */
-        void markTimerPerSlide(String key) {
-            if (slideTimer == null || isMasterSlideRow()) return;
-            slideTimer.markPerSlide(key);
+        /** Point this slide's countdown at one of its texts (0 = no target text).
+         *  Set by Dict Import's TIMER_TARGET column and by the Slide Timer box. */
+        void setSlideTimerTarget(int textNumber) {
+            if (slideTimer == null) slideTimer = new SlideTimer();
+            slideTimer.endTextIndex = Math.max(0, textNumber);
+            schedulePreview();
         }
 
         /**
