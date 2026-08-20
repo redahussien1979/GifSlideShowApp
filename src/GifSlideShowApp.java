@@ -167,7 +167,7 @@ public class GifSlideShowApp extends JFrame {
         bulkTextBtn.addActionListener(e -> bulkImportText());
 
         JButton dictImportBtn = createStyledButton("Dict Import", new Color(50, 180, 160));
-        dictImportBtn.setToolTipText("Import CSV/TSV: each row=slide, each column=slide text (A→Text1, B→Text2...). Optional headers: HL/UL/BOLD/ITALIC/COLOR, AUDIOLINK, AUDIO1.. (two comma-separated paths in a quoted cell = primary+second audio for that text, sharing the Gap), X-AXIS/Y-AXIS/TEXT-SIZE, and TEXT1TIME/TEXT2TIME.. for appear,go timing per text (cell=\"appear,go\" in seconds; \"appear\" alone = never leaves).");
+        dictImportBtn.setToolTipText("Import CSV/TSV: each row=slide, each column=slide text (A→Text1, B→Text2...). Optional headers: HL/UL/BOLD/ITALIC/COLOR, AUDIOLINK, AUDIO1.. (two comma-separated paths in a quoted cell = primary+second audio for that text, sharing the Gap), X-AXIS/Y-AXIS/TEXT-SIZE, TEXT1TIME/TEXT2TIME.. for appear,go timing per text (cell=\"appear,go\" in seconds; \"appear\" alone = never leaves), and TIMER_TARGET for the Slide Timer's target text — the text the countdown reveals at zero, given as a text number (1 = Text 1, 0 = none) or as the text itself.");
         dictImportBtn.addActionListener(e -> dictionaryImport());
 
         JButton quizImportBtn = createStyledButton("Quiz Import", new Color(180, 120, 200));
@@ -597,7 +597,10 @@ public class GifSlideShowApp extends JFrame {
         props.setProperty("layoutGroup.bold",       String.valueOf(source.isLgBold()));
         props.setProperty("layoutGroup.italic",     String.valueOf(source.isLgItalic()));
         props.setProperty("layoutGroup.align",      String.valueOf(source.getLgAlign()));
-        // Per-column override values + flags (size == cols)
+        // Per-column override values + flags (size == cols). The lists are filled
+        // in lazily by the Layout Group dialog, so size them first — saving a
+        // preset before that box has ever been opened used to walk off the end.
+        source.ensureLgColumnLists();
         int lgcN = source.getLgCols();
         for (int c = 0; c < lgcN; c++) {
             String pc = "layoutGroup.col" + c + ".";
@@ -739,7 +742,10 @@ public class GifSlideShowApp extends JFrame {
         writeAnnotations(props, source.getSlideAnnotationList());
 
         // On-slide countdown timer (design, placement, schedule, sound, effects).
+        // The master's timer is what Load Preset broadcasts; each slide's own copy
+        // is stored alongside it so imported target texts come back with the deck.
         writeTimer(props, source.getSlideTimer());
+        writeSlideTimerTargets(props);
 
         File file = new File(PRESETS_DIR, name + ".preset");
         try (FileOutputStream fos = new FileOutputStream(file)) {
@@ -1182,6 +1188,20 @@ public class GifSlideShowApp extends JFrame {
         // Countdown timer. Null when the preset predates this feature — existing
         // timers are then left as they are.
         SlideTimer presetTimer = readTimer(props);
+        // Per-slide timer targets, written by writeSlideTimerTargets. Only
+        // meaningful for a whole-deck load: the row-level preset override (one row)
+        // keeps its own target, since another deck's slide N says nothing about it.
+        boolean deckWideLoad = (targets == slideRows);
+        int savedTimerSlides = deckWideLoad
+                ? parseIntOr(props.getProperty("timer.slideCount"), 0) : 0;
+        Map<SlideRow, Integer> timerSlidePos = new HashMap<>();
+        if (savedTimerSlides > 0) {
+            int n = 0;
+            for (SlideRow row : slideRows) {
+                if (row.isTitleGridSlide) continue;
+                timerSlidePos.put(row, n++);
+            }
+        }
 
         // Apply to all non-title-grid slides
         isSyncingFormat = true;
@@ -1189,7 +1209,18 @@ public class GifSlideShowApp extends JFrame {
             for (SlideRow row : targets) {
                 if (row.isTitleGridSlide) continue;
                 if (presetShapes != null) row.applySlideAnnotations(presetShapes);
-                if (presetTimer != null) row.applySlideTimer(presetTimer);
+                if (presetTimer != null) {
+                    // The design comes from the preset's shared timer; the target
+                    // text is this slide's own, so it is restored from the preset's
+                    // per-slide list, or left alone when the preset has none for it
+                    // (older preset, or a deck longer than the one saved).
+                    Integer pos = timerSlidePos.get(row);
+                    Integer savedTarget = (pos != null && pos < savedTimerSlides)
+                            ? parseIntOr(props.getProperty("timer.slide" + pos + ".target"), 0)
+                            : null;
+                    row.propagateSlideTimerFrom(presetTimer);
+                    if (savedTarget != null) row.setSlideTimerTarget(savedTarget);
+                }
                 row.applyFormatting(fontName, fontSize, fontStyle, fontColor, alignment, showPin, displayMode,
                         subtitleY, subtitleBgOpacity, sourceVideoVolume,
                         bgTransparency,
@@ -1958,114 +1989,142 @@ public class GifSlideShowApp extends JFrame {
     // effects). Absence of the "timer.enabled" key means the preset predates this
     // feature, in which case Load Preset leaves the existing timer alone.
     private static void writeTimer(Properties props, SlideTimer t) {
-        if (t == null) t = new SlideTimer();
-        props.setProperty("timer.enabled",     String.valueOf(t.enabled));
-        props.setProperty("timer.style",       t.style != null ? t.style : "Neon Ring");
-        props.setProperty("timer.seconds",     String.valueOf(t.seconds));
-        props.setProperty("timer.x",           String.valueOf(t.xPct));
-        props.setProperty("timer.y",           String.valueOf(t.yPct));
-        props.setProperty("timer.w",           String.valueOf(t.sizePct));
-        props.setProperty("timer.h",           String.valueOf(t.heightPct));
-        props.setProperty("timer.rot",         String.valueOf(t.rotationDeg));
-        props.setProperty("timer.opacity",     String.valueOf(t.opacity));
-        // colorToHex would NPE on a null, so fall back to the class defaults.
-        SlideTimer d = new SlideTimer();
-        props.setProperty("timer.color",       colorToHex(t.color      != null ? t.color      : d.color));
-        props.setProperty("timer.color2",      colorToHex(t.color2     != null ? t.color2     : d.color2));
-        props.setProperty("timer.trackColor",  colorToHex(t.trackColor != null ? t.trackColor : d.trackColor));
-        props.setProperty("timer.textColor",   colorToHex(t.textColor  != null ? t.textColor  : d.textColor));
-        props.setProperty("timer.panelColor",  colorToHex(t.panelColor != null ? t.panelColor : d.panelColor));
-        props.setProperty("timer.panelOpacity",String.valueOf(t.panelOpacity));
-        props.setProperty("timer.font",        t.fontName != null ? t.fontName : "SansSerif");
-        props.setProperty("timer.format",      t.format != null ? t.format : "Seconds");
-        props.setProperty("timer.label",       t.label != null ? t.label : "");
-        props.setProperty("timer.glowOn",      String.valueOf(t.glowOn));
-        props.setProperty("timer.glowPct",     String.valueOf(t.glowPct));
-        props.setProperty("timer.shadow",      String.valueOf(t.shadow));
-        props.setProperty("timer.countUp",     String.valueOf(t.countUp));
-        props.setProperty("timer.startMode",   t.startMode != null ? t.startMode : SlideTimer.START_AFTER_ALL_AUDIO);
-        props.setProperty("timer.startTextIndex", String.valueOf(t.startTextIndex));
-        props.setProperty("timer.startAtMs",   String.valueOf(t.startAtMs));
-        props.setProperty("timer.offsetMs",    String.valueOf(t.offsetMs));
-        props.setProperty("timer.hideAfterEnd",String.valueOf(t.hideAfterEnd));
-        props.setProperty("timer.lingerMs",    String.valueOf(t.lingerMs));
-        props.setProperty("timer.entrance",    t.entrance != null ? t.entrance : "None");
-        props.setProperty("timer.effect",      t.effect   != null ? t.effect   : "None");
-        props.setProperty("timer.finish",      t.finish   != null ? t.finish   : "None");
-        props.setProperty("timer.urgentColor", String.valueOf(t.urgentColor));
-        props.setProperty("timer.urgentSeconds", String.valueOf(t.urgentSeconds));
-        props.setProperty("timer.soundMode",   t.soundMode != null ? t.soundMode : "None");
-        props.setProperty("timer.soundName",   t.soundName != null ? t.soundName : "None");
-        props.setProperty("timer.endSoundName",t.endSoundName != null ? t.endSoundName : "None");
-        props.setProperty("timer.soundPath",   t.soundPath != null ? t.soundPath : "");
-        props.setProperty("timer.soundVolume", String.valueOf(t.soundVolume));
-        // End-of-countdown actions.
-        props.setProperty("timer.endTextIndex",   String.valueOf(t.endTextIndex));
-        props.setProperty("timer.endRevealText",  String.valueOf(t.endRevealText));
-        props.setProperty("timer.endTextEffect",  t.endTextEffect != null ? t.endTextEffect : "None");
-        props.setProperty("timer.endBadge",       t.endBadge      != null ? t.endBadge      : "None");
-        props.setProperty("timer.endBadgeColor",  colorToHex(t.endBadgeColor  != null ? t.endBadgeColor  : d.endBadgeColor));
-        props.setProperty("timer.endBadgeColor2", colorToHex(t.endBadgeColor2 != null ? t.endBadgeColor2 : d.endBadgeColor2));
-        props.setProperty("timer.endBadgeText",   t.endBadgeText != null ? t.endBadgeText : "");
-        props.setProperty("timer.endHoldMs",      String.valueOf(t.endHoldMs));
-        props.setProperty("timer.endAudioPath",   t.endAudioPath != null ? t.endAudioPath : "");
-        props.setProperty("timer.endAudioDelayMs", String.valueOf(t.endAudioDelayMs));
-        props.setProperty("timer.endAudioVolume", String.valueOf(t.endAudioVolume));
+        writeTimer(props, "timer.", t);
     }
 
-    /** Rebuild a timer from a preset, or null when the preset predates the feature. */
+    /** Rebuild the deck's master timer, or null when the preset predates the feature. */
     private static SlideTimer readTimer(Properties props) {
-        if (props.getProperty("timer.enabled") == null) return null;
+        return readTimer(props, "timer.");
+    }
+
+    /**
+     * Store each slide's timer target text under "timer.slideN.target", N counting
+     * the non-title-grid slides. The rest of the timer is shared with the master
+     * slide, but the target is that slide's own answer — so a deck whose targets
+     * came from a Dict Import sheet reloads pointing at the same texts.
+     */
+    private void writeSlideTimerTargets(Properties props) {
+        int n = 0;
+        for (SlideRow row : slideRows) {
+            if (row.isTitleGridSlide) continue;
+            SlideTimer t = row.getSlideTimer();
+            props.setProperty("timer.slide" + n + ".target",
+                    String.valueOf(t == null ? 0 : t.endTextIndex));
+            n++;
+        }
+        props.setProperty("timer.slideCount", String.valueOf(n));
+    }
+
+    /** Write one timer under {@code p} — "timer." for the deck's shared timer. */
+    private static void writeTimer(Properties props, String p, SlideTimer t) {
+        if (t == null) t = new SlideTimer();
+        props.setProperty(p + "enabled",     String.valueOf(t.enabled));
+        props.setProperty(p + "style",       t.style != null ? t.style : "Neon Ring");
+        props.setProperty(p + "seconds",     String.valueOf(t.seconds));
+        props.setProperty(p + "x",           String.valueOf(t.xPct));
+        props.setProperty(p + "y",           String.valueOf(t.yPct));
+        props.setProperty(p + "w",           String.valueOf(t.sizePct));
+        props.setProperty(p + "h",           String.valueOf(t.heightPct));
+        props.setProperty(p + "rot",         String.valueOf(t.rotationDeg));
+        props.setProperty(p + "opacity",     String.valueOf(t.opacity));
+        // colorToHex would NPE on a null, so fall back to the class defaults.
+        SlideTimer d = new SlideTimer();
+        props.setProperty(p + "color",       colorToHex(t.color      != null ? t.color      : d.color));
+        props.setProperty(p + "color2",      colorToHex(t.color2     != null ? t.color2     : d.color2));
+        props.setProperty(p + "trackColor",  colorToHex(t.trackColor != null ? t.trackColor : d.trackColor));
+        props.setProperty(p + "textColor",   colorToHex(t.textColor  != null ? t.textColor  : d.textColor));
+        props.setProperty(p + "panelColor",  colorToHex(t.panelColor != null ? t.panelColor : d.panelColor));
+        props.setProperty(p + "panelOpacity",String.valueOf(t.panelOpacity));
+        props.setProperty(p + "font",        t.fontName != null ? t.fontName : "SansSerif");
+        props.setProperty(p + "format",      t.format != null ? t.format : "Seconds");
+        props.setProperty(p + "label",       t.label != null ? t.label : "");
+        props.setProperty(p + "glowOn",      String.valueOf(t.glowOn));
+        props.setProperty(p + "glowPct",     String.valueOf(t.glowPct));
+        props.setProperty(p + "shadow",      String.valueOf(t.shadow));
+        props.setProperty(p + "countUp",     String.valueOf(t.countUp));
+        props.setProperty(p + "startMode",   t.startMode != null ? t.startMode : SlideTimer.START_AFTER_ALL_AUDIO);
+        props.setProperty(p + "startTextIndex", String.valueOf(t.startTextIndex));
+        props.setProperty(p + "startAtMs",   String.valueOf(t.startAtMs));
+        props.setProperty(p + "offsetMs",    String.valueOf(t.offsetMs));
+        props.setProperty(p + "hideAfterEnd",String.valueOf(t.hideAfterEnd));
+        props.setProperty(p + "lingerMs",    String.valueOf(t.lingerMs));
+        props.setProperty(p + "entrance",    t.entrance != null ? t.entrance : "None");
+        props.setProperty(p + "effect",      t.effect   != null ? t.effect   : "None");
+        props.setProperty(p + "finish",      t.finish   != null ? t.finish   : "None");
+        props.setProperty(p + "urgentColor", String.valueOf(t.urgentColor));
+        props.setProperty(p + "urgentSeconds", String.valueOf(t.urgentSeconds));
+        props.setProperty(p + "soundMode",   t.soundMode != null ? t.soundMode : "None");
+        props.setProperty(p + "soundName",   t.soundName != null ? t.soundName : "None");
+        props.setProperty(p + "endSoundName",t.endSoundName != null ? t.endSoundName : "None");
+        props.setProperty(p + "soundPath",   t.soundPath != null ? t.soundPath : "");
+        props.setProperty(p + "soundVolume", String.valueOf(t.soundVolume));
+        // End-of-countdown actions.
+        props.setProperty(p + "endTextIndex",   String.valueOf(t.endTextIndex));
+        props.setProperty(p + "endRevealText",  String.valueOf(t.endRevealText));
+        props.setProperty(p + "endTextEffect",  t.endTextEffect != null ? t.endTextEffect : "None");
+        props.setProperty(p + "endBadge",       t.endBadge      != null ? t.endBadge      : "None");
+        props.setProperty(p + "endBadgeColor",  colorToHex(t.endBadgeColor  != null ? t.endBadgeColor  : d.endBadgeColor));
+        props.setProperty(p + "endBadgeColor2", colorToHex(t.endBadgeColor2 != null ? t.endBadgeColor2 : d.endBadgeColor2));
+        props.setProperty(p + "endBadgeText",   t.endBadgeText != null ? t.endBadgeText : "");
+        props.setProperty(p + "endHoldMs",      String.valueOf(t.endHoldMs));
+        props.setProperty(p + "endAudioPath",   t.endAudioPath != null ? t.endAudioPath : "");
+        props.setProperty(p + "endAudioDelayMs", String.valueOf(t.endAudioDelayMs));
+        props.setProperty(p + "endAudioVolume", String.valueOf(t.endAudioVolume));
+    }
+
+    /** Rebuild the timer stored under {@code p}, or null when it isn't there. */
+    private static SlideTimer readTimer(Properties props, String p) {
+        if (props.getProperty(p + "enabled") == null) return null;
         SlideTimer t = new SlideTimer();
-        t.enabled      = Boolean.parseBoolean(props.getProperty("timer.enabled", "false"));
-        t.style        = props.getProperty("timer.style", "Neon Ring");
-        t.seconds      = parseIntOr(props.getProperty("timer.seconds"), 10);
-        t.xPct         = parseDoubleOr(props.getProperty("timer.x"), 50);
-        t.yPct         = parseDoubleOr(props.getProperty("timer.y"), 78);
-        t.sizePct      = parseDoubleOr(props.getProperty("timer.w"), 16);
-        t.heightPct    = parseDoubleOr(props.getProperty("timer.h"), 0);
-        t.rotationDeg  = parseDoubleOr(props.getProperty("timer.rot"), 0);
-        t.opacity      = parseIntOr(props.getProperty("timer.opacity"), 100);
-        t.color        = hexToColor(props.getProperty("timer.color", "#40D6FF"));
-        t.color2       = hexToColor(props.getProperty("timer.color2", "#FF4C5C"));
-        t.trackColor   = hexToColor(props.getProperty("timer.trackColor", "#FFFFFF3C"));
-        t.textColor    = hexToColor(props.getProperty("timer.textColor", "#FFFFFF"));
-        t.panelColor   = hexToColor(props.getProperty("timer.panelColor", "#0A0E18"));
-        t.panelOpacity = parseIntOr(props.getProperty("timer.panelOpacity"), 55);
-        t.fontName     = props.getProperty("timer.font", "SansSerif");
-        t.format       = props.getProperty("timer.format", "Seconds");
-        t.label        = props.getProperty("timer.label", "");
-        t.glowOn       = Boolean.parseBoolean(props.getProperty("timer.glowOn", "true"));
-        t.glowPct      = parseIntOr(props.getProperty("timer.glowPct"), 65);
-        t.shadow       = Boolean.parseBoolean(props.getProperty("timer.shadow", "true"));
-        t.countUp      = Boolean.parseBoolean(props.getProperty("timer.countUp", "false"));
-        t.startMode    = props.getProperty("timer.startMode", SlideTimer.START_AFTER_ALL_AUDIO);
-        t.startTextIndex = parseIntOr(props.getProperty("timer.startTextIndex"), 1);
-        t.startAtMs    = parseIntOr(props.getProperty("timer.startAtMs"), 0);
-        t.offsetMs     = parseIntOr(props.getProperty("timer.offsetMs"), 1000);
-        t.hideAfterEnd = Boolean.parseBoolean(props.getProperty("timer.hideAfterEnd", "true"));
-        t.lingerMs     = parseIntOr(props.getProperty("timer.lingerMs"), 900);
-        t.entrance     = props.getProperty("timer.entrance", "Pop");
-        t.effect       = props.getProperty("timer.effect", "Pulse");
-        t.finish       = props.getProperty("timer.finish", "Flash");
-        t.urgentColor  = Boolean.parseBoolean(props.getProperty("timer.urgentColor", "true"));
-        t.urgentSeconds= parseIntOr(props.getProperty("timer.urgentSeconds"), 3);
-        t.soundMode    = props.getProperty("timer.soundMode", "None");
-        t.soundName    = props.getProperty("timer.soundName", "None");
-        t.endSoundName = props.getProperty("timer.endSoundName", "None");
-        t.soundPath    = props.getProperty("timer.soundPath", "");
-        t.soundVolume  = parseIntOr(props.getProperty("timer.soundVolume"), 70);
-        t.endTextIndex   = parseIntOr(props.getProperty("timer.endTextIndex"), 0);
-        t.endRevealText  = Boolean.parseBoolean(props.getProperty("timer.endRevealText", "false"));
-        t.endTextEffect  = props.getProperty("timer.endTextEffect", "Pop In");
-        t.endBadge       = props.getProperty("timer.endBadge", "None");
-        t.endBadgeColor  = hexToColor(props.getProperty("timer.endBadgeColor", "#2ECC71"));
-        t.endBadgeColor2 = hexToColor(props.getProperty("timer.endBadgeColor2", "#FFFFFF"));
-        t.endBadgeText   = props.getProperty("timer.endBadgeText", "CORRECT");
-        t.endHoldMs      = parseIntOr(props.getProperty("timer.endHoldMs"), 3000);
-        t.endAudioPath   = props.getProperty("timer.endAudioPath", "");
-        t.endAudioDelayMs = parseIntOr(props.getProperty("timer.endAudioDelayMs"), 1000);
-        t.endAudioVolume = parseIntOr(props.getProperty("timer.endAudioVolume"), 100);
+        t.enabled      = Boolean.parseBoolean(props.getProperty(p + "enabled", "false"));
+        t.style        = props.getProperty(p + "style", "Neon Ring");
+        t.seconds      = parseIntOr(props.getProperty(p + "seconds"), 10);
+        t.xPct         = parseDoubleOr(props.getProperty(p + "x"), 50);
+        t.yPct         = parseDoubleOr(props.getProperty(p + "y"), 78);
+        t.sizePct      = parseDoubleOr(props.getProperty(p + "w"), 16);
+        t.heightPct    = parseDoubleOr(props.getProperty(p + "h"), 0);
+        t.rotationDeg  = parseDoubleOr(props.getProperty(p + "rot"), 0);
+        t.opacity      = parseIntOr(props.getProperty(p + "opacity"), 100);
+        t.color        = hexToColor(props.getProperty(p + "color", "#40D6FF"));
+        t.color2       = hexToColor(props.getProperty(p + "color2", "#FF4C5C"));
+        t.trackColor   = hexToColor(props.getProperty(p + "trackColor", "#FFFFFF3C"));
+        t.textColor    = hexToColor(props.getProperty(p + "textColor", "#FFFFFF"));
+        t.panelColor   = hexToColor(props.getProperty(p + "panelColor", "#0A0E18"));
+        t.panelOpacity = parseIntOr(props.getProperty(p + "panelOpacity"), 55);
+        t.fontName     = props.getProperty(p + "font", "SansSerif");
+        t.format       = props.getProperty(p + "format", "Seconds");
+        t.label        = props.getProperty(p + "label", "");
+        t.glowOn       = Boolean.parseBoolean(props.getProperty(p + "glowOn", "true"));
+        t.glowPct      = parseIntOr(props.getProperty(p + "glowPct"), 65);
+        t.shadow       = Boolean.parseBoolean(props.getProperty(p + "shadow", "true"));
+        t.countUp      = Boolean.parseBoolean(props.getProperty(p + "countUp", "false"));
+        t.startMode    = props.getProperty(p + "startMode", SlideTimer.START_AFTER_ALL_AUDIO);
+        t.startTextIndex = parseIntOr(props.getProperty(p + "startTextIndex"), 1);
+        t.startAtMs    = parseIntOr(props.getProperty(p + "startAtMs"), 0);
+        t.offsetMs     = parseIntOr(props.getProperty(p + "offsetMs"), 1000);
+        t.hideAfterEnd = Boolean.parseBoolean(props.getProperty(p + "hideAfterEnd", "true"));
+        t.lingerMs     = parseIntOr(props.getProperty(p + "lingerMs"), 900);
+        t.entrance     = props.getProperty(p + "entrance", "Pop");
+        t.effect       = props.getProperty(p + "effect", "Pulse");
+        t.finish       = props.getProperty(p + "finish", "Flash");
+        t.urgentColor  = Boolean.parseBoolean(props.getProperty(p + "urgentColor", "true"));
+        t.urgentSeconds= parseIntOr(props.getProperty(p + "urgentSeconds"), 3);
+        t.soundMode    = props.getProperty(p + "soundMode", "None");
+        t.soundName    = props.getProperty(p + "soundName", "None");
+        t.endSoundName = props.getProperty(p + "endSoundName", "None");
+        t.soundPath    = props.getProperty(p + "soundPath", "");
+        t.soundVolume  = parseIntOr(props.getProperty(p + "soundVolume"), 70);
+        t.endTextIndex   = parseIntOr(props.getProperty(p + "endTextIndex"), 0);
+        t.endRevealText  = Boolean.parseBoolean(props.getProperty(p + "endRevealText", "false"));
+        t.endTextEffect  = props.getProperty(p + "endTextEffect", "Pop In");
+        t.endBadge       = props.getProperty(p + "endBadge", "None");
+        t.endBadgeColor  = hexToColor(props.getProperty(p + "endBadgeColor", "#2ECC71"));
+        t.endBadgeColor2 = hexToColor(props.getProperty(p + "endBadgeColor2", "#FFFFFF"));
+        t.endBadgeText   = props.getProperty(p + "endBadgeText", "CORRECT");
+        t.endHoldMs      = parseIntOr(props.getProperty(p + "endHoldMs"), 3000);
+        t.endAudioPath   = props.getProperty(p + "endAudioPath", "");
+        t.endAudioDelayMs = parseIntOr(props.getProperty(p + "endAudioDelayMs"), 1000);
+        t.endAudioVolume = parseIntOr(props.getProperty(p + "endAudioVolume"), 100);
         return t;
     }
 
@@ -3492,7 +3551,7 @@ public class GifSlideShowApp extends JFrame {
 
         // Ask whether first row is a header
         int headerChoice = JOptionPane.showOptionDialog(this,
-                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting,\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.\nFor TWO audios on one text, put both paths comma-separated in that\ntext's audio cell, quoted: \"first.mp3,second.mp3\" (2nd plays after the\nfirst, separated by the Gap value).\nX-AXIS/Y-AXIS/TEXT-SIZE for position & size per text item.\nTEXT1TIME/TEXT2TIME/... for appear,go timing per text item\n(cell = \"appear,go\" in seconds; \"appear\" alone = never leaves).)",
+                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting,\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.\nFor TWO audios on one text, put both paths comma-separated in that\ntext's audio cell, quoted: \"first.mp3,second.mp3\" (2nd plays after the\nfirst, separated by the Gap value).\nX-AXIS/Y-AXIS/TEXT-SIZE for position & size per text item.\nTEXT1TIME/TEXT2TIME/... for appear,go timing per text item\n(cell = \"appear,go\" in seconds; \"appear\" alone = never leaves).\nTIMER_TARGET for the Slide Timer's target text — the text the countdown\nreveals and badges at zero. Either a text number (1 = Text 1, 0 = none)\nor the text itself, matched against that row's texts. Everything else\nabout the timer comes from the first slide.)",
                 "Dictionary Import", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,
                 null, new String[]{"Yes, skip first row", "No, first row is data"}, "No, first row is data");
 
@@ -3506,6 +3565,8 @@ public class GifSlideShowApp extends JFrame {
         int xAxisColIndex = -1;
         int yAxisColIndex = -1;
         int textSizeColIndex = -1;
+        // Slide Timer target text: the one setting the countdown keeps per slide.
+        int timerTargetColIndex = -1;
         // Multi-audio: AUDIO1, AUDIO2, AUDIOLINK1, AUDIOLINK2, etc.
         java.util.Map<Integer, Integer> audioColByTextIndex = new java.util.TreeMap<>();
         // Texts Timer: TEXT1TIME, TEXT2TIME, … each cell = "appear,go" (seconds).
@@ -3536,6 +3597,12 @@ public class GifSlideShowApp extends JFrame {
                     yAxisColIndex = c;
                 } else if (h.equals("TEXT-SIZE") || h.equals("TEXTSIZE") || h.equals("TEXT_SIZE") || h.equals("SIZE")) {
                     textSizeColIndex = c;
+                } else if (h.equals("TIMER_TARGET") || h.equals("TIMER-TARGET")
+                        || h.equals("TIMERTARGET") || h.equals("TIMER_TARGET_TEXT")
+                        || h.equals("TARGET_TEXT") || h.equals("TARGET-TEXT")
+                        || h.equals("TARGET") || h.equals("TIMER_ANSWER")) {
+                    // The Slide Timer's target text for this slide.
+                    timerTargetColIndex = c;
                 } else if (h.matches("TEXT\\d+TIME")) {
                     // Texts-Timer columns: TEXT1TIME, TEXT2TIME, … map to text items.
                     // Each cell is "appear,go" in seconds ("appear" alone = never leaves).
@@ -3581,6 +3648,7 @@ public class GifSlideShowApp extends JFrame {
             if (c != hlColIndex && c != ulColIndex && c != boldColIndex
                     && c != italicColIndex && c != colorColIndex && c != audioLinkColIndex
                     && c != xAxisColIndex && c != yAxisColIndex && c != textSizeColIndex
+                    && c != timerTargetColIndex
                     && !audioColIndices.contains(c) && !timeColIndices.contains(c)) {
                 textColIndices.add(c);
             }
@@ -3595,7 +3663,9 @@ public class GifSlideShowApp extends JFrame {
         }
 
         int assigned = 0;
+        int timerTargetsSet = 0;
         List<String> missingAudioFiles = new ArrayList<>();
+        List<String> unmatchedTimerTargets = new ArrayList<>();
         for (int i = 0; i < allRows.size(); i++) {
             List<String> fields = allRows.get(i);
             SlideRow slide;
@@ -3757,6 +3827,22 @@ public class GifSlideShowApp extends JFrame {
                 slide.setSlideTextTimerAt(textIdx, appearMs, goMs);
             }
 
+            // Apply the TIMER_TARGET column — the slide text the countdown reveals
+            // and badges when it reaches zero. Done after this row's texts are in
+            // place so a cell naming the text itself ("Paris") can be matched.
+            if (timerTargetColIndex >= 0 && timerTargetColIndex < fields.size()) {
+                String targetCell = fields.get(timerTargetColIndex).trim();
+                if (!targetCell.isEmpty()) {
+                    int target = resolveTimerTarget(targetCell, slide.getSlideTextDataList());
+                    if (target < 0) {
+                        unmatchedTimerTargets.add("Row " + (i + 1) + ": \"" + targetCell + "\"");
+                    } else {
+                        slide.setSlideTimerTarget(target);
+                        timerTargetsSet++;
+                    }
+                }
+            }
+
             assigned++;
         }
 
@@ -3776,6 +3862,28 @@ public class GifSlideShowApp extends JFrame {
         if (yAxisColIndex >= 0) importMsg += "\nY-AXIS column detected — Y positions imported per text item.";
         if (textSizeColIndex >= 0) importMsg += "\nTEXT-SIZE column detected — text sizes imported per text item.";
         if (!timeColByTextIndex.isEmpty()) importMsg += "\nTEXTnTIME column(s) detected — appear/go timing imported per text item.";
+        if (timerTargetColIndex >= 0) {
+            importMsg += "\nTIMER_TARGET column detected — Slide Timer target text set on "
+                    + timerTargetsSet + " slide(s).";
+            SlideTimer masterTimer = null;
+            for (SlideRow row : slideRows) {
+                if (!row.isTitleGridSlide) { masterTimer = row.getSlideTimer(); break; }
+            }
+            if (masterTimer == null || !masterTimer.enabled) {
+                importMsg += "\n  The countdown is switched off on the first slide, so nothing "
+                        + "is revealed yet —\n  switch it on there (⏳ Slide Timer) and it reaches "
+                        + "the whole deck.";
+            }
+            if (!unmatchedTimerTargets.isEmpty()) {
+                importMsg += "\n  " + unmatchedTimerTargets.size()
+                        + " TIMER_TARGET cell(s) matched none of their slide's texts:";
+                int show = Math.min(unmatchedTimerTargets.size(), 12);
+                for (int w = 0; w < show; w++) importMsg += "\n    " + unmatchedTimerTargets.get(w);
+                if (unmatchedTimerTargets.size() > show) {
+                    importMsg += "\n    …and " + (unmatchedTimerTargets.size() - show) + " more.";
+                }
+            }
+        }
         importMsg += "\nSlides: " + slideRows.size() + " total.";
         if (!missingAudioFiles.isEmpty()) {
             importMsg += "\n\nWARNING: " + missingAudioFiles.size() + " audio file(s) not found:";
@@ -3785,7 +3893,63 @@ public class GifSlideShowApp extends JFrame {
             importMsg += "\n\nMake sure audio files exist relative to the CSV file location.";
         }
         JOptionPane.showMessageDialog(this, importMsg, "Dictionary Import",
-                missingAudioFiles.isEmpty() ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+                missingAudioFiles.isEmpty() && unmatchedTimerTargets.isEmpty()
+                        ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+    }
+
+    /** Loosen a cell / slide text for matching: casefold, collapse whitespace,
+     *  drop the punctuation Excel and typists sprinkle around answers. */
+    private static String looseText(String s) {
+        if (s == null) return "";
+        String v = s.replace('\n', ' ').replace(' ', ' ').trim().toLowerCase(Locale.ROOT);
+        StringBuilder b = new StringBuilder(v.length());
+        boolean lastSpace = false;
+        for (int i = 0; i < v.length(); i++) {
+            char c = v.charAt(i);
+            if (Character.isLetterOrDigit(c)) { b.append(c); lastSpace = false; }
+            else if (!lastSpace) { b.append(' '); lastSpace = true; }
+        }
+        return b.toString().trim();
+    }
+
+    /**
+     * Work out which slide text a TIMER_TARGET cell means. A plain number is the
+     * text number itself (1 = Text 1, 0 / "none" = no target text); anything else
+     * is matched against the slide's own texts — exact first, then loosely, then
+     * as a contained phrase. Returns -1 when nothing matches.
+     */
+    private static int resolveTimerTarget(String cell, List<SlideTextData> texts) {
+        String v = cell == null ? "" : cell.trim();
+        if (v.isEmpty()) return -1;
+        String low = v.toLowerCase(Locale.ROOT);
+        if (low.equals("none") || low.equals("-") || low.equals("no") || low.equals("0")) return 0;
+        if (v.matches("\\d+")) {
+            try { return Integer.parseInt(v); } catch (NumberFormatException ignored) { }
+        }
+        // "Text 3" / "TEXT3" — the wording the dialog's own dropdown uses.
+        java.util.regex.Matcher m =
+                java.util.regex.Pattern.compile("^text\\s*#?\\s*(\\d+)$").matcher(low);
+        if (m.matches()) {
+            try { return Integer.parseInt(m.group(1)); } catch (NumberFormatException ignored) { }
+        }
+        if (texts == null) return -1;
+        for (int i = 0; i < texts.size(); i++) {
+            SlideTextData d = texts.get(i);
+            String t = d == null || d.text == null ? "" : d.text.trim();
+            if (!t.isEmpty() && t.equalsIgnoreCase(v)) return i + 1;
+        }
+        String want = looseText(v);
+        if (want.isEmpty()) return -1;
+        for (int i = 0; i < texts.size(); i++) {
+            SlideTextData d = texts.get(i);
+            if (looseText(d == null ? "" : d.text).equals(want)) return i + 1;
+        }
+        for (int i = 0; i < texts.size(); i++) {
+            SlideTextData d = texts.get(i);
+            String have = looseText(d == null ? "" : d.text);
+            if (!have.isEmpty() && (have.contains(want) || want.contains(have))) return i + 1;
+        }
+        return -1;
     }
 
     // ==================== Quiz Import ====================
@@ -4867,6 +5031,11 @@ public class GifSlideShowApp extends JFrame {
                 // answer index, and question/generated audio files).
                 row.getQuiz().copyVisualSettingsFrom(source.getQuiz());
                 row.refreshQuizToolbarFromState();
+                // The countdown timer follows the master as well, so a timer built
+                // once on slide 1 lands on the whole deck. Anything a slide has
+                // claimed for itself (CSV-imported target text, badge wording, end
+                // sound) survives — see SlideTimer.copyPropagatedFrom.
+                row.propagateSlideTimerFrom(source.getSlideTimer());
             }
         } finally {
             isSyncingFormat = false;
@@ -21970,9 +22139,13 @@ public class GifSlideShowApp extends JFrame {
             slideTimerBtn.setBackground(new Color(255, 196, 74));
             slideTimerBtn.setForeground(new Color(38, 30, 12));
             slideTimerBtn.setBorder(BorderFactory.createLineBorder(new Color(255, 226, 150), 1, true));
-            slideTimerBtn.setToolTipText("Add a professional countdown timer to this slide — choose a design, "
+            slideTimerBtn.setToolTipText("<html>Add a professional countdown timer to this slide — choose a design, "
                     + "place and size it with a live preview, set its length, when it starts "
-                    + "(after/before a text's audio or at an exact time), its sound and its effects.");
+                    + "(after/before a text's audio or at an exact time), its sound and its effects.<br>"
+                    + "The first slide's timer is broadcast to the whole deck — everything except the "
+                    + "target text, which each slide keeps as its own answer.<br>"
+                    + "Dict Import's TIMER_TARGET column sets that target text for every slide at "
+                    + "once.</html>");
             slideTimerBtn.addActionListener(e -> openSlideTimerDialog());
 
             toolbar4lg.add(lgTitleLbl);
@@ -25084,6 +25257,8 @@ public class GifSlideShowApp extends JFrame {
 
         // Layout Group getters — used by savePreset to capture the last-used knobs.
         int     getLgCols()       { return lgCols; }
+        /** Make sure the per-column override lists cover the current column count. */
+        void    ensureLgColumnLists() { ensureColListSize(lgCols); }
         int     getLgAnchorX()    { return lgAnchorX; }
         int     getLgAnchorY()    { return lgAnchorY; }
         int     getLgColGap()     { return lgColGap; }
@@ -27279,7 +27454,10 @@ public class GifSlideShowApp extends JFrame {
             revealCheck.setOpaque(false);
             revealCheck.setToolTipText("Works even for a text you unticked in “Show/Hide Texts” — "
                     + "the countdown is what reveals it.");
-            revealCheck.addActionListener(e -> { live.endRevealText = revealCheck.isSelected(); refresh.run(); });
+            revealCheck.addActionListener(e -> {
+                live.endRevealText = revealCheck.isSelected();
+                refresh.run();
+            });
             addTimerRow(end, r++, null, revealCheck);
 
             final JComboBox<String> endFxCombo = new JComboBox<>(SlideTimer.endTextEffects());
@@ -27293,7 +27471,8 @@ public class GifSlideShowApp extends JFrame {
             final JComboBox<String> badgeCombo = new JComboBox<>(SlideTimer.endBadges());
             badgeCombo.setSelectedItem(live.endBadge);
             final JButton badgeCol1 = timerColorButton(dlg, "Badge colour",
-                    () -> live.endBadgeColor, c -> live.endBadgeColor = c, refresh);
+                    () -> live.endBadgeColor,
+                    c -> live.endBadgeColor = c, refresh);
             badgeCombo.addActionListener(e -> {
                 String was = live.endBadge;
                 live.endBadge = (String) badgeCombo.getSelectedItem();
@@ -27314,14 +27493,18 @@ public class GifSlideShowApp extends JFrame {
             badgeCols.add(badgeCol1);
             badgeCols.add(new JLabel("Mark"));
             badgeCols.add(timerColorButton(dlg, "Tick / text colour",
-                    () -> live.endBadgeColor2, c -> live.endBadgeColor2 = c, refresh));
+                    () -> live.endBadgeColor2,
+                    c -> live.endBadgeColor2 = c, refresh));
             addTimerRow(end, r++, "Badge colours:", badgeCols);
 
             final JTextField badgeTextField = new JTextField(
                     live.endBadgeText == null ? "" : live.endBadgeText);
             badgeTextField.setToolTipText("Wording for the Stamp and Ribbon badges.");
             badgeTextField.getDocument().addDocumentListener(new DocumentListener() {
-                private void ch() { live.endBadgeText = badgeTextField.getText(); refresh.run(); }
+                private void ch() {
+                    live.endBadgeText = badgeTextField.getText();
+                        refresh.run();
+                }
                 public void insertUpdate(DocumentEvent e) { ch(); }
                 public void removeUpdate(DocumentEvent e) { ch(); }
                 public void changedUpdate(DocumentEvent e) { ch(); }
@@ -27345,7 +27528,7 @@ public class GifSlideShowApp extends JFrame {
                 if (fc.showOpenDialog(dlg) == JFileChooser.APPROVE_OPTION) {
                     live.endAudioPath = fc.getSelectedFile().getAbsolutePath();
                     endAudioLbl.setText(fc.getSelectedFile().getName());
-                    refresh.run();
+                        refresh.run();
                 }
             });
             JButton clearEndAudio = new JButton("Clear");
@@ -27390,7 +27573,11 @@ public class GifSlideShowApp extends JFrame {
 
             JLabel endNote = new JLabel("<html><body style='width:300px'><i>Drag the preview slider past "
                     + "the end of the countdown to watch all of this play out. The slide is stretched "
-                    + "automatically so the reveal, the badge and the sound all fit.</i></body></html>");
+                    + "automatically so the reveal, the badge and the sound all fit.<br><br>"
+                    + "The target text is the one setting that stays this slide's own — the rest of "
+                    + "the timer is broadcast from the first slide. Set the target for every slide at "
+                    + "once with Dict Import's TIMER_TARGET column (“Import target text” below)."
+                    + "</i></body></html>");
             endNote.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             endNote.setForeground(new Color(90, 90, 100));
             addTimerRow(end, r++, null, endNote);
@@ -27422,7 +27609,10 @@ public class GifSlideShowApp extends JFrame {
             // ---------- enable + buttons ----------
             final JCheckBox onCheck = new JCheckBox("Show a countdown timer on this slide", live.enabled);
             onCheck.setFont(new Font("Segoe UI", Font.BOLD, 13));
-            onCheck.addActionListener(e -> { live.enabled = onCheck.isSelected(); refresh.run(); });
+            onCheck.addActionListener(e -> {
+                live.enabled = onCheck.isSelected();
+                refresh.run();
+            });
 
             refreshHolder[0] = () -> {
                 canvas.repaint();
@@ -27458,6 +27648,56 @@ public class GifSlideShowApp extends JFrame {
                 close.run();
                 openSlideTimerDialog();
             });
+
+            // Push this timer over the whole deck. The first slide broadcasts its
+            // timer automatically (like the rest of its formatting), so this is for
+            // "I designed it here, on slide 7" — and for a one-off re-broadcast.
+            JButton allSlidesBtn = new JButton("→ Apply to all slides");
+            allSlidesBtn.setToolTipText("Copy this countdown timer to every slide. "
+                    + "Each slide keeps its own target text unless you tick the box.");
+            allSlidesBtn.addActionListener(e -> {
+                JCheckBox alsoAnswers = new JCheckBox(
+                        "Also copy the target text", false);
+                alsoAnswers.setToolTipText("Leave this off to keep the per-slide answers "
+                        + "imported from your Dict Import sheet.");
+                JPanel ask = new JPanel(new BorderLayout(0, 8));
+                ask.add(new JLabel("<html><body style='width:330px'>Copy this slide's countdown "
+                        + "timer — design, placement, timing, sound and end actions — to every "
+                        + "other slide?</body></html>"), BorderLayout.NORTH);
+                ask.add(alsoAnswers, BorderLayout.CENTER);
+                int ok = JOptionPane.showConfirmDialog(dlg, ask, "Apply to all slides",
+                        JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
+                if (ok != JOptionPane.OK_OPTION) return;
+                int applied = 0, locked = 0;
+                for (SlideRow row : slideRows) {
+                    if (row == SlideRow.this || row.isTitleGridSlide) continue;
+                    if (row.isLocked()) { locked++; continue; }
+                    if (alsoAnswers.isSelected()) row.applySlideTimer(live);
+                    else                          row.propagateSlideTimerFrom(live);
+                    applied++;
+                }
+                String msg = "Copied this countdown timer to " + applied + " slide(s).";
+                if (!alsoAnswers.isSelected()) {
+                    msg += "\nEach slide kept its own target text.";
+                }
+                if (locked > 0) msg += "\n" + locked + " locked slide(s) were left alone.";
+                JOptionPane.showMessageDialog(dlg, msg, "Apply to all slides",
+                        JOptionPane.INFORMATION_MESSAGE);
+            });
+
+            // Target texts come from the Dict Import sheet's TIMER_TARGET column.
+            // Nested modal dialogs would be unreachable behind this one, so apply
+            // and close before handing over.
+            JButton importBtn = new JButton("⤓ Import target text (Dict Import)…");
+            importBtn.setToolTipText("Open Dict Import, whose TIMER_TARGET column sets the target "
+                    + "text for every slide — a text number (1 = Text 1, 0 = none) or the text "
+                    + "itself. This applies the settings above and closes this box first.");
+            importBtn.addActionListener(e -> {
+                onFormatChanged();
+                close.run();
+                dictionaryImport();
+            });
+
             dlg.addWindowListener(new WindowAdapter() {
                 @Override public void windowClosing(WindowEvent e) {
                     slideTimer = snapshot;
@@ -27467,7 +27707,11 @@ public class GifSlideShowApp extends JFrame {
 
             JPanel south = new JPanel(new BorderLayout(8, 0));
             south.setBorder(BorderFactory.createEmptyBorder(6, 8, 8, 8));
-            south.add(resetBtn, BorderLayout.WEST);
+            JPanel leftBtns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            leftBtns.add(resetBtn);
+            leftBtns.add(allSlidesBtn);
+            leftBtns.add(importBtn);
+            south.add(leftBtns, BorderLayout.WEST);
             JPanel okCancel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
             okCancel.add(cancelBtn);
             okCancel.add(applyBtn);
@@ -29999,6 +30243,26 @@ public class GifSlideShowApp extends JFrame {
         void applySlideTimer(SlideTimer src) {
             if (src == null) return;
             slideTimer = src.copy();
+            schedulePreview();
+        }
+
+        /**
+         * Take the master slide's countdown timer, keeping whatever this slide has
+         * claimed as its own (CSV-imported target text, badge wording, end sound…).
+         * This is how a timer designed once on the first slide reaches the deck.
+         */
+        void propagateSlideTimerFrom(SlideTimer src) {
+            if (src == null) return;
+            if (slideTimer == null) slideTimer = new SlideTimer();
+            slideTimer.copyPropagatedFrom(src);
+            schedulePreview();
+        }
+
+        /** Point this slide's countdown at one of its texts (0 = no target text).
+         *  Set by Dict Import's TIMER_TARGET column and by the Slide Timer box. */
+        void setSlideTimerTarget(int textNumber) {
+            if (slideTimer == null) slideTimer = new SlideTimer();
+            slideTimer.endTextIndex = Math.max(0, textNumber);
             schedulePreview();
         }
 

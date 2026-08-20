@@ -149,6 +149,11 @@ public class SlideTimer {
     /** Playback gain, 0..100. */
     public int soundVolume = 70;
 
+    // ---- model: what stays this slide's own business -----------------------
+    // Only one setting does: the target text. Everything else — design, placement,
+    // timing, sound, the end effects — is broadcast from the master slide, while
+    // the answer each slide points at comes from that slide's own Dict Import row.
+
     public SlideTimer() {}
 
     public SlideTimer copy() {
@@ -174,6 +179,43 @@ public class SlideTimer {
         t.endAudioPath = endAudioPath; t.endAudioDelayMs = endAudioDelayMs;
         t.endAudioVolume = endAudioVolume;
         return t;
+    }
+
+    /**
+     * Take the master slide's timer whole, except for the target text — the slide
+     * text the countdown reveals and badges at zero. That one stays this slide's
+     * own, because it is the answer to this slide's question and is imported per
+     * slide by Dict Import's TIMER_TARGET column.
+     */
+    public void copyPropagatedFrom(SlideTimer src) {
+        if (src == null) return;
+        int myTarget = endTextIndex;
+        assignFrom(src);
+        endTextIndex = myTarget;
+    }
+
+    /** Overwrite every field of this timer with {@code s}'s. */
+    private void assignFrom(SlideTimer s) {
+        enabled = s.enabled; style = s.style; seconds = s.seconds;
+        xPct = s.xPct; yPct = s.yPct; sizePct = s.sizePct; heightPct = s.heightPct;
+        opacity = s.opacity; rotationDeg = s.rotationDeg;
+        color = s.color; color2 = s.color2; trackColor = s.trackColor;
+        textColor = s.textColor; panelColor = s.panelColor; panelOpacity = s.panelOpacity;
+        fontName = s.fontName; format = s.format; label = s.label;
+        glowOn = s.glowOn; glowPct = s.glowPct; shadow = s.shadow; countUp = s.countUp;
+        startMode = s.startMode; startTextIndex = s.startTextIndex;
+        startAtMs = s.startAtMs; offsetMs = s.offsetMs;
+        hideAfterEnd = s.hideAfterEnd; lingerMs = s.lingerMs;
+        entrance = s.entrance; effect = s.effect; finish = s.finish;
+        urgentColor = s.urgentColor; urgentSeconds = s.urgentSeconds;
+        soundMode = s.soundMode; soundName = s.soundName; endSoundName = s.endSoundName;
+        soundPath = s.soundPath; soundVolume = s.soundVolume;
+        endTextIndex = s.endTextIndex; endRevealText = s.endRevealText;
+        endTextEffect = s.endTextEffect; endBadge = s.endBadge;
+        endBadgeColor = s.endBadgeColor; endBadgeColor2 = s.endBadgeColor2;
+        endBadgeText = s.endBadgeText; endHoldMs = s.endHoldMs;
+        endAudioPath = s.endAudioPath; endAudioDelayMs = s.endAudioDelayMs;
+        endAudioVolume = s.endAudioVolume;
     }
 
     // ---- catalogs (for the dialog's dropdowns) ----------------------------
