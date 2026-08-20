@@ -133,6 +133,11 @@ public class SlideTimer {
     public int endHoldMs = 3000;
     /** Extra sound played at zero — the "when the timer finishes play this" file. */
     public String endAudioPath = "";
+    /** This slide is deliberately silent at zero: an empty {@link #endAudioPath}
+     *  normally means "use the master slide's sound", this means "use none".
+     *  Set by a "none" cell in Dict Import's TIMER_END_AUDIO column, and by Clear
+     *  in the Slide Timer box. */
+    public boolean endAudioSilent = false;
     /** Shift of that sound relative to zero, ms (1000 = one second after). */
     public int endAudioDelayMs = 1000;
     public int endAudioVolume = 100;
@@ -150,9 +155,10 @@ public class SlideTimer {
     public int soundVolume = 70;
 
     // ---- model: what stays this slide's own business -----------------------
-    // Only one setting does: the target text. Everything else — design, placement,
-    // timing, sound, the end effects — is broadcast from the master slide, while
-    // the answer each slide points at comes from that slide's own Dict Import row.
+    // Two settings do: the target text, and the "play when it ends" sound once a
+    // slide has one of its own. Everything else — design, placement, timing, the
+    // ticking bed, the end effects — is broadcast from the master slide, while
+    // these come from that slide's own Dict Import row.
 
     public SlideTimer() {}
 
@@ -177,21 +183,36 @@ public class SlideTimer {
         t.endBadgeColor = endBadgeColor; t.endBadgeColor2 = endBadgeColor2;
         t.endBadgeText = endBadgeText; t.endHoldMs = endHoldMs;
         t.endAudioPath = endAudioPath; t.endAudioDelayMs = endAudioDelayMs;
-        t.endAudioVolume = endAudioVolume;
+        t.endAudioVolume = endAudioVolume; t.endAudioSilent = endAudioSilent;
         return t;
     }
 
     /**
-     * Take the master slide's timer whole, except for the target text — the slide
-     * text the countdown reveals and badges at zero. That one stays this slide's
-     * own, because it is the answer to this slide's question and is imported per
-     * slide by Dict Import's TIMER_TARGET column.
+     * Take the master slide's timer whole, except for what belongs to this slide:
+     * the target text — the slide text the countdown reveals and badges at zero —
+     * and the "play when it ends" sound whenever this slide has one of its own.
+     * Both are the answer to this slide's question, and both are imported per
+     * slide by Dict Import (TIMER_TARGET / TIMER_END_AUDIO). A slide with no end
+     * sound of its own keeps taking the master's, so one file still covers a whole
+     * deck; a slide marked {@link #endAudioSilent} stays quiet instead.
      */
     public void copyPropagatedFrom(SlideTimer src) {
         if (src == null) return;
         int myTarget = endTextIndex;
+        String myEndAudio = endAudioPath;
+        boolean mySilent = endAudioSilent;
+        int myEndDelay = endAudioDelayMs, myEndVolume = endAudioVolume;
         assignFrom(src);
         endTextIndex = myTarget;
+        if (mySilent) {
+            endAudioPath = "";
+            endAudioSilent = true;
+        } else if (myEndAudio != null && !myEndAudio.isEmpty()) {
+            endAudioPath = myEndAudio;
+            endAudioSilent = false;
+            endAudioDelayMs = myEndDelay;
+            endAudioVolume = myEndVolume;
+        }
     }
 
     /** Overwrite every field of this timer with {@code s}'s. */
@@ -215,7 +236,7 @@ public class SlideTimer {
         endBadgeColor = s.endBadgeColor; endBadgeColor2 = s.endBadgeColor2;
         endBadgeText = s.endBadgeText; endHoldMs = s.endHoldMs;
         endAudioPath = s.endAudioPath; endAudioDelayMs = s.endAudioDelayMs;
-        endAudioVolume = s.endAudioVolume;
+        endAudioVolume = s.endAudioVolume; endAudioSilent = s.endAudioSilent;
     }
 
     // ---- catalogs (for the dialog's dropdowns) ----------------------------

@@ -167,7 +167,7 @@ public class GifSlideShowApp extends JFrame {
         bulkTextBtn.addActionListener(e -> bulkImportText());
 
         JButton dictImportBtn = createStyledButton("Dict Import", new Color(50, 180, 160));
-        dictImportBtn.setToolTipText("Import CSV/TSV: each row=slide, each column=slide text (A→Text1, B→Text2...). Optional headers: HL/UL/BOLD/ITALIC/COLOR, AUDIOLINK, AUDIO1.. (two comma-separated paths in a quoted cell = primary+second audio for that text, sharing the Gap), X-AXIS/Y-AXIS/TEXT-SIZE, TEXT1TIME/TEXT2TIME.. for appear,go timing per text (cell=\"appear,go\" in seconds; \"appear\" alone = never leaves), and TIMER_TARGET for the Slide Timer's target text — the text the countdown reveals at zero, given as a text number (1 = Text 1, 0 = none) or as the text itself.");
+        dictImportBtn.setToolTipText("Import CSV/TSV: each row=slide, each column=slide text (A→Text1, B→Text2...). Optional headers: HL/UL/BOLD/ITALIC/COLOR, AUDIOLINK, AUDIO1.. (two comma-separated paths in a quoted cell = primary+second audio for that text, sharing the Gap), X-AXIS/Y-AXIS/TEXT-SIZE, TEXT1TIME/TEXT2TIME.. for appear,go timing per text (cell=\"appear,go\" in seconds; \"appear\" alone = never leaves), TIMER_TARGET for the Slide Timer's target text — the text the countdown reveals at zero, given as a text number (1 = Text 1, 0 = none) or as the text itself — and TIMER_END_AUDIO for that slide's \"play when it ends\" sound — a path relative to the sheet, \"none\" for a quiet slide, or \"inherit\"/an empty cell to play the first slide's sound.");
         dictImportBtn.addActionListener(e -> dictionaryImport());
 
         JButton quizImportBtn = createStyledButton("Quiz Import", new Color(180, 120, 200));
@@ -745,7 +745,7 @@ public class GifSlideShowApp extends JFrame {
         // The master's timer is what Load Preset broadcasts; each slide's own copy
         // is stored alongside it so imported target texts come back with the deck.
         writeTimer(props, source.getSlideTimer());
-        writeSlideTimerTargets(props);
+        writeSlideTimerPerSlide(props);
 
         File file = new File(PRESETS_DIR, name + ".preset");
         try (FileOutputStream fos = new FileOutputStream(file)) {
@@ -1188,9 +1188,9 @@ public class GifSlideShowApp extends JFrame {
         // Countdown timer. Null when the preset predates this feature — existing
         // timers are then left as they are.
         SlideTimer presetTimer = readTimer(props);
-        // Per-slide timer targets, written by writeSlideTimerTargets. Only
+        // Per-slide timer values, written by writeSlideTimerPerSlide. Only
         // meaningful for a whole-deck load: the row-level preset override (one row)
-        // keeps its own target, since another deck's slide N says nothing about it.
+        // keeps its own, since another deck's slide N says nothing about it.
         boolean deckWideLoad = (targets == slideRows);
         int savedTimerSlides = deckWideLoad
                 ? parseIntOr(props.getProperty("timer.slideCount"), 0) : 0;
@@ -1211,15 +1211,23 @@ public class GifSlideShowApp extends JFrame {
                 if (presetShapes != null) row.applySlideAnnotations(presetShapes);
                 if (presetTimer != null) {
                     // The design comes from the preset's shared timer; the target
-                    // text is this slide's own, so it is restored from the preset's
-                    // per-slide list, or left alone when the preset has none for it
-                    // (older preset, or a deck longer than the one saved).
+                    // text and end sound are this slide's own, so they are restored
+                    // from the preset's per-slide list, or left alone when the preset
+                    // has none for this slide (older preset, or a deck longer than
+                    // the one saved).
                     Integer pos = timerSlidePos.get(row);
-                    Integer savedTarget = (pos != null && pos < savedTimerSlides)
+                    boolean hasOwn = pos != null && pos < savedTimerSlides;
+                    Integer savedTarget = hasOwn
                             ? parseIntOr(props.getProperty("timer.slide" + pos + ".target"), 0)
                             : null;
+                    String savedEndAudio = hasOwn
+                            ? props.getProperty("timer.slide" + pos + ".endAudio") : null;
                     row.propagateSlideTimerFrom(presetTimer);
                     if (savedTarget != null) row.setSlideTimerTarget(savedTarget);
+                    if (savedEndAudio != null) {
+                        row.setSlideTimerEndAudio("none".equals(savedEndAudio) ? "" : savedEndAudio,
+                                "none".equals(savedEndAudio));
+                    }
                 }
                 row.applyFormatting(fontName, fontSize, fontStyle, fontColor, alignment, showPin, displayMode,
                         subtitleY, subtitleBgOpacity, sourceVideoVolume,
@@ -1998,18 +2006,22 @@ public class GifSlideShowApp extends JFrame {
     }
 
     /**
-     * Store each slide's timer target text under "timer.slideN.target", N counting
-     * the non-title-grid slides. The rest of the timer is shared with the master
-     * slide, but the target is that slide's own answer — so a deck whose targets
-     * came from a Dict Import sheet reloads pointing at the same texts.
+     * Store what each slide keeps of its own timer under "timer.slideN." — the
+     * target text and the "play when it ends" sound, N counting the non-title-grid
+     * slides. The rest of the timer is shared with the master slide, so a deck
+     * whose targets and end sounds came from a Dict Import sheet reloads pointing
+     * at the same texts and playing the same files.
      */
-    private void writeSlideTimerTargets(Properties props) {
+    private void writeSlideTimerPerSlide(Properties props) {
         int n = 0;
         for (SlideRow row : slideRows) {
             if (row.isTitleGridSlide) continue;
             SlideTimer t = row.getSlideTimer();
             props.setProperty("timer.slide" + n + ".target",
                     String.valueOf(t == null ? 0 : t.endTextIndex));
+            String own = t == null || t.endAudioPath == null ? "" : t.endAudioPath;
+            if (t != null && t.endAudioSilent && own.isEmpty()) own = "none";
+            props.setProperty("timer.slide" + n + ".endAudio", own);
             n++;
         }
         props.setProperty("timer.slideCount", String.valueOf(n));
@@ -2070,6 +2082,7 @@ public class GifSlideShowApp extends JFrame {
         props.setProperty(p + "endAudioPath",   t.endAudioPath != null ? t.endAudioPath : "");
         props.setProperty(p + "endAudioDelayMs", String.valueOf(t.endAudioDelayMs));
         props.setProperty(p + "endAudioVolume", String.valueOf(t.endAudioVolume));
+        props.setProperty(p + "endAudioSilent", String.valueOf(t.endAudioSilent));
     }
 
     /** Rebuild the timer stored under {@code p}, or null when it isn't there. */
@@ -2125,6 +2138,7 @@ public class GifSlideShowApp extends JFrame {
         t.endAudioPath   = props.getProperty(p + "endAudioPath", "");
         t.endAudioDelayMs = parseIntOr(props.getProperty(p + "endAudioDelayMs"), 1000);
         t.endAudioVolume = parseIntOr(props.getProperty(p + "endAudioVolume"), 100);
+        t.endAudioSilent = Boolean.parseBoolean(props.getProperty(p + "endAudioSilent", "false"));
         return t;
     }
 
@@ -3551,7 +3565,7 @@ public class GifSlideShowApp extends JFrame {
 
         // Ask whether first row is a header
         int headerChoice = JOptionPane.showOptionDialog(this,
-                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting,\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.\nFor TWO audios on one text, put both paths comma-separated in that\ntext's audio cell, quoted: \"first.mp3,second.mp3\" (2nd plays after the\nfirst, separated by the Gap value).\nX-AXIS/Y-AXIS/TEXT-SIZE for position & size per text item.\nTEXT1TIME/TEXT2TIME/... for appear,go timing per text item\n(cell = \"appear,go\" in seconds; \"appear\" alone = never leaves).\nTIMER_TARGET for the Slide Timer's target text — the text the countdown\nreveals and badges at zero. Either a text number (1 = Text 1, 0 = none)\nor the text itself, matched against that row's texts. Everything else\nabout the timer comes from the first slide.)",
+                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting,\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.\nFor TWO audios on one text, put both paths comma-separated in that\ntext's audio cell, quoted: \"first.mp3,second.mp3\" (2nd plays after the\nfirst, separated by the Gap value).\nX-AXIS/Y-AXIS/TEXT-SIZE for position & size per text item.\nTEXT1TIME/TEXT2TIME/... for appear,go timing per text item\n(cell = \"appear,go\" in seconds; \"appear\" alone = never leaves).\nTIMER_TARGET for the Slide Timer's target text — the text the countdown\nreveals and badges at zero. Either a text number (1 = Text 1, 0 = none)\nor the text itself, matched against that row's texts.\nTIMER_END_AUDIO for that slide's \"play when it ends\" sound: a path\nrelative to the sheet (like AUDIOLINK), \"none\" for a quiet slide, or\n\"inherit\"/an empty cell to play the first slide's sound.\nEverything else about the timer comes from the first slide.)",
                 "Dictionary Import", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,
                 null, new String[]{"Yes, skip first row", "No, first row is data"}, "No, first row is data");
 
@@ -3565,8 +3579,10 @@ public class GifSlideShowApp extends JFrame {
         int xAxisColIndex = -1;
         int yAxisColIndex = -1;
         int textSizeColIndex = -1;
-        // Slide Timer target text: the one setting the countdown keeps per slide.
+        // Slide Timer per-slide settings: the target text and the "play when it
+        // ends" sound. Everything else about the timer comes from the first slide.
         int timerTargetColIndex = -1;
+        int timerEndAudioColIndex = -1;
         // Multi-audio: AUDIO1, AUDIO2, AUDIOLINK1, AUDIOLINK2, etc.
         java.util.Map<Integer, Integer> audioColByTextIndex = new java.util.TreeMap<>();
         // Texts Timer: TEXT1TIME, TEXT2TIME, … each cell = "appear,go" (seconds).
@@ -3603,6 +3619,11 @@ public class GifSlideShowApp extends JFrame {
                         || h.equals("TARGET") || h.equals("TIMER_ANSWER")) {
                     // The Slide Timer's target text for this slide.
                     timerTargetColIndex = c;
+                } else if (h.equals("TIMER_END_AUDIO") || h.equals("TIMER-END-AUDIO")
+                        || h.equals("TIMERENDAUDIO") || h.equals("TIMER_END_SOUND")
+                        || h.equals("TIMER_END_SOUND_FILE")) {
+                    // The Slide Timer's "play when it ends" sound for this slide.
+                    timerEndAudioColIndex = c;
                 } else if (h.matches("TEXT\\d+TIME")) {
                     // Texts-Timer columns: TEXT1TIME, TEXT2TIME, … map to text items.
                     // Each cell is "appear,go" in seconds ("appear" alone = never leaves).
@@ -3648,7 +3669,7 @@ public class GifSlideShowApp extends JFrame {
             if (c != hlColIndex && c != ulColIndex && c != boldColIndex
                     && c != italicColIndex && c != colorColIndex && c != audioLinkColIndex
                     && c != xAxisColIndex && c != yAxisColIndex && c != textSizeColIndex
-                    && c != timerTargetColIndex
+                    && c != timerTargetColIndex && c != timerEndAudioColIndex
                     && !audioColIndices.contains(c) && !timeColIndices.contains(c)) {
                 textColIndices.add(c);
             }
@@ -3664,6 +3685,7 @@ public class GifSlideShowApp extends JFrame {
 
         int assigned = 0;
         int timerTargetsSet = 0;
+        int timerEndAudiosSet = 0;
         List<String> missingAudioFiles = new ArrayList<>();
         List<String> unmatchedTimerTargets = new ArrayList<>();
         for (int i = 0; i < allRows.size(); i++) {
@@ -3843,6 +3865,39 @@ public class GifSlideShowApp extends JFrame {
                 }
             }
 
+            // Apply the TIMER_END_AUDIO column — the file the countdown plays when it
+            // reaches zero ("Play when it ends" in the Slide Timer box). Paths resolve
+            // against the sheet's folder, same as the AUDIO columns. "none" clears it,
+            // which hands the slide back to the first slide's sound.
+            if (timerEndAudioColIndex >= 0 && timerEndAudioColIndex < fields.size()) {
+                String endCell = fields.get(timerEndAudioColIndex).trim();
+                if (!endCell.isEmpty()) {
+                    if (endCell.equalsIgnoreCase("none") || endCell.equals("-")) {
+                        // Deliberately quiet: not even the first slide's sound.
+                        slide.setSlideTimerEndAudio("", true);
+                        timerEndAudiosSet++;
+                    } else if (endCell.equalsIgnoreCase("inherit")
+                            || endCell.equalsIgnoreCase("shared")
+                            || endCell.equalsIgnoreCase("default")) {
+                        // Back to whatever the first slide plays.
+                        slide.setSlideTimerEndAudio("", false);
+                        timerEndAudiosSet++;
+                    } else {
+                        File endFile = new File(endCell);
+                        if (!endFile.isAbsolute() && importSourceDir != null) {
+                            endFile = new File(importSourceDir, endCell);
+                        }
+                        if (endFile.exists()) {
+                            slide.setSlideTimerEndAudio(endFile.getAbsolutePath(), false);
+                            timerEndAudiosSet++;
+                        } else {
+                            missingAudioFiles.add("Slide " + (i + 1)
+                                    + " timer end sound: " + endCell);
+                        }
+                    }
+                }
+            }
+
             assigned++;
         }
 
@@ -3883,6 +3938,10 @@ public class GifSlideShowApp extends JFrame {
                     importMsg += "\n    …and " + (unmatchedTimerTargets.size() - show) + " more.";
                 }
             }
+        }
+        if (timerEndAudioColIndex >= 0) {
+            importMsg += "\nTIMER_END_AUDIO column detected — timer end sound set on "
+                    + timerEndAudiosSet + " slide(s).";
         }
         importMsg += "\nSlides: " + slideRows.size() + " total.";
         if (!missingAudioFiles.isEmpty()) {
@@ -22143,9 +22202,9 @@ public class GifSlideShowApp extends JFrame {
                     + "place and size it with a live preview, set its length, when it starts "
                     + "(after/before a text's audio or at an exact time), its sound and its effects.<br>"
                     + "The first slide's timer is broadcast to the whole deck — everything except the "
-                    + "target text, which each slide keeps as its own answer.<br>"
-                    + "Dict Import's TIMER_TARGET column sets that target text for every slide at "
-                    + "once.</html>");
+                    + "target text and, where a slide has one of its own, the sound played at zero.<br>"
+                    + "Dict Import's TIMER_TARGET and TIMER_END_AUDIO columns set those for every "
+                    + "slide at once.</html>");
             slideTimerBtn.addActionListener(e -> openSlideTimerDialog());
 
             toolbar4lg.add(lgTitleLbl);
@@ -27515,7 +27574,8 @@ public class GifSlideShowApp extends JFrame {
                     v -> { live.endHoldMs = v; syncScrubRange.run(); }, refresh);
 
             final JLabel endAudioLbl = new JLabel(live.endAudioPath == null || live.endAudioPath.isEmpty()
-                    ? "(no file chosen)" : new File(live.endAudioPath).getName());
+                    ? (live.endAudioSilent ? "(no sound at zero)" : "(no file chosen)")
+                    : new File(live.endAudioPath).getName());
             endAudioLbl.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             JPanel endAudioBtns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
             endAudioBtns.setOpaque(false);
@@ -27527,6 +27587,7 @@ public class GifSlideShowApp extends JFrame {
                         "wav", "mp3", "m4a", "aac", "ogg", "flac", "aiff", "aif"));
                 if (fc.showOpenDialog(dlg) == JFileChooser.APPROVE_OPTION) {
                     live.endAudioPath = fc.getSelectedFile().getAbsolutePath();
+                    live.endAudioSilent = false;
                     endAudioLbl.setText(fc.getSelectedFile().getName());
                         refresh.run();
                 }
@@ -27534,7 +27595,9 @@ public class GifSlideShowApp extends JFrame {
             JButton clearEndAudio = new JButton("Clear");
             clearEndAudio.addActionListener(e -> {
                 live.endAudioPath = "";
-                endAudioLbl.setText("(no file chosen)");
+                // Clear means "quiet here", not "hand me the first slide's sound".
+                live.endAudioSilent = true;
+                endAudioLbl.setText("(no sound at zero)");
                 refresh.run();
             });
             JButton playEndAudio = new JButton("▶");
@@ -27552,6 +27615,10 @@ public class GifSlideShowApp extends JFrame {
             endAudioBtns.add(pickEndAudio);
             endAudioBtns.add(clearEndAudio);
             endAudioBtns.add(playEndAudio);
+            endAudioBtns.setToolTipText("This slide's own sound at zero. Dict Import's "
+                    + "TIMER_END_AUDIO column sets it for every slide at once: a path for that "
+                    + "slide's own file, “none” for a quiet slide, “inherit” or an empty cell "
+                    + "to play the first slide's sound.");
             addTimerRow(end, r++, "Play when it ends:", endAudioBtns);
             addTimerRow(end, r++, " ", endAudioLbl);
 
@@ -27574,10 +27641,10 @@ public class GifSlideShowApp extends JFrame {
             JLabel endNote = new JLabel("<html><body style='width:300px'><i>Drag the preview slider past "
                     + "the end of the countdown to watch all of this play out. The slide is stretched "
                     + "automatically so the reveal, the badge and the sound all fit.<br><br>"
-                    + "The target text is the one setting that stays this slide's own — the rest of "
-                    + "the timer is broadcast from the first slide. Set the target for every slide at "
-                    + "once with Dict Import's TIMER_TARGET column (“Import target text” below)."
-                    + "</i></body></html>");
+                    + "The target text stays this slide's own, and so does the sound above once this "
+                    + "slide has one of its own — the rest of the timer is broadcast from the first "
+                    + "slide. Set both for every slide at once with Dict Import's TIMER_TARGET and "
+                    + "TIMER_END_AUDIO columns (“Import target text” below).</i></body></html>");
             endNote.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             endNote.setForeground(new Color(90, 90, 100));
             addTimerRow(end, r++, null, endNote);
@@ -27654,10 +27721,10 @@ public class GifSlideShowApp extends JFrame {
             // "I designed it here, on slide 7" — and for a one-off re-broadcast.
             JButton allSlidesBtn = new JButton("→ Apply to all slides");
             allSlidesBtn.setToolTipText("Copy this countdown timer to every slide. "
-                    + "Each slide keeps its own target text unless you tick the box.");
+                    + "Each slide keeps its own target text and end sound unless you tick the box.");
             allSlidesBtn.addActionListener(e -> {
                 JCheckBox alsoAnswers = new JCheckBox(
-                        "Also copy the target text", false);
+                        "Also copy the target text and the end sound", false);
                 alsoAnswers.setToolTipText("Leave this off to keep the per-slide answers "
                         + "imported from your Dict Import sheet.");
                 JPanel ask = new JPanel(new BorderLayout(0, 8));
@@ -27678,7 +27745,7 @@ public class GifSlideShowApp extends JFrame {
                 }
                 String msg = "Copied this countdown timer to " + applied + " slide(s).";
                 if (!alsoAnswers.isSelected()) {
-                    msg += "\nEach slide kept its own target text.";
+                    msg += "\nEach slide kept its own target text and end sound.";
                 }
                 if (locked > 0) msg += "\n" + locked + " locked slide(s) were left alone.";
                 JOptionPane.showMessageDialog(dlg, msg, "Apply to all slides",
@@ -27691,7 +27758,8 @@ public class GifSlideShowApp extends JFrame {
             JButton importBtn = new JButton("⤓ Import target text (Dict Import)…");
             importBtn.setToolTipText("Open Dict Import, whose TIMER_TARGET column sets the target "
                     + "text for every slide — a text number (1 = Text 1, 0 = none) or the text "
-                    + "itself. This applies the settings above and closes this box first.");
+                    + "itself — and whose TIMER_END_AUDIO column sets each slide's end sound. "
+                    + "This applies the settings above and closes this box first.");
             importBtn.addActionListener(e -> {
                 onFormatChanged();
                 close.run();
@@ -30257,6 +30325,16 @@ public class GifSlideShowApp extends JFrame {
         void setSlideTimerTarget(int textNumber) {
             if (slideTimer == null) slideTimer = new SlideTimer();
             slideTimer.endTextIndex = Math.max(0, textNumber);
+            schedulePreview();
+        }
+
+        /** Give this slide its own "play when it ends" sound. An empty path with
+         *  {@code silent} false falls back to the first slide's sound; {@code silent}
+         *  keeps the slide quiet instead. Set by Dict Import's TIMER_END_AUDIO. */
+        void setSlideTimerEndAudio(String path, boolean silent) {
+            if (slideTimer == null) slideTimer = new SlideTimer();
+            slideTimer.endAudioPath = path == null ? "" : path;
+            slideTimer.endAudioSilent = silent;
             schedulePreview();
         }
 
