@@ -149,10 +149,36 @@ public class SlideTimer {
     /** Playback gain, 0..100. */
     public int soundVolume = 70;
 
+    // ---- model: what stays this slide's own business -----------------------
+    /**
+     * Keys of the settings this slide keeps for itself, so the master slide's
+     * timer can be broadcast over every other slide without flattening the
+     * answer-specific bits. A key lands here when the CSV import writes that
+     * column, or when the user edits that control on a slide that is not the
+     * master — see {@link #copyPropagatedFrom(SlideTimer)}.
+     */
+    public final java.util.LinkedHashSet<String> perSlide = new java.util.LinkedHashSet<>();
+
+    /** Target text (the one the countdown reveals / badges at zero). */
+    public static final String PS_TARGET      = "target";
+    public static final String PS_ENABLED     = "enabled";
+    public static final String PS_SECONDS     = "seconds";
+    public static final String PS_LABEL       = "label";
+    public static final String PS_STYLE       = "style";
+    public static final String PS_START       = "start";
+    public static final String PS_REVEAL      = "reveal";
+    public static final String PS_TEXT_EFFECT = "textEffect";
+    public static final String PS_BADGE       = "badge";
+    public static final String PS_BADGE_COLOR = "badgeColor";
+    public static final String PS_BADGE_TEXT  = "badgeText";
+    public static final String PS_HOLD        = "hold";
+    public static final String PS_END_AUDIO   = "endAudio";
+
     public SlideTimer() {}
 
     public SlideTimer copy() {
         SlideTimer t = new SlideTimer();
+        t.perSlide.addAll(perSlide);
         t.enabled = enabled; t.style = style; t.seconds = seconds;
         t.xPct = xPct; t.yPct = yPct; t.sizePct = sizePct; t.heightPct = heightPct;
         t.opacity = opacity; t.rotationDeg = rotationDeg;
@@ -174,6 +200,92 @@ public class SlideTimer {
         t.endAudioPath = endAudioPath; t.endAudioDelayMs = endAudioDelayMs;
         t.endAudioVolume = endAudioVolume;
         return t;
+    }
+
+    /** Remember that {@code key} is this slide's own value and must survive a
+     *  broadcast from the master slide. */
+    public void markPerSlide(String key) {
+        if (key != null && !key.isEmpty()) perSlide.add(key);
+    }
+
+    /** Drop every per-slide exception, so the next broadcast overwrites the lot. */
+    public void clearPerSlide() { perSlide.clear(); }
+
+    /** Comma-joined override keys, for the preset file. */
+    public String perSlideKeys() { return String.join(",", perSlide); }
+
+    /** Restore the override keys written by {@link #perSlideKeys()}. */
+    public void setPerSlideKeys(String csv) {
+        perSlide.clear();
+        if (csv == null) return;
+        for (String k : csv.split(",")) {
+            String t = k.trim();
+            if (!t.isEmpty()) perSlide.add(t);
+        }
+    }
+
+    /**
+     * Take everything from the master slide's timer EXCEPT the settings this
+     * slide has claimed as its own (see {@link #perSlide}). This is what makes
+     * "design the timer once on slide 1" reach the whole deck while a CSV-imported
+     * target text, badge wording or end sound stays put on each slide.
+     */
+    public void copyPropagatedFrom(SlideTimer src) {
+        if (src == null) return;
+        SlideTimer mine = copy();                 // this slide's values, before the copy
+        java.util.LinkedHashSet<String> keys = new java.util.LinkedHashSet<>(perSlide);
+        assignFrom(src);
+        perSlide.clear();
+        perSlide.addAll(keys);
+        for (String k : keys) restore(k, mine);
+    }
+
+    /** Overwrite every field of this timer with {@code s}'s (per-slide keys aside). */
+    private void assignFrom(SlideTimer s) {
+        enabled = s.enabled; style = s.style; seconds = s.seconds;
+        xPct = s.xPct; yPct = s.yPct; sizePct = s.sizePct; heightPct = s.heightPct;
+        opacity = s.opacity; rotationDeg = s.rotationDeg;
+        color = s.color; color2 = s.color2; trackColor = s.trackColor;
+        textColor = s.textColor; panelColor = s.panelColor; panelOpacity = s.panelOpacity;
+        fontName = s.fontName; format = s.format; label = s.label;
+        glowOn = s.glowOn; glowPct = s.glowPct; shadow = s.shadow; countUp = s.countUp;
+        startMode = s.startMode; startTextIndex = s.startTextIndex;
+        startAtMs = s.startAtMs; offsetMs = s.offsetMs;
+        hideAfterEnd = s.hideAfterEnd; lingerMs = s.lingerMs;
+        entrance = s.entrance; effect = s.effect; finish = s.finish;
+        urgentColor = s.urgentColor; urgentSeconds = s.urgentSeconds;
+        soundMode = s.soundMode; soundName = s.soundName; endSoundName = s.endSoundName;
+        soundPath = s.soundPath; soundVolume = s.soundVolume;
+        endTextIndex = s.endTextIndex; endRevealText = s.endRevealText;
+        endTextEffect = s.endTextEffect; endBadge = s.endBadge;
+        endBadgeColor = s.endBadgeColor; endBadgeColor2 = s.endBadgeColor2;
+        endBadgeText = s.endBadgeText; endHoldMs = s.endHoldMs;
+        endAudioPath = s.endAudioPath; endAudioDelayMs = s.endAudioDelayMs;
+        endAudioVolume = s.endAudioVolume;
+    }
+
+    /** Put one claimed setting back after a broadcast. */
+    private void restore(String key, SlideTimer mine) {
+        switch (key) {
+            case PS_TARGET:      endTextIndex = mine.endTextIndex; break;
+            case PS_ENABLED:     enabled = mine.enabled; break;
+            case PS_SECONDS:     seconds = mine.seconds; break;
+            case PS_LABEL:       label = mine.label; break;
+            case PS_STYLE:       style = mine.style; break;
+            case PS_START:       startMode = mine.startMode; startTextIndex = mine.startTextIndex;
+                                 startAtMs = mine.startAtMs; offsetMs = mine.offsetMs; break;
+            case PS_REVEAL:      endRevealText = mine.endRevealText; break;
+            case PS_TEXT_EFFECT: endTextEffect = mine.endTextEffect; break;
+            case PS_BADGE:       endBadge = mine.endBadge; break;
+            case PS_BADGE_COLOR: endBadgeColor = mine.endBadgeColor;
+                                 endBadgeColor2 = mine.endBadgeColor2; break;
+            case PS_BADGE_TEXT:  endBadgeText = mine.endBadgeText; break;
+            case PS_HOLD:        endHoldMs = mine.endHoldMs; break;
+            case PS_END_AUDIO:   endAudioPath = mine.endAudioPath;
+                                 endAudioDelayMs = mine.endAudioDelayMs;
+                                 endAudioVolume = mine.endAudioVolume; break;
+            default: break;      // unknown key from a newer preset: ignore
+        }
     }
 
     // ---- catalogs (for the dialog's dropdowns) ----------------------------

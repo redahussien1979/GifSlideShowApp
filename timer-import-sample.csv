@@ -1,0 +1,6 @@
+TIMER_TARGET,TIMER_ENABLED,TIMER_SECONDS,TIMER_REVEAL,TIMER_TEXT_EFFECT,TIMER_BADGE,TIMER_BADGE_TEXT,TIMER_BADGE_COLOR,TIMER_HOLD,TIMER_END_AUDIO,TIMER_END_DELAY
+Paris,true,10,true,Pop In,Correct Box,CORRECT,#2ECC71,3,,1.0
+3,true,8,true,Zoom In,Correct Tick,,,2.5,,
+Jupiter,true,12,true,Bounce In,Star Burst,,,3,audio/reveal.mp3,0.5
+Text 4,true,10,true,Flash,Ribbon Banner,WELL DONE,#F1C40F,4,,1.0
+none,false,,,,,,,,,
