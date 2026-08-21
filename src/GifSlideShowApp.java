@@ -518,6 +518,15 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(p + "widthPct", String.valueOf(pic.widthPct));
             props.setProperty(p + "shape", pic.shape != null ? pic.shape : "Rectangle");
             props.setProperty(p + "cornerRadius", String.valueOf(pic.cornerRadius));
+            // Image FX (toolbar row 4e2). A preset written before these existed
+            // simply has no fx* keys and loads with effects off.
+            props.setProperty(p + "fxEffects", pic.fxEffects != null ? pic.fxEffects : "");
+            props.setProperty(p + "fxIntensity", String.valueOf(pic.fxIntensity));
+            props.setProperty(p + "fxSpeed", String.valueOf(pic.fxSpeed));
+            props.setProperty(p + "fxColor", colorToHex(pic.fxColor != null ? pic.fxColor : PIC_FX_DEFAULT_COLOR));
+            props.setProperty(p + "fxEntrance", pic.fxEntrance != null ? pic.fxEntrance : "None");
+            props.setProperty(p + "fxEntranceSec", String.valueOf(pic.fxEntranceSec));
+            props.setProperty(p + "fxShadow", String.valueOf(pic.fxShadow));
         }
 
         // Per-text audio highlight settings (FX, HL color, glow size).
@@ -1058,12 +1067,26 @@ public class GifSlideShowApp extends JFrame {
             // than an empty box on every slide.
             boolean show = Boolean.parseBoolean(props.getProperty(p + "show", "false"))
                     && (path.isEmpty() || img != null);
+            double fxSec;
+            try {
+                fxSec = Double.parseDouble(props.getProperty(p + "fxEntranceSec", "0.8").trim());
+            } catch (NumberFormatException ex) {
+                fxSec = 0.8;
+            }
             slidePictureFormats.add(new SlidePictureData(show, img, imgFile,
                     parseIntOr(props.getProperty(p + "x"), 50),
                     parseIntOr(props.getProperty(p + "y"), 50),
                     parseIntOr(props.getProperty(p + "widthPct"), 20),
                     props.getProperty(p + "shape", "Rectangle"),
-                    parseIntOr(props.getProperty(p + "cornerRadius"), 0)));
+                    parseIntOr(props.getProperty(p + "cornerRadius"), 0))
+                    .withFx(props.getProperty(p + "fxEffects", ""),
+                            parseIntOr(props.getProperty(p + "fxIntensity"), 100),
+                            parseIntOr(props.getProperty(p + "fxSpeed"), 100),
+                            hexToColor(props.getProperty(p + "fxColor",
+                                    colorToHex(PIC_FX_DEFAULT_COLOR))),
+                            props.getProperty(p + "fxEntrance", "None"),
+                            fxSec,
+                            parseIntOr(props.getProperty(p + "fxShadow"), 0)));
         }
 
         // Orientation
@@ -9361,260 +9384,9 @@ public class GifSlideShowApp extends JFrame {
 
         // ========== SLIDE PICTURE OVERLAY(S) ==========
         if (slidePictures != null) {
+            int activeAudioIdx = activeAudioSegmentIdx.get();
             for (SlidePictureData pic : slidePictures) {
-                if (!pic.show || pic.image == null) continue;
-                double aspect = (double) pic.image.getHeight() / pic.image.getWidth();
-                int picW, picH;
-                int boxW, boxH;
-                if (pic.boxHeightPct > 0) {
-                    // Fit or Fill the image inside a width × height box so grid
-                    // cells never overflow into their neighbours.
-                    boxW = Math.max(1, (int) (targetW * pic.widthPct / 100.0));
-                    boxH = Math.max(1, (int) (targetH * pic.boxHeightPct / 100.0));
-                    double scale;
-                    if ("Fill".equals(pic.fitMode)) {
-                        scale = Math.max((double) boxW / pic.image.getWidth(),
-                                (double) boxH / pic.image.getHeight());
-                    } else {
-                        scale = Math.min((double) boxW / pic.image.getWidth(),
-                                (double) boxH / pic.image.getHeight());
-                    }
-                    picW = Math.max(1, (int) (pic.image.getWidth() * scale));
-                    picH = Math.max(1, (int) (pic.image.getHeight() * scale));
-                } else {
-                    picW = Math.max(1, (int) (targetW * pic.widthPct / 100.0));
-                    picH = Math.max(1, (int) (picW * aspect));
-                    boxW = picW;
-                    boxH = picH;
-                }
-                int picX = (int) (targetW * pic.x / 100.0) - picW / 2;
-                int picY = (int) (targetH * pic.y / 100.0) - picH / 2;
-                // For Fill mode we clip to the box, not the full scaled image
-                int clipX = (int) (targetW * pic.x / 100.0) - boxW / 2;
-                int clipY = (int) (targetH * pic.y / 100.0) - boxH / 2;
-
-                // Prepare composite for opacity < 100
-                AlphaComposite picComposite = null;
-                if (pic.opacity < 100) {
-                    picComposite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, pic.opacity / 100.0f);
-                }
-
-                if ("Circle".equals(pic.shape)) {
-                    int diameter = Math.min(boxW, boxH);
-                    int cx = (int) (targetW * pic.x / 100.0) - diameter / 2;
-                    int cy = (int) (targetH * pic.y / 100.0) - diameter / 2;
-                    Graphics2D pg = (Graphics2D) g.create();
-                    pg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    pg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-                    if (picComposite != null) pg.setComposite(picComposite);
-                    pg.setClip(new java.awt.geom.Ellipse2D.Double(cx, cy, diameter, diameter));
-                    // Cover-crop the image to fill the circle
-                    double coverScale = Math.max((double) diameter / pic.image.getWidth(),
-                            (double) diameter / pic.image.getHeight());
-                    int drawW = (int) (pic.image.getWidth() * coverScale);
-                    int drawH = (int) (pic.image.getHeight() * coverScale);
-                    pg.drawImage(pic.image, cx + (diameter - drawW) / 2, cy + (diameter - drawH) / 2, drawW, drawH, null);
-                    pg.dispose();
-                    // Border
-                    if (pic.borderWidth > 0) {
-                        Graphics2D bg2 = (Graphics2D) g.create();
-                        bg2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                        bg2.setColor(pic.borderColor != null ? pic.borderColor : Color.WHITE);
-                        bg2.setStroke(new java.awt.BasicStroke(pic.borderWidth));
-                        bg2.drawOval(cx, cy, diameter, diameter);
-                        bg2.dispose();
-                    }
-                } else {
-                    Graphics2D pg = (Graphics2D) g.create();
-                    pg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    pg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-                    if (picComposite != null) pg.setComposite(picComposite);
-                    float rcScale = Math.max(targetW, targetH) / 1920.0f;
-                    if ("Fill".equals(pic.fitMode) && pic.boxHeightPct > 0) {
-                        // Clip to the cell box so the over-scaled image doesn't bleed out
-                        if (pic.cornerRadius > 0) {
-                            int radius = Math.max(1, (int) (pic.cornerRadius * Math.max(rcScale, 0.5f)));
-                            pg.setClip(new RoundRectangle2D.Double(clipX, clipY, boxW, boxH, radius * 2, radius * 2));
-                        } else {
-                            pg.setClip(new java.awt.Rectangle(clipX, clipY, boxW, boxH));
-                        }
-                    } else if (pic.cornerRadius > 0) {
-                        int radius = Math.max(1, (int) (pic.cornerRadius * Math.max(rcScale, 0.5f)));
-                        pg.setClip(new RoundRectangle2D.Double(picX, picY, picW, picH, radius * 2, radius * 2));
-                    }
-                    pg.drawImage(pic.image, picX, picY, picW, picH, null);
-                    pg.dispose();
-                    // Border
-                    if (pic.borderWidth > 0) {
-                        Graphics2D bg2 = (Graphics2D) g.create();
-                        bg2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                        bg2.setColor(pic.borderColor != null ? pic.borderColor : Color.WHITE);
-                        bg2.setStroke(new java.awt.BasicStroke(pic.borderWidth));
-                        int bx = "Fill".equals(pic.fitMode) && pic.boxHeightPct > 0 ? clipX : picX;
-                        int by = "Fill".equals(pic.fitMode) && pic.boxHeightPct > 0 ? clipY : picY;
-                        int bw = "Fill".equals(pic.fitMode) && pic.boxHeightPct > 0 ? boxW : picW;
-                        int bh = "Fill".equals(pic.fitMode) && pic.boxHeightPct > 0 ? boxH : picH;
-                        if (pic.cornerRadius > 0) {
-                            int radius = Math.max(1, (int) (pic.cornerRadius * Math.max(rcScale, 0.5f)));
-                            bg2.drawRoundRect(bx, by, bw, bh, radius * 2, radius * 2);
-                        } else {
-                            bg2.drawRect(bx, by, bw, bh);
-                        }
-                        bg2.dispose();
-                    }
-                }
-                // Audio effect animation. When this image has its own audio
-                // (audioActiveIdx >= 0), the effect fires ONLY while that exact
-                // audio segment is playing — read from the export-loop
-                // thread-local. When the image has no audio (-1), the effect
-                // animates continuously (legacy single-picture behaviour).
-                int _activeAudio = activeAudioSegmentIdx.get();
-                boolean _effectOn = (pic.audioActiveIdx < 0)
-                        ? true
-                        : (_activeAudio == pic.audioActiveIdx);
-                String _fx = pic.audioEffect != null ? pic.audioEffect : "";
-                if (!_fx.isEmpty() && !_fx.equals("None") && animFrameIndex >= 0 && _effectOn) {
-                    // ── Compute DISPLAY bounds (never larger than the visible cell). ──
-                    // For Fill mode picW/picH are oversized (image is clipped to the box),
-                    // so we must use the box rect, not the raw image rect, as effect bounds.
-                    float rcScaleE = Math.max(targetW, targetH) / 1920.0f;
-                    int ex, ey, ew, eh;
-                    if ("Circle".equals(pic.shape)) {
-                        int d = Math.min(boxW, boxH);
-                        ex = (int)(targetW * pic.x / 100.0) - d / 2;
-                        ey = (int)(targetH * pic.y / 100.0) - d / 2;
-                        ew = d; eh = d;
-                    } else if (pic.boxHeightPct > 0 && "Fill".equals(pic.fitMode)) {
-                        ex = clipX; ey = clipY; ew = boxW; eh = boxH;
-                    } else {
-                        ex = picX; ey = picY; ew = picW; eh = picH;
-                    }
-
-                    // Base scale: how pic.image maps to the display box (Fill or Fit).
-                    // Image-redraw effects multiply this so they always fill correctly.
-                    boolean _fillMode = "Fill".equals(pic.fitMode) || "Circle".equals(pic.shape);
-                    double _baseScale = _fillMode
-                            ? Math.max((double)ew / pic.image.getWidth(), (double)eh / pic.image.getHeight())
-                            : Math.min((double)ew / pic.image.getWidth(), (double)eh / pic.image.getHeight());
-
-                    double phase = (animFrameIndex % 30) / 30.0;
-                    Graphics2D eg = (Graphics2D) g.create();
-                    eg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    eg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-
-                    // ── Image-redraw effects (first match wins). ──
-                    // Each effect scales the display area OUTWARD so the image grows beyond
-                    // its normal cell boundary. Clipped to the scaled shape, not the original cell.
-                    if (_fx.contains("Scale Pulse")) {
-                        double animF = 1.0 + 0.08 * (0.5 - 0.5 * Math.cos(phase * 2 * Math.PI));
-                        int bw = (int)(ew * animF), bh = (int)(eh * animF);
-                        int bx = ex - (bw - ew) / 2, by = ey - (bh - eh) / 2;
-                        double ts = _fillMode
-                                ? Math.max((double)bw / pic.image.getWidth(), (double)bh / pic.image.getHeight())
-                                : _baseScale * animF;
-                        int iw = (int)(pic.image.getWidth() * ts), ih = (int)(pic.image.getHeight() * ts);
-                        int ix = bx + (bw - iw) / 2, iy = by + (bh - ih) / 2;
-                        Graphics2D sg = (Graphics2D) eg.create();
-                        clipPicShape(sg, pic, bx, by, bw, bh, rcScaleE);
-                        sg.drawImage(pic.image, ix, iy, iw, ih, null);
-                        sg.dispose();
-                    } else if (_fx.contains("Pop")) {
-                        double t2 = (animFrameIndex % 30) / 30.0;
-                        double animF = 1.0 + 0.22 * (t2 < 0.5 ? Math.sin(t2 / 0.5 * Math.PI) : 0.0);
-                        int bw = (int)(ew * animF), bh = (int)(eh * animF);
-                        int bx = ex - (bw - ew) / 2, by = ey - (bh - eh) / 2;
-                        double ts = _fillMode
-                                ? Math.max((double)bw / pic.image.getWidth(), (double)bh / pic.image.getHeight())
-                                : _baseScale * animF;
-                        int iw = (int)(pic.image.getWidth() * ts), ih = (int)(pic.image.getHeight() * ts);
-                        int ix = bx + (bw - iw) / 2, iy = by + (bh - ih) / 2;
-                        Graphics2D sg = (Graphics2D) eg.create();
-                        clipPicShape(sg, pic, bx, by, bw, bh, rcScaleE);
-                        sg.drawImage(pic.image, ix, iy, iw, ih, null);
-                        sg.dispose();
-                    } else if (_fx.contains("Heartbeat")) {
-                        double t2 = (animFrameIndex % 36) / 36.0;
-                        double beat = 0.0;
-                        if (t2 < 0.13)                     beat = Math.sin(t2 / 0.13 * Math.PI);
-                        else if (t2 >= 0.20 && t2 < 0.33) beat = 0.75 * Math.sin((t2 - 0.20) / 0.13 * Math.PI);
-                        double animF = 1.0 + 0.14 * Math.max(0.0, beat);
-                        int bw = (int)(ew * animF), bh = (int)(eh * animF);
-                        int bx = ex - (bw - ew) / 2, by = ey - (bh - eh) / 2;
-                        double ts = _fillMode
-                                ? Math.max((double)bw / pic.image.getWidth(), (double)bh / pic.image.getHeight())
-                                : _baseScale * animF;
-                        int iw = (int)(pic.image.getWidth() * ts), ih = (int)(pic.image.getHeight() * ts);
-                        int ix = bx + (bw - iw) / 2, iy = by + (bh - ih) / 2;
-                        Graphics2D sg = (Graphics2D) eg.create();
-                        clipPicShape(sg, pic, bx, by, bw, bh, rcScaleE);
-                        sg.drawImage(pic.image, ix, iy, iw, ih, null);
-                        sg.dispose();
-                    } else if (_fx.contains("Bounce")) {
-                        int lift = (int)(eh * 0.10 * Math.abs(Math.sin(phase * Math.PI)));
-                        int iw = (int)(pic.image.getWidth() * _baseScale);
-                        int ih = (int)(pic.image.getHeight() * _baseScale);
-                        int ix = ex + (ew - iw) / 2, iy = ey + (eh - ih) / 2 - lift;
-                        Graphics2D bg2 = (Graphics2D) eg.create();
-                        // Expand clip rect upward to allow the lifted image to show above the cell
-                        clipPicShape(bg2, pic, ex, ey - lift, ew, eh + lift, rcScaleE);
-                        bg2.drawImage(pic.image, ix, iy, iw, ih, null);
-                        bg2.dispose();
-                    }
-
-                    // ── Overlay effects (all stack on top, all clipped to display box). ──
-                    if (_fx.contains("Glow")) {
-                        float alpha = (float)(0.15 + 0.20 * (0.5 - 0.5 * Math.cos(phase * 2 * Math.PI)));
-                        int glowSize = Math.max(5, (int)(Math.min(ew, eh) * 0.055));
-                        for (int gi = glowSize; gi >= 1; gi--) {
-                            float a = alpha * (1f - (float) gi / glowSize);
-                            eg.setColor(new Color(1f, 0.85f, 0.3f, Math.max(0f, a)));
-                            eg.setStroke(new java.awt.BasicStroke(gi * 2));
-                            int r = pic.cornerRadius > 0 ? pic.cornerRadius : 0;
-                            if ("Circle".equals(pic.shape))
-                                eg.drawOval(ex - gi, ey - gi, ew + gi * 2, eh + gi * 2);
-                            else
-                                eg.drawRoundRect(ex - gi, ey - gi, ew + gi * 2, eh + gi * 2, r + gi, r + gi);
-                        }
-                    }
-                    if (_fx.contains("Shine")) {
-                        Graphics2D shg = (Graphics2D) eg.create();
-                        clipPicShape(shg, pic, ex, ey, ew, eh, rcScaleE);
-                        float prog  = (animFrameIndex % 50) / 50f;
-                        float band  = Math.max(4f, ew * 0.20f);
-                        float ctr   = ex - band + prog * (ew + band * 2f);
-                        float p0 = ctr - band / 2f, p1 = ctr + band / 2f;
-                        if (p1 - p0 < 2f) p1 = p0 + 2f;
-                        shg.setPaint(new java.awt.LinearGradientPaint(
-                                new java.awt.geom.Point2D.Float(p0, ey),
-                                new java.awt.geom.Point2D.Float(p1, ey + eh),
-                                new float[]{0f, 0.35f, 0.65f, 1f},
-                                new Color[]{new Color(1f,1f,1f,0f), new Color(1f,1f,1f,0.72f),
-                                            new Color(1f,1f,1f,0.72f), new Color(1f,1f,1f,0f)}));
-                        shg.fillRect(ex, ey, ew, eh);
-                        shg.dispose();
-                    }
-                    if (_fx.contains("Color Scan")) {
-                        double t2  = (animFrameIndex % 45) / 45.0;
-                        int scanY  = ey + (int)(t2 * eh);
-                        Graphics2D sg = (Graphics2D) eg.create();
-                        clipPicShape(sg, pic, ex, ey, ew, eh, rcScaleE);
-                        if (scanY > ey) {
-                            sg.setColor(new Color(0, 200, 255, 22));
-                            sg.fillRect(ex, ey, ew, scanY - ey);
-                        }
-                        int lineGlow = Math.max(3, ew / 80);
-                        for (int li = lineGlow; li >= 1; li--) {
-                            sg.setColor(new Color(0f, 0.85f, 1f, 0.6f * (1f - (float)li / lineGlow)));
-                            sg.setStroke(new java.awt.BasicStroke(li * 2 + 1));
-                            sg.drawLine(ex, scanY - li, ex + ew, scanY - li);
-                        }
-                        sg.setColor(new Color(0, 230, 255, 230));
-                        sg.setStroke(new java.awt.BasicStroke(2.5f));
-                        sg.drawLine(ex, scanY, ex + ew, scanY);
-                        sg.dispose();
-                    }
-                    eg.dispose();
-                }
+                drawSlidePicture(g, pic, targetW, targetH, animFrameIndex, activeAudioIdx);
             }
         }
 
@@ -9622,18 +9394,918 @@ public class GifSlideShowApp extends JFrame {
         return frame;
     }
 
-    /** Clip a graphics context to a bulk picture's shape (circle / rounded / rect). */
-    private static void clipPicShape(Graphics2D gg, SlidePictureData pic,
-                                     int x, int y, int w, int h, float rcScale) {
+    // ==================== Slide picture rendering + Image FX ====================
+
+    /**
+     * Draw one slide picture onto the frame, with its Image FX (toolbar row 4e2).
+     *
+     * <p>A picture with no effects takes the direct path it always had: scale,
+     * clip to its shape, draw, stroke the border. The moment it carries an
+     * effect the picture is composed into an off-screen buffer first, so colour
+     * grades and transforms act on the picture itself rather than being painted
+     * over a copy of it — the difference between a Ken Burns push and a ghosted
+     * second image sliding across the first.
+     *
+     * @param animFrameIndex frame number inside the slide, or negative for a
+     *                       static preview. A static preview shows the effects at
+     *                       their resting phase with the entrance already landed.
+     * @param activeAudioIdx which audio segment is playing (see
+     *                       {@link #activeAudioSegmentIdx}). A bulk-grid picture
+     *                       pinned to a segment only animates while it plays.
+     */
+    private static void drawSlidePicture(Graphics2D g, SlidePictureData pic,
+                                         int targetW, int targetH,
+                                         int animFrameIndex, int activeAudioIdx) {
+        if (pic == null || !pic.show || pic.image == null) return;
+
+        // ---- Geometry: the cell the picture occupies on the slide. ----
+        double aspect = (double) pic.image.getHeight() / pic.image.getWidth();
+        int picW, picH, boxW, boxH;
+        if (pic.boxHeightPct > 0) {
+            boxW = Math.max(1, (int) (targetW * pic.widthPct / 100.0));
+            boxH = Math.max(1, (int) (targetH * pic.boxHeightPct / 100.0));
+            double scale = "Fill".equals(pic.fitMode)
+                    ? Math.max((double) boxW / pic.image.getWidth(), (double) boxH / pic.image.getHeight())
+                    : Math.min((double) boxW / pic.image.getWidth(), (double) boxH / pic.image.getHeight());
+            picW = Math.max(1, (int) (pic.image.getWidth() * scale));
+            picH = Math.max(1, (int) (pic.image.getHeight() * scale));
+        } else {
+            picW = Math.max(1, (int) (targetW * pic.widthPct / 100.0));
+            picH = Math.max(1, (int) (picW * aspect));
+            boxW = picW;
+            boxH = picH;
+        }
+        int centerX = (int) (targetW * pic.x / 100.0);
+        int centerY = (int) (targetH * pic.y / 100.0);
+        float rcScale = Math.max(targetW, targetH) / 1920.0f;
+
+        // ---- Which effects are live on this frame? ----
+        // Bulk-grid slots keep their audio-triggered effect in audioEffect; the
+        // Image FX row writes fxEffects. Both feed the same renderer.
+        boolean effectOn = pic.audioActiveIdx < 0 || activeAudioIdx == pic.audioActiveIdx;
+        Set<String> fx = new LinkedHashSet<>();
+        if (effectOn) {
+            addPicFxTokens(fx, pic.audioEffect);
+            addPicFxTokens(fx, pic.fxEffects);
+        }
+        boolean entranceOn = effectOn && animFrameIndex >= 0
+                && pic.fxEntrance != null && !pic.fxEntrance.isEmpty()
+                && !"None".equals(pic.fxEntrance);
+        boolean shadowOn = effectOn && pic.fxShadow > 0;
+
+        if (fx.isEmpty() && !entranceOn && !shadowOn) {
+            drawSlidePicturePlain(g, pic, targetW, targetH,
+                    picW, picH, boxW, boxH, centerX, centerY, rcScale);
+            return;
+        }
+        drawSlidePictureFx(g, pic, targetW, targetH, picW, picH, boxW, boxH,
+                centerX, centerY, rcScale, fx, entranceOn, shadowOn, animFrameIndex);
+    }
+
+    /** Split a comma-separated effect list into exact tokens. */
+    private static void addPicFxTokens(Set<String> out, String list) {
+        if (list == null || list.isEmpty()) return;
+        for (String tok : list.split(",")) {
+            String t = tok.trim();
+            if (!t.isEmpty() && !"None".equals(t)) out.add(t);
+        }
+    }
+
+    /** The no-effects path: exactly the drawing slide pictures always did. */
+    private static void drawSlidePicturePlain(Graphics2D g, SlidePictureData pic,
+                                              int targetW, int targetH,
+                                              int picW, int picH, int boxW, int boxH,
+                                              int centerX, int centerY, float rcScale) {
+        int picX = centerX - picW / 2;
+        int picY = centerY - picH / 2;
+        int clipX = centerX - boxW / 2;
+        int clipY = centerY - boxH / 2;
+
+        AlphaComposite picComposite = pic.opacity < 100
+                ? AlphaComposite.getInstance(AlphaComposite.SRC_OVER, pic.opacity / 100.0f)
+                : null;
+
+        if ("Circle".equals(pic.shape)) {
+            int diameter = Math.min(boxW, boxH);
+            int cx = centerX - diameter / 2;
+            int cy = centerY - diameter / 2;
+            Graphics2D pg = (Graphics2D) g.create();
+            pg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            pg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            if (picComposite != null) pg.setComposite(picComposite);
+            pg.setClip(new Ellipse2D.Double(cx, cy, diameter, diameter));
+            double coverScale = Math.max((double) diameter / pic.image.getWidth(),
+                    (double) diameter / pic.image.getHeight());
+            int drawW = (int) (pic.image.getWidth() * coverScale);
+            int drawH = (int) (pic.image.getHeight() * coverScale);
+            pg.drawImage(pic.image, cx + (diameter - drawW) / 2, cy + (diameter - drawH) / 2, drawW, drawH, null);
+            pg.dispose();
+            if (pic.borderWidth > 0) {
+                Graphics2D bg2 = (Graphics2D) g.create();
+                bg2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                bg2.setColor(pic.borderColor != null ? pic.borderColor : Color.WHITE);
+                bg2.setStroke(new BasicStroke(pic.borderWidth));
+                bg2.drawOval(cx, cy, diameter, diameter);
+                bg2.dispose();
+            }
+            return;
+        }
+
+        Graphics2D pg = (Graphics2D) g.create();
+        pg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        pg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        if (picComposite != null) pg.setComposite(picComposite);
+        boolean fillBox = "Fill".equals(pic.fitMode) && pic.boxHeightPct > 0;
+        if (fillBox) {
+            if (pic.cornerRadius > 0) {
+                int radius = Math.max(1, (int) (pic.cornerRadius * Math.max(rcScale, 0.5f)));
+                pg.setClip(new RoundRectangle2D.Double(clipX, clipY, boxW, boxH, radius * 2, radius * 2));
+            } else {
+                pg.setClip(new java.awt.Rectangle(clipX, clipY, boxW, boxH));
+            }
+        } else if (pic.cornerRadius > 0) {
+            int radius = Math.max(1, (int) (pic.cornerRadius * Math.max(rcScale, 0.5f)));
+            pg.setClip(new RoundRectangle2D.Double(picX, picY, picW, picH, radius * 2, radius * 2));
+        }
+        pg.drawImage(pic.image, picX, picY, picW, picH, null);
+        pg.dispose();
+
+        if (pic.borderWidth > 0) {
+            Graphics2D bg2 = (Graphics2D) g.create();
+            bg2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            bg2.setColor(pic.borderColor != null ? pic.borderColor : Color.WHITE);
+            bg2.setStroke(new BasicStroke(pic.borderWidth));
+            int bx = fillBox ? clipX : picX;
+            int by = fillBox ? clipY : picY;
+            int bw = fillBox ? boxW : picW;
+            int bh = fillBox ? boxH : picH;
+            if (pic.cornerRadius > 0) {
+                int radius = Math.max(1, (int) (pic.cornerRadius * Math.max(rcScale, 0.5f)));
+                bg2.drawRoundRect(bx, by, bw, bh, radius * 2, radius * 2);
+            } else {
+                bg2.drawRect(bx, by, bw, bh);
+            }
+            bg2.dispose();
+        }
+    }
+
+    /** Position of {@code t} inside a repeating {@code period}-frame cycle, 0..1. */
+    private static double picPhase(double t, double period) {
+        if (period <= 0) return 0;
+        double m = t % period;
+        if (m < 0) m += period;
+        return m / period;
+    }
+
+    private static double easeOutCubic(double p) { return 1 - Math.pow(1 - p, 3); }
+
+    /** Overshoots past 1 and settles back — the "pop" every motion designer reaches for. */
+    private static double easeOutBack(double p) {
+        double c1 = 1.70158, c3 = c1 + 1;
+        return 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2);
+    }
+
+    private static double easeOutBounce(double p) {
+        double n1 = 7.5625, d1 = 2.75;
+        if (p < 1 / d1)       return n1 * p * p;
+        if (p < 2 / d1)     { p -= 1.5 / d1;   return n1 * p * p + 0.75; }
+        if (p < 2.5 / d1)   { p -= 2.25 / d1;  return n1 * p * p + 0.9375; }
+        p -= 2.625 / d1;
+        return n1 * p * p + 0.984375;
+    }
+
+    /** The picture's outline in its own 0,0..w,h coordinate space. */
+    private static Shape picLocalShape(SlidePictureData pic, int w, int h, float rcScale) {
         if ("Circle".equals(pic.shape)) {
             int d = Math.min(w, h);
-            gg.setClip(new java.awt.geom.Ellipse2D.Double(x, y, d, d));
-        } else if (pic.cornerRadius > 0) {
-            int rad = Math.max(1, (int) (pic.cornerRadius * Math.max(rcScale, 0.5f)));
-            gg.setClip(new RoundRectangle2D.Double(x, y, w, h, rad * 2, rad * 2));
-        } else {
-            gg.setClip(new java.awt.Rectangle(x, y, w, h));
+            return new Ellipse2D.Double((w - d) / 2.0, (h - d) / 2.0, d, d);
         }
+        if (pic.cornerRadius > 0) {
+            int rad = Math.max(1, (int) (pic.cornerRadius * Math.max(rcScale, 0.5f)));
+            return new RoundRectangle2D.Double(0, 0, w, h, rad * 2, rad * 2);
+        }
+        return new java.awt.Rectangle(0, 0, w, h);
+    }
+
+    /**
+     * The Image FX path: compose the picture into a buffer, grade it, then place
+     * it on the slide under a single transform, and finally paint the light and
+     * framing effects that live outside the picture's own pixels.
+     */
+    private static void drawSlidePictureFx(Graphics2D g, SlidePictureData pic,
+                                           int targetW, int targetH,
+                                           int picW, int picH, int boxW, int boxH,
+                                           int centerX, int centerY, float rcScale,
+                                           Set<String> fx, boolean entranceOn, boolean shadowOn,
+                                           int animFrameIndex) {
+        // The visible cell: what the effects treat as "the picture".
+        int dispW, dispH;
+        boolean cover;
+        if ("Circle".equals(pic.shape)) {
+            dispW = dispH = Math.max(1, Math.min(boxW, boxH));
+            cover = true;
+        } else if (pic.boxHeightPct > 0 && "Fill".equals(pic.fitMode)) {
+            dispW = boxW; dispH = boxH; cover = true;
+        } else {
+            dispW = picW; dispH = picH; cover = false;
+        }
+
+        double inten = (pic.fxIntensity > 0 ? Math.min(300, pic.fxIntensity) : 100) / 100.0;
+        double speed = (pic.fxSpeed > 0 ? Math.min(400, pic.fxSpeed) : 100) / 100.0;
+        int rawFrame = Math.max(0, animFrameIndex);
+        double t = rawFrame * speed;
+        Color accent = pic.fxColor != null ? pic.fxColor : PIC_FX_DEFAULT_COLOR;
+
+        // ---- Motion: a single transform, accumulated from every live effect. ----
+        double scaleX = 1.0, scaleY = 1.0, dx = 0, dy = 0, rot = 0, shear = 0, alpha = 1.0;
+        double contentZoom = 1.0, panX = 0, panY = 0, blurT = 0;
+
+        if (fx.contains("Ken Burns")) {
+            double kb = picPhase(t, 300);
+            double e = 0.5 - 0.5 * Math.cos(kb * 2 * Math.PI);
+            contentZoom *= 1.0 + 0.14 * inten * e;
+            panX += dispW * 0.05 * inten * Math.sin(kb * 2 * Math.PI);
+            panY -= dispH * 0.04 * inten * e;
+        }
+        if (fx.contains("Scale Pulse")) {
+            double s = 1.0 + 0.08 * inten * (0.5 - 0.5 * Math.cos(picPhase(t, 30) * 2 * Math.PI));
+            scaleX *= s; scaleY *= s;
+        }
+        if (fx.contains("Pop")) {
+            double p = picPhase(t, 30);
+            double s = 1.0 + 0.22 * inten * (p < 0.5 ? Math.sin(p / 0.5 * Math.PI) : 0.0);
+            scaleX *= s; scaleY *= s;
+        }
+        if (fx.contains("Heartbeat")) {
+            double p = picPhase(t, 36);
+            double beat = 0.0;
+            if (p < 0.13)                    beat = Math.sin(p / 0.13 * Math.PI);
+            else if (p >= 0.20 && p < 0.33)  beat = 0.75 * Math.sin((p - 0.20) / 0.13 * Math.PI);
+            double s = 1.0 + 0.14 * inten * Math.max(0.0, beat);
+            scaleX *= s; scaleY *= s;
+        }
+        if (fx.contains("Bounce")) {
+            dy -= dispH * 0.10 * inten * Math.abs(Math.sin(picPhase(t, 30) * Math.PI));
+        }
+        if (fx.contains("Float")) {
+            dy += dispH * 0.035 * inten * Math.sin(picPhase(t, 90) * 2 * Math.PI);
+        }
+        if (fx.contains("Sway")) {
+            rot += Math.toRadians(2.5 * inten * Math.sin(picPhase(t, 120) * 2 * Math.PI));
+        }
+        if (fx.contains("Spin")) {
+            rot += picPhase(t, 240) * 2 * Math.PI;
+        }
+        if (fx.contains("Tilt 3D")) {
+            shear += 0.10 * inten * Math.sin(picPhase(t, 150) * 2 * Math.PI);
+        }
+
+        // ---- Entrance: played once, on the slide's own clock (never speed-scaled). ----
+        if (entranceOn) {
+            double durF = Math.max(1.0, pic.fxEntranceSec * 30.0);
+            double p = Math.min(1.0, animFrameIndex / durF);
+            double e = easeOutCubic(p);
+            switch (pic.fxEntrance) {
+                case "Fade In":
+                    alpha *= e; break;
+                case "Zoom In":
+                    scaleX *= 0.55 + 0.45 * e; scaleY *= 0.55 + 0.45 * e;
+                    alpha *= Math.min(1, e * 1.5); break;
+                case "Zoom Out":
+                    scaleX *= 1.45 - 0.45 * e; scaleY *= 1.45 - 0.45 * e;
+                    alpha *= Math.min(1, e * 1.5); break;
+                case "Slide In Left":
+                    dx -= targetW * 0.55 * (1 - e); alpha *= Math.min(1, e * 2); break;
+                case "Slide In Right":
+                    dx += targetW * 0.55 * (1 - e); alpha *= Math.min(1, e * 2); break;
+                case "Slide In Top":
+                    dy -= targetH * 0.60 * (1 - e); alpha *= Math.min(1, e * 2); break;
+                case "Slide In Bottom":
+                    dy += targetH * 0.60 * (1 - e); alpha *= Math.min(1, e * 2); break;
+                case "Flip In":
+                    scaleX *= Math.max(0.02, e); alpha *= Math.min(1, e * 2); break;
+                case "Rotate In":
+                    rot += Math.toRadians(-32 * (1 - e));
+                    scaleX *= 0.7 + 0.3 * e; scaleY *= 0.7 + 0.3 * e;
+                    alpha *= e; break;
+                case "Blur In":
+                    blurT = 1 - e; alpha *= Math.min(1, e * 1.4); break;
+                case "Unfold":
+                    scaleY *= Math.max(0.02, e); break;
+                case "Drop In":
+                    dy -= targetH * 0.45 * (1 - easeOutBounce(p)); break;
+                case "Pop In": {
+                    double s = Math.max(0.02, easeOutBack(p));
+                    scaleX *= s; scaleY *= s; alpha *= Math.min(1, p * 3); break;
+                }
+                default: break;
+            }
+        }
+
+        // ---- Compose the picture itself. ----
+        Shape localShape = picLocalShape(pic, dispW, dispH, rcScale);
+        BufferedImage content = new BufferedImage(dispW, dispH, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D cg = content.createGraphics();
+        cg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        cg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        cg.setClip(localShape);
+        double cs = cover
+                ? Math.max((double) dispW / pic.image.getWidth(), (double) dispH / pic.image.getHeight())
+                : Math.min((double) dispW / pic.image.getWidth(), (double) dispH / pic.image.getHeight());
+        cs *= contentZoom;
+        int iw = Math.max(1, (int) Math.round(pic.image.getWidth() * cs));
+        int ih = Math.max(1, (int) Math.round(pic.image.getHeight() * cs));
+        cg.drawImage(pic.image,
+                (int) Math.round((dispW - iw) / 2.0 + panX),
+                (int) Math.round((dispH - ih) / 2.0 + panY), iw, ih, null);
+        cg.dispose();
+
+        applyPicPixelFx(content, fx, inten, t, accent);
+        if (blurT > 0) content = softBlur(content, (float) (blurT * 0.85f));
+
+        // Gradient tint rides on the picture, so it is clipped by the same shape.
+        if (fx.contains("Gradient Tint")) {
+            Graphics2D tg = content.createGraphics();
+            tg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            tg.setClip(localShape);
+            tg.setComposite(AlphaComposite.SrcAtop);
+            float a = (float) Math.min(0.75, 0.42 * inten);
+            tg.setPaint(new LinearGradientPaint(
+                    new Point2D.Float(0, 0), new Point2D.Float(dispW, dispH),
+                    new float[]{0f, 1f},
+                    new Color[]{new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), (int) (a * 255)),
+                                new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 0)}));
+            tg.fillRect(0, 0, dispW, dispH);
+            tg.dispose();
+        }
+
+        // ---- Place it. ----
+        AffineTransform at = new AffineTransform();
+        at.translate(centerX + dx, centerY + dy);
+        if (rot != 0) at.rotate(rot);
+        if (shear != 0) at.shear(shear, 0);
+        at.scale(Math.max(0.001, scaleX), Math.max(0.001, scaleY));
+        at.translate(-dispW / 2.0, -dispH / 2.0);
+        Shape dev = at.createTransformedShape(localShape);
+        Rectangle2D devB = dev.getBounds2D();
+
+        if (fx.contains("Light Rays")) {
+            drawPicLightRays(g, devB, accent, inten, t);
+        }
+        if (shadowOn) {
+            drawPicShadow(g, dev, pic.fxShadow / 100.0, Math.max(dispW, dispH));
+        }
+        if (fx.contains("Reflection")) {
+            drawPicReflection(g, content, at, dispW, dispH, inten);
+        }
+
+        float finalAlpha = (float) Math.max(0, Math.min(1, alpha * (pic.opacity / 100.0)));
+        Graphics2D dg = (Graphics2D) g.create();
+        dg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        dg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        dg.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        if (finalAlpha < 1f) {
+            dg.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, finalAlpha));
+        }
+        dg.drawImage(content, at, null);
+        dg.dispose();
+
+        if (pic.borderWidth > 0) {
+            Graphics2D bg2 = (Graphics2D) g.create();
+            bg2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            bg2.setColor(pic.borderColor != null ? pic.borderColor : Color.WHITE);
+            bg2.setStroke(new BasicStroke(pic.borderWidth));
+            bg2.draw(dev);
+            bg2.dispose();
+        }
+
+        drawPicLightFx(g, fx, dev, devB, accent, inten, t, finalAlpha);
+    }
+
+    /** A cheap, well-mixed 0..255 hash of a pixel coordinate and a frame seed.
+     *  Straight multiply-and-shift arithmetic leaves diagonal moire in the
+     *  grain, which reads as a screen-door artefact rather than film stock. */
+    private static int picHashNoise(int x, int y, int seed) {
+        int n = x * 374761393 + y * 668265263 + seed * 1274126177;
+        n = (n ^ (n >>> 13)) * 1274126177;
+        return (n ^ (n >>> 16)) & 0xFF;
+    }
+
+    private static int clamp255(double v) {
+        return v < 0 ? 0 : (v > 255 ? 255 : (int) v);
+    }
+
+    /** Cheap, good-looking blur: shrink with bilinear filtering, then grow back. */
+    private static BufferedImage softBlur(BufferedImage src, float amount) {
+        float a = Math.max(0f, Math.min(1f, amount));
+        if (a <= 0.001f) return src;
+        int w = src.getWidth(), h = src.getHeight();
+        int sw = Math.max(2, (int) (w * (1 - 0.90 * a)));
+        int sh = Math.max(2, (int) (h * (1 - 0.90 * a)));
+        BufferedImage small = new BufferedImage(sw, sh, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D sg = small.createGraphics();
+        sg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        sg.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        sg.drawImage(src, 0, 0, sw, sh, null);
+        sg.dispose();
+        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D og = out.createGraphics();
+        og.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        og.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        og.drawImage(small, 0, 0, w, h, null);
+        og.dispose();
+        return out;
+    }
+
+    /** Hue ramp used by the Holographic sheen, built once. */
+    private static final int[] PIC_FX_HOLO_LUT = buildHoloLut();
+
+    private static int[] buildHoloLut() {
+        int[] lut = new int[256];
+        for (int i = 0; i < 256; i++) lut[i] = Color.HSBtoRGB(i / 256f, 0.55f, 1f);
+        return lut;
+    }
+
+    /**
+     * Colour grades and film looks. These rewrite the composed picture's pixels,
+     * leaving anything the shape mask made transparent alone.
+     */
+    private static void applyPicPixelFx(BufferedImage img, Set<String> fx,
+                                        double inten, double t, Color accent) {
+        boolean mono  = fx.contains("Monochrome");
+        boolean sepia = fx.contains("Sepia Tone");
+        boolean duo   = fx.contains("Duotone");
+        boolean grain = fx.contains("Film Grain");
+        boolean scan  = fx.contains("Scanlines");
+        boolean holo  = fx.contains("Holographic");
+        boolean inner = fx.contains("Inner Shadow");
+        boolean vig   = fx.contains("Vignette");
+        boolean split = fx.contains("RGB Split");
+        boolean soft  = fx.contains("Soft Focus");
+        if (!(mono || sepia || duo || grain || scan || holo || inner || vig || split || soft)) return;
+
+        int w = img.getWidth(), h = img.getHeight();
+
+        if (soft) {
+            BufferedImage blurred = softBlur(img, (float) Math.min(0.9, 0.45 * inten));
+            Graphics2D bg = img.createGraphics();
+            bg.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_ATOP,
+                    (float) Math.min(0.85, 0.60 * inten)));
+            bg.drawImage(blurred, 0, 0, null);
+            bg.dispose();
+        }
+        if (!(mono || sepia || duo || grain || scan || holo || inner || vig || split)) return;
+
+        int[] px = img.getRGB(0, 0, w, h, null, 0, w);
+        int[] src = split ? px.clone() : null;
+
+        // Duotone end points: a deep shadow tone and a bright tint of the accent.
+        int dr = (int) (accent.getRed() * 0.20), dgc = (int) (accent.getGreen() * 0.16), db = (int) (accent.getBlue() * 0.38);
+        int lr = clamp255(accent.getRed() * 0.42 + 255 * 0.58);
+        int lgc = clamp255(accent.getGreen() * 0.42 + 255 * 0.58);
+        int lb = clamp255(accent.getBlue() * 0.42 + 255 * 0.58);
+
+        double mix = Math.min(1.0, inten);
+        int splitPx = Math.max(1, (int) (w * 0.014 * inten));
+        int grainAmp = (int) (15 * inten);
+        int scanPeriod = Math.max(3, h / 90);
+        int grainSeed = (int) t * 7919;
+        double holoShift = picPhase(t, 120);
+        double cxp = w / 2.0, cyp = h / 2.0;
+        double maxR = Math.sqrt(cxp * cxp + cyp * cyp);
+        double innerRef = Math.max(1.0, Math.min(w, h) * 0.5);
+
+        for (int yy = 0; yy < h; yy++) {
+            boolean scanRow = scan && (yy % scanPeriod) < Math.max(1, scanPeriod / 2);
+            int row = yy * w;
+            for (int xx = 0; xx < w; xx++) {
+                int i = row + xx;
+                int p = px[i];
+                int a = (p >>> 24) & 0xFF;
+                if (a == 0) continue;
+                int r = (p >> 16) & 0xFF, gc = (p >> 8) & 0xFF, b = p & 0xFF;
+
+                if (split) {
+                    int pr = src[row + Math.max(0, xx - splitPx)];
+                    int pb = src[row + Math.min(w - 1, xx + splitPx)];
+                    if (((pr >>> 24) & 0xFF) > 0) r = (pr >> 16) & 0xFF;
+                    if (((pb >>> 24) & 0xFF) > 0) b = pb & 0xFF;
+                }
+
+                if (mono || sepia || duo) {
+                    double lum = (r * 0.299 + gc * 0.587 + b * 0.114) / 255.0;
+                    int nr, ng, nb;
+                    if (duo) {
+                        nr = clamp255(dr + (lr - dr) * lum);
+                        ng = clamp255(dgc + (lgc - dgc) * lum);
+                        nb = clamp255(db + (lb - db) * lum);
+                    } else if (sepia) {
+                        nr = clamp255(lum * 255 * 1.07 + 26);
+                        ng = clamp255(lum * 255 * 0.94 + 12);
+                        nb = clamp255(lum * 255 * 0.72);
+                    } else {
+                        nr = ng = nb = clamp255(lum * 255);
+                    }
+                    r = clamp255(r + (nr - r) * mix);
+                    gc = clamp255(gc + (ng - gc) * mix);
+                    b = clamp255(b + (nb - b) * mix);
+                }
+
+                if (holo) {
+                    int hi = (int) (((xx / (double) w) * 1.25 + (yy / (double) h) * 0.55 + holoShift) * 256) & 0xFF;
+                    int hc = PIC_FX_HOLO_LUT[hi];
+                    double lum = (r * 0.299 + gc * 0.587 + b * 0.114) / 255.0;
+                    double wgt = 0.20 * inten * (0.35 + 0.65 * lum);
+                    r = clamp255(r + (((hc >> 16) & 0xFF) - r) * wgt);
+                    gc = clamp255(gc + (((hc >> 8) & 0xFF) - gc) * wgt);
+                    b = clamp255(b + ((hc & 0xFF) - b) * wgt);
+                }
+
+                if (grain && grainAmp > 0) {
+                    int noise = (picHashNoise(xx, yy, grainSeed) - 128) * grainAmp / 128;
+                    r = clamp255(r + noise); gc = clamp255(gc + noise); b = clamp255(b + noise);
+                }
+
+                double darken = 0;
+                if (scanRow) darken += 0.20 * inten;
+                if (inner) {
+                    double edge = Math.min(Math.min(xx, w - 1 - xx), Math.min(yy, h - 1 - yy)) / innerRef;
+                    if (edge < 0.32) { double k = (0.32 - edge) / 0.32; darken += 0.60 * inten * k * k; }
+                }
+                if (vig) {
+                    double d0 = xx - cxp, d1 = yy - cyp;
+                    double rr = Math.sqrt(d0 * d0 + d1 * d1) / maxR;
+                    if (rr > 0.42) { double k = (rr - 0.42) / 0.58; darken += 0.85 * inten * k * k; }
+                }
+                if (darken > 0) {
+                    double keep = Math.max(0.0, 1.0 - Math.min(0.95, darken));
+                    r = clamp255(r * keep); gc = clamp255(gc * keep); b = clamp255(b * keep);
+                }
+
+                px[i] = (a << 24) | (r << 16) | (gc << 8) | b;
+            }
+        }
+        img.setRGB(0, 0, w, h, px, 0, w);
+    }
+
+    /** Soft drop shadow: concentric fills of the picture's own outline. */
+    private static void drawPicShadow(Graphics2D g, Shape dev, double depth, int maxDim) {
+        Rectangle2D b = dev.getBounds2D();
+        double cx = b.getCenterX(), cy = b.getCenterY();
+        int off = (int) Math.max(2, maxDim * 0.045 * depth);
+        int layers = 14;
+        float per = (float) Math.min(0.85, 0.55 * depth / layers);
+        Graphics2D sg = (Graphics2D) g.create();
+        sg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        sg.setColor(new Color(0f, 0f, 0f, per));
+        for (int i = layers; i >= 1; i--) {
+            double grow = 1.0 + i * 0.013 * (0.6 + depth);
+            AffineTransform la = new AffineTransform();
+            la.translate(cx, cy + off);
+            la.scale(grow, grow);
+            la.translate(-cx, -cy);
+            sg.fill(la.createTransformedShape(dev));
+        }
+        sg.dispose();
+    }
+
+    /** Mirrored, fading copy of the picture sitting just under it. */
+    private static void drawPicReflection(Graphics2D g, BufferedImage content,
+                                          AffineTransform at, int dispW, int dispH, double inten) {
+        int rh = Math.max(1, (int) (dispH * 0.5));
+        BufferedImage refl = new BufferedImage(dispW, rh, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D rg = refl.createGraphics();
+        rg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        rg.drawImage(content, 0, 0, dispW, rh, 0, dispH, dispW, dispH - rh, null);
+        rg.setComposite(AlphaComposite.DstIn);
+        rg.setPaint(new GradientPaint(
+                0, 0, new Color(1f, 1f, 1f, (float) Math.min(0.60, 0.38 * inten)),
+                0, rh, new Color(1f, 1f, 1f, 0f)));
+        rg.fillRect(0, 0, dispW, rh);
+        rg.dispose();
+
+        AffineTransform rat = new AffineTransform(at);
+        rat.translate(0, dispH + Math.max(2.0, dispH * 0.02));
+        Graphics2D dg = (Graphics2D) g.create();
+        dg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        dg.drawImage(refl, rat, null);
+        dg.dispose();
+    }
+
+    /**
+     * Rotating god-rays fanning out behind the picture.
+     *
+     * <p>The rays are brightest where they clear the picture's edge and fade to
+     * nothing at their tips. Peaking at the centre instead just hides the light
+     * behind the picture and leaves dull wedges poking out around it.
+     */
+    private static void drawPicLightRays(Graphics2D g, Rectangle2D b, Color accent, double inten, double t) {
+        double cx = b.getCenterX(), cy = b.getCenterY();
+        double len = Math.max(b.getWidth(), b.getHeight()) * 1.35;
+        Graphics2D rg = (Graphics2D) g.create();
+        rg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        rg.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER,
+                (float) Math.min(0.9, 0.6 * inten)));
+
+        // A bloom behind the picture, so the rays read as light leaving a source.
+        rg.setPaint(new RadialGradientPaint(new Point2D.Double(cx, cy), (float) (len * 0.72),
+                new float[]{0f, 0.45f, 1f},
+                new Color[]{withAlpha(accent, 0.55), withAlpha(accent, 0.28), withAlpha(accent, 0)}));
+        rg.fill(new Ellipse2D.Double(cx - len * 0.72, cy - len * 0.72, len * 1.44, len * 1.44));
+
+        rg.setPaint(new RadialGradientPaint(new Point2D.Double(cx, cy), (float) len,
+                new float[]{0f, 0.42f, 0.58f, 1f},
+                new Color[]{withAlpha(accent, 0.35),
+                            new Color(255, 255, 255, 215),
+                            withAlpha(accent, 0.62),
+                            withAlpha(accent, 0)}));
+        int rays = 16;
+        double spin = picPhase(t, 600) * 2 * Math.PI;
+        for (int i = 0; i < rays; i++) {
+            double a0 = spin + i * (2 * Math.PI / rays);
+            double halfW = Math.toRadians(2.4 + 1.8 * Math.sin(t * 0.05 + i));
+            Path2D.Double p = new Path2D.Double();
+            p.moveTo(cx, cy);
+            p.lineTo(cx + Math.cos(a0 - halfW) * len, cy + Math.sin(a0 - halfW) * len);
+            p.lineTo(cx + Math.cos(a0 + halfW) * len, cy + Math.sin(a0 + halfW) * len);
+            p.closePath();
+            rg.fill(p);
+        }
+        rg.dispose();
+    }
+
+    /** Rough perimeter of a shape, used to animate dashes along its outline. */
+    private static double picShapePerimeter(Shape s) {
+        double len = 0, px = 0, py = 0, sx = 0, sy = 0;
+        double[] c = new double[6];
+        for (PathIterator it = s.getPathIterator(null, 1.0); !it.isDone(); it.next()) {
+            switch (it.currentSegment(c)) {
+                case PathIterator.SEG_MOVETO: px = sx = c[0]; py = sy = c[1]; break;
+                case PathIterator.SEG_LINETO:
+                    len += Math.hypot(c[0] - px, c[1] - py); px = c[0]; py = c[1]; break;
+                case PathIterator.SEG_CLOSE:
+                    len += Math.hypot(sx - px, sy - py); px = sx; py = sy; break;
+                default: break;
+            }
+        }
+        return Math.max(1.0, len);
+    }
+
+    private static Color withAlpha(Color c, double a) {
+        int ia = (int) Math.round(Math.max(0, Math.min(1, a)) * 255);
+        return new Color(c.getRed(), c.getGreen(), c.getBlue(), ia);
+    }
+
+    /**
+     * Everything painted around or across the placed picture: glow, neon, sweeps,
+     * sparkle, brackets, scans. All of it is clipped to (or traced along) the
+     * picture's real outline, so a circle never gets a rectangular halo.
+     */
+    private static void drawPicLightFx(Graphics2D g, Set<String> fx, Shape dev, Rectangle2D b,
+                                       Color accent, double inten, double t, float alphaMul) {
+        if (fx.isEmpty()) return;
+        double minDim = Math.max(1, Math.min(b.getWidth(), b.getHeight()));
+        Graphics2D gg = (Graphics2D) g.create();
+        gg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        if (alphaMul < 1f) {
+            gg.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, Math.max(0f, alphaMul)));
+        }
+
+        if (fx.contains("Glow")) {
+            double a0 = (0.16 + 0.22 * (0.5 - 0.5 * Math.cos(picPhase(t, 30) * 2 * Math.PI))) * inten;
+            int size = Math.max(4, (int) (minDim * 0.06));
+            for (int i = size; i >= 1; i--) {
+                gg.setColor(withAlpha(accent, a0 * (1.0 - (double) i / size)));
+                gg.setStroke(new BasicStroke(i * 2, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                gg.draw(dev);
+            }
+        }
+
+        if (fx.contains("Neon Outline")) {
+            double flick = 0.86 + 0.10 * Math.sin(t * 0.9) + 0.04 * Math.sin(t * 2.7);
+            int size = Math.max(3, (int) (minDim * 0.035));
+            for (int i = size; i >= 1; i--) {
+                gg.setColor(withAlpha(accent, 0.16 * inten * flick * (1.0 - (double) i / (size + 1))));
+                gg.setStroke(new BasicStroke(i * 3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                gg.draw(dev);
+            }
+            gg.setColor(new Color(255, 255, 255, (int) Math.min(255, 210 * inten * flick)));
+            gg.setStroke(new BasicStroke(Math.max(1.5f, (float) (minDim * 0.006)),
+                    BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            gg.draw(dev);
+        }
+
+        if (fx.contains("Pulse Ring")) {
+            for (int k = 0; k < 3; k++) {
+                double p = picPhase(t + k * 20, 60);
+                double grow = 1.0 + 0.30 * p * inten;
+                AffineTransform la = new AffineTransform();
+                la.translate(b.getCenterX(), b.getCenterY());
+                la.scale(grow, grow);
+                la.translate(-b.getCenterX(), -b.getCenterY());
+                gg.setColor(withAlpha(accent, (1 - p) * 0.50 * inten));
+                gg.setStroke(new BasicStroke(Math.max(1.5f, (float) (minDim * 0.010))));
+                gg.draw(la.createTransformedShape(dev));
+            }
+        }
+
+        if (fx.contains("Frame Trace") || fx.contains("Glow Sweep")) {
+            double per = picShapePerimeter(dev);
+            if (fx.contains("Frame Trace")) {
+                float dash = (float) (per * 0.20);
+                float phase = (float) ((1.0 - picPhase(t, 90)) * per);
+                gg.setColor(withAlpha(accent, 0.85 * inten));
+                gg.setStroke(new BasicStroke(Math.max(2f, (float) (minDim * 0.012)),
+                        BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 10f,
+                        new float[]{dash, (float) Math.max(1.0, per - dash)}, phase));
+                gg.draw(dev);
+            }
+            if (fx.contains("Glow Sweep")) {
+                float dash = (float) (per * 0.16);
+                float phase = (float) ((1.0 - picPhase(t, 55)) * per);
+                int layers = 5;
+                for (int i = layers; i >= 1; i--) {
+                    gg.setColor(withAlpha(accent, 0.34 * inten * (1.0 - (double) i / (layers + 1))));
+                    gg.setStroke(new BasicStroke(Math.max(2f, (float) (minDim * 0.010 * i)),
+                            BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 10f,
+                            new float[]{dash, (float) Math.max(1.0, per - dash)}, phase));
+                    gg.draw(dev);
+                }
+            }
+        }
+
+        if (fx.contains("Corner Accents")) {
+            double len = minDim * 0.17;
+            double inset = minDim * 0.03;
+            double pulse = 0.62 + 0.38 * (0.5 - 0.5 * Math.cos(picPhase(t, 60) * 2 * Math.PI));
+            gg.setColor(withAlpha(accent, Math.min(1.0, 0.92 * inten * pulse)));
+            gg.setStroke(new BasicStroke(Math.max(2f, (float) (minDim * 0.014)),
+                    BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            double x0 = b.getMinX() + inset, y0 = b.getMinY() + inset;
+            double x1 = b.getMaxX() - inset, y1 = b.getMaxY() - inset;
+            Path2D.Double p = new Path2D.Double();
+            p.moveTo(x0, y0 + len); p.lineTo(x0, y0); p.lineTo(x0 + len, y0);
+            p.moveTo(x1 - len, y0); p.lineTo(x1, y0); p.lineTo(x1, y0 + len);
+            p.moveTo(x1, y1 - len); p.lineTo(x1, y1); p.lineTo(x1 - len, y1);
+            p.moveTo(x0 + len, y1); p.lineTo(x0, y1); p.lineTo(x0, y1 - len);
+            gg.draw(p);
+        }
+
+        if (fx.contains("Sparkle")) {
+            int n = (int) (10 + 16 * inten);
+            for (int i = 1; i <= n; i++) {
+                double p = picPhase(t + i * 11, 48);
+                double tw = Math.sin(p * Math.PI);
+                if (tw <= 0.03) continue;
+                double u = (i * 0.6180339887498949) % 1.0;
+                double v = (i * 0.7548776662466927) % 1.0;
+                double sx = b.getMinX() + u * b.getWidth();
+                double sy = b.getMinY() + v * b.getHeight();
+                double r = minDim * (0.028 + 0.036 * ((i * 7 % 5) / 5.0)) * tw * inten;
+                drawSparkleStar(gg, sx, sy, r, accent, tw);
+            }
+        }
+
+        if (fx.contains("Lens Flare")) {
+            Graphics2D fg = (Graphics2D) gg.create();
+            fg.clip(dev);
+            double p = picPhase(t, 110);
+            double lx = b.getMinX() + b.getWidth() * (-0.10 + 1.20 * p);
+            double ly = b.getMinY() + b.getHeight() * (0.88 - 0.72 * p);
+            double cx = b.getCenterX(), cy = b.getCenterY();
+            double r0 = minDim * 0.36 * inten;
+            paintFlareOrb(fg, lx, ly, r0, accent, 0.55 * inten);
+            for (int k = 1; k <= 3; k++) {
+                double f = -0.45 * k;
+                paintFlareOrb(fg, cx + (lx - cx) * f, cy + (ly - cy) * f,
+                        r0 * (0.30 - 0.06 * k), accent, 0.26 * inten / k);
+            }
+            fg.dispose();
+        }
+
+        if (fx.contains("Shine") || fx.contains("Shimmer")) {
+            Graphics2D sg = (Graphics2D) gg.create();
+            sg.clip(dev);
+            if (fx.contains("Shine")) {
+                float band = (float) Math.max(4, b.getWidth() * 0.16);
+                float prog = (float) picPhase(t, 50);
+                float ctr = (float) (b.getMinX() - band + prog * (b.getWidth() + band * 2));
+                paintSweepBand(sg, b, ctr, band, Math.min(0.85, 0.55 * inten), Color.WHITE, 0.7f);
+            }
+            if (fx.contains("Shimmer")) {
+                float band = (float) Math.max(6, b.getWidth() * 0.34);
+                float prog = (float) picPhase(t, 130);
+                float ctr = (float) (b.getMinX() - band + prog * (b.getWidth() + band * 2));
+                paintSweepBand(sg, b, ctr, band, Math.min(0.55, 0.34 * inten), accent, 0.35f);
+            }
+            sg.dispose();
+        }
+
+        if (fx.contains("Color Scan")) {
+            Graphics2D sg = (Graphics2D) gg.create();
+            sg.clip(dev);
+            double p = picPhase(t, 45);
+            int scanY = (int) (b.getMinY() + p * b.getHeight());
+            Color scanC = accent;
+            sg.setColor(new Color(scanC.getRed(), scanC.getGreen(), scanC.getBlue(), (int) (26 * inten)));
+            if (scanY > b.getMinY()) {
+                sg.fillRect((int) b.getMinX(), (int) b.getMinY(),
+                        (int) b.getWidth(), (int) (scanY - b.getMinY()));
+            }
+            int lineGlow = Math.max(3, (int) (b.getWidth() / 80));
+            for (int li = lineGlow; li >= 1; li--) {
+                sg.setColor(withAlpha(scanC, 0.60 * inten * (1.0 - (double) li / lineGlow)));
+                sg.setStroke(new BasicStroke(li * 2 + 1));
+                sg.drawLine((int) b.getMinX(), scanY - li, (int) b.getMaxX(), scanY - li);
+            }
+            sg.setColor(withAlpha(scanC, Math.min(1.0, 0.92 * inten)));
+            sg.setStroke(new BasicStroke(2.5f));
+            sg.drawLine((int) b.getMinX(), scanY, (int) b.getMaxX(), scanY);
+            sg.dispose();
+        }
+
+        if (fx.contains("Dust Motes")) {
+            Graphics2D sg = (Graphics2D) gg.create();
+            double pad = minDim * 0.12;
+            sg.clip(new Rectangle2D.Double(b.getMinX() - pad, b.getMinY() - pad,
+                    b.getWidth() + pad * 2, b.getHeight() + pad * 2));
+            int n = (int) (16 + 22 * inten);
+            for (int i = 1; i <= n; i++) {
+                double u = (i * 0.6180339887498949) % 1.0;
+                double rise = picPhase(t + i * 17, 150 + (i % 7) * 24);
+                double sx = b.getMinX() - pad + u * (b.getWidth() + pad * 2)
+                        + minDim * 0.05 * Math.sin(t * 0.03 + i);
+                double sy = b.getMaxY() + pad - rise * (b.getHeight() + pad * 2);
+                double fade = Math.sin(rise * Math.PI);
+                double r = minDim * (0.004 + 0.006 * ((i * 3 % 4) / 4.0));
+                sg.setColor(withAlpha(accent, 0.55 * inten * fade));
+                sg.fill(new Ellipse2D.Double(sx - r, sy - r, r * 2, r * 2));
+            }
+            sg.dispose();
+        }
+
+        gg.dispose();
+    }
+
+    /** A four-point twinkle: two tapered spikes plus a hot core. */
+    private static void drawSparkleStar(Graphics2D g, double cx, double cy, double r,
+                                        Color accent, double tw) {
+        if (r <= 0.4) return;
+        double thin = Math.max(0.6, r * 0.16);
+        Path2D.Double star = new Path2D.Double();
+        star.moveTo(cx, cy - r);
+        star.lineTo(cx + thin, cy - thin);
+        star.lineTo(cx + r, cy);
+        star.lineTo(cx + thin, cy + thin);
+        star.lineTo(cx, cy + r);
+        star.lineTo(cx - thin, cy + thin);
+        star.lineTo(cx - r, cy);
+        star.lineTo(cx - thin, cy - thin);
+        star.closePath();
+        g.setPaint(new RadialGradientPaint(new Point2D.Double(cx, cy), (float) r,
+                new float[]{0f, 1f},
+                new Color[]{new Color(255, 255, 255, (int) (235 * tw)), withAlpha(accent, 0)}));
+        g.fill(star);
+        double core = Math.max(0.8, r * 0.30);
+        g.setColor(new Color(255, 255, 255, (int) (215 * tw)));
+        g.fill(new Ellipse2D.Double(cx - core, cy - core, core * 2, core * 2));
+    }
+
+    private static void paintFlareOrb(Graphics2D g, double cx, double cy, double r,
+                                      Color accent, double strength) {
+        if (r <= 1) return;
+        g.setPaint(new RadialGradientPaint(new Point2D.Double(cx, cy), (float) r,
+                new float[]{0f, 0.35f, 1f},
+                new Color[]{new Color(255, 255, 255, (int) Math.min(255, 235 * strength)),
+                            withAlpha(accent, Math.min(1.0, 0.55 * strength)),
+                            withAlpha(accent, 0)}));
+        g.fill(new Ellipse2D.Double(cx - r, cy - r, r * 2, r * 2));
+    }
+
+    /**
+     * A light band travelling left to right across the picture.
+     *
+     * <p>The gradient axis is what sets the band's width, so it runs across the
+     * band rather than along the picture: a tall picture would otherwise stretch
+     * the "band" over the whole frame and wash the image out to white.
+     *
+     * @param tilt how far the band leans, as a fraction of its own width.
+     *             0 is a vertical band, 1 leans it to 45 degrees.
+     */
+    private static void paintSweepBand(Graphics2D g, Rectangle2D b, float ctr, float band,
+                                       double strength, Color tint, float tilt) {
+        float half = Math.max(1f, band / 2f);
+        float midY = (float) b.getCenterY();
+        float dy = half * tilt;
+        int a = (int) Math.min(255, 255 * Math.max(0, Math.min(1, strength)));
+        g.setPaint(new LinearGradientPaint(
+                new Point2D.Float(ctr - half, midY - dy), new Point2D.Float(ctr + half, midY + dy),
+                new float[]{0f, 0.38f, 0.62f, 1f},
+                new Color[]{new Color(tint.getRed(), tint.getGreen(), tint.getBlue(), 0),
+                            new Color(tint.getRed(), tint.getGreen(), tint.getBlue(), a),
+                            new Color(tint.getRed(), tint.getGreen(), tint.getBlue(), a),
+                            new Color(tint.getRed(), tint.getGreen(), tint.getBlue(), 0)}));
+        g.fill(b);
     }
 
     // ========== Slide Text Entry Animation ==========
@@ -17713,16 +18385,18 @@ public class GifSlideShowApp extends JFrame {
      *  animated and force the per-frame export path. The static highlight styles
      *  (Glow / Enlarge / Bold / Underline / Color / None) are constant within a
      *  segment and stay on the cheaper one-frame-per-segment path. */
-    /** True iff any shown bulk-grid picture has an audio-triggered visual
-     *  effect (Glow / Scale Pulse / Bounce). Forces the per-frame export path
-     *  so the effect actually animates instead of being frozen to one frame. */
+    /** True iff any shown picture animates: a bulk-grid audio-triggered effect
+     *  (Glow / Scale Pulse / Bounce) or an Image FX effect, entrance or shadow
+     *  from toolbar row 4e2. Forces the per-frame export path so the effect
+     *  actually moves instead of being frozen to one frame. */
     private static boolean anyBulkPicAudioEffect(List<SlidePictureData> pics) {
         if (pics == null) return false;
         for (SlidePictureData p : pics) {
-            if (p != null && p.show && p.audioEffect != null
-                    && !p.audioEffect.isEmpty() && !p.audioEffect.equals("None")) {
+            if (p == null || !p.show) continue;
+            if (p.audioEffect != null && !p.audioEffect.isEmpty() && !p.audioEffect.equals("None")) {
                 return true;
             }
+            if (p.hasAnimatedImageFx()) return true;
         }
         return false;
     }
@@ -20533,6 +21207,169 @@ public class GifSlideShowApp extends JFrame {
 
     // ==================== SlidePictureData ====================
 
+    // ==================== Image FX catalogue (toolbar row 4e2) ====================
+    /** Default accent colour for glow / neon / tint effects: warm gold. */
+    static final Color PIC_FX_DEFAULT_COLOR = new Color(255, 205, 90);
+
+    /** Motion effects. They move, scale or rotate the whole picture. */
+    static final String[] PIC_FX_MOTION = {
+            "Ken Burns", "Scale Pulse", "Pop", "Heartbeat", "Bounce",
+            "Float", "Sway", "Spin", "Tilt 3D"
+    };
+    /** Light effects painted around / over the picture. */
+    static final String[] PIC_FX_LIGHT = {
+            "Glow", "Neon Outline", "Shine", "Shimmer", "Sparkle",
+            "Lens Flare", "Light Rays", "Pulse Ring", "Glow Sweep"
+    };
+    /** Colour grades and film looks. These re-map the picture's pixels. */
+    static final String[] PIC_FX_COLOR = {
+            "Color Scan", "RGB Split", "Duotone", "Monochrome", "Sepia Tone",
+            "Film Grain", "Scanlines", "Holographic", "Gradient Tint", "Soft Focus"
+    };
+    /** Framing and depth: what makes a picture sit on the slide instead of in it. */
+    static final String[] PIC_FX_FRAME = {
+            "Drop Shadow", "Reflection", "Inner Shadow", "Vignette",
+            "Corner Accents", "Frame Trace", "Dust Motes"
+    };
+    /** Entrance animations, played once at the start of the slide. */
+    static final String[] PIC_FX_ENTRANCES = {
+            "None", "Fade In", "Zoom In", "Zoom Out", "Slide In Left", "Slide In Right",
+            "Slide In Top", "Slide In Bottom", "Flip In", "Rotate In", "Blur In",
+            "Unfold", "Drop In", "Pop In"
+    };
+
+    /** Every effect name, in menu order. */
+    static String[] picFxAll() {
+        List<String> all = new ArrayList<>();
+        for (String[] grp : new String[][]{PIC_FX_MOTION, PIC_FX_LIGHT, PIC_FX_COLOR, PIC_FX_FRAME}) {
+            all.addAll(Arrays.asList(grp));
+        }
+        return all.toArray(new String[0]);
+    }
+
+    /**
+     * A ready-made look: the effects it switches on plus the knob settings that
+     * make it read the way its name promises. Order is
+     * {effects, intensity, speed, colour, entrance, entranceSeconds, shadow}.
+     */
+    static final class PicFxPreset {
+        final String effects; final int intensity; final int speed; final Color color;
+        final String entrance; final double entranceSec; final int shadow;
+        PicFxPreset(String effects, int intensity, int speed, Color color,
+                    String entrance, double entranceSec, int shadow) {
+            this.effects = effects; this.intensity = intensity; this.speed = speed;
+            this.color = color; this.entrance = entrance; this.entranceSec = entranceSec;
+            this.shadow = shadow;
+        }
+    }
+
+    /** Placeholder row at the top of the Image FX preset dropdown. */
+    static final String PIC_FX_PRESET_NONE = "— Preset —";
+
+    private static final java.util.Map<String, String> PIC_FX_TIPS = buildPicFxTips();
+
+    private static java.util.Map<String, String> buildPicFxTips() {
+        java.util.LinkedHashMap<String, String> m = new java.util.LinkedHashMap<>();
+        // Motion
+        m.put("Ken Burns", "Slow documentary push: the picture zooms and drifts inside its frame.");
+        m.put("Scale Pulse", "Gentle, continuous breathe in and out.");
+        m.put("Pop", "Quick punch up to full size, then settle. Repeats every second.");
+        m.put("Heartbeat", "Double beat — a strong thump followed by a softer one.");
+        m.put("Bounce", "Lifts off its baseline and drops back.");
+        m.put("Float", "Barely-there vertical drift, as if suspended.");
+        m.put("Sway", "Slow rocking tilt a couple of degrees either way.");
+        m.put("Spin", "Full slow rotation. Best on circular crops and badges.");
+        m.put("Tilt 3D", "Perspective-style lean that swings left and right.");
+        // Glow & Light
+        m.put("Glow", "Soft pulsing halo in the accent colour.");
+        m.put("Neon Outline", "Bright neon rim with a hot white core and a subtle flicker.");
+        m.put("Shine", "A hard specular band sweeping diagonally across the picture.");
+        m.put("Shimmer", "A wide, soft accent-tinted wash drifting slowly across.");
+        m.put("Sparkle", "Four-point twinkles fading in and out over the picture.");
+        m.put("Lens Flare", "A travelling flare with secondary orbs along its axis.");
+        m.put("Light Rays", "Slowly rotating god-rays fanning out behind the picture.");
+        m.put("Pulse Ring", "Rings of the picture's own outline expanding and fading away.");
+        m.put("Glow Sweep", "A glowing comet running around the picture's edge.");
+        // Color & Film
+        m.put("Color Scan", "A tech scan line sweeping top to bottom, tinting as it goes.");
+        m.put("RGB Split", "Chromatic aberration: red and blue channels pulled apart.");
+        m.put("Duotone", "Two-tone poster grade built from the accent colour.");
+        m.put("Monochrome", "Clean black and white conversion.");
+        m.put("Sepia Tone", "Warm archival print look.");
+        m.put("Film Grain", "Animated stock grain over the picture.");
+        m.put("Scanlines", "Fine CRT line pattern.");
+        m.put("Holographic", "Iridescent hue sheen that drifts across the surface.");
+        m.put("Gradient Tint", "Accent-colour gradient washing over one corner.");
+        m.put("Soft Focus", "Dreamy diffusion — a blurred copy blended back over the sharp one.");
+        // Frame & Depth
+        m.put("Drop Shadow", "Soft cast shadow. Depth is set by the Depth spinner.");
+        m.put("Reflection", "Mirrored, fading copy of the picture just beneath it.");
+        m.put("Inner Shadow", "Darkens the picture's own edges so it reads as inset.");
+        m.put("Vignette", "Darkened corners that pull the eye to the centre.");
+        m.put("Corner Accents", "Pulsing bracket marks at the four corners.");
+        m.put("Frame Trace", "A light segment tracing the outline once per cycle.");
+        m.put("Dust Motes", "Fine particles drifting upward around the picture.");
+        return m;
+    }
+
+    /** Tooltip for one Image FX effect. */
+    static String picFxTip(String name) {
+        String tip = PIC_FX_TIPS.get(name);
+        return tip != null ? tip : name;
+    }
+
+    static final java.util.LinkedHashMap<String, PicFxPreset> PIC_FX_PRESETS = buildPicFxPresets();
+
+    private static java.util.LinkedHashMap<String, PicFxPreset> buildPicFxPresets() {
+        java.util.LinkedHashMap<String, PicFxPreset> m = new java.util.LinkedHashMap<>();
+        m.put("Cinematic", new PicFxPreset(
+                "Ken Burns,Vignette,Drop Shadow", 90, 70, new Color(255, 230, 200),
+                "Fade In", 1.2, 55));
+        m.put("Neon Pop", new PicFxPreset(
+                "Neon Outline,Glow,Pulse Ring", 120, 120, new Color(90, 230, 255),
+                "Pop In", 0.7, 30));
+        m.put("Luxury Gold", new PicFxPreset(
+                "Glow,Shine,Corner Accents,Drop Shadow", 100, 80, new Color(255, 205, 90),
+                "Fade In", 1.0, 60));
+        m.put("Product Showcase", new PicFxPreset(
+                "Float,Drop Shadow,Reflection", 90, 60, new Color(255, 255, 255),
+                "Zoom In", 0.9, 65));
+        m.put("Retro Film", new PicFxPreset(
+                "Sepia Tone,Film Grain,Scanlines,Vignette", 100, 100, new Color(255, 220, 170),
+                "Fade In", 0.8, 25));
+        m.put("Hologram", new PicFxPreset(
+                "Holographic,RGB Split,Color Scan,Glow", 110, 110, new Color(120, 220, 255),
+                "Blur In", 0.9, 0));
+        m.put("Magazine", new PicFxPreset(
+                "Drop Shadow,Inner Shadow,Corner Accents", 80, 80, new Color(255, 255, 255),
+                "Slide In Bottom", 0.8, 70));
+        m.put("Dreamy", new PicFxPreset(
+                "Soft Focus,Shimmer,Sparkle,Float", 90, 60, new Color(255, 235, 255),
+                "Fade In", 1.4, 30));
+        m.put("Spotlight", new PicFxPreset(
+                "Light Rays,Glow,Scale Pulse", 100, 80, new Color(255, 240, 190),
+                "Zoom In", 1.0, 40));
+        m.put("Broadcast", new PicFxPreset(
+                "Frame Trace,Glow Sweep,Corner Accents", 100, 130, new Color(90, 200, 255),
+                "Slide In Left", 0.6, 35));
+        m.put("Energetic", new PicFxPreset(
+                "Heartbeat,Glow,Sparkle,Shine", 120, 140, new Color(255, 140, 90),
+                "Pop In", 0.5, 30));
+        m.put("Minimal Clean", new PicFxPreset(
+                "Drop Shadow", 70, 100, new Color(255, 255, 255),
+                "Fade In", 0.6, 45));
+        m.put("Monochrome Editorial", new PicFxPreset(
+                "Monochrome,Inner Shadow,Drop Shadow", 90, 80, new Color(230, 230, 230),
+                "Slide In Right", 0.8, 55));
+        m.put("Duotone Poster", new PicFxPreset(
+                "Duotone,Gradient Tint,Drop Shadow", 100, 90, new Color(120, 90, 255),
+                "Unfold", 0.8, 40));
+        m.put("Floating Card", new PicFxPreset(
+                "Float,Sway,Drop Shadow", 70, 50, new Color(255, 255, 255),
+                "Drop In", 0.9, 70));
+        return m;
+    }
+
     static class SlidePictureData {
         final boolean show;
         final transient BufferedImage image;
@@ -20557,6 +21394,17 @@ public class GifSlideShowApp extends JFrame {
         final Color borderColor; // border colour (null → Color.WHITE)
         final int opacity;       // 0-100, 100 = fully opaque
         final String fitMode;    // "Fit" (letterbox) or "Fill" (cover-crop)
+
+        // ---- Image FX (toolbar row 4e2) ----
+        // Comma-separated effect names from PIC_FX_ALL, e.g. "Ken Burns,Glow,Drop Shadow".
+        // Empty means the picture draws on the fast path with no per-frame work.
+        final String fxEffects;
+        final int fxIntensity;      // 0-300 %, 100 = designed strength
+        final int fxSpeed;          // 10-400 %, 100 = designed tempo
+        final Color fxColor;        // accent / glow colour (null = PIC_FX_DEFAULT_COLOR)
+        final String fxEntrance;    // one of PIC_FX_ENTRANCES, "None" = appear instantly
+        final double fxEntranceSec; // entrance duration in seconds
+        final int fxShadow;         // 0-100 drop-shadow depth (0 = no shadow)
 
         SlidePictureData(boolean show, BufferedImage image, File imageFile,
                          int x, int y, int widthPct, String shape, int cornerRadius) {
@@ -20591,6 +21439,27 @@ public class GifSlideShowApp extends JFrame {
                          File audioFile, int audioDurationMs, String audioEffect,
                          int boxHeightPct, int audioActiveIdx,
                          int borderWidth, Color borderColor, int opacity, String fitMode) {
+            this(show, image, imageFile, x, y, widthPct, shape, cornerRadius,
+                    audioFile, audioDurationMs, audioEffect, boxHeightPct, audioActiveIdx,
+                    borderWidth, borderColor, opacity, fitMode,
+                    "", 100, 100, null, "None", 0.8, 0);
+        }
+
+        /** Master constructor - every field, Image FX included. */
+        SlidePictureData(boolean show, BufferedImage image, File imageFile,
+                         int x, int y, int widthPct, String shape, int cornerRadius,
+                         File audioFile, int audioDurationMs, String audioEffect,
+                         int boxHeightPct, int audioActiveIdx,
+                         int borderWidth, Color borderColor, int opacity, String fitMode,
+                         String fxEffects, int fxIntensity, int fxSpeed, Color fxColor,
+                         String fxEntrance, double fxEntranceSec, int fxShadow) {
+            this.fxEffects = fxEffects != null ? fxEffects : "";
+            this.fxIntensity = fxIntensity;
+            this.fxSpeed = fxSpeed;
+            this.fxColor = fxColor;
+            this.fxEntrance = fxEntrance != null ? fxEntrance : "None";
+            this.fxEntranceSec = fxEntranceSec;
+            this.fxShadow = fxShadow;
             this.show = show;
             this.image = image;
             this.imageFile = imageFile;
@@ -20608,6 +21477,47 @@ public class GifSlideShowApp extends JFrame {
             this.borderColor = borderColor;
             this.opacity = opacity;
             this.fitMode = fitMode != null ? fitMode : "Fit";
+        }
+
+        /** Copy of this slot with a new Image FX configuration. */
+        SlidePictureData withFx(String fxEffects, int fxIntensity, int fxSpeed, Color fxColor,
+                                String fxEntrance, double fxEntranceSec, int fxShadow) {
+            return new SlidePictureData(show, image, imageFile, x, y, widthPct, shape, cornerRadius,
+                    audioFile, audioDurationMs, audioEffect, boxHeightPct, audioActiveIdx,
+                    borderWidth, borderColor, opacity, fitMode,
+                    fxEffects, fxIntensity, fxSpeed, fxColor, fxEntrance, fxEntranceSec, fxShadow);
+        }
+
+        /** Copy of this slot carrying another slot's Image FX configuration. */
+        SlidePictureData withFxFrom(SlidePictureData src) {
+            if (src == null) return this;
+            return withFx(src.fxEffects, src.fxIntensity, src.fxSpeed, src.fxColor,
+                    src.fxEntrance, src.fxEntranceSec, src.fxShadow);
+        }
+
+        /** True when this picture carries any Image FX at all. */
+        boolean hasImageFx() {
+            if (fxEffects != null && !fxEffects.isEmpty()) return true;
+            if (fxShadow > 0) return true;
+            return fxEntrance != null && !fxEntrance.isEmpty() && !fxEntrance.equals("None");
+        }
+
+        /** Effects that look identical on every frame, so they never justify
+         *  paying for the per-frame export path. */
+        private static final Set<String> STATIC_FX = new HashSet<>(Arrays.asList(
+                "Drop Shadow", "Reflection", "Inner Shadow", "Vignette",
+                "Monochrome", "Sepia Tone", "Duotone", "Gradient Tint",
+                "Soft Focus", "Scanlines"));
+
+        /** True when this picture actually moves or flickers frame to frame. */
+        boolean hasAnimatedImageFx() {
+            if (fxEntrance != null && !fxEntrance.isEmpty() && !fxEntrance.equals("None")) return true;
+            if (fxEffects == null || fxEffects.isEmpty()) return false;
+            for (String tok : fxEffects.split(",")) {
+                String t = tok.trim();
+                if (!t.isEmpty() && !"None".equals(t) && !STATIC_FX.contains(t)) return true;
+            }
+            return false;
         }
     }
 
@@ -21635,6 +22545,19 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner slidePicWidthSpinner;
         private final JComboBox<String> slidePicShapeCombo;
         private final JSpinner slidePicCornerSpinner;
+
+        // Image FX row (toolbar 4e2) — effects applied to the selected Pic slot.
+        private JButton slidePicFxButton;
+        private final java.util.LinkedHashMap<String, JCheckBox> slidePicFxChecks
+                = new java.util.LinkedHashMap<>();
+        private JComboBox<String> slidePicFxPresetCombo;
+        private JSpinner slidePicFxPowerSpinner;
+        private JSpinner slidePicFxSpeedSpinner;
+        private JButton slidePicFxColorBtn;
+        private Color slidePicFxColor = PIC_FX_DEFAULT_COLOR;
+        private JSpinner slidePicFxDepthSpinner;
+        private JComboBox<String> slidePicFxEntranceCombo;
+        private JSpinner slidePicFxEntranceSecSpinner;
 
         // Bulk image grid (toolbar4g)
         private final List<SlidePictureData> bulkGridItems = new ArrayList<>();
@@ -23224,6 +24147,242 @@ public class GifSlideShowApp extends JFrame {
             toolbar4e.add(slidePicShapeCombo);
             toolbar4e.add(styledLabel("Radius:"));
             toolbar4e.add(slidePicCornerSpinner);
+
+            // ===== Toolbar Row 4e2: Image FX =====
+            // Everything on this row acts on the Pic slot selected in row 4e
+            // above, so a deck can give each overlay its own look.
+            JPanel toolbar4e2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
+            toolbar4e2.setBackground(new Color(52, 42, 82));
+            final Color fxRowText = new Color(214, 186, 255);
+            final Color fxRowBg = new Color(52, 42, 82);
+            final Color fxMenuBg = new Color(40, 33, 64);
+
+            JLabel tc4e2Lbl = styledLabel("✨ Image FX:");
+            tc4e2Lbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4e2Lbl.setForeground(fxRowText);
+
+            // --- Ready-made looks ---
+            slidePicFxPresetCombo = new JComboBox<>();
+            slidePicFxPresetCombo.addItem(PIC_FX_PRESET_NONE);
+            for (String name : PIC_FX_PRESETS.keySet()) slidePicFxPresetCombo.addItem(name);
+            slidePicFxPresetCombo.setPreferredSize(new Dimension(160, 24));
+            slidePicFxPresetCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slidePicFxPresetCombo.setToolTipText("Apply a ready-made look: effects, strength, tempo, "
+                    + "accent colour, entrance and shadow depth all at once. Tweak anything afterwards.");
+            slidePicFxPresetCombo.addActionListener(e -> {
+                if (isLoadingSlidePicture) return;
+                String name = (String) slidePicFxPresetCombo.getSelectedItem();
+                if (name == null || PIC_FX_PRESET_NONE.equals(name)) return;
+                PicFxPreset preset = PIC_FX_PRESETS.get(name);
+                if (preset == null) return;
+                applySlidePicFxPreset(preset);
+                // Snap the combo back so the same preset can be re-applied after edits.
+                SwingUtilities.invokeLater(() -> {
+                    boolean was = isLoadingSlidePicture;
+                    isLoadingSlidePicture = true;
+                    try { slidePicFxPresetCombo.setSelectedIndex(0); }
+                    finally { isLoadingSlidePicture = was; }
+                });
+                saveCurrentSlidePictureToItem();
+                onFormatChanged();
+            });
+
+            // --- Multi-select effect picker ---
+            slidePicFxButton = new JButton("FX: None ▾");
+            slidePicFxButton.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slidePicFxButton.setPreferredSize(new Dimension(168, 24));
+            slidePicFxButton.setFocusPainted(false);
+            slidePicFxButton.setToolTipText("Pick any number of effects. They stack: motion moves the "
+                    + "picture, colour grades re-map its pixels, light and framing paint around it.");
+
+            JPopupMenu fxMenu = new JPopupMenu();
+            fxMenu.setBackground(fxMenuBg);
+            fxMenu.setBorder(BorderFactory.createLineBorder(new Color(96, 78, 150)));
+            JPanel fxBody = new JPanel(new BorderLayout());
+            fxBody.setBackground(fxMenuBg);
+            JPanel fxGrid = new JPanel(new GridLayout(1, 4, 14, 0));
+            fxGrid.setBackground(fxMenuBg);
+            fxGrid.setBorder(BorderFactory.createEmptyBorder(8, 12, 6, 12));
+
+            String[][] fxGroups = {PIC_FX_MOTION, PIC_FX_LIGHT, PIC_FX_COLOR, PIC_FX_FRAME};
+            String[] fxGroupNames = {"◈  Motion", "✦  Glow & Light",
+                                     "◐  Color & Film", "▣  Frame & Depth"};
+            Color[] fxGroupColors = {new Color(255, 190, 120), new Color(140, 225, 255),
+                                     new Color(255, 150, 210), new Color(160, 235, 175)};
+            ActionListener fxPick = e -> {
+                updateSlidePicFxButtonText();
+                if (!isLoadingSlidePicture) { saveCurrentSlidePictureToItem(); onFormatChanged(); }
+            };
+            for (int gi = 0; gi < fxGroups.length; gi++) {
+                JPanel col = new JPanel();
+                col.setLayout(new BoxLayout(col, BoxLayout.Y_AXIS));
+                col.setBackground(fxMenuBg);
+                JLabel hdr = new JLabel(fxGroupNames[gi]);
+                hdr.setFont(new Font("Segoe UI", Font.BOLD, 11));
+                hdr.setForeground(fxGroupColors[gi]);
+                hdr.setAlignmentX(Component.LEFT_ALIGNMENT);
+                hdr.setBorder(BorderFactory.createEmptyBorder(0, 0, 5, 0));
+                col.add(hdr);
+                for (String name : fxGroups[gi]) {
+                    JCheckBox cb = new JCheckBox(name);
+                    cb.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+                    cb.setForeground(new Color(228, 226, 240));
+                    cb.setBackground(fxMenuBg);
+                    cb.setFocusPainted(false);
+                    cb.setAlignmentX(Component.LEFT_ALIGNMENT);
+                    cb.setToolTipText(picFxTip(name));
+                    cb.addActionListener(fxPick);
+                    slidePicFxChecks.put(name, cb);
+                    col.add(cb);
+                }
+                fxGrid.add(col);
+            }
+            fxBody.add(fxGrid, BorderLayout.CENTER);
+
+            JPanel fxFooter = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 4));
+            fxFooter.setBackground(fxMenuBg);
+            JLabel fxHint = new JLabel("Effects stack — tick as many as you like");
+            fxHint.setFont(new Font("Segoe UI", Font.ITALIC, 10));
+            fxHint.setForeground(new Color(150, 145, 175));
+            JButton fxClearAll = new JButton("Clear all");
+            fxClearAll.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            fxClearAll.setFocusPainted(false);
+            fxClearAll.addActionListener(e -> {
+                for (JCheckBox cb : slidePicFxChecks.values()) cb.setSelected(false);
+                updateSlidePicFxButtonText();
+                if (!isLoadingSlidePicture) { saveCurrentSlidePictureToItem(); onFormatChanged(); }
+            });
+            JButton fxClose = new JButton("Done");
+            fxClose.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            fxClose.setFocusPainted(false);
+            fxClose.addActionListener(e -> fxMenu.setVisible(false));
+            fxFooter.add(fxHint);
+            fxFooter.add(fxClearAll);
+            fxFooter.add(fxClose);
+            fxBody.add(fxFooter, BorderLayout.SOUTH);
+            fxMenu.add(fxBody);
+            slidePicFxButton.addActionListener(e ->
+                    fxMenu.show(slidePicFxButton, 0, slidePicFxButton.getHeight()));
+
+            // --- Strength / tempo / accent ---
+            slidePicFxPowerSpinner = new JSpinner(new SpinnerNumberModel(100, 10, 300, 5));
+            slidePicFxPowerSpinner.setPreferredSize(new Dimension(56, 24));
+            slidePicFxPowerSpinner.setToolTipText("Effect strength %. 100 is the designed look; "
+                    + "drop to 40-60 for a subtle, broadcast-safe treatment.");
+            slidePicFxPowerSpinner.addChangeListener(e -> {
+                if (!isLoadingSlidePicture) { saveCurrentSlidePictureToItem(); onFormatChanged(); }
+            });
+
+            slidePicFxSpeedSpinner = new JSpinner(new SpinnerNumberModel(100, 10, 400, 5));
+            slidePicFxSpeedSpinner.setPreferredSize(new Dimension(56, 24));
+            slidePicFxSpeedSpinner.setToolTipText("Animation tempo %. Lower is slower and calmer; "
+                    + "higher makes pulses and sweeps snappier.");
+            slidePicFxSpeedSpinner.addChangeListener(e -> {
+                if (!isLoadingSlidePicture) { saveCurrentSlidePictureToItem(); onFormatChanged(); }
+            });
+
+            slidePicFxColorBtn = new JButton("■ Accent");
+            slidePicFxColorBtn.setPreferredSize(new Dimension(94, 24));
+            slidePicFxColorBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slidePicFxColorBtn.setFocusPainted(false);
+            slidePicFxColorBtn.setBackground(slidePicFxColor);
+            slidePicFxColorBtn.setForeground(Color.BLACK);
+            slidePicFxColorBtn.setToolTipText("Accent colour used by glow, neon, sparkle, rays, "
+                    + "duotone and tint effects.");
+            slidePicFxColorBtn.addActionListener(e -> pickColorLive(getPanel(), "Image FX Accent Colour",
+                    slidePicFxColor, chosen -> {
+                        slidePicFxColor = chosen;
+                        slidePicFxColorBtn.setBackground(chosen);
+                        slidePicFxColorBtn.repaint();
+                        if (!isLoadingSlidePicture) { saveCurrentSlidePictureToItem(); onFormatChanged(); }
+                    }));
+
+            slidePicFxDepthSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 100, 5));
+            slidePicFxDepthSpinner.setPreferredSize(new Dimension(52, 24));
+            slidePicFxDepthSpinner.setToolTipText("Drop-shadow depth. 0 = flat on the slide, "
+                    + "60-80 lifts the picture off it like a printed card.");
+            slidePicFxDepthSpinner.addChangeListener(e -> {
+                if (!isLoadingSlidePicture) { saveCurrentSlidePictureToItem(); onFormatChanged(); }
+            });
+
+            // --- Entrance ---
+            slidePicFxEntranceCombo = new JComboBox<>(PIC_FX_ENTRANCES);
+            slidePicFxEntranceCombo.setPreferredSize(new Dimension(122, 24));
+            slidePicFxEntranceCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slidePicFxEntranceCombo.setToolTipText("How the picture arrives at the start of the slide. "
+                    + "Plays once; the static preview shows it already landed.");
+            slidePicFxEntranceCombo.addActionListener(e -> {
+                if (!isLoadingSlidePicture) { saveCurrentSlidePictureToItem(); onFormatChanged(); }
+            });
+
+            slidePicFxEntranceSecSpinner = new JSpinner(new SpinnerNumberModel(0.8, 0.1, 8.0, 0.1));
+            slidePicFxEntranceSecSpinner.setPreferredSize(new Dimension(56, 24));
+            slidePicFxEntranceSecSpinner.setToolTipText("Entrance duration in seconds.");
+            slidePicFxEntranceSecSpinner.addChangeListener(e -> {
+                if (!isLoadingSlidePicture) { saveCurrentSlidePictureToItem(); onFormatChanged(); }
+            });
+
+            JButton slidePicFxAllBtn = new JButton("⇊ All");
+            slidePicFxAllBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slidePicFxAllBtn.setPreferredSize(new Dimension(56, 24));
+            slidePicFxAllBtn.setFocusPainted(false);
+            slidePicFxAllBtn.setToolTipText("Give every other slide's matching Pic slot this exact "
+                    + "FX setup. Locked and title-grid slides are skipped.");
+            slidePicFxAllBtn.addActionListener(e -> applySlidePictureFxToAllSlides());
+
+            JButton slidePicFxResetBtn = new JButton("✕");
+            slidePicFxResetBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slidePicFxResetBtn.setPreferredSize(new Dimension(28, 24));
+            slidePicFxResetBtn.setFocusPainted(false);
+            slidePicFxResetBtn.setToolTipText("Turn all Image FX off for this Pic slot");
+            slidePicFxResetBtn.addActionListener(e -> {
+                isLoadingSlidePicture = true;
+                try {
+                    for (JCheckBox cb : slidePicFxChecks.values()) cb.setSelected(false);
+                    slidePicFxPowerSpinner.setValue(100);
+                    slidePicFxSpeedSpinner.setValue(100);
+                    slidePicFxDepthSpinner.setValue(0);
+                    slidePicFxEntranceCombo.setSelectedItem("None");
+                    slidePicFxEntranceSecSpinner.setValue(0.8);
+                    slidePicFxColor = PIC_FX_DEFAULT_COLOR;
+                    slidePicFxColorBtn.setBackground(slidePicFxColor);
+                    slidePicFxPresetCombo.setSelectedIndex(0);
+                    updateSlidePicFxButtonText();
+                } finally {
+                    isLoadingSlidePicture = false;
+                }
+                saveCurrentSlidePictureToItem();
+                onFormatChanged();
+            });
+
+            JLabel fxPowerLbl = styledLabel("Power%:");
+            fxPowerLbl.setForeground(fxRowText);
+            JLabel fxSpeedLbl = styledLabel("Speed%:");
+            fxSpeedLbl.setForeground(fxRowText);
+            JLabel fxDepthLbl = styledLabel("Depth:");
+            fxDepthLbl.setForeground(fxRowText);
+            JLabel fxEntryLbl = styledLabel("Entry:");
+            fxEntryLbl.setForeground(fxRowText);
+            JLabel fxSecLbl = styledLabel("s:");
+            fxSecLbl.setForeground(fxRowText);
+
+            toolbar4e2.add(tc4e2Lbl);
+            toolbar4e2.add(slidePicFxPresetCombo);
+            toolbar4e2.add(slidePicFxButton);
+            toolbar4e2.add(fxPowerLbl);
+            toolbar4e2.add(slidePicFxPowerSpinner);
+            toolbar4e2.add(fxSpeedLbl);
+            toolbar4e2.add(slidePicFxSpeedSpinner);
+            toolbar4e2.add(slidePicFxColorBtn);
+            toolbar4e2.add(fxDepthLbl);
+            toolbar4e2.add(slidePicFxDepthSpinner);
+            toolbar4e2.add(fxEntryLbl);
+            toolbar4e2.add(slidePicFxEntranceCombo);
+            toolbar4e2.add(fxSecLbl);
+            toolbar4e2.add(slidePicFxEntranceSecSpinner);
+            toolbar4e2.add(slidePicFxAllBtn);
+            toolbar4e2.add(slidePicFxResetBtn);
+            updateSlidePicFxButtonText();
 
             // ===== Toolbar Row 4g: Bulk Image Grid =====
             JPanel toolbar4g1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
@@ -25132,6 +26291,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(toolbar4f);
             toolbarsPanel.add(toolbar4d);
             toolbarsPanel.add(toolbar4e);
+            toolbarsPanel.add(toolbar4e2);
             toolbarsPanel.add(toolbar4g1);
             toolbarsPanel.add(toolbar4g2);
             toolbarsPanel.add(toolbar4g3);
@@ -30270,6 +31430,135 @@ public class GifSlideShowApp extends JFrame {
             }
         }
 
+        // ===== Image FX helpers (toolbar row 4e2) =====
+
+        /** The ticked effects, comma-joined in catalogue order. */
+        private String getSlidePicFxString() {
+            StringBuilder sb = new StringBuilder();
+            for (java.util.Map.Entry<String, JCheckBox> en : slidePicFxChecks.entrySet()) {
+                if (en.getValue().isSelected()) {
+                    if (sb.length() > 0) sb.append(',');
+                    sb.append(en.getKey());
+                }
+            }
+            return sb.toString();
+        }
+
+        /** Tick exactly the effects named in a comma-separated list. */
+        private void setSlidePicFxChecks(String list) {
+            Set<String> want = new HashSet<>();
+            if (list != null) {
+                for (String tok : list.split(",")) {
+                    String t = tok.trim();
+                    if (!t.isEmpty()) want.add(t);
+                }
+            }
+            for (java.util.Map.Entry<String, JCheckBox> en : slidePicFxChecks.entrySet()) {
+                en.getValue().setSelected(want.contains(en.getKey()));
+            }
+            updateSlidePicFxButtonText();
+        }
+
+        /** Keep the picker button reading like a summary of what is on. */
+        private void updateSlidePicFxButtonText() {
+            if (slidePicFxButton == null) return;
+            List<String> on = new ArrayList<>();
+            for (java.util.Map.Entry<String, JCheckBox> en : slidePicFxChecks.entrySet()) {
+                if (en.getValue().isSelected()) on.add(en.getKey());
+            }
+            String label;
+            if (on.isEmpty())            label = "FX: None ▾";
+            else if (on.size() == 1)     label = "FX: " + on.get(0) + " ▾";
+            else                         label = "FX: " + on.get(0) + " +" + (on.size() - 1) + " ▾";
+            slidePicFxButton.setText(label);
+            slidePicFxButton.setToolTipText(on.isEmpty()
+                    ? "Pick any number of effects. They stack."
+                    : "<html>" + String.join("<br>", on) + "</html>");
+        }
+
+        /** Load a ready-made look into every Image FX control at once. */
+        private void applySlidePicFxPreset(PicFxPreset preset) {
+            boolean was = isLoadingSlidePicture;
+            isLoadingSlidePicture = true;
+            try {
+                setSlidePicFxChecks(preset.effects);
+                slidePicFxPowerSpinner.setValue(clampInt(preset.intensity, 10, 300));
+                slidePicFxSpeedSpinner.setValue(clampInt(preset.speed, 10, 400));
+                slidePicFxDepthSpinner.setValue(clampInt(preset.shadow, 0, 100));
+                slidePicFxEntranceCombo.setSelectedItem(preset.entrance);
+                slidePicFxEntranceSecSpinner.setValue(
+                        Math.max(0.1, Math.min(8.0, preset.entranceSec)));
+                slidePicFxColor = preset.color != null ? preset.color : PIC_FX_DEFAULT_COLOR;
+                slidePicFxColorBtn.setBackground(slidePicFxColor);
+                slidePicFxColorBtn.repaint();
+            } finally {
+                isLoadingSlidePicture = was;
+            }
+        }
+
+        /** Copy this slot's Image FX (nothing else) into the same slot on every
+         *  other slide. Locked and title-grid slides are left alone. */
+        private void applySlidePictureFxToAllSlides() {
+            saveCurrentSlidePictureToItem();
+            final int slot = currentSlidePictureIndex;
+            if (slot < 0 || slot >= slidePictureItems.size()) return;
+            SlidePictureData src = slidePictureItems.get(slot);
+
+            List<SlideRow> targets = new ArrayList<>();
+            for (SlideRow row : slideRows) {
+                if (row == this || row.isTitleGridSlide || row.isLocked()) continue;
+                targets.add(row);
+            }
+            if (targets.isEmpty()) {
+                JOptionPane.showMessageDialog(getPanel(),
+                        "No other slides to copy to.\n(Locked and title-grid slides are skipped.)",
+                        "Image FX → All Slides", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            String fxList = src.fxEffects == null || src.fxEffects.isEmpty() ? "(none)" : src.fxEffects;
+            int choice = JOptionPane.showConfirmDialog(getPanel(),
+                    "Give Pic " + (slot + 1) + " on " + targets.size() + " other slide(s) this FX setup?\n\n"
+                            + "Effects: " + fxList + "\n"
+                            + "Power " + src.fxIntensity + "%   Speed " + src.fxSpeed + "%   "
+                            + "Depth " + src.fxShadow + "\n"
+                            + "Entrance: " + src.fxEntrance + " (" + src.fxEntranceSec + "s)\n\n"
+                            + "Only the FX travel — each slide keeps its own picture and position.",
+                    "Image FX → All Slides", JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
+            if (choice != JOptionPane.OK_OPTION) return;
+
+            isSyncingFormat = true;
+            try {
+                for (SlideRow row : targets) row.applyImportedSlidePictureFx(slot, src);
+            } finally {
+                isSyncingFormat = false;
+            }
+            schedulePreview();
+            JOptionPane.showMessageDialog(getPanel(),
+                    "Image FX applied to Pic " + (slot + 1) + " on " + targets.size() + " slide(s).",
+                    "Image FX → All Slides", JOptionPane.INFORMATION_MESSAGE);
+        }
+
+        /** Set one Pic slot's Image FX from another slide's slot, creating the
+         *  slot first if this slide does not have that many yet. */
+        void applyImportedSlidePictureFx(int index, SlidePictureData src) {
+            if (index < 0 || src == null) return;
+            saveCurrentSlidePictureToItem();
+            while (slidePictureItems.size() <= index) {
+                slidePictureItems.add(new SlidePictureData(false, null, null, 50, 50, 20, "Rectangle", 0));
+            }
+            slidePictureItems.set(index, slidePictureItems.get(index).withFxFrom(src));
+            if (currentSlidePictureIndex >= slidePictureItems.size()) currentSlidePictureIndex = 0;
+            isLoadingSlidePicture = true;
+            try {
+                rebuildSlidePicSelector();
+                slidePicSelector.setSelectedIndex(currentSlidePictureIndex);
+            } finally {
+                isLoadingSlidePicture = false;
+            }
+            loadSlidePictureFromItem(currentSlidePictureIndex);
+            schedulePreview();
+        }
+
         // ===== Slide picture dropdown helpers =====
 
         private void saveCurrentSlidePictureToItem() {
@@ -30279,7 +31568,14 @@ public class GifSlideShowApp extends JFrame {
                     (int) slidePicXSpinner.getValue(), (int) slidePicYSpinner.getValue(),
                     (int) slidePicWidthSpinner.getValue(),
                     (String) slidePicShapeCombo.getSelectedItem(),
-                    (int) slidePicCornerSpinner.getValue()));
+                    (int) slidePicCornerSpinner.getValue())
+                    .withFx(getSlidePicFxString(),
+                            (int) slidePicFxPowerSpinner.getValue(),
+                            (int) slidePicFxSpeedSpinner.getValue(),
+                            slidePicFxColor,
+                            (String) slidePicFxEntranceCombo.getSelectedItem(),
+                            ((Number) slidePicFxEntranceSecSpinner.getValue()).doubleValue(),
+                            (int) slidePicFxDepthSpinner.getValue()));
         }
 
         private void loadSlidePictureFromItem(int index) {
@@ -30295,6 +31591,18 @@ public class GifSlideShowApp extends JFrame {
                 slidePicWidthSpinner.setValue(item.widthPct);
                 slidePicShapeCombo.setSelectedItem(item.shape);
                 slidePicCornerSpinner.setValue(item.cornerRadius);
+                setSlidePicFxChecks(item.fxEffects);
+                slidePicFxPowerSpinner.setValue(clampInt(item.fxIntensity > 0 ? item.fxIntensity : 100, 10, 300));
+                slidePicFxSpeedSpinner.setValue(clampInt(item.fxSpeed > 0 ? item.fxSpeed : 100, 10, 400));
+                slidePicFxDepthSpinner.setValue(clampInt(item.fxShadow, 0, 100));
+                slidePicFxEntranceCombo.setSelectedItem(
+                        item.fxEntrance != null && !item.fxEntrance.isEmpty() ? item.fxEntrance : "None");
+                slidePicFxEntranceSecSpinner.setValue(
+                        Math.max(0.1, Math.min(8.0, item.fxEntranceSec > 0 ? item.fxEntranceSec : 0.8)));
+                slidePicFxColor = item.fxColor != null ? item.fxColor : PIC_FX_DEFAULT_COLOR;
+                slidePicFxColorBtn.setBackground(slidePicFxColor);
+                slidePicFxColorBtn.repaint();
+                slidePicFxPresetCombo.setSelectedIndex(0);
                 updateSlidePicPreview();
             } finally {
                 isLoadingSlidePicture = false;
@@ -30714,7 +32022,7 @@ public class GifSlideShowApp extends JFrame {
                 slidePictureItems.set(i, new SlidePictureData(show, img, file,
                         clampInt(fmt.x, 0, 100), clampInt(fmt.y, 0, 100),
                         clampInt(fmt.widthPct, 1, 100), fmt.shape,
-                        clampInt(fmt.cornerRadius, 0, 200)));
+                        clampInt(fmt.cornerRadius, 0, 200)).withFxFrom(fmt));
             }
             if (currentSlidePictureIndex >= slidePictureItems.size()) {
                 currentSlidePictureIndex = 0;
@@ -30754,7 +32062,8 @@ public class GifSlideShowApp extends JFrame {
                     clampInt(y != null ? y : cur.y, 0, 100),
                     clampInt(widthPct != null ? widthPct : cur.widthPct, 1, 100),
                     shape != null ? shape : cur.shape,
-                    clampInt(cornerRadius != null ? cornerRadius : cur.cornerRadius, 0, 200)));
+                    clampInt(cornerRadius != null ? cornerRadius : cur.cornerRadius, 0, 200))
+                    .withFxFrom(cur));
             if (currentSlidePictureIndex >= slidePictureItems.size()) {
                 currentSlidePictureIndex = 0;
             }
@@ -30834,6 +32143,9 @@ public class GifSlideShowApp extends JFrame {
                             withImage ? src.imageFile : null,
                             src.x, src.y, src.widthPct, src.shape, src.cornerRadius,
                             withImage ? src.show : null);
+                    // The look travels with the placement, so a deck-wide logo
+                    // does not glow on one slide and sit flat on the next.
+                    row.applyImportedSlidePictureFx(slot, src);
                 }
             } finally {
                 isSyncingFormat = false;
