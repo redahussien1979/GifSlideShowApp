@@ -1,0 +1,5 @@
+TEXT1,TEXT2,HL,PIC,PIC_X,PIC_Y,PIC_W,PIC_SHAPE,PIC_RADIUS,PIC2,PIC2_X,PIC2_Y,PIC2_W,PIC2_SHAPE
+What is the capital of France?,Paris,Paris,images/eiffel.jpg,30,45,28,Rectangle,16,images/logo.png,92,10,7,Circle
+Largest planet in our solar system?,Jupiter,Jupiter,images/jupiter.jpg,70,50,34,Circle,0,images/logo.png,92,10,7,Circle
+Which language runs in a web browser?,JavaScript,,images/browser.png,50,60,40,Rectangle,0,images/logo.png,92,10,7,Circle
+A slide with no picture of its own,,,none,,,,,,images/logo.png,92,10,7,Circle
