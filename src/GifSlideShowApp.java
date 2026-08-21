@@ -527,6 +527,7 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(p + "fxEntrance", pic.fxEntrance != null ? pic.fxEntrance : "None");
             props.setProperty(p + "fxEntranceSec", String.valueOf(pic.fxEntranceSec));
             props.setProperty(p + "fxShadow", String.valueOf(pic.fxShadow));
+            props.setProperty(p + "fxLayer", pic.fxLayer != null ? pic.fxLayer : PIC_LAYER_FRONT);
         }
 
         // Per-text audio highlight settings (FX, HL color, glow size).
@@ -1086,7 +1087,8 @@ public class GifSlideShowApp extends JFrame {
                                     colorToHex(PIC_FX_DEFAULT_COLOR))),
                             props.getProperty(p + "fxEntrance", "None"),
                             fxSec,
-                            parseIntOr(props.getProperty(p + "fxShadow"), 0)));
+                            parseIntOr(props.getProperty(p + "fxShadow"), 0),
+                            props.getProperty(p + "fxLayer", PIC_LAYER_FRONT)));
         }
 
         // Orientation
@@ -6200,6 +6202,12 @@ public class GifSlideShowApp extends JFrame {
             }
         } // end if (!transparentBase) — base image, image-shape, displayMode, FX
 
+        // ========== SLIDE PICTURE UNDER-LAYERS ==========
+        // Pictures set to Background or Behind Text go down here, straight after
+        // the slide image (or, on a video slide, at the bottom of the transparent
+        // decoration layer that gets composited over the video) and before any
+        // text, number or annotation is drawn.
+        drawSlidePictureLayer(g, slidePictures, targetW, targetH, animFrameIndex, true);
 
         // ========== SLIDE NUMBER OVERLAY ==========
         if (showSlideNumber && slideNumberText != null && !slideNumberText.isEmpty()) {
@@ -9382,19 +9390,42 @@ public class GifSlideShowApp extends JFrame {
             }
         }
 
-        // ========== SLIDE PICTURE OVERLAY(S) ==========
-        if (slidePictures != null) {
-            int activeAudioIdx = activeAudioSegmentIdx.get();
-            for (SlidePictureData pic : slidePictures) {
-                drawSlidePicture(g, pic, targetW, targetH, animFrameIndex, activeAudioIdx);
-            }
-        }
+        // ========== SLIDE PICTURE OVERLAY(S) — front layer ==========
+        // The under-layers were drawn back before the slide number; what is left
+        // here is everything the user wants sitting on top of the whole slide.
+        drawSlidePictureLayer(g, slidePictures, targetW, targetH, animFrameIndex, false);
 
         g.dispose();
         return frame;
     }
 
     // ==================== Slide picture rendering + Image FX ====================
+
+    /**
+     * Draw the slide pictures belonging to one layer pass.
+     *
+     * <p>Pictures are drawn twice per frame from two different points in
+     * {@code renderFrame}: once under the text (Background and Behind Text) and
+     * once over everything (Front). Each call skips the pictures that belong to
+     * the other pass, so a slide can mix all three.
+     *
+     * @param under true for the early pass that runs right after the slide image,
+     *              false for the late pass that runs after all the text.
+     */
+    private static void drawSlidePictureLayer(Graphics2D g, List<SlidePictureData> pictures,
+                                              int targetW, int targetH,
+                                              int animFrameIndex, boolean under) {
+        if (pictures == null || pictures.isEmpty()) return;
+        int activeAudioIdx = activeAudioSegmentIdx.get();
+        for (SlidePictureData pic : pictures) {
+            if (pic == null) continue;
+            String layer = pic.fxLayer != null ? pic.fxLayer : PIC_LAYER_FRONT;
+            boolean isUnder = PIC_LAYER_BEHIND.equals(layer) || PIC_LAYER_BACKGROUND.equals(layer);
+            if (isUnder != under) continue;
+            SlidePictureData draw = PIC_LAYER_BACKGROUND.equals(layer) ? pic.asFullBleed() : pic;
+            drawSlidePicture(g, draw, targetW, targetH, animFrameIndex, activeAudioIdx);
+        }
+    }
 
     /**
      * Draw one slide picture onto the frame, with its Image FX (toolbar row 4e2).
@@ -21208,6 +21239,17 @@ public class GifSlideShowApp extends JFrame {
     // ==================== SlidePictureData ====================
 
     // ==================== Image FX catalogue (toolbar row 4e2) ====================
+    /** Over everything on the slide. What slide pictures have always done. */
+    static final String PIC_LAYER_FRONT = "Front";
+    /** Over the slide image or video, but under text, numbers and annotations. */
+    static final String PIC_LAYER_BEHIND = "Behind Text";
+    /** Full-bleed under everything: the picture becomes the slide's backdrop,
+     *  covering the slide image or video entirely. */
+    static final String PIC_LAYER_BACKGROUND = "Background";
+
+    /** Layer choices, in the order the dropdown lists them. */
+    static final String[] PIC_LAYERS = {PIC_LAYER_FRONT, PIC_LAYER_BEHIND, PIC_LAYER_BACKGROUND};
+
     /** Default accent colour for glow / neon / tint effects: warm gold. */
     static final Color PIC_FX_DEFAULT_COLOR = new Color(255, 205, 90);
 
@@ -21405,6 +21447,11 @@ public class GifSlideShowApp extends JFrame {
         final String fxEntrance;    // one of PIC_FX_ENTRANCES, "None" = appear instantly
         final double fxEntranceSec; // entrance duration in seconds
         final int fxShadow;         // 0-100 drop-shadow depth (0 = no shadow)
+        // Where the picture sits in the stack: PIC_LAYER_FRONT (over everything,
+        // the original behaviour), PIC_LAYER_BEHIND (over the slide image/video
+        // but under text) or PIC_LAYER_BACKGROUND (full-bleed, replacing the
+        // slide image/video). Never null.
+        final String fxLayer;
 
         SlidePictureData(boolean show, BufferedImage image, File imageFile,
                          int x, int y, int widthPct, String shape, int cornerRadius) {
@@ -21442,7 +21489,7 @@ public class GifSlideShowApp extends JFrame {
             this(show, image, imageFile, x, y, widthPct, shape, cornerRadius,
                     audioFile, audioDurationMs, audioEffect, boxHeightPct, audioActiveIdx,
                     borderWidth, borderColor, opacity, fitMode,
-                    "", 100, 100, null, "None", 0.8, 0);
+                    "", 100, 100, null, "None", 0.8, 0, PIC_LAYER_FRONT);
         }
 
         /** Master constructor - every field, Image FX included. */
@@ -21452,8 +21499,10 @@ public class GifSlideShowApp extends JFrame {
                          int boxHeightPct, int audioActiveIdx,
                          int borderWidth, Color borderColor, int opacity, String fitMode,
                          String fxEffects, int fxIntensity, int fxSpeed, Color fxColor,
-                         String fxEntrance, double fxEntranceSec, int fxShadow) {
+                         String fxEntrance, double fxEntranceSec, int fxShadow,
+                         String fxLayer) {
             this.fxEffects = fxEffects != null ? fxEffects : "";
+            this.fxLayer = fxLayer != null && !fxLayer.isEmpty() ? fxLayer : PIC_LAYER_FRONT;
             this.fxIntensity = fxIntensity;
             this.fxSpeed = fxSpeed;
             this.fxColor = fxColor;
@@ -21481,18 +21530,36 @@ public class GifSlideShowApp extends JFrame {
 
         /** Copy of this slot with a new Image FX configuration. */
         SlidePictureData withFx(String fxEffects, int fxIntensity, int fxSpeed, Color fxColor,
-                                String fxEntrance, double fxEntranceSec, int fxShadow) {
+                                String fxEntrance, double fxEntranceSec, int fxShadow,
+                                String fxLayer) {
             return new SlidePictureData(show, image, imageFile, x, y, widthPct, shape, cornerRadius,
                     audioFile, audioDurationMs, audioEffect, boxHeightPct, audioActiveIdx,
                     borderWidth, borderColor, opacity, fitMode,
-                    fxEffects, fxIntensity, fxSpeed, fxColor, fxEntrance, fxEntranceSec, fxShadow);
+                    fxEffects, fxIntensity, fxSpeed, fxColor, fxEntrance, fxEntranceSec, fxShadow,
+                    fxLayer);
         }
 
         /** Copy of this slot carrying another slot's Image FX configuration. */
         SlidePictureData withFxFrom(SlidePictureData src) {
             if (src == null) return this;
             return withFx(src.fxEffects, src.fxIntensity, src.fxSpeed, src.fxColor,
-                    src.fxEntrance, src.fxEntranceSec, src.fxShadow);
+                    src.fxEntrance, src.fxEntranceSec, src.fxShadow, src.fxLayer);
+        }
+
+        /**
+         * This picture reshaped to cover the whole frame, for the Background
+         * layer. Position, width, shape, corner radius and border all stop
+         * meaning anything once the picture is the backdrop, so they are
+         * replaced by a centred, cover-cropped, full-frame box. Opacity and
+         * every Image FX setting carry over untouched — a Ken Burns push or a
+         * vignette on the backdrop is exactly the point.
+         */
+        SlidePictureData asFullBleed() {
+            return new SlidePictureData(show, image, imageFile, 50, 50, 100, "Rectangle", 0,
+                    audioFile, audioDurationMs, audioEffect, 100, audioActiveIdx,
+                    0, borderColor, opacity, "Fill",
+                    fxEffects, fxIntensity, fxSpeed, fxColor, fxEntrance, fxEntranceSec, fxShadow,
+                    fxLayer);
         }
 
         /** True when this picture carries any Image FX at all. */
@@ -22558,6 +22625,7 @@ public class GifSlideShowApp extends JFrame {
         private JSpinner slidePicFxDepthSpinner;
         private JComboBox<String> slidePicFxEntranceCombo;
         private JSpinner slidePicFxEntranceSecSpinner;
+        private JComboBox<String> slidePicFxLayerCombo;
 
         // Bulk image grid (toolbar4g)
         private final List<SlidePictureData> bulkGridItems = new ArrayList<>();
@@ -24165,7 +24233,7 @@ public class GifSlideShowApp extends JFrame {
             slidePicFxPresetCombo = new JComboBox<>();
             slidePicFxPresetCombo.addItem(PIC_FX_PRESET_NONE);
             for (String name : PIC_FX_PRESETS.keySet()) slidePicFxPresetCombo.addItem(name);
-            slidePicFxPresetCombo.setPreferredSize(new Dimension(160, 24));
+            slidePicFxPresetCombo.setPreferredSize(new Dimension(132, 24));
             slidePicFxPresetCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             slidePicFxPresetCombo.setToolTipText("Apply a ready-made look: effects, strength, tempo, "
                     + "accent colour, entrance and shadow depth all at once. Tweak anything afterwards.");
@@ -24187,10 +24255,23 @@ public class GifSlideShowApp extends JFrame {
                 onFormatChanged();
             });
 
+            // --- Where the picture sits in the slide's stack ---
+            slidePicFxLayerCombo = new JComboBox<>(PIC_LAYERS);
+            slidePicFxLayerCombo.setPreferredSize(new Dimension(100, 24));
+            slidePicFxLayerCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slidePicFxLayerCombo.setToolTipText("<html><b>Front</b> — over everything on the slide.<br>"
+                    + "<b>Behind Text</b> — over the slide image or video, under the text.<br>"
+                    + "<b>Background</b> — full-bleed backdrop, covering the slide image or video.<br>"
+                    + "Background ignores X / Y / W / Shape / Radius and crops to fill the frame; "
+                    + "effects and opacity still apply.</html>");
+            slidePicFxLayerCombo.addActionListener(e -> {
+                if (!isLoadingSlidePicture) { saveCurrentSlidePictureToItem(); onFormatChanged(); }
+            });
+
             // --- Multi-select effect picker ---
             slidePicFxButton = new JButton("FX: None ▾");
             slidePicFxButton.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            slidePicFxButton.setPreferredSize(new Dimension(168, 24));
+            slidePicFxButton.setPreferredSize(new Dimension(146, 24));
             slidePicFxButton.setFocusPainted(false);
             slidePicFxButton.setToolTipText("Pick any number of effects. They stack: motion moves the "
                     + "picture, colour grades re-map its pixels, light and framing paint around it.");
@@ -24266,7 +24347,7 @@ public class GifSlideShowApp extends JFrame {
 
             // --- Strength / tempo / accent ---
             slidePicFxPowerSpinner = new JSpinner(new SpinnerNumberModel(100, 10, 300, 5));
-            slidePicFxPowerSpinner.setPreferredSize(new Dimension(56, 24));
+            slidePicFxPowerSpinner.setPreferredSize(new Dimension(50, 24));
             slidePicFxPowerSpinner.setToolTipText("Effect strength %. 100 is the designed look; "
                     + "drop to 40-60 for a subtle, broadcast-safe treatment.");
             slidePicFxPowerSpinner.addChangeListener(e -> {
@@ -24274,7 +24355,7 @@ public class GifSlideShowApp extends JFrame {
             });
 
             slidePicFxSpeedSpinner = new JSpinner(new SpinnerNumberModel(100, 10, 400, 5));
-            slidePicFxSpeedSpinner.setPreferredSize(new Dimension(56, 24));
+            slidePicFxSpeedSpinner.setPreferredSize(new Dimension(50, 24));
             slidePicFxSpeedSpinner.setToolTipText("Animation tempo %. Lower is slower and calmer; "
                     + "higher makes pulses and sweeps snappier.");
             slidePicFxSpeedSpinner.addChangeListener(e -> {
@@ -24282,7 +24363,7 @@ public class GifSlideShowApp extends JFrame {
             });
 
             slidePicFxColorBtn = new JButton("■ Accent");
-            slidePicFxColorBtn.setPreferredSize(new Dimension(94, 24));
+            slidePicFxColorBtn.setPreferredSize(new Dimension(88, 24));
             slidePicFxColorBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             slidePicFxColorBtn.setFocusPainted(false);
             slidePicFxColorBtn.setBackground(slidePicFxColor);
@@ -24298,7 +24379,7 @@ public class GifSlideShowApp extends JFrame {
                     }));
 
             slidePicFxDepthSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 100, 5));
-            slidePicFxDepthSpinner.setPreferredSize(new Dimension(52, 24));
+            slidePicFxDepthSpinner.setPreferredSize(new Dimension(48, 24));
             slidePicFxDepthSpinner.setToolTipText("Drop-shadow depth. 0 = flat on the slide, "
                     + "60-80 lifts the picture off it like a printed card.");
             slidePicFxDepthSpinner.addChangeListener(e -> {
@@ -24307,7 +24388,7 @@ public class GifSlideShowApp extends JFrame {
 
             // --- Entrance ---
             slidePicFxEntranceCombo = new JComboBox<>(PIC_FX_ENTRANCES);
-            slidePicFxEntranceCombo.setPreferredSize(new Dimension(122, 24));
+            slidePicFxEntranceCombo.setPreferredSize(new Dimension(108, 24));
             slidePicFxEntranceCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             slidePicFxEntranceCombo.setToolTipText("How the picture arrives at the start of the slide. "
                     + "Plays once; the static preview shows it already landed.");
@@ -24316,7 +24397,7 @@ public class GifSlideShowApp extends JFrame {
             });
 
             slidePicFxEntranceSecSpinner = new JSpinner(new SpinnerNumberModel(0.8, 0.1, 8.0, 0.1));
-            slidePicFxEntranceSecSpinner.setPreferredSize(new Dimension(56, 24));
+            slidePicFxEntranceSecSpinner.setPreferredSize(new Dimension(50, 24));
             slidePicFxEntranceSecSpinner.setToolTipText("Entrance duration in seconds.");
             slidePicFxEntranceSecSpinner.addChangeListener(e -> {
                 if (!isLoadingSlidePicture) { saveCurrentSlidePictureToItem(); onFormatChanged(); }
@@ -24344,6 +24425,7 @@ public class GifSlideShowApp extends JFrame {
                     slidePicFxDepthSpinner.setValue(0);
                     slidePicFxEntranceCombo.setSelectedItem("None");
                     slidePicFxEntranceSecSpinner.setValue(0.8);
+                    slidePicFxLayerCombo.setSelectedItem(PIC_LAYER_FRONT);
                     slidePicFxColor = PIC_FX_DEFAULT_COLOR;
                     slidePicFxColorBtn.setBackground(slidePicFxColor);
                     slidePicFxPresetCombo.setSelectedIndex(0);
@@ -24355,9 +24437,11 @@ public class GifSlideShowApp extends JFrame {
                 onFormatChanged();
             });
 
-            JLabel fxPowerLbl = styledLabel("Power%:");
+            JLabel fxLayerLbl = styledLabel("Layer:");
+            fxLayerLbl.setForeground(fxRowText);
+            JLabel fxPowerLbl = styledLabel("Power:");
             fxPowerLbl.setForeground(fxRowText);
-            JLabel fxSpeedLbl = styledLabel("Speed%:");
+            JLabel fxSpeedLbl = styledLabel("Speed:");
             fxSpeedLbl.setForeground(fxRowText);
             JLabel fxDepthLbl = styledLabel("Depth:");
             fxDepthLbl.setForeground(fxRowText);
@@ -24367,6 +24451,8 @@ public class GifSlideShowApp extends JFrame {
             fxSecLbl.setForeground(fxRowText);
 
             toolbar4e2.add(tc4e2Lbl);
+            toolbar4e2.add(fxLayerLbl);
+            toolbar4e2.add(slidePicFxLayerCombo);
             toolbar4e2.add(slidePicFxPresetCombo);
             toolbar4e2.add(slidePicFxButton);
             toolbar4e2.add(fxPowerLbl);
@@ -31521,7 +31607,8 @@ public class GifSlideShowApp extends JFrame {
                             + "Effects: " + fxList + "\n"
                             + "Power " + src.fxIntensity + "%   Speed " + src.fxSpeed + "%   "
                             + "Depth " + src.fxShadow + "\n"
-                            + "Entrance: " + src.fxEntrance + " (" + src.fxEntranceSec + "s)\n\n"
+                            + "Entrance: " + src.fxEntrance + " (" + src.fxEntranceSec + "s)\n"
+                            + "Layer: " + src.fxLayer + "\n\n"
                             + "Only the FX travel — each slide keeps its own picture and position.",
                     "Image FX → All Slides", JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
             if (choice != JOptionPane.OK_OPTION) return;
@@ -31575,7 +31662,8 @@ public class GifSlideShowApp extends JFrame {
                             slidePicFxColor,
                             (String) slidePicFxEntranceCombo.getSelectedItem(),
                             ((Number) slidePicFxEntranceSecSpinner.getValue()).doubleValue(),
-                            (int) slidePicFxDepthSpinner.getValue()));
+                            (int) slidePicFxDepthSpinner.getValue(),
+                            (String) slidePicFxLayerCombo.getSelectedItem()));
         }
 
         private void loadSlidePictureFromItem(int index) {
@@ -31599,6 +31687,8 @@ public class GifSlideShowApp extends JFrame {
                         item.fxEntrance != null && !item.fxEntrance.isEmpty() ? item.fxEntrance : "None");
                 slidePicFxEntranceSecSpinner.setValue(
                         Math.max(0.1, Math.min(8.0, item.fxEntranceSec > 0 ? item.fxEntranceSec : 0.8)));
+                slidePicFxLayerCombo.setSelectedItem(
+                        item.fxLayer != null && !item.fxLayer.isEmpty() ? item.fxLayer : PIC_LAYER_FRONT);
                 slidePicFxColor = item.fxColor != null ? item.fxColor : PIC_FX_DEFAULT_COLOR;
                 slidePicFxColorBtn.setBackground(slidePicFxColor);
                 slidePicFxColorBtn.repaint();
