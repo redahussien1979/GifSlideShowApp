@@ -94,6 +94,15 @@ public class GifSlideShowApp extends JFrame {
     // appended as a final pass when exporting the MP4.
     private final SummaryConfig summaryConfig = new SummaryConfig();
 
+    // Dict Import slide-picture columns: PIC / PIC<n> (image path) plus
+    // PIC<n>_X / _Y / _W / _SHAPE / _RADIUS. Group 2 is the Pic number (blank =
+    // Pic 1), group 3 the attribute (null = the image path itself).
+    private static final java.util.regex.Pattern PIC_COLUMN_PATTERN =
+            java.util.regex.Pattern.compile(
+                    "(PIC|PICTURE)(\\d*)(?:_(X|Y|W|WIDTH|SHAPE|RADIUS|CORNER))?");
+    /** Upper bound on PIC<n> so a typo can't grow thousands of Pic slots. */
+    private static final int MAX_IMPORTED_PIC_SLOTS = 32;
+
     // Presets
     private static final File PRESETS_DIR = new File(new File(".").getAbsoluteFile().getParentFile(), "presets");
     private JComboBox<String> presetCombo;
@@ -167,7 +176,7 @@ public class GifSlideShowApp extends JFrame {
         bulkTextBtn.addActionListener(e -> bulkImportText());
 
         JButton dictImportBtn = createStyledButton("Dict Import", new Color(50, 180, 160));
-        dictImportBtn.setToolTipText("Import CSV/TSV: each row=slide, each column=slide text (A→Text1, B→Text2...). Optional headers: HL/UL/BOLD/ITALIC/COLOR, AUDIOLINK, AUDIO1.. (two comma-separated paths in a quoted cell = primary+second audio for that text, sharing the Gap), X-AXIS/Y-AXIS/TEXT-SIZE, TEXT1TIME/TEXT2TIME.. for appear,go timing per text (cell=\"appear,go\" in seconds; \"appear\" alone = never leaves), TIMER_TARGET for the Slide Timer's target text — the text the countdown reveals at zero, given as a text number (1 = Text 1, 0 = none) or as the text itself — and TIMER_END_AUDIO for that slide's \"play when it ends\" sound — a path relative to the sheet, \"none\" for a quiet slide, or \"inherit\"/an empty cell to play the first slide's sound.");
+        dictImportBtn.setToolTipText("Import CSV/TSV: each row=slide, each column=slide text (A→Text1, B→Text2...). Optional headers: HL/UL/BOLD/ITALIC/COLOR, AUDIOLINK, AUDIO1.. (two comma-separated paths in a quoted cell = primary+second audio for that text, sharing the Gap), X-AXIS/Y-AXIS/TEXT-SIZE, TEXT1TIME/TEXT2TIME.. for appear,go timing per text (cell=\"appear,go\" in seconds; \"appear\" alone = never leaves), TIMER_TARGET for the Slide Timer's target text — the text the countdown reveals at zero, given as a text number (1 = Text 1, 0 = none) or as the text itself — TIMER_END_AUDIO for that slide's \"play when it ends\" sound — a path relative to the sheet, \"none\" for a quiet slide, or \"inherit\"/an empty cell to play the first slide's sound — and PIC/PIC2/PIC3.. for a slide picture overlay (a path relative to the sheet, or \"none\" to hide that slot), placed by the matching PIC_X, PIC_Y, PIC_W, PIC_SHAPE (Rectangle/Circle) and PIC_RADIUS columns. For the SAME picture on every slide, skip the PIC column and use \u21CA All in the \uD83D\uDDBC Pic toolbar row.");
         dictImportBtn.addActionListener(e -> dictionaryImport());
 
         JButton quizImportBtn = createStyledButton("Quiz Import", new Color(180, 120, 200));
@@ -490,6 +499,25 @@ public class GifSlideShowApp extends JFrame {
                 String av = t.altTexts.get(k);
                 props.setProperty(p + "alt." + k, av == null ? "" : av);
             }
+        }
+
+        // Slide picture overlays (toolbar row 4e). Stored parallel to the
+        // slideText.<i>.* block above so a preset carries the deck's logo or
+        // watermark, not just where it sits. The image is referenced by absolute
+        // path: a preset opened on another machine still restores the geometry
+        // and reports the picture as missing instead of failing to load.
+        List<SlidePictureData> pics = source.getSlidePictureFormats();
+        props.setProperty("slidePicCount", String.valueOf(pics.size()));
+        for (int i = 0; i < pics.size(); i++) {
+            SlidePictureData pic = pics.get(i);
+            String p = "slidePic." + i + ".";
+            props.setProperty(p + "show", String.valueOf(pic.show));
+            props.setProperty(p + "file", pic.imageFile != null ? pic.imageFile.getAbsolutePath() : "");
+            props.setProperty(p + "x", String.valueOf(pic.x));
+            props.setProperty(p + "y", String.valueOf(pic.y));
+            props.setProperty(p + "widthPct", String.valueOf(pic.widthPct));
+            props.setProperty(p + "shape", pic.shape != null ? pic.shape : "Rectangle");
+            props.setProperty(p + "cornerRadius", String.valueOf(pic.cornerRadius));
         }
 
         // Per-text audio highlight settings (FX, HL color, glow size).
@@ -1002,6 +1030,42 @@ public class GifSlideShowApp extends JFrame {
             karaokeTightList.add(parseIntOr(props.getProperty(p + "karaokeTight"), DEFAULT_KARAOKE_TIGHT));
         }
 
+        // Slide picture overlays. A preset written before pictures were saved has
+        // no slidePicCount, which leaves the list empty and every slide's own
+        // pictures untouched.
+        int slidePicCount = parseIntOr(props.getProperty("slidePicCount"), 0);
+        List<SlidePictureData> slidePictureFormats = new ArrayList<>();
+        List<String> missingPresetPictures = new ArrayList<>();
+        for (int i = 0; i < slidePicCount; i++) {
+            String p = "slidePic." + i + ".";
+            String path = props.getProperty(p + "file", "").trim();
+            BufferedImage img = null;
+            File imgFile = null;
+            if (!path.isEmpty()) {
+                File f = new File(path);
+                if (f.isFile()) {
+                    try {
+                        img = loadImageFile(f);
+                        imgFile = f;
+                    } catch (Exception ex) {
+                        missingPresetPictures.add(path + " (" + ex.getMessage() + ")");
+                    }
+                } else {
+                    missingPresetPictures.add(path);
+                }
+            }
+            // A slot whose picture went missing loads as hidden geometry rather
+            // than an empty box on every slide.
+            boolean show = Boolean.parseBoolean(props.getProperty(p + "show", "false"))
+                    && (path.isEmpty() || img != null);
+            slidePictureFormats.add(new SlidePictureData(show, img, imgFile,
+                    parseIntOr(props.getProperty(p + "x"), 50),
+                    parseIntOr(props.getProperty(p + "y"), 50),
+                    parseIntOr(props.getProperty(p + "widthPct"), 20),
+                    props.getProperty(p + "shape", "Rectangle"),
+                    parseIntOr(props.getProperty(p + "cornerRadius"), 0)));
+        }
+
         // Orientation
         String orientation = props.getProperty("orientation", "Landscape");
         if ("Portrait".equals(orientation)) {
@@ -1248,6 +1312,11 @@ public class GifSlideShowApp extends JFrame {
                         0.0, audioHlColorList, audioHlEffectsList, audioGlowSizeList,
                         karaokeStyleList, karaokeColorList,
                         karaokeIntensityList, karaokeTightList);
+                // Slide pictures ride in separately: applyFormatting's picture
+                // argument only ever carries geometry, and a preset is meant to
+                // restore the picture itself. clearMissingImages stays false so a
+                // preset saved without a picture leaves each slide's own alone.
+                row.applySlidePictureFormats(slidePictureFormats, true, false);
                 row.getQuiz().copyVisualSettingsFrom(tmpl);
                 row.refreshQuizToolbarFromState();
                 row.applyLayoutGroupPanelState(lgCols, lgAnchorX, lgAnchorY,
@@ -1290,7 +1359,20 @@ public class GifSlideShowApp extends JFrame {
         }
 
         if (showMessage) {
-            JOptionPane.showMessageDialog(this, "Preset \"" + name + "\" loaded.", "Load Preset", JOptionPane.INFORMATION_MESSAGE);
+            if (!missingPresetPictures.isEmpty()) {
+                StringBuilder warn = new StringBuilder("Preset \"" + name + "\" loaded.\n\n"
+                        + missingPresetPictures.size() + " slide picture(s) could not be opened —\n"
+                        + "their position and size were restored, the image was not:");
+                int show = Math.min(missingPresetPictures.size(), 8);
+                for (int w = 0; w < show; w++) warn.append("\n  ").append(missingPresetPictures.get(w));
+                if (missingPresetPictures.size() > show) {
+                    warn.append("\n  …and ").append(missingPresetPictures.size() - show).append(" more.");
+                }
+                JOptionPane.showMessageDialog(this, warn.toString(), "Load Preset",
+                        JOptionPane.WARNING_MESSAGE);
+            } else {
+                JOptionPane.showMessageDialog(this, "Preset \"" + name + "\" loaded.", "Load Preset", JOptionPane.INFORMATION_MESSAGE);
+            }
         }
     }
 
@@ -3472,6 +3554,9 @@ public class GifSlideShowApp extends JFrame {
                         + "TEXT1TIME, TEXT2TIME, ... → per-text appear,go timing (seconds).\n"
                         + "  Put both in one cell, e.g. \"2,5\" (appears at 2s, goes at 5s).\n"
                         + "  A single value like \"2\" means it appears then never leaves.\n"
+                        + "PIC, PIC2, PIC3, ... → a picture for that slide (path relative to the sheet).\n"
+                        + "  Place it with PIC_X, PIC_Y, PIC_W, PIC_SHAPE, PIC_RADIUS.\n"
+                        + "  Same picture on every slide? Skip PIC and use \u21CA All in the Pic row.\n"
                         + "(Title grid slides are skipped)",
                 "Dictionary Import", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
                 null, options, options[0]);
@@ -3565,7 +3650,7 @@ public class GifSlideShowApp extends JFrame {
 
         // Ask whether first row is a header
         int headerChoice = JOptionPane.showOptionDialog(this,
-                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting,\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.\nFor TWO audios on one text, put both paths comma-separated in that\ntext's audio cell, quoted: \"first.mp3,second.mp3\" (2nd plays after the\nfirst, separated by the Gap value).\nX-AXIS/Y-AXIS/TEXT-SIZE for position & size per text item.\nTEXT1TIME/TEXT2TIME/... for appear,go timing per text item\n(cell = \"appear,go\" in seconds; \"appear\" alone = never leaves).\nTIMER_TARGET for the Slide Timer's target text — the text the countdown\nreveals and badges at zero. Either a text number (1 = Text 1, 0 = none)\nor the text itself, matched against that row's texts.\nTIMER_END_AUDIO for that slide's \"play when it ends\" sound: a path\nrelative to the sheet (like AUDIOLINK), \"none\" for a quiet slide, or\n\"inherit\"/an empty cell to play the first slide's sound.\nEverything else about the timer comes from the first slide.)",
+                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting,\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.\nFor TWO audios on one text, put both paths comma-separated in that\ntext's audio cell, quoted: \"first.mp3,second.mp3\" (2nd plays after the\nfirst, separated by the Gap value).\nX-AXIS/Y-AXIS/TEXT-SIZE for position & size per text item.\nTEXT1TIME/TEXT2TIME/... for appear,go timing per text item\n(cell = \"appear,go\" in seconds; \"appear\" alone = never leaves).\nTIMER_TARGET for the Slide Timer's target text — the text the countdown\nreveals and badges at zero. Either a text number (1 = Text 1, 0 = none)\nor the text itself, matched against that row's texts.\nTIMER_END_AUDIO for that slide's \"play when it ends\" sound: a path\nrelative to the sheet (like AUDIOLINK), \"none\" for a quiet slide, or\n\"inherit\"/an empty cell to play the first slide's sound.\nEverything else about the timer comes from the first slide.\nPIC/PIC2/PIC3/... for a slide picture overlay: a path relative to the\nsheet (like AUDIOLINK), or \"none\" to hide that Pic slot. Place it with\nPIC_X, PIC_Y (centre, % of the frame), PIC_W (width, % of the frame),\nPIC_SHAPE (Rectangle or Circle) and PIC_RADIUS (corner radius).\nA bare PIC means Pic 1; PIC2_X places Pic 2, and so on. Hyphens read\nthe same as underscores (PIC2-X = PIC2_X).\nFor the SAME picture on every slide, leave PIC out of the sheet and\nuse the \u21CA All button in the Pic toolbar row instead.)",
                 "Dictionary Import", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,
                 null, new String[]{"Yes, skip first row", "No, first row is data"}, "No, first row is data");
 
@@ -3587,6 +3672,19 @@ public class GifSlideShowApp extends JFrame {
         java.util.Map<Integer, Integer> audioColByTextIndex = new java.util.TreeMap<>();
         // Texts Timer: TEXT1TIME, TEXT2TIME, … each cell = "appear,go" (seconds).
         java.util.Map<Integer, Integer> timeColByTextIndex = new java.util.TreeMap<>();
+        // Slide pictures: PIC / PIC<n> holds the image path, PIC<n>_X / _Y / _W /
+        // _SHAPE / _RADIUS place it. Each map is keyed by Pic slot (0-based).
+        java.util.Map<Integer, Integer> picFileColBySlot = new java.util.TreeMap<>();
+        java.util.Map<Integer, Integer> picXColBySlot = new java.util.TreeMap<>();
+        java.util.Map<Integer, Integer> picYColBySlot = new java.util.TreeMap<>();
+        java.util.Map<Integer, Integer> picWColBySlot = new java.util.TreeMap<>();
+        java.util.Map<Integer, Integer> picShapeColBySlot = new java.util.TreeMap<>();
+        java.util.Map<Integer, Integer> picRadiusColBySlot = new java.util.TreeMap<>();
+        // PIC<n> headers past MAX_IMPORTED_PIC_SLOTS. Held out of the text columns
+        // so a mistyped PIC9999 doesn't print its file path on the slide, and
+        // reported back so the typo is visible.
+        java.util.Set<Integer> picOverflowCols = new java.util.LinkedHashSet<>();
+        List<String> picOverflowHeaders = new ArrayList<>();
         List<String> headerFields = null;
 
         List<String> dataLines;
@@ -3639,6 +3737,41 @@ public class GifSlideShowApp extends JFrame {
                     if (textIdx >= 0) {
                         audioColByTextIndex.put(textIdx, c);
                     }
+                } else {
+                    // Slide-picture columns. PIC / PIC<n> carries the image path;
+                    // PIC<n>_X, _Y, _W, _SHAPE, _RADIUS place it. A bare PIC means
+                    // Pic 1, and hyphens read the same as underscores.
+                    java.util.regex.Matcher pm =
+                            PIC_COLUMN_PATTERN.matcher(h.replace('-', '_'));
+                    if (pm.matches()) {
+                        String numPart = pm.group(2);
+                        int slot = 0;
+                        if (!numPart.isEmpty()) {
+                            try {
+                                slot = Integer.parseInt(numPart) - 1;
+                            } catch (NumberFormatException ex) {
+                                slot = -1; // absurd number → not a picture column
+                            }
+                        }
+                        // Cap the slot so a typo like PIC9999 can't make the import
+                        // grow thousands of empty Pic slots on every slide.
+                        if (slot < 0 || slot >= MAX_IMPORTED_PIC_SLOTS) {
+                            picOverflowCols.add(c);
+                            picOverflowHeaders.add(headerFields.get(c).trim());
+                        } else {
+                            String attr = pm.group(3);
+                            if (attr == null) {
+                                picFileColBySlot.put(slot, c);
+                            } else switch (attr) {
+                                case "X":                    picXColBySlot.put(slot, c); break;
+                                case "Y":                    picYColBySlot.put(slot, c); break;
+                                case "W": case "WIDTH":      picWColBySlot.put(slot, c); break;
+                                case "SHAPE":                picShapeColBySlot.put(slot, c); break;
+                                case "RADIUS": case "CORNER": picRadiusColBySlot.put(slot, c); break;
+                                default: break;
+                            }
+                        }
+                    }
                 }
             }
             dataLines = trimmed.subList(1, trimmed.size());
@@ -3664,13 +3797,24 @@ public class GifSlideShowApp extends JFrame {
         // Determine which columns are text columns (not HL/UL/BOLD/ITALIC/COLOR/AUDIOLINK)
         java.util.Set<Integer> audioColIndices = new java.util.HashSet<>(audioColByTextIndex.values());
         java.util.Set<Integer> timeColIndices = new java.util.HashSet<>(timeColByTextIndex.values());
+        // Picture columns are settings, not captions — without this an image path
+        // would be imported as slide text and printed on the frame.
+        java.util.Set<Integer> picColIndices = new java.util.HashSet<>();
+        picColIndices.addAll(picFileColBySlot.values());
+        picColIndices.addAll(picXColBySlot.values());
+        picColIndices.addAll(picYColBySlot.values());
+        picColIndices.addAll(picWColBySlot.values());
+        picColIndices.addAll(picShapeColBySlot.values());
+        picColIndices.addAll(picRadiusColBySlot.values());
+        picColIndices.addAll(picOverflowCols);
         List<Integer> textColIndices = new ArrayList<>();
         for (int c = 0; c < maxCols; c++) {
             if (c != hlColIndex && c != ulColIndex && c != boldColIndex
                     && c != italicColIndex && c != colorColIndex && c != audioLinkColIndex
                     && c != xAxisColIndex && c != yAxisColIndex && c != textSizeColIndex
                     && c != timerTargetColIndex && c != timerEndAudioColIndex
-                    && !audioColIndices.contains(c) && !timeColIndices.contains(c)) {
+                    && !audioColIndices.contains(c) && !timeColIndices.contains(c)
+                    && !picColIndices.contains(c)) {
                 textColIndices.add(c);
             }
         }
@@ -3686,8 +3830,28 @@ public class GifSlideShowApp extends JFrame {
         int assigned = 0;
         int timerTargetsSet = 0;
         int timerEndAudiosSet = 0;
+        int pictureSlotsSet = 0;
         List<String> missingAudioFiles = new ArrayList<>();
+        List<String> missingPictureFiles = new ArrayList<>();
         List<String> unmatchedTimerTargets = new ArrayList<>();
+        boolean hasPictureColumns = !picFileColBySlot.isEmpty() || !picXColBySlot.isEmpty()
+                || !picYColBySlot.isEmpty() || !picWColBySlot.isEmpty()
+                || !picShapeColBySlot.isEmpty() || !picRadiusColBySlot.isEmpty();
+        // Every Pic slot the sheet mentions, in slot order.
+        java.util.Set<Integer> picSlots = new java.util.TreeSet<>();
+        picSlots.addAll(picFileColBySlot.keySet());
+        picSlots.addAll(picXColBySlot.keySet());
+        picSlots.addAll(picYColBySlot.keySet());
+        picSlots.addAll(picWColBySlot.keySet());
+        picSlots.addAll(picShapeColBySlot.keySet());
+        picSlots.addAll(picRadiusColBySlot.keySet());
+        // Picture assignments are buffered, not applied inside the row loop:
+        // applyFirstSlideFormattingToAll() below broadcasts slide 1's picture
+        // geometry across the deck and would overwrite whatever a row asked for.
+        List<Runnable> pendingPictureApplies = new ArrayList<>();
+        // Images are read once per path — a logo repeated down a 200-row sheet
+        // should not be decoded 200 times.
+        java.util.Map<String, BufferedImage> importedPictureCache = new java.util.HashMap<>();
         for (int i = 0; i < allRows.size(); i++) {
             List<String> fields = allRows.get(i);
             SlideRow slide;
@@ -3849,6 +4013,77 @@ public class GifSlideShowApp extends JFrame {
                 slide.setSlideTextTimerAt(textIdx, appearMs, goMs);
             }
 
+            // Collect the slide-picture columns (PIC / PIC<n> and their _X/_Y/_W/
+            // _SHAPE/_RADIUS partners). Applied after the formatting broadcast
+            // below, which would otherwise reset them to slide 1's geometry.
+            if (hasPictureColumns) {
+                final SlideRow picSlide = slide;
+                final int rowNum = i + 1;
+                for (int slot : picSlots) {
+                    BufferedImage img = null;
+                    File imgFile = null;
+                    Boolean show = null;
+                    String pathCell = cellAt(fields, picFileColBySlot.get(slot));
+                    if (pathCell != null && !pathCell.isEmpty()) {
+                        if (pathCell.equalsIgnoreCase("none") || pathCell.equals("-")) {
+                            // Deliberately blank: keep the slot's geometry, hide it.
+                            show = Boolean.FALSE;
+                        } else {
+                            File f = new File(pathCell);
+                            if (!f.isAbsolute() && importSourceDir != null) {
+                                f = new File(importSourceDir, pathCell);
+                            }
+                            if (f.isFile()) {
+                                String key = f.getAbsolutePath();
+                                if (importedPictureCache.containsKey(key)) {
+                                    img = importedPictureCache.get(key);
+                                    if (img != null) imgFile = f;
+                                } else {
+                                    try {
+                                        img = loadImageFile(f);
+                                        imgFile = f;
+                                    } catch (Exception ex) {
+                                        img = null;
+                                        missingPictureFiles.add("Slide " + rowNum + " Pic "
+                                                + (slot + 1) + ": " + pathCell
+                                                + " (" + ex.getMessage() + ")");
+                                    }
+                                    importedPictureCache.put(key, img);
+                                }
+                            } else {
+                                missingPictureFiles.add("Slide " + rowNum + " Pic "
+                                        + (slot + 1) + ": " + pathCell);
+                            }
+                        }
+                    }
+                    Integer picX = cellInt(fields, picXColBySlot.get(slot));
+                    Integer picY = cellInt(fields, picYColBySlot.get(slot));
+                    Integer picW = cellInt(fields, picWColBySlot.get(slot));
+                    Integer picR = cellInt(fields, picRadiusColBySlot.get(slot));
+                    String picShape = cellAt(fields, picShapeColBySlot.get(slot));
+                    if (picShape != null) {
+                        if (picShape.isEmpty()) picShape = null;
+                        else if (picShape.equalsIgnoreCase("circle")
+                                || picShape.equalsIgnoreCase("round")
+                                || picShape.equalsIgnoreCase("oval")) picShape = "Circle";
+                        else picShape = "Rectangle";
+                    }
+                    if (img == null && show == null && picX == null && picY == null
+                            && picW == null && picShape == null && picR == null) {
+                        continue; // nothing this row said about this slot
+                    }
+                    final BufferedImage fImg = img;
+                    final File fFile = imgFile;
+                    final Boolean fShow = show;
+                    final Integer fX = picX, fY = picY, fW = picW, fR = picR;
+                    final String fShape = picShape;
+                    final int fSlot = slot;
+                    pendingPictureApplies.add(() -> picSlide.applyImportedSlidePicture(
+                            fSlot, fImg, fFile, fX, fY, fW, fShape, fR, fShow));
+                    pictureSlotsSet++;
+                }
+            }
+
             // Apply the TIMER_TARGET column — the slide text the countdown reveals
             // and badges when it reaches zero. Done after this row's texts are in
             // place so a cell naming the text itself ("Paris") can be matched.
@@ -3902,6 +4137,12 @@ public class GifSlideShowApp extends JFrame {
         }
 
         applyFirstSlideFormattingToAll();
+
+        // Per-row pictures land last: the broadcast above copies slide 1's picture
+        // geometry onto every slide, so anything the sheet set per row has to be
+        // re-applied on top of it.
+        for (Runnable apply : pendingPictureApplies) apply.run();
+
         slidesPanel.revalidate();
         slidesPanel.repaint();
 
@@ -3943,6 +4184,17 @@ public class GifSlideShowApp extends JFrame {
             importMsg += "\nTIMER_END_AUDIO column detected — timer end sound set on "
                     + timerEndAudiosSet + " slide(s).";
         }
+        if (!picOverflowHeaders.isEmpty()) {
+            importMsg += "\n\nWARNING: " + picOverflowHeaders.size() + " picture column(s) name a Pic "
+                    + "slot above " + MAX_IMPORTED_PIC_SLOTS + " and were ignored:"
+                    + "\n  " + String.join(", ", picOverflowHeaders);
+        }
+        if (hasPictureColumns) {
+            importMsg += "\nPIC column(s) detected — " + pictureSlotsSet
+                    + " slide picture slot(s) set across Pic " + describePicSlots(picSlots) + ".";
+            importMsg += "\n  Same picture on every slide? Leave PIC out of the sheet and use "
+                    + "\u21CA All\n  in the \uD83D\uDDBC Pic toolbar row instead — one upload, whole deck.";
+        }
         importMsg += "\nSlides: " + slideRows.size() + " total.";
         if (!missingAudioFiles.isEmpty()) {
             importMsg += "\n\nWARNING: " + missingAudioFiles.size() + " audio file(s) not found:";
@@ -3951,9 +4203,31 @@ public class GifSlideShowApp extends JFrame {
             }
             importMsg += "\n\nMake sure audio files exist relative to the CSV file location.";
         }
+        if (!missingPictureFiles.isEmpty()) {
+            importMsg += "\n\nWARNING: " + missingPictureFiles.size() + " picture file(s) not found:";
+            int shown = Math.min(missingPictureFiles.size(), 12);
+            for (int w = 0; w < shown; w++) importMsg += "\n  " + missingPictureFiles.get(w);
+            if (missingPictureFiles.size() > shown) {
+                importMsg += "\n  …and " + (missingPictureFiles.size() - shown) + " more.";
+            }
+            importMsg += "\n\nPicture paths resolve against the CSV file's folder, "
+                    + "same as the audio columns.";
+        }
         JOptionPane.showMessageDialog(this, importMsg, "Dictionary Import",
-                missingAudioFiles.isEmpty() && unmatchedTimerTargets.isEmpty()
+                missingAudioFiles.isEmpty() && missingPictureFiles.isEmpty()
+                        && unmatchedTimerTargets.isEmpty() && picOverflowHeaders.isEmpty()
                         ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+    }
+
+    /** "1", "1 and 2", "1, 2 and 3" — reads the Pic slots an import touched back
+     *  to the user in the 1-based numbering the toolbar dropdown shows. */
+    private static String describePicSlots(java.util.Set<Integer> slots) {
+        List<String> names = new ArrayList<>();
+        for (int slot : slots) names.add(String.valueOf(slot + 1));
+        if (names.isEmpty()) return "(none)";
+        if (names.size() == 1) return names.get(0);
+        String last = names.remove(names.size() - 1);
+        return String.join(", ", names) + " and " + last;
     }
 
     /** Loosen a cell / slide text for matching: casefold, collapse whitespace,
@@ -5107,6 +5381,27 @@ public class GifSlideShowApp extends JFrame {
     }
 
     // ==================== Utility ====================
+
+    /** Keep a value inside a spinner's range — JSpinner.setValue throws on an
+     *  out-of-range number, and imported/preset values are user-supplied. */
+    private static int clampInt(int value, int lo, int hi) {
+        return value < lo ? lo : (value > hi ? hi : value);
+    }
+
+    /** Trimmed cell at a column index, or null when the column is absent or the
+     *  row is short. */
+    private static String cellAt(List<String> fields, Integer col) {
+        if (col == null || col < 0 || col >= fields.size()) return null;
+        String v = fields.get(col);
+        return v == null ? null : v.trim();
+    }
+
+    /** Integer cell, or null when absent, blank, or unparseable. */
+    private static Integer cellInt(List<String> fields, Integer col) {
+        String v = cellAt(fields, col);
+        if (v == null || v.isEmpty()) return null;
+        try { return Integer.parseInt(v); } catch (NumberFormatException ex) { return null; }
+    }
 
     private static int extractLeadingNumber(String name) {
         int dot = name.lastIndexOf('.');
@@ -22857,6 +23152,16 @@ public class GifSlideShowApp extends JFrame {
                 }
             });
 
+            JButton slidePicAllBtn = new JButton("\u21CA All");
+            slidePicAllBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slidePicAllBtn.setPreferredSize(new Dimension(56, 24));
+            slidePicAllBtn.setFocusPainted(false);
+            slidePicAllBtn.setToolTipText("Put this picture on every slide. With no image in the "
+                    + "slot yet it asks for one first, so a single upload lands on the whole deck. "
+                    + "You can send the picture with its position, or the position alone. "
+                    + "Locked and title-grid slides are skipped.");
+            slidePicAllBtn.addActionListener(e -> applyThisSlidePictureToAllSlides());
+
             JButton slidePicClearBtn = new JButton("\u2715");
             slidePicClearBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             slidePicClearBtn.setPreferredSize(new Dimension(28, 24));
@@ -22907,6 +23212,7 @@ public class GifSlideShowApp extends JFrame {
             toolbar4e.add(slidePicShowCheck);
             toolbar4e.add(slidePicPreviewLabel);
             toolbar4e.add(slidePicBrowseBtn);
+            toolbar4e.add(slidePicAllBtn);
             toolbar4e.add(slidePicClearBtn);
             toolbar4e.add(styledLabel("X%:"));
             toolbar4e.add(slidePicXSpinner);
@@ -30365,24 +30671,50 @@ public class GifSlideShowApp extends JFrame {
             return result;
         }
 
+        /** The Pic slots the toolbar edits, WITHOUT the computed bulk-grid cells.
+         *  This is what propagate and presets carry: bulk-grid entries are derived
+         *  from that slide's own uploaded images, so broadcasting them would grow
+         *  phantom Pic slots on every other slide. */
         List<SlidePictureData> getSlidePictureFormats() {
-            return getSlidePictureDataList();
+            saveCurrentSlidePictureToItem();
+            return new ArrayList<>(slidePictureItems);
         }
 
+        /** Propagate default: geometry only, each slide keeps its own picture. */
         void applySlidePictureFormats(List<SlidePictureData> formats) {
+            applySlidePictureFormats(formats, false, false);
+        }
+
+        /**
+         * Copy Pic slots from a master slide, a preset, or the "⇊ All" button.
+         *
+         * @param withImages       when true the picture itself travels too, not just
+         *                         its position/size/shape. Ordinary propagate passes
+         *                         false so a per-slide photo is never clobbered.
+         * @param clearMissingImages when true a source slot with no picture empties
+         *                         the target slot as well (an exact copy). Preset load
+         *                         passes false so a preset that never had a picture
+         *                         leaves each slide's own image alone.
+         */
+        void applySlidePictureFormats(List<SlidePictureData> formats,
+                                      boolean withImages, boolean clearMissingImages) {
             if (formats == null || formats.isEmpty()) return;
             // Ensure we have at least as many items as the source.
             while (slidePictureItems.size() < formats.size()) {
                 slidePictureItems.add(new SlidePictureData(false, null, null, 50, 50, 20, "Rectangle", 0));
             }
-            // Sync position/size/shape from master, preserve each slide's own image and show state.
             for (int i = 0; i < formats.size(); i++) {
                 SlidePictureData fmt = formats.get(i);
                 SlidePictureData existing = slidePictureItems.get(i);
-                boolean show = existing.image != null ? existing.show : fmt.show;
-                slidePictureItems.set(i, new SlidePictureData(show,
-                        existing.image, existing.imageFile,
-                        fmt.x, fmt.y, fmt.widthPct, fmt.shape, fmt.cornerRadius));
+                boolean takeImage = withImages && (fmt.image != null || clearMissingImages);
+                BufferedImage img  = takeImage ? fmt.image     : existing.image;
+                File          file = takeImage ? fmt.imageFile : existing.imageFile;
+                boolean show = takeImage ? fmt.show
+                        : (existing.image != null ? existing.show : fmt.show);
+                slidePictureItems.set(i, new SlidePictureData(show, img, file,
+                        clampInt(fmt.x, 0, 100), clampInt(fmt.y, 0, 100),
+                        clampInt(fmt.widthPct, 1, 100), fmt.shape,
+                        clampInt(fmt.cornerRadius, 0, 200)));
             }
             if (currentSlidePictureIndex >= slidePictureItems.size()) {
                 currentSlidePictureIndex = 0;
@@ -30396,6 +30728,121 @@ public class GifSlideShowApp extends JFrame {
             }
             loadSlidePictureFromItem(currentSlidePictureIndex);
             schedulePreview();
+        }
+
+        /**
+         * Set one Pic slot from an import or a bulk apply. A null argument leaves
+         * that field as it was, so a sheet can carry only geometry (or only the
+         * image). Slots beyond what this slide has are created on the way.
+         */
+        void applyImportedSlidePicture(int index, BufferedImage img, File imgFile,
+                                       Integer x, Integer y, Integer widthPct,
+                                       String shape, Integer cornerRadius, Boolean show) {
+            if (index < 0) return;
+            saveCurrentSlidePictureToItem();
+            while (slidePictureItems.size() <= index) {
+                slidePictureItems.add(new SlidePictureData(false, null, null, 50, 50, 20, "Rectangle", 0));
+            }
+            SlidePictureData cur = slidePictureItems.get(index);
+            BufferedImage newImg = (img != null) ? img : cur.image;
+            File newFile = (img != null) ? imgFile : cur.imageFile;
+            // A freshly supplied picture switches its slot on; otherwise the slot
+            // keeps whatever the slide already decided.
+            boolean newShow = (show != null) ? show : (img != null || cur.show);
+            slidePictureItems.set(index, new SlidePictureData(newShow, newImg, newFile,
+                    clampInt(x != null ? x : cur.x, 0, 100),
+                    clampInt(y != null ? y : cur.y, 0, 100),
+                    clampInt(widthPct != null ? widthPct : cur.widthPct, 1, 100),
+                    shape != null ? shape : cur.shape,
+                    clampInt(cornerRadius != null ? cornerRadius : cur.cornerRadius, 0, 200)));
+            if (currentSlidePictureIndex >= slidePictureItems.size()) {
+                currentSlidePictureIndex = 0;
+            }
+            isLoadingSlidePicture = true;
+            try {
+                rebuildSlidePicSelector();
+                slidePicSelector.setSelectedIndex(currentSlidePictureIndex);
+            } finally {
+                isLoadingSlidePicture = false;
+            }
+            loadSlidePictureFromItem(currentSlidePictureIndex);
+            schedulePreview();
+        }
+
+        /**
+         * Push this slide's current Pic slot onto every other slide — the one-upload
+         * path for a logo or watermark that belongs on the whole deck. Ordinary
+         * propagate carries only the geometry, so without this each slide would need
+         * its own Browse. Locked and title-grid slides are left alone.
+         */
+        private void applyThisSlidePictureToAllSlides() {
+            if (slidePicLoadedImage == null) {
+                // Empty slot: ask for the picture first, so a single upload can land
+                // on the whole deck in one go.
+                JFileChooser fc = new JFileChooser();
+                fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                        "Images", "jpg", "jpeg", "png", "gif", "bmp", "webp", "avif", "heif", "heic"));
+                if (fc.showOpenDialog(getPanel()) != JFileChooser.APPROVE_OPTION) return;
+                try {
+                    File f = fc.getSelectedFile();
+                    BufferedImage img = loadImageFile(f);
+                    if (img == null) throw new IOException("Unsupported image format.");
+                    slidePicLoadedImage = img;
+                    slidePicLoadedFile = f;
+                    updateSlidePicPreview();
+                    slidePicShowCheck.setSelected(true);
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(getPanel(),
+                            "Failed to load image: " + ex.getMessage(),
+                            "Picture → All Slides", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+            }
+            saveCurrentSlidePictureToItem();
+            final int slot = currentSlidePictureIndex;
+            SlidePictureData src = slidePictureItems.get(slot);
+
+            List<SlideRow> targets = new ArrayList<>();
+            for (SlideRow row : slideRows) {
+                if (row == this || row.isTitleGridSlide || row.isLocked()) continue;
+                targets.add(row);
+            }
+            if (targets.isEmpty()) {
+                JOptionPane.showMessageDialog(getPanel(),
+                        "No other slides to copy to.\n(Locked and title-grid slides are skipped.)",
+                        "Picture → All Slides", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+
+            String[] opts = {"Picture + position", "Position only", "Cancel"};
+            int choice = JOptionPane.showOptionDialog(getPanel(),
+                    "Put Pic " + (slot + 1) + " on " + targets.size() + " other slide(s)?\n\n"
+                            + (src.imageFile != null ? "Image: " + src.imageFile.getName() + "\n" : "")
+                            + "Position " + src.x + "%, " + src.y + "%    Width " + src.widthPct + "%    "
+                            + src.shape + (src.cornerRadius > 0 ? " (radius " + src.cornerRadius + ")" : "")
+                            + "\n\nLocked and title-grid slides are skipped.",
+                    "Picture → All Slides", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
+                    null, opts, opts[0]);
+            if (choice != 0 && choice != 1) return;
+            boolean withImage = (choice == 0);
+
+            isSyncingFormat = true;
+            try {
+                for (SlideRow row : targets) {
+                    row.applyImportedSlidePicture(slot,
+                            withImage ? src.image : null,
+                            withImage ? src.imageFile : null,
+                            src.x, src.y, src.widthPct, src.shape, src.cornerRadius,
+                            withImage ? src.show : null);
+                }
+            } finally {
+                isSyncingFormat = false;
+            }
+            schedulePreview();
+            JOptionPane.showMessageDialog(getPanel(),
+                    "Pic " + (slot + 1) + (withImage ? " and its picture" : " position")
+                            + " applied to " + targets.size() + " slide(s).",
+                    "Picture → All Slides", JOptionPane.INFORMATION_MESSAGE);
         }
 
         private void onFormatChanged() {
