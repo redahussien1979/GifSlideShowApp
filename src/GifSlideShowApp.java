@@ -24221,6 +24221,10 @@ public class GifSlideShowApp extends JFrame {
             // above, so a deck can give each overlay its own look.
             JPanel toolbar4e2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
             toolbar4e2.setBackground(new Color(52, 42, 82));
+            // The row needs more width than a 1280-wide window has, so it runs on
+            // two lines: what the picture is doing, then how much of it.
+            JPanel toolbar4e3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
+            toolbar4e3.setBackground(new Color(52, 42, 82));
             final Color fxRowText = new Color(214, 186, 255);
             final Color fxRowBg = new Color(52, 42, 82);
             final Color fxMenuBg = new Color(40, 33, 64);
@@ -24233,7 +24237,7 @@ public class GifSlideShowApp extends JFrame {
             slidePicFxPresetCombo = new JComboBox<>();
             slidePicFxPresetCombo.addItem(PIC_FX_PRESET_NONE);
             for (String name : PIC_FX_PRESETS.keySet()) slidePicFxPresetCombo.addItem(name);
-            slidePicFxPresetCombo.setPreferredSize(new Dimension(132, 24));
+            slidePicFxPresetCombo.setPreferredSize(new Dimension(158, 24));
             slidePicFxPresetCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             slidePicFxPresetCombo.setToolTipText("Apply a ready-made look: effects, strength, tempo, "
                     + "accent colour, entrance and shadow depth all at once. Tweak anything afterwards.");
@@ -24257,7 +24261,7 @@ public class GifSlideShowApp extends JFrame {
 
             // --- Where the picture sits in the slide's stack ---
             slidePicFxLayerCombo = new JComboBox<>(PIC_LAYERS);
-            slidePicFxLayerCombo.setPreferredSize(new Dimension(100, 24));
+            slidePicFxLayerCombo.setPreferredSize(new Dimension(112, 24));
             slidePicFxLayerCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             slidePicFxLayerCombo.setToolTipText("<html><b>Front</b> — over everything on the slide.<br>"
                     + "<b>Behind Text</b> — over the slide image or video, under the text.<br>"
@@ -24271,7 +24275,7 @@ public class GifSlideShowApp extends JFrame {
             // --- Multi-select effect picker ---
             slidePicFxButton = new JButton("FX: None ▾");
             slidePicFxButton.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            slidePicFxButton.setPreferredSize(new Dimension(146, 24));
+            slidePicFxButton.setPreferredSize(new Dimension(166, 24));
             slidePicFxButton.setFocusPainted(false);
             slidePicFxButton.setToolTipText("Pick any number of effects. They stack: motion moves the "
                     + "picture, colour grades re-map its pixels, light and framing paint around it.");
@@ -24347,7 +24351,7 @@ public class GifSlideShowApp extends JFrame {
 
             // --- Strength / tempo / accent ---
             slidePicFxPowerSpinner = new JSpinner(new SpinnerNumberModel(100, 10, 300, 5));
-            slidePicFxPowerSpinner.setPreferredSize(new Dimension(50, 24));
+            slidePicFxPowerSpinner.setPreferredSize(new Dimension(56, 24));
             slidePicFxPowerSpinner.setToolTipText("Effect strength %. 100 is the designed look; "
                     + "drop to 40-60 for a subtle, broadcast-safe treatment.");
             slidePicFxPowerSpinner.addChangeListener(e -> {
@@ -24355,7 +24359,7 @@ public class GifSlideShowApp extends JFrame {
             });
 
             slidePicFxSpeedSpinner = new JSpinner(new SpinnerNumberModel(100, 10, 400, 5));
-            slidePicFxSpeedSpinner.setPreferredSize(new Dimension(50, 24));
+            slidePicFxSpeedSpinner.setPreferredSize(new Dimension(56, 24));
             slidePicFxSpeedSpinner.setToolTipText("Animation tempo %. Lower is slower and calmer; "
                     + "higher makes pulses and sweeps snappier.");
             slidePicFxSpeedSpinner.addChangeListener(e -> {
@@ -24363,7 +24367,7 @@ public class GifSlideShowApp extends JFrame {
             });
 
             slidePicFxColorBtn = new JButton("■ Accent");
-            slidePicFxColorBtn.setPreferredSize(new Dimension(88, 24));
+            slidePicFxColorBtn.setPreferredSize(new Dimension(94, 24));
             slidePicFxColorBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             slidePicFxColorBtn.setFocusPainted(false);
             slidePicFxColorBtn.setBackground(slidePicFxColor);
@@ -24379,7 +24383,7 @@ public class GifSlideShowApp extends JFrame {
                     }));
 
             slidePicFxDepthSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 100, 5));
-            slidePicFxDepthSpinner.setPreferredSize(new Dimension(48, 24));
+            slidePicFxDepthSpinner.setPreferredSize(new Dimension(52, 24));
             slidePicFxDepthSpinner.setToolTipText("Drop-shadow depth. 0 = flat on the slide, "
                     + "60-80 lifts the picture off it like a printed card.");
             slidePicFxDepthSpinner.addChangeListener(e -> {
@@ -24388,7 +24392,7 @@ public class GifSlideShowApp extends JFrame {
 
             // --- Entrance ---
             slidePicFxEntranceCombo = new JComboBox<>(PIC_FX_ENTRANCES);
-            slidePicFxEntranceCombo.setPreferredSize(new Dimension(108, 24));
+            slidePicFxEntranceCombo.setPreferredSize(new Dimension(124, 24));
             slidePicFxEntranceCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             slidePicFxEntranceCombo.setToolTipText("How the picture arrives at the start of the slide. "
                     + "Plays once; the static preview shows it already landed.");
@@ -24397,7 +24401,7 @@ public class GifSlideShowApp extends JFrame {
             });
 
             slidePicFxEntranceSecSpinner = new JSpinner(new SpinnerNumberModel(0.8, 0.1, 8.0, 0.1));
-            slidePicFxEntranceSecSpinner.setPreferredSize(new Dimension(50, 24));
+            slidePicFxEntranceSecSpinner.setPreferredSize(new Dimension(56, 24));
             slidePicFxEntranceSecSpinner.setToolTipText("Entrance duration in seconds.");
             slidePicFxEntranceSecSpinner.addChangeListener(e -> {
                 if (!isLoadingSlidePicture) { saveCurrentSlidePictureToItem(); onFormatChanged(); }
@@ -24439,9 +24443,12 @@ public class GifSlideShowApp extends JFrame {
 
             JLabel fxLayerLbl = styledLabel("Layer:");
             fxLayerLbl.setForeground(fxRowText);
-            JLabel fxPowerLbl = styledLabel("Power:");
+            JLabel fxTuneLbl = styledLabel("      \u21B3 Tune:");
+            fxTuneLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            fxTuneLbl.setForeground(new Color(168, 146, 205));
+            JLabel fxPowerLbl = styledLabel("Power%:");
             fxPowerLbl.setForeground(fxRowText);
-            JLabel fxSpeedLbl = styledLabel("Speed:");
+            JLabel fxSpeedLbl = styledLabel("Speed%:");
             fxSpeedLbl.setForeground(fxRowText);
             JLabel fxDepthLbl = styledLabel("Depth:");
             fxDepthLbl.setForeground(fxRowText);
@@ -24450,24 +24457,28 @@ public class GifSlideShowApp extends JFrame {
             JLabel fxSecLbl = styledLabel("s:");
             fxSecLbl.setForeground(fxRowText);
 
+            // Line 1 — what the picture does: where it sits, which look, which effects.
             toolbar4e2.add(tc4e2Lbl);
             toolbar4e2.add(fxLayerLbl);
             toolbar4e2.add(slidePicFxLayerCombo);
             toolbar4e2.add(slidePicFxPresetCombo);
             toolbar4e2.add(slidePicFxButton);
-            toolbar4e2.add(fxPowerLbl);
-            toolbar4e2.add(slidePicFxPowerSpinner);
-            toolbar4e2.add(fxSpeedLbl);
-            toolbar4e2.add(slidePicFxSpeedSpinner);
-            toolbar4e2.add(slidePicFxColorBtn);
-            toolbar4e2.add(fxDepthLbl);
-            toolbar4e2.add(slidePicFxDepthSpinner);
-            toolbar4e2.add(fxEntryLbl);
-            toolbar4e2.add(slidePicFxEntranceCombo);
-            toolbar4e2.add(fxSecLbl);
-            toolbar4e2.add(slidePicFxEntranceSecSpinner);
             toolbar4e2.add(slidePicFxAllBtn);
             toolbar4e2.add(slidePicFxResetBtn);
+
+            // Line 2 — how much of it: strength, tempo, accent, depth, entrance.
+            toolbar4e3.add(fxTuneLbl);
+            toolbar4e3.add(fxPowerLbl);
+            toolbar4e3.add(slidePicFxPowerSpinner);
+            toolbar4e3.add(fxSpeedLbl);
+            toolbar4e3.add(slidePicFxSpeedSpinner);
+            toolbar4e3.add(slidePicFxColorBtn);
+            toolbar4e3.add(fxDepthLbl);
+            toolbar4e3.add(slidePicFxDepthSpinner);
+            toolbar4e3.add(fxEntryLbl);
+            toolbar4e3.add(slidePicFxEntranceCombo);
+            toolbar4e3.add(fxSecLbl);
+            toolbar4e3.add(slidePicFxEntranceSecSpinner);
             updateSlidePicFxButtonText();
 
             // ===== Toolbar Row 4g: Bulk Image Grid =====
@@ -26378,6 +26389,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(toolbar4d);
             toolbarsPanel.add(toolbar4e);
             toolbarsPanel.add(toolbar4e2);
+            toolbarsPanel.add(toolbar4e3);
             toolbarsPanel.add(toolbar4g1);
             toolbarsPanel.add(toolbar4g2);
             toolbarsPanel.add(toolbar4g3);
