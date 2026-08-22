@@ -30114,10 +30114,15 @@ public class GifSlideShowApp extends JFrame {
                     + "e.g. 6.539,7.659,2,1.3  (plays twice, the repeat at 1.3× slower)");
             JScrollPane repeatScroll = new JScrollPane(repeatArea);
             repeatScroll.setPreferredSize(new Dimension(460, 90));
-            JLabel repeatHelp = new JLabel("<html><b>Repeat parts of the video</b> — <b>easiest way:</b> tick "
+            // Fixed wrap width so the (long) explanation reflows inside the dialog
+            // instead of stretching it wider than the rows table above.
+            JLabel repeatHelp = new JLabel("<html><body style='width:1090px'>"
+                    + "<b>Repeat parts of the video</b> — <b>easiest way:</b> tick "
                     + "<b>Repeat</b> next to a word above (or next to several words in a row, to repeat the "
                     + "whole phrase), choose <b>Times</b> and <b>Slow</b>, then press "
-                    + "<b>Repeat ticked &#9656;</b> — the line below is written for you.<br>"
+                    + "<b>Repeat ticked &#9656;</b> — the line below is written for you. The ticks then "
+                    + "clear, so to repeat a word <i>and</i> the sentence right after it, tick the word and "
+                    + "press, then tick the sentence and press again — two repeats, back to back.<br>"
                     + "Or type it yourself — one range per line as "
                     + "<code>start,end</code> in seconds (e.g. <code>6.539,7.659</code>). "
                     + "Optional extras: <code>start,end,times,slow</code> — <b>times</b> = how many times it "
@@ -30125,7 +30130,7 @@ public class GifSlideShowApp extends JFrame {
                     + "<b>slow can be any decimal</b> — <code>1.1</code>, <code>1.25</code>, <code>1.5</code>, "
                     + "<code>2</code> (2 = half speed), up to 4. "
                     + "So <code>6.539,7.659,2,1.3</code> plays it once normally then once at 1.3&times; slow. "
-                    + "This lengthens the video.</html>");
+                    + "This lengthens the video.</body></html>");
             repeatHelp.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             repeatHelp.setBorder(BorderFactory.createEmptyBorder(10, 2, 4, 2));
 
@@ -30148,8 +30153,22 @@ public class GifSlideShowApp extends JFrame {
             tickSlow.setPreferredSize(new Dimension(70, 24));
             tickSlow.setToolTipText("How much slower the repeat plays. 1.00 = normal speed, "
                     + "1.25 = a quarter slower, 2 = half speed. Up to 4.");
+            // How neighbouring ticks are read. "One phrase" repeats a run of ticked
+            // words as a single stretch; "each word on its own" gives every ticked
+            // word its own repeat even when they sit next to each other \u2014 which is
+            // also how you repeat a word and then repeat the phrase after it: tick
+            // the word, press, then tick the phrase and press again.
+            final String GROUP_PHRASE = "words in a row = one phrase";
+            final String GROUP_EACH   = "each ticked word on its own";
+            JComboBox<String> tickGroup = new JComboBox<>(new String[]{ GROUP_PHRASE, GROUP_EACH });
+            tickGroup.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            tickGroup.setToolTipText("How ticked words that sit next to each other are read. "
+                    + "\"One phrase\" = one repeat running from the first ticked word to the last. "
+                    + "\"Each on its own\" = a separate repeat per ticked word, one after the other.");
             JButton tickAddBtn = new JButton("Repeat ticked \u25B8");
-            tickAddBtn.setToolTipText("Turn the ticked words into repeat ranges below \u2014 no typing needed.");
+            tickAddBtn.setToolTipText("Turn the ticked words into repeat ranges below \u2014 no typing needed. "
+                    + "The ticks clear afterwards, so you can tick the next word or phrase, "
+                    + "pick a different Times / Slow, and press again.");
             JButton tickClearBtn = new JButton("Untick all");
             JLabel tickStatus = new JLabel(" ");
             tickStatus.setFont(new Font("Segoe UI", Font.PLAIN, 11));
@@ -30160,9 +30179,10 @@ public class GifSlideShowApp extends JFrame {
             tickPanel.add(new JLabel("Slow"));
             tickPanel.add(tickSlow);
             tickPanel.add(new JLabel("\u00D7"));
+            tickPanel.add(tickGroup);
             tickPanel.add(tickAddBtn);
             tickPanel.add(tickClearBtn);
-            tickPanel.add(tickStatus);
+            tickStatus.setBorder(BorderFactory.createEmptyBorder(0, 8, 4, 2));
             for (java.awt.Component tc : tickPanel.getComponents()) {
                 if (tc instanceof JLabel && tc != tickLbl && tc != tickStatus) {
                     tc.setFont(new Font("Segoe UI", Font.PLAIN, 11));
@@ -30207,13 +30227,31 @@ public class GifSlideShowApp extends JFrame {
                 StringBuilder added = new StringBuilder();
                 int ranges = 0;
                 java.util.List<String> bad = new java.util.ArrayList<>();
+                // Ranges already in the box \u2014 a new one that overlaps any of them
+                // would be dropped at export (the video can only repeat a given
+                // moment once), so catch it here instead of silently losing it.
+                java.util.List<int[]> existing = new java.util.ArrayList<>();
+                for (String raw : repeatArea.getText().split("\n")) {
+                    String[] pp = raw.trim().split(",");
+                    if (pp.length < 2) continue;
+                    try {
+                        int es = (int) Math.round(Double.parseDouble(pp[0].trim()) * 1000.0);
+                        int ee = (int) Math.round(Double.parseDouble(pp[1].trim()) * 1000.0);
+                        if (ee > es) existing.add(new int[]{ es, ee });
+                    } catch (NumberFormatException ignored) { /* a line being typed \u2014 skip */ }
+                }
+                boolean onePhrase = GROUP_PHRASE.equals(tickGroup.getSelectedItem());
+                java.util.List<String> clash = new java.util.ArrayList<>();
                 int gi = 0;
                 while (gi < ticked.size()) {
                     int first = ticked.get(gi);
                     int last = first;
-                    // A run of neighbouring ticks is one phrase.
-                    while (gi + 1 < ticked.size() && ticked.get(gi + 1) == last + 1) {
-                        last = ticked.get(++gi);
+                    // A run of neighbouring ticks is one phrase \u2014 unless the user
+                    // asked for each ticked word to repeat on its own.
+                    if (onePhrase) {
+                        while (gi + 1 < ticked.size() && ticked.get(gi + 1) == last + 1) {
+                            last = ticked.get(++gi);
+                        }
                     }
                     gi++;
                     int startMs = msAt.apply(appearFields, first);
@@ -30229,6 +30267,15 @@ public class GifSlideShowApp extends JFrame {
                         bad.add("Text " + (first + 1) + (last > first ? "\u2013" + (last + 1) : ""));
                         continue;
                     }
+                    boolean overlaps = false;
+                    for (int[] ex : existing) {
+                        if (startMs < ex[1] && ex[0] < endMs) { overlaps = true; break; }
+                    }
+                    if (overlaps) {
+                        clash.add("Text " + (first + 1) + (last > first ? "\u2013" + (last + 1) : ""));
+                        continue;
+                    }
+                    existing.add(new int[]{ startMs, endMs });
                     added.append(timerMsToSecStr(startMs)).append(',').append(timerMsToSecStr(endMs))
                             .append(',').append(times);
                     if (slow > 1.0) added.append(',').append(slowStr);
@@ -30237,8 +30284,13 @@ public class GifSlideShowApp extends JFrame {
                 }
                 if (ranges == 0) {
                     JOptionPane.showMessageDialog(dlg,
-                            "Those words have no usable times yet \u2014 give them an Appear "
-                                    + "(and ideally a Go) time first.",
+                            clash.isEmpty()
+                                    ? "Those words have no usable times yet \u2014 give them an Appear "
+                                            + "(and ideally a Go) time first."
+                                    : "That part of the video is already repeated by a line in the list "
+                                            + "below (" + String.join(", ", clash) + ").\n\n"
+                                            + "Each moment can only be repeated once, so delete that line "
+                                            + "first if you want to change it.",
                             "Repeat ticked words", JOptionPane.WARNING_MESSAGE);
                     return;
                 }
@@ -30248,8 +30300,11 @@ public class GifSlideShowApp extends JFrame {
                 repeatArea.setCaretPosition(repeatArea.getDocument().getLength());
                 for (JCheckBox cb : repeatChecks) cb.setSelected(false);
                 StringBuilder st2 = new StringBuilder("Added " + ranges + " repeat"
-                        + (ranges == 1 ? "" : "s") + " below.");
-                if (!bad.isEmpty()) st2.append("  (skipped ").append(String.join(", ", bad)).append(')');
+                        + (ranges == 1 ? "" : "s") + " below \u2014 tick the next word(s) and press again.");
+                if (!bad.isEmpty()) st2.append("  (no times: ").append(String.join(", ", bad)).append(')');
+                if (!clash.isEmpty()) {
+                    st2.append("  (already repeated: ").append(String.join(", ", clash)).append(')');
+                }
                 tickStatus.setText(st2.toString());
             });
 
@@ -30545,6 +30600,7 @@ public class GifSlideShowApp extends JFrame {
             repeatHelp.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
             tickPanel.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
             tickPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, tickPanel.getPreferredSize().height));
+            tickStatus.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
             repeatScroll.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
             repeatImportPanel.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
             repeatImportPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, repeatImportPanel.getPreferredSize().height));
@@ -30554,6 +30610,7 @@ public class GifSlideShowApp extends JFrame {
             center.add(rowsScroll);
             center.add(repeatHelp);
             center.add(tickPanel);
+            center.add(tickStatus);
             center.add(repeatScroll);
             center.add(repeatImportPanel);
             center.add(crossfadeCheck);
