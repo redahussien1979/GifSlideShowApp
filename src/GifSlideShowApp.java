@@ -2077,6 +2077,8 @@ public class GifSlideShowApp extends JFrame {
         props.setProperty(p + "bgOpacity",        String.valueOf(b.bgOpacity));
         props.setProperty(p + "bgColor",          colorToHex(b.bgColor != null ? b.bgColor : Color.BLACK));
         props.setProperty(p + "bgPaddingPct",     String.valueOf(b.bgPaddingPct));
+        props.setProperty(p + "bgPaddingYPct",    String.valueOf(b.bgPaddingYPct));
+        props.setProperty(p + "bgFixedWidthPct",  String.valueOf(b.bgFixedWidthPct));
         props.setProperty(p + "bgRoundPct",       String.valueOf(b.bgRoundPct));
         props.setProperty(p + "bgColor2",         colorToHex(b.bgColor2 != null ? b.bgColor2 : new Color(60, 60, 60)));
         props.setProperty(p + "bgFillKind",       b.bgFillKind != null ? b.bgFillKind : "Solid");
@@ -2124,6 +2126,8 @@ public class GifSlideShowApp extends JFrame {
         b.bgOpacity        = parseIntOr(props.getProperty(p + "bgOpacity"), b.bgOpacity);
         b.bgColor          = hexToColor(props.getProperty(p + "bgColor", colorToHex(b.bgColor)));
         b.bgPaddingPct     = parseIntOr(props.getProperty(p + "bgPaddingPct"), b.bgPaddingPct);
+        b.bgPaddingYPct    = parseIntOr(props.getProperty(p + "bgPaddingYPct"), b.bgPaddingYPct);
+        b.bgFixedWidthPct  = parseIntOr(props.getProperty(p + "bgFixedWidthPct"), b.bgFixedWidthPct);
         b.bgRoundPct       = parseIntOr(props.getProperty(p + "bgRoundPct"), b.bgRoundPct);
         b.bgColor2         = hexToColor(props.getProperty(p + "bgColor2", colorToHex(b.bgColor2)));
         b.bgFillKind       = props.getProperty(p + "bgFillKind", b.bgFillKind);
@@ -19055,6 +19059,8 @@ public class GifSlideShowApp extends JFrame {
         int bgOpacity = 0;
         Color bgColor = Color.BLACK;
         int bgPaddingPct = 50;
+        int bgPaddingYPct = 50;
+        int bgFixedWidthPct = 0;     // 0=Auto (box fits the text), 1..100 = % of frame width
         int bgRoundPct = 10;
         Color bgColor2 = new Color(60, 60, 60);
         String bgFillKind = "Solid";
@@ -19100,6 +19106,8 @@ public class GifSlideShowApp extends JFrame {
             b.bgOpacity = t.bgOpacity;
             b.bgColor = t.bgColor != null ? t.bgColor : Color.BLACK;
             b.bgPaddingPct = t.bgPaddingPct;
+            b.bgPaddingYPct = t.bgPaddingYPct;
+            b.bgFixedWidthPct = t.bgFixedWidthPct;
             b.bgRoundPct = t.bgRoundPct;
             b.bgColor2 = t.bgColor2 != null ? t.bgColor2 : new Color(60, 60, 60);
             b.bgFillKind = t.bgFillKind != null ? t.bgFillKind : "Solid";
@@ -19139,7 +19147,9 @@ public class GifSlideShowApp extends JFrame {
         BoxStyle copy() {
             BoxStyle b = new BoxStyle();
             b.bgOpacity = bgOpacity; b.bgColor = bgColor;
-            b.bgPaddingPct = bgPaddingPct; b.bgRoundPct = bgRoundPct; b.bgColor2 = bgColor2;
+            b.bgPaddingPct = bgPaddingPct; b.bgPaddingYPct = bgPaddingYPct;
+            b.bgFixedWidthPct = bgFixedWidthPct;
+            b.bgRoundPct = bgRoundPct; b.bgColor2 = bgColor2;
             b.bgFillKind = bgFillKind; b.bgFillAngle = bgFillAngle; b.bgFillSpacing = bgFillSpacing;
             b.bgNoiseKind = bgNoiseKind; b.bgNoiseIntensity = bgNoiseIntensity; b.bgFrostedBlur = bgFrostedBlur;
             b.bgShape = bgShape;
@@ -19160,7 +19170,9 @@ public class GifSlideShowApp extends JFrame {
         /** Apply every BG field except bgOpacity/bgColor (which go through the
          *  SlideTextData constructor). */
         void applyMutableTo(SlideTextData t) {
-            t.bgPaddingPct = bgPaddingPct; t.bgRoundPct = bgRoundPct; t.bgColor2 = bgColor2;
+            t.bgPaddingPct = bgPaddingPct; t.bgPaddingYPct = bgPaddingYPct;
+            t.bgFixedWidthPct = bgFixedWidthPct;
+            t.bgRoundPct = bgRoundPct; t.bgColor2 = bgColor2;
             t.bgFillKind = bgFillKind; t.bgFillAngle = bgFillAngle; t.bgFillSpacing = bgFillSpacing;
             t.bgNoiseKind = bgNoiseKind; t.bgNoiseIntensity = bgNoiseIntensity; t.bgFrostedBlur = bgFrostedBlur;
             t.bgShape = bgShape;
@@ -25224,7 +25236,7 @@ public class GifSlideShowApp extends JFrame {
                 return l;
             };
 
-            // ---- Row 1: opacity / color / padding / round / fill ----
+            // ---- Row 1: opacity / color / padding / fixed width / round ----
             JPanel r1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
             JSpinner opSp = new JSpinner(new SpinnerNumberModel(clampRange(b.bgOpacity, -100, 200), -100, 200, 5));
             opSp.setPreferredSize(new Dimension(60, 24));
@@ -25237,10 +25249,25 @@ public class GifSlideShowApp extends JFrame {
 
             JSpinner tightSp = new JSpinner(
                     new SpinnerNumberModel(clampRange(b.bgPaddingPct, 0, BG_PAD_MAX_PCT), 0, BG_PAD_MAX_PCT, 5));
-            tightSp.setPreferredSize(new Dimension(55, 24));
-            tightSp.setToolTipText("BG padding — 0=very tight, 50=normal, 100=loose, up to "
+            tightSp.setPreferredSize(new Dimension(58, 24));
+            tightSp.setToolTipText("BG width padding (horizontal) — 0=very tight, 50=normal, 100=loose, up to "
                     + BG_PAD_MAX_PCT + " for a very wide box");
             tightSp.addChangeListener(e -> { b.bgPaddingPct = (int) tightSp.getValue(); onChange.run(); });
+
+            JSpinner tallSp = new JSpinner(
+                    new SpinnerNumberModel(clampRange(b.bgPaddingYPct, 0, BG_PAD_MAX_PCT), 0, BG_PAD_MAX_PCT, 5));
+            tallSp.setPreferredSize(new Dimension(58, 24));
+            tallSp.setToolTipText("BG height padding (vertical) — 0=very tight, 50=normal, 100=loose, up to "
+                    + BG_PAD_MAX_PCT + " for a very tall box");
+            tallSp.addChangeListener(e -> { b.bgPaddingYPct = (int) tallSp.getValue(); onChange.run(); });
+
+            JSpinner fixedWSp = new JSpinner(
+                    new SpinnerNumberModel(clampRange(b.bgFixedWidthPct, 0, 100), 0, 100, 1));
+            fixedWSp.setPreferredSize(new Dimension(58, 24));
+            fixedWSp.setToolTipText(
+                    "Fixed BG width as % of the frame — 0 = Auto (box hugs the text). "
+                    + "Stamped onto every text in the selection, so they all get the same box width.");
+            fixedWSp.addChangeListener(e -> { b.bgFixedWidthPct = (int) fixedWSp.getValue(); onChange.run(); });
 
             JSpinner roundSp = new JSpinner(new SpinnerNumberModel(clampRange(b.bgRoundPct, 0, 100), 0, 100, 5));
             roundSp.setPreferredSize(new Dimension(55, 24));
@@ -25264,12 +25291,18 @@ public class GifSlideShowApp extends JFrame {
             gapSp.setPreferredSize(new Dimension(55, 24));
             gapSp.addChangeListener(e -> { b.bgFillSpacing = (int) gapSp.getValue(); onChange.run(); });
 
+            // Size knobs on their own row, fill knobs on the next: with Tall and
+            // Width% added, one row would run wider than the screen.
             r1.add(L.apply("BG%:", 0)); r1.add(opSp); r1.add(bgColBtn);
             r1.add(L.apply("Tight:", 0)); r1.add(tightSp);
+            r1.add(L.apply("Tall:", 0)); r1.add(tallSp);
+            r1.add(L.apply("Width%:", 0)); r1.add(fixedWSp);
             r1.add(L.apply("Round:", 0)); r1.add(roundSp);
-            r1.add(L.apply("Fill:", 0)); r1.add(fillCb); r1.add(col2Btn);
-            r1.add(L.apply("Angle:", 0)); r1.add(angleSp);
-            r1.add(L.apply("Gap:", 0)); r1.add(gapSp);
+
+            JPanel r1b = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            r1b.add(L.apply("Fill:", 0)); r1b.add(fillCb); r1b.add(col2Btn);
+            r1b.add(L.apply("Angle:", 0)); r1b.add(angleSp);
+            r1b.add(L.apply("Gap:", 0)); r1b.add(gapSp);
 
             // ---- Row 2: shape / corners / border ----
             JPanel r2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
@@ -25446,6 +25479,7 @@ public class GifSlideShowApp extends JFrame {
             r4.add(L.apply("UL:", 0)); r4.add(fxUlCb); r4.add(fxUlField);
 
             wrap.add(r1);
+            wrap.add(r1b);
             wrap.add(r2);
             wrap.add(r3);
             wrap.add(r4);
