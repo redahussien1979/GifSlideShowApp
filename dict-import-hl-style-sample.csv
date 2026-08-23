@@ -1,0 +1,6 @@
+TEXT1,TEXT2,HL,HL_STYLE
+The dog ran home,,"dog, home","dog=#FF3C3C|Marker; home=#3CC864|Circle|Wavy"
+A cat sat on the mat,Try again,"cat, mat","cat=#FFDC3C|Highlighter|0; mat=Ink|Straight|30"
+Wear gloves at all times,,"gloves, all times","gloves=#4696FF|Box; all times=#B46EFF|Tag|Dotted"
+Do not touch the wire,,"not, wire","not=#FF3C3C|Strikethrough; wire=None|Thick"
+Inline form needs no HL_STYLE column,,"Inline form|#FFDC3C|Marker, no|Circle",
