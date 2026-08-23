@@ -61,6 +61,41 @@ PC. (Silencing it permanently needs a paid code-signing certificate.)
 
 ---
 
+## ffmpeg and ffprobe
+
+The app shells out to two external programs:
+
+| Feature | Needs |
+| --- | --- |
+| MP4 export | `ffmpeg` |
+| "Ultra-Quality GIF (ffmpeg)" | `ffmpeg` |
+| Importing a video file | `ffmpeg` |
+| Reading an audio or video's duration | `ffprobe` |
+
+Plain GIF export ("High-Quality GIF (ImageIO)") needs neither — that encoder is
+built into the app.
+
+Both must sit **in the same folder as `GifSlideShowApp.exe`**, or be installed
+on the PC. Windows searches a program's own folder before it searches PATH, so
+the copy beside the `.exe` wins and the PC needs nothing installed.
+
+- **The GitHub build does this for you** — the artifact already contains
+  `ffmpeg.exe` and `ffprobe.exe`.
+- **Building locally with `build.bat`:** put `ffmpeg.exe` and `ffprobe.exe` in
+  this project folder and the script copies them across. Without them the
+  script says so, and the app will report *"Cannot run program ffmpeg"* on any
+  PC that doesn't have ffmpeg installed.
+- Get them from <https://www.gyan.dev/ffmpeg/builds/> ("essentials" build) —
+  both are in its `bin` folder.
+- **Installing instead of bundling:** `winget install Gyan.FFmpeg` on the PC,
+  then restart the app so it picks up the new PATH.
+
+Note on redistribution: those ffmpeg builds are GPL-licensed. Passing a copy to
+a friend is fine; if you ever distribute the app publicly, read ffmpeg's
+licensing page first.
+
+---
+
 ## Optional: a real installer
 
 If you'd rather hand over a setup program (Start-menu shortcut, desktop icon,
@@ -128,5 +163,7 @@ it finds the fonts: `java -jar build/jar/GifSlideShowApp.jar`.
 | `jpackage was not found` | You have a JRE, or a JDK older than 14. Install JDK 17+. |
 | The .exe won't start on the other PC | They copied only the `.exe`. Copy the whole `GifSlideShowApp` folder. |
 | Font list is empty / missing fonts | The `.ttf` files must be in the same folder as `GifSlideShowApp.exe`. |
+| "Cannot run program ffmpeg" | `ffmpeg.exe` isn't beside the `.exe` and isn't installed. See the ffmpeg section above. |
+| "Could not read audio duration... ffprobe" | Same fix — `ffprobe.exe` ships with ffmpeg, in the same `bin` folder. |
 | Presets won't save | The app folder is read-only. Move the folder to Desktop or Documents. |
 | Installer build fails, folder build works | WiX 3.14 isn't installed. Use the folder — it works the same. |

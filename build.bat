@@ -89,6 +89,20 @@ copy /y *.ttf dist\%APP_NAME%\ >nul 2>&1
 copy /y *.otf dist\%APP_NAME%\ >nul 2>&1
 copy /y *-sample.csv dist\%APP_NAME%\ >nul 2>&1
 
+REM ffmpeg.exe / ffprobe.exe, if you keep them in this project folder. The app
+REM calls them for MP4 export, ffmpeg-quality GIFs and reading audio/video
+REM durations. Windows searches the program's own folder before PATH, so a
+REM copy sitting beside the .exe means the PC running it needs nothing
+REM installed. The GitHub workflow downloads them automatically.
+if exist ffmpeg.exe (
+    copy /y ffmpeg.exe dist\%APP_NAME%\ >nul
+    echo       ffmpeg.exe included.
+) else (
+    echo       NOTE: no ffmpeg.exe in this folder - MP4 export will need
+    echo             ffmpeg installed on whichever PC runs the app.
+)
+if exist ffprobe.exe copy /y ffprobe.exe dist\%APP_NAME%\ >nul
+
 REM --- Optional installer, built from the folder above ----------------------
 if /i "%~1"=="installer" goto :installer
 

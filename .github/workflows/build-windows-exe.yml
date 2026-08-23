@@ -5,6 +5,10 @@ name: Build Windows exe
 # branch), then download the artifact at the bottom of the finished run page.
 # It also runs by itself whenever the app or the build script changes on main,
 # so main always has a ready-to-download build.
+#
+# The download includes ffmpeg and ffprobe, which the app calls for MP4 export,
+# ffmpeg-quality GIFs, and reading audio/video durations. Nothing needs to be
+# installed on the PC that runs it.
 on:
   workflow_dispatch:
   push:
@@ -33,12 +37,39 @@ jobs:
         shell: cmd
         run: build.bat
 
+      # ffmpeg and ffprobe go in the app folder, beside the .exe. Windows looks
+      # there before it searches PATH, so the app finds them with nothing
+      # installed on the machine.
+      - name: Add ffmpeg and ffprobe
+        shell: pwsh
+        run: |
+          $url = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
+          Write-Host "Downloading $url"
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\ffmpeg.zip" -UseBasicParsing
+          Expand-Archive "$env:RUNNER_TEMP\ffmpeg.zip" -DestinationPath "$env:RUNNER_TEMP\ffmpeg" -Force
+          $bin = Get-ChildItem "$env:RUNNER_TEMP\ffmpeg" -Recurse -Filter 'ffmpeg.exe' |
+                 Select-Object -First 1 | Split-Path -Parent
+          if (-not $bin) { throw 'ffmpeg.exe not found in the download' }
+          Copy-Item "$bin\ffmpeg.exe","$bin\ffprobe.exe" -Destination 'dist\GifSlideShowApp' -Force
+          Copy-Item "$env:RUNNER_TEMP\ffmpeg\*\LICENSE*" -Destination 'dist\GifSlideShowApp\FFMPEG-LICENSE.txt' -ErrorAction SilentlyContinue
+
+      # Launch both tools by bare name, from the app folder, with PATH cut back
+      # to the Windows system folders - the same way the app calls them, and
+      # with no chance of picking up an ffmpeg installed on the runner.
+      - name: Check the app can run ffmpeg and ffprobe
+        shell: cmd
+        run: |
+          "%JAVA_HOME%\bin\javac.exe" -d "%RUNNER_TEMP%\probe" .github\tools\FfmpegProbe.java || exit /b 1
+          cd dist\GifSlideShowApp
+          set "PATH=C:\Windows\system32;C:\Windows"
+          "%JAVA_HOME%\bin\java.exe" -cp "%RUNNER_TEMP%\probe" FfmpegProbe
+
       - name: Show what was built
         shell: cmd
         run: dir dist\GifSlideShowApp
 
       # upload-artifact zips the folder itself, so the download is one zip
-      # containing GifSlideShowApp.exe, the fonts and the bundled Java runtime.
+      # containing GifSlideShowApp.exe, the fonts, ffmpeg and the bundled Java.
       - name: Upload GifSlideShowApp
         uses: actions/upload-artifact@v4
         with:
