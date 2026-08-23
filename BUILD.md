@@ -16,11 +16,10 @@ where the app already expects them.
 <https://adoptium.net> → *Temurin 21 (LTS)* → the `.msi` installer. During
 setup, turn on **"Set JAVA_HOME variable"** and **"Add to PATH"**.
 
-**2. Open Command Prompt in the project folder** and run:
-
-```bat
-build.bat
-```
+**2. Run `build.bat`.** Double-click it, or open Command Prompt in the project
+folder and type `build.bat`. It prints its progress and waits for a key press
+at the end, so you can read what happened either way. A full build takes a
+minute or two — most of it is compiling.
 
 That produces:
 
@@ -124,7 +123,8 @@ it finds the fonts: `java -jar build/jar/GifSlideShowApp.jar`.
 
 | Problem | Fix |
 | --- | --- |
-| `'javac' is not recognized` | The JDK isn't on PATH. Reinstall Temurin with "Add to PATH" ticked, or set `JAVA_HOME` and reopen Command Prompt. |
+| The window flashes open and closes instantly | It hit an error and quit. Almost always "no JDK". Run it again — the script now pauses and prints the reason. If it still vanishes, open Command Prompt, `cd` to this folder and type `build.bat` so the output stays on screen. |
+| `'javac' is not recognized` | No JDK on PATH. Having "Java" installed usually means the JRE, which can't compile. Install Temurin 21 from https://adoptium.net with **Add to PATH** and **Set JAVA_HOME** enabled, then open a **new** Command Prompt — an already-open one keeps the old PATH. |
 | `jpackage was not found` | You have a JRE, or a JDK older than 14. Install JDK 17+. |
 | The .exe won't start on the other PC | They copied only the `.exe`. Copy the whole `GifSlideShowApp` folder. |
 | Font list is empty / missing fonts | The `.ttf` files must be in the same folder as `GifSlideShowApp.exe`. |
