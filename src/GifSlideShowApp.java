@@ -776,8 +776,17 @@ public class GifSlideShowApp extends JFrame {
             }
         }
 
-        // Animated shapes (reactions, cards, images, lines/arrows) on the slide.
-        writeAnnotations(props, source.getSlideAnnotationList());
+        // Animated shapes (reactions, cards, images, lines/arrows). Shapes are not
+        // broadcast automatically from the master slide, so slide 1 is often bare
+        // while the set was designed on, say, slide 7. Take the first slide that
+        // actually carries shapes so the preset saves what the user built; Load
+        // Preset then puts them on every slide.
+        SlideRow shapeSource = source;
+        for (SlideRow row : slideRows) {
+            if (row.isTitleGridSlide) continue;
+            if (row.hasSlideAnnotations()) { shapeSource = row; break; }
+        }
+        writeAnnotations(props, shapeSource.getSlideAnnotationList());
 
         // On-slide countdown timer (design, placement, schedule, sound, effects).
         // The master's timer is what Load Preset broadcasts; each slide's own copy
@@ -23472,7 +23481,7 @@ public class GifSlideShowApp extends JFrame {
             shapesBtn.setFont(new Font("Segoe UI", Font.BOLD, 10));
             shapesBtn.setMargin(new Insets(1, 6, 1, 6));
             shapesBtn.setFocusPainted(false);
-            shapesBtn.setToolTipText("Add animated Lines & Arrows onto this slide — pick several at once, each with its own colour, position and entrance/idle animation.");
+            shapesBtn.setToolTipText("Add animated Lines & Arrows onto this slide — pick several at once, each with its own colour, position and entrance/idle animation. \"Apply to all slides\" copies the whole set to the deck, and Save Preset carries it too.");
             shapesBtn.addActionListener(e -> openShapesDialog());
 
             // "Shapes Timer" — one screen to set every shape's appear time / duration.
@@ -28489,6 +28498,42 @@ public class GifSlideShowApp extends JFrame {
             JButton closeBtn = new JButton("Close");
             closeBtn.addActionListener(e -> dlg.dispose());
 
+            // Push this slide's shapes over the whole deck. Shapes are per-slide
+            // creative content, so unlike fonts or the countdown timer they are NOT
+            // broadcast automatically from the master slide — this button (and Load
+            // Preset) is how a set designed once on any slide reaches every slide.
+            JButton allSlidesBtn = new JButton("→ Apply to all slides");
+            allSlidesBtn.setToolTipText("Copy this slide's shapes — every setting in this box: kind, "
+                    + "position, size, colours, gradient, glow, border, timing and entrance/idle "
+                    + "animation — to every other slide. Locked slides are left alone.");
+            allSlidesBtn.addActionListener(e -> {
+                String ask = slideAnnotationItems.isEmpty()
+                        ? "This slide has no shapes. Clear the shapes on every other slide?"
+                        : "Copy this slide's " + slideAnnotationItems.size() + " shape(s) — kind, "
+                          + "position, size, colours, gradient, glow, border, timing and "
+                          + "entrance/idle animation — to every other slide? Whatever shapes "
+                          + "those slides already carry are replaced.";
+                int ok = JOptionPane.showConfirmDialog(dlg,
+                        "<html><body style='width:330px'>" + ask + "</body></html>",
+                        "Apply to all slides", JOptionPane.OK_CANCEL_OPTION,
+                        JOptionPane.QUESTION_MESSAGE);
+                if (ok != JOptionPane.OK_OPTION) return;
+                List<SlideAnnotation> src = getSlideAnnotationList();
+                int applied = 0, locked = 0;
+                for (SlideRow row : slideRows) {
+                    if (row == SlideRow.this || row.isTitleGridSlide) continue;
+                    if (row.isLocked()) { locked++; continue; }
+                    row.applySlideAnnotations(src);
+                    applied++;
+                }
+                String msg = src.isEmpty()
+                        ? "Cleared the shapes on " + applied + " slide(s)."
+                        : "Copied these " + src.size() + " shape(s) to " + applied + " slide(s).";
+                if (locked > 0) msg += "\n" + locked + " locked slide(s) were left alone.";
+                JOptionPane.showMessageDialog(dlg, msg, "Apply to all slides",
+                        JOptionPane.INFORMATION_MESSAGE);
+            });
+
             // ---- layout ---------------------------------------------------
             JPanel editor = new JPanel(new GridBagLayout());
             editor.setBorder(BorderFactory.createTitledBorder("Selected shape"));
@@ -28551,8 +28596,14 @@ public class GifSlideShowApp extends JFrame {
             main.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
             main.add(left, BorderLayout.WEST);
             main.add(editor, BorderLayout.CENTER);
-            JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-            south.add(closeBtn);
+            JPanel southLeft = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+            southLeft.add(allSlidesBtn);
+            JPanel southRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+            southRight.add(closeBtn);
+            JPanel south = new JPanel(new BorderLayout(8, 0));
+            south.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
+            south.add(southLeft, BorderLayout.WEST);
+            south.add(southRight, BorderLayout.EAST);
             main.add(south, BorderLayout.SOUTH);
 
             if (!model.isEmpty()) list.setSelectedIndex(0);
@@ -32229,6 +32280,9 @@ public class GifSlideShowApp extends JFrame {
             return out;
         }
 
+        /** True when this slide carries at least one shape (used by Save Preset). */
+        boolean hasSlideAnnotations() { return !slideAnnotationItems.isEmpty(); }
+
         /** Deep copy of this slide's annotations, for the export pipeline. */
         List<SlideAnnotation> getSlideAnnotationList() {
             List<SlideAnnotation> out = new ArrayList<>(slideAnnotationItems.size());
@@ -32236,7 +32290,8 @@ public class GifSlideShowApp extends JFrame {
             return out;
         }
 
-        /** Replace this slide's shapes with copies from {@code src} (used by Load Preset). */
+        /** Replace this slide's shapes with copies from {@code src} — used by Load
+         *  Preset and by the Shapes box's "Apply to all slides" button. */
         void applySlideAnnotations(List<SlideAnnotation> src) {
             if (src == null) return;
             slideAnnotationItems.clear();
