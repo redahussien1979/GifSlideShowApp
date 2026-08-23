@@ -1,17 +1,24 @@
 name: Build Windows exe
 
-# Builds the .exe on a GitHub Windows machine, so you can download it without
-# installing a JDK yourself. Run it from the Actions tab ("Run workflow"), then
-# download the artifact at the bottom of the run page.
+# Builds the .exe on a GitHub Windows machine, so you don't need a JDK on your
+# own PC. Start it from the Actions tab ("Run workflow" - you can pick any
+# branch), then download the artifact at the bottom of the finished run page.
+# It also runs by itself whenever the app or the build script changes on main,
+# so main always has a ready-to-download build.
 on:
   workflow_dispatch:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'build.bat'
+      - '.github/workflows/build-windows-exe.yml'
 
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -22,34 +29,20 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Build portable .exe
-        run: .\build.bat
+      - name: Build the app
+        shell: cmd
+        run: build.bat
 
-      - name: Zip portable app
-        run: Compress-Archive -Path dist\GifSlideShowApp\* -DestinationPath GifSlideShowApp-windows-portable.zip
-        shell: pwsh
+      - name: Show what was built
+        shell: cmd
+        run: dir dist\GifSlideShowApp
 
-      - name: Upload portable app
+      # upload-artifact zips the folder itself, so the download is one zip
+      # containing GifSlideShowApp.exe, the fonts and the bundled Java runtime.
+      - name: Upload GifSlideShowApp
         uses: actions/upload-artifact@v4
         with:
-          name: GifSlideShowApp-windows-portable
-          path: GifSlideShowApp-windows-portable.zip
-
-      # The installer needs WiX. If it is unavailable the portable build above
-      # is still published, so this step is allowed to fail.
-      - name: Install WiX 3.14
-        continue-on-error: true
-        run: dotnet tool install --global wix --version 3.14.1 || choco install wixtoolset --no-progress -y
-        shell: pwsh
-
-      - name: Build installer
-        continue-on-error: true
-        run: .\build.bat installer
-
-      - name: Upload installer
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          name: GifSlideShowApp-windows-installer
-          path: dist\*.exe
-          if-no-files-found: warn
+          name: GifSlideShowApp-windows
+          path: dist/GifSlideShowApp
+          if-no-files-found: error
+          retention-days: 30

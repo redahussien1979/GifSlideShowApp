@@ -167,15 +167,22 @@ echo ***********************************************************
 goto :end_fail
 
 :end
-echo(
-echo Press any key to close this window.
-pause >nul
+call :wait_for_key
 endlocal
 exit /b 0
 
 :end_fail
+call :wait_for_key
+endlocal
+exit /b 1
+
+REM Hold the window open so a double-click doesn't close it before the
+REM message above can be read. Skipped on a build server (CI is set there),
+REM where there is no keyboard and pausing would hang the build.
+:wait_for_key
+if defined CI exit /b 0
+if defined GITHUB_ACTIONS exit /b 0
 echo(
 echo Press any key to close this window.
 pause >nul
-endlocal
-exit /b 1
+exit /b 0
