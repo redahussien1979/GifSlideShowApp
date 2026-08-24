@@ -11604,11 +11604,19 @@ public class GifSlideShowApp extends JFrame {
         for (int ti = 0; ti < terms.length; ti++) {
             String needle = terms[ti].toLowerCase();
             if (needle.isEmpty()) continue;
+            // Whitespace-flexible match, NOT a plain indexOf: wrapTextStatic builds
+            // these lines by splitting the source on \s+ and rejoining with a single
+            // space, so every run of whitespace has already been collapsed. A term
+            // still carrying its original double space, tab or newline would never
+            // be found here — and the caller has no way to tell "no match" from
+            // "nothing to highlight", so the whole highlight would silently vanish.
+            // That is exactly what killed the audio-FX Glow, which highlights by
+            // passing the text's OWN raw string back in as the term.
+            java.util.regex.Matcher m = flexibleTermPattern(needle).matcher(flatLower);
             int from = 0;
-            while (from <= flatLower.length()) {
-                int idx = flatLower.indexOf(needle, from);
-                if (idx < 0) break;
-                int matchEnd = idx + needle.length();
+            while (from <= flatLower.length() && m.find(from)) {
+                int idx = m.start();
+                int matchEnd = m.end();
                 for (int li = 0; li < n; li++) {
                     int ls = lineStart[li];
                     int le = ls + wrappedLines.get(li).length();
@@ -11619,10 +11627,43 @@ public class GifSlideShowApp extends JFrame {
                     }
                     if (le >= matchEnd) break;
                 }
-                from = idx + needle.length();
+                from = matchEnd > idx ? matchEnd : idx + 1;
             }
         }
         return perLine;
+    }
+
+    /** Compiled {@link #flexibleTermPattern} results. computeWrapSegments runs once
+     *  per text per frame, so a long export would otherwise recompile the same few
+     *  patterns thousands of times. Bounded so a pathological deck can't grow it
+     *  without limit. */
+    private static final java.util.concurrent.ConcurrentHashMap<String, java.util.regex.Pattern>
+            FLEX_TERM_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * A pattern matching {@code term} literally, except that each run of whitespace
+     * in it matches any run of whitespace in the text. Lets a term keep matching
+     * after wrapTextStatic has collapsed the text's whitespace runs to single
+     * spaces (see the call site in {@link #computeWrapSegments}).
+     */
+    static java.util.regex.Pattern flexibleTermPattern(String term) {
+        java.util.regex.Pattern cached = FLEX_TERM_CACHE.get(term);
+        if (cached != null) return cached;
+        StringBuilder sb = new StringBuilder();
+        int i = 0, len = term.length();
+        while (i < len) {
+            if (Character.isWhitespace(term.charAt(i))) {
+                while (i < len && Character.isWhitespace(term.charAt(i))) i++;
+                sb.append("\\s+");
+            } else {
+                int start = i;
+                while (i < len && !Character.isWhitespace(term.charAt(i))) i++;
+                sb.append(java.util.regex.Pattern.quote(term.substring(start, i)));
+            }
+        }
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile(sb.toString());
+        if (FLEX_TERM_CACHE.size() < 512) FLEX_TERM_CACHE.put(term, p);
+        return p;
     }
 
     /**
