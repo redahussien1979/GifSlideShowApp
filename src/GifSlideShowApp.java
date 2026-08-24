@@ -3934,6 +3934,14 @@ public class GifSlideShowApp extends JFrame {
         picColIndices.addAll(picShapeColBySlot.values());
         picColIndices.addAll(picRadiusColBySlot.values());
         picColIndices.addAll(picOverflowCols);
+        // Extra HL/UL group columns (HL2, HL3, ... / UL2, UL3, ...) are formatting,
+        // not slide text — they must be held out of textColIndices exactly like the
+        // plain HL/UL columns above. Without this an HL2 column both prints its own
+        // word list onto the slide as a text item AND shifts every text column after
+        // it by one, so TEXT31 lands in Text 32's slot.
+        java.util.Set<Integer> hlUlGroupColIndices = new java.util.HashSet<>();
+        hlUlGroupColIndices.addAll(hlGroupColByNum.values());
+        hlUlGroupColIndices.addAll(ulGroupColByNum.values());
         List<Integer> textColIndices = new ArrayList<>();
         for (int c = 0; c < maxCols; c++) {
             if (c != hlColIndex && c != ulColIndex && c != boldColIndex
@@ -3941,7 +3949,7 @@ public class GifSlideShowApp extends JFrame {
                     && c != xAxisColIndex && c != yAxisColIndex && c != textSizeColIndex
                     && c != timerTargetColIndex && c != timerEndAudioColIndex
                     && !audioColIndices.contains(c) && !timeColIndices.contains(c)
-                    && !picColIndices.contains(c)) {
+                    && !picColIndices.contains(c) && !hlUlGroupColIndices.contains(c)) {
                 textColIndices.add(c);
             }
         }
