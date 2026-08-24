@@ -32138,6 +32138,53 @@ public class GifSlideShowApp extends JFrame {
             return getSlideTextDataList();
         }
 
+        /**
+         * Merge one slide's extra HL groups against the master's for the deck
+         * broadcast, mirroring exactly how the primary HL box behaves: the LOOK
+         * (colour, style, Tight) always comes from the master, while the WORDS
+         * stay this slide's own whenever it has its own text — so an HL2 column
+         * imported per slide survives, but restyling HL2 on slide 1 restyles the
+         * whole deck.
+         *
+         * <p>The master's list also decides how MANY groups there are, so adding
+         * or removing a group on slide 1 restructures the deck the same way its
+         * other formatting does. Always returns fresh copies, so no two texts
+         * ever share a mutable group object.
+         */
+        private static List<SlideTextData.HlGroup> mergeHlGroupsForBroadcast(
+                List<SlideTextData.HlGroup> master, List<SlideTextData.HlGroup> existing, boolean keepOwnWords) {
+            List<SlideTextData.HlGroup> out = new ArrayList<>();
+            if (master == null) return out;
+            for (int i = 0; i < master.size(); i++) {
+                SlideTextData.HlGroup m = master.get(i);
+                if (m == null) continue;
+                SlideTextData.HlGroup g = m.copy();
+                if (keepOwnWords && existing != null && i < existing.size() && existing.get(i) != null) {
+                    g.words = existing.get(i).words;
+                }
+                out.add(g);
+            }
+            return out;
+        }
+
+        /** Same as {@link #mergeHlGroupsForBroadcast} for underline groups
+         *  (their look is just the style — they share the text's HL colour). */
+        private static List<SlideTextData.UlGroup> mergeUlGroupsForBroadcast(
+                List<SlideTextData.UlGroup> master, List<SlideTextData.UlGroup> existing, boolean keepOwnWords) {
+            List<SlideTextData.UlGroup> out = new ArrayList<>();
+            if (master == null) return out;
+            for (int i = 0; i < master.size(); i++) {
+                SlideTextData.UlGroup m = master.get(i);
+                if (m == null) continue;
+                SlideTextData.UlGroup g = m.copy();
+                if (keepOwnWords && existing != null && i < existing.size() && existing.get(i) != null) {
+                    g.words = existing.get(i).words;
+                }
+                out.add(g);
+            }
+            return out;
+        }
+
         void applySlideTextFormats(List<SlideTextData> formats) {
             if (formats == null || formats.isEmpty()) return;
             // Ensure we have at least as many items as the source.
@@ -32173,16 +32220,15 @@ public class GifSlideShowApp extends JFrame {
                         fmt.animEnabled, fmt.animPath, fmt.animDurationMs, fmt.animStartMs, fmt.animEasing,
                         fmt.tiltDegrees, fmt.letterSpacing, fmt.lineSpacing, fmt.opacity);
                 SlideTextData.copyBgStyle(fmt, applied);
-                // Extra HL/UL groups sit between the two rules above: they are a
-                // look (so the master broadcasts them, like the primary HL colour
-                // and style) but they name specific words (so a slide that imported
-                // its own — Dict Import's HL2/HL3/... columns — must not lose
-                // them). A slide carrying none takes the master's; one carrying its
-                // own keeps them, list for list.
-                applied.hlGroups = (existing.hlGroups != null && !existing.hlGroups.isEmpty())
-                        ? existing.hlGroups : fmt.hlGroups;
-                applied.ulGroups = (existing.ulGroups != null && !existing.ulGroups.isEmpty())
-                        ? existing.ulGroups : fmt.ulGroups;
+                // Extra HL/UL groups follow the SAME split the primary HL box does
+                // two lines up: the WORDS are per-slide (hlText above keeps
+                // `existing`'s), the LOOK comes from the master (fmt.highlightColor
+                // / Style / Tightness). So a deck whose HL2 words came from a sheet
+                // keeps each slide's own HL2 words, while a colour or style set on
+                // HL2 at slide 1 reaches the whole deck.
+                boolean ownWords = existingText != null && !existingText.isEmpty();
+                applied.hlGroups = mergeHlGroupsForBroadcast(fmt.hlGroups, existing.hlGroups, ownWords);
+                applied.ulGroups = mergeUlGroupsForBroadcast(fmt.ulGroups, existing.ulGroups, ownWords);
                 // Texts-Timer timeline is per-slide (like HL/UL/audio), so keep
                 // this row's own timing instead of the master's after copyBgStyle.
                 applied.timerAppearMs = existing.timerAppearMs;
@@ -32223,10 +32269,9 @@ public class GifSlideShowApp extends JFrame {
                             lastFmt.tiltDegrees, lastFmt.letterSpacing, lastFmt.lineSpacing, lastFmt.opacity);
                     SlideTextData.copyBgStyle(lastFmt, applied);
                     // Same rule as the matched items above.
-                    applied.hlGroups = (existing.hlGroups != null && !existing.hlGroups.isEmpty())
-                            ? existing.hlGroups : lastFmt.hlGroups;
-                    applied.ulGroups = (existing.ulGroups != null && !existing.ulGroups.isEmpty())
-                            ? existing.ulGroups : lastFmt.ulGroups;
+                    boolean ownWordsX = existingText != null && !existingText.isEmpty();
+                    applied.hlGroups = mergeHlGroupsForBroadcast(lastFmt.hlGroups, existing.hlGroups, ownWordsX);
+                    applied.ulGroups = mergeUlGroupsForBroadcast(lastFmt.ulGroups, existing.ulGroups, ownWordsX);
                     // Keep this row's own Texts-Timer timeline (per-slide).
                     applied.timerAppearMs = existing.timerAppearMs;
                     applied.timerDisappearMs = existing.timerDisappearMs;
