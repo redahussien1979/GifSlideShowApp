@@ -6962,6 +6962,62 @@ public class GifSlideShowApp extends JFrame {
                         stTextLayout = new java.awt.font.TextLayout(line, stFont, ((Graphics2D) g).getFontRenderContext());
                     }
 
+                    // ----- Audio-FX "Glow" (toolbar 7b): additive halo around the glyphs -----
+                    // Drawn BEFORE this line's highlight marks, so the halo is the
+                    // bottom layer: the author's HL phrases and HL2/HL3 groups paint over
+                    // it at full strength and stay exactly as authored no matter how far
+                    // Sz is pushed, while the glow radiates out around the words. Painting
+                    // it on top instead let a large Sz wash the highlights away -- which is
+                    // the very thing the old whole-text "Glow:<size>" highlight did.
+                    //
+                    // The halo is the glyph OUTLINE stroked at decreasing widths, i.e. a
+                    // true dilation of the letter shapes. Scaling the font up instead
+                    // would push the glyphs apart and leave readable ghost letters
+                    // fanning out sideways rather than a glow hugging the words.
+                    //
+                    // Spread scales linearly with the Sz spinner (1..20, default 7) plus a
+                    // small base, so every step of the spinner changes what you see and
+                    // Sz 1 is still a real glow rather than a flat outline.
+                    if (st.audioGlowSize > 0) {
+                        Color agC = st.audioGlowColor != null ? st.audioGlowColor : stColor;
+                        int agLayers = 8;
+                        float agMax = Math.max(2f,
+                                scaledStSize * (0.02f + 0.035f * Math.min(20, st.audioGlowSize)));
+                        Graphics2D ag = (Graphics2D) g.create();
+                        ag.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                        ag.setFont(stFont);
+                        ag.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+                        java.awt.font.FontRenderContext agFrc = ag.getFontRenderContext();
+                        java.util.List<java.awt.Shape> agShapes = new ArrayList<>();
+                        if (justified) {
+                            double agDx = stBlockLeft;
+                            for (String w : justifyWords) {
+                                agShapes.add(stFont.createGlyphVector(agFrc, w).getOutline((float) agDx, lineY));
+                                agDx += stFm.stringWidth(w) + justifyExtraSpace;
+                            }
+                        } else {
+                            agShapes.add(stFont.createGlyphVector(agFrc, visibleLine).getOutline(lineX, lineY));
+                        }
+                        for (int agL = agLayers; agL >= 1; agL--) {
+                            double agT = (double) agL / agLayers;
+                            // Stroke width w extends w/2 beyond the glyph edge, so the widest
+                            // layer reaches exactly agMax px out.
+                            float agStroke = (float) (agMax * 2.0 * agT);
+                            int agAlpha = Math.max(6, (int) (agC.getAlpha() * 0.35 * (1.0 - agT * agT)));
+                            ag.setColor(new Color(agC.getRed(), agC.getGreen(), agC.getBlue(),
+                                    Math.min(255, agAlpha)));
+                            ag.setStroke(new BasicStroke(agStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                            for (java.awt.Shape sh : agShapes) ag.draw(sh);
+                        }
+                        // Solid core right at the glyph edge so thin strokes still read as lit.
+                        ag.setColor(new Color(agC.getRed(), agC.getGreen(), agC.getBlue(),
+                                Math.min(255, (int) (agC.getAlpha() * 0.55))));
+                        ag.setStroke(new BasicStroke(Math.max(1.5f, agMax * 0.25f),
+                                BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                        for (java.awt.Shape sh : agShapes) ag.draw(sh);
+                        ag.dispose();
+                    }
+
                     // === Slide text highlight groups: primary + HL2, HL3, ... ===
                     // Each group is its own uniform-styled pass over its own word
                     // list — gi = -1 is the primary HL box (existing fields, exactly
@@ -11610,8 +11666,9 @@ public class GifSlideShowApp extends JFrame {
             // still carrying its original double space, tab or newline would never
             // be found here — and the caller has no way to tell "no match" from
             // "nothing to highlight", so the whole highlight would silently vanish.
-            // That is exactly what killed the audio-FX Glow, which highlights by
-            // passing the text's OWN raw string back in as the term.
+            // That is exactly what killed the whole-text audio FX (UL / Clr, and
+            // Glow back when it worked this way too): they highlight by passing the
+            // text's OWN raw string back in as the term.
             java.util.regex.Matcher m = flexibleTermPattern(needle).matcher(flatLower);
             int from = 0;
             while (from <= flatLower.length() && m.find(from)) {
@@ -19872,10 +19929,25 @@ public class GifSlideShowApp extends JFrame {
                     }
                 }
 
-                // Glow: highlight all text with glow style + boost highlight layers
-                String useHlText = fx.contains("Glow") ? allText : st.highlightText;
-                Color useHlColor = fx.contains("Glow") ? hlColor : st.highlightColor;
-                String useHlStyle = fx.contains("Glow") ? ("Glow:" + glowSize) : st.highlightStyle;
+                // Glow is ADDITIVE and leaves this row's own highlighting alone.
+                //
+                // It used to overwrite highlightText / highlightColor / highlightStyle
+                // with a whole-text "Glow:<size>" mark, which meant the author's HL
+                // phrase list was replaced by one slab across the whole line for as
+                // long as the audio played -- "it just removes the existing
+                // highlighting". Worse, that slab was drawn by the highlight-RECT
+                // machinery, so it also inherited the row's Tight / width / height /
+                // intensity tuning, and at Sz 1-2 its outward expansion collapsed to
+                // ~2 px: a flat bar with no visible glow at all.
+                //
+                // Now the row's highlight fields pass through untouched (exactly like
+                // Clr, which only recolours the glyphs) and the glow is recorded as a
+                // render hook that paints a halo around the glyphs -- see the
+                // audioGlowSize pass in renderFrame.
+                boolean glowFx = fx.contains("Glow");
+                String useHlText  = st.highlightText;
+                Color  useHlColor = st.highlightColor;
+                String useHlStyle = st.highlightStyle;
 
                 // Enlarge: modify font size (this WILL re-wrap, which is intentional
                 // for Enlarge — the user expects bigger boxes). Pulse is handled below
@@ -20102,6 +20174,12 @@ public class GifSlideShowApp extends JFrame {
                 // Carry through the toolbar 4b2/3/4 BG style so the HL/effects render
                 // pass draws the same backdrop as the saved item.
                 SlideTextData.copyBgStyle(st, hl);
+                // AFTER copyBgStyle: the source text carries no glow of its own, so
+                // copying its style over would clear what we just decided here.
+                if (glowFx) {
+                    hl.audioGlowSize  = glowSize;
+                    hl.audioGlowColor = hlColor;
+                }
                 hl.quizHidden = st.quizHidden;
                 // Carry the quiz reveal-anim over from the source so the anim
                 // still plays when the hidden text is ALSO the audio-active row.
@@ -21044,6 +21122,15 @@ public class GifSlideShowApp extends JFrame {
                 return g;
             }
         }
+
+        // ===== Audio-FX "Glow" (toolbar 7b) =====
+        // Set only on the per-frame clone that applyActiveTextHighlight builds for
+        // the audio-active text when its FX include "Glow". The glow is ADDITIVE:
+        // it is painted as a soft halo around the glyphs and never touches
+        // highlightText / highlightStyle / highlightColor, so the row's own HL
+        // phrases and its HL2/HL3 groups keep rendering exactly as authored.
+        int   audioGlowSize  = 0;    // 0 = no glow; 1..20 = spread, from the Sz spinner
+        Color audioGlowColor = null; // halo colour (the HL swatch); null = use the text colour
 
         // --- Fill paint (Solid / Linear / Radial / Conic / Stripes / Checker / Dots / Lines) ---
         String bgFillKind = "Solid";
