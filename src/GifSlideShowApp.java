@@ -432,7 +432,7 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(p + "highlightColor", colorToHex(t.highlightColor));
             props.setProperty(p + "highlightStyle", t.highlightStyle);
             props.setProperty(p + "highlightTightness", String.valueOf(t.highlightTightness));
-            props.setProperty(p + "hlPerWord", t.hlPerWord != null ? t.hlPerWord : "");
+            writeHlGroups(props, p, t.hlGroups, t.ulGroups);
             props.setProperty(p + "underlineStyle", t.underlineStyle);
             props.setProperty(p + "underlineText", t.underlineText);
             props.setProperty(p + "boldText", t.boldText);
@@ -937,9 +937,10 @@ public class GifSlideShowApp extends JFrame {
             loaded.bgRoundPct        = Integer.parseInt(props.getProperty(p + "bgRoundPct", "10"));
             loaded.fxBurst           = Boolean.parseBoolean(props.getProperty(p + "fxBurst", "false"));
             loaded.fxBurstStyle      = props.getProperty(p + "fxBurstStyle", "Stars");
-            // Empty for presets written before per-word HL existed, which is exactly
-            // "every word uses the text's own look" — the old behaviour.
-            loaded.hlPerWord         = props.getProperty(p + "hlPerWord", "");
+            // Empty for presets written before HL/UL groups existed — no extra
+            // dropdown rows, exactly the old single-HL-box behaviour.
+            loaded.hlGroups = readHlGroups(props, p);
+            loaded.ulGroups = readUlGroups(props, p);
             loaded.bgColor2          = hexToColor(props.getProperty(p + "bgColor2", "#3C3C3C"));
             // bgFillKind defaults to Solid; legacy bgGradient=true upgrades to Linear.
             String legacyGrad = props.getProperty(p + "bgGradient");
@@ -2015,6 +2016,67 @@ public class GifSlideShowApp extends JFrame {
             }
         } catch (NumberFormatException ignored) {}
         return Color.WHITE;
+    }
+
+    // ---- Extra HL/UL groups preset serialization ---------------------------
+    // Persist a text's extra highlight/underline dropdown rows (HL2, HL3, ... /
+    // UL2, UL3, ...) alongside its primary HL/UL fields, which are written by the
+    // caller under the same prefix. Absence of the count key means the preset
+    // predates groups, which is exactly "no extra rows" — the old single-box
+    // behaviour.
+    private static void writeHlGroups(Properties props, String p,
+                                      List<SlideTextData.HlGroup> hlGroups,
+                                      List<SlideTextData.UlGroup> ulGroups) {
+        int hn = hlGroups == null ? 0 : hlGroups.size();
+        props.setProperty(p + "hlGroupCount", String.valueOf(hn));
+        for (int i = 0; i < hn; i++) {
+            SlideTextData.HlGroup g = hlGroups.get(i);
+            if (g == null) continue;
+            String gp = p + "hlGroup." + i + ".";
+            props.setProperty(gp + "words", g.words != null ? g.words : "");
+            props.setProperty(gp + "color", colorToHex(g.color != null ? g.color : new Color(255, 100, 150, 180)));
+            props.setProperty(gp + "style", g.style != null ? g.style : "Regular");
+            props.setProperty(gp + "tightness", String.valueOf(g.tightness));
+        }
+        int un = ulGroups == null ? 0 : ulGroups.size();
+        props.setProperty(p + "ulGroupCount", String.valueOf(un));
+        for (int i = 0; i < un; i++) {
+            SlideTextData.UlGroup g = ulGroups.get(i);
+            if (g == null) continue;
+            String gp = p + "ulGroup." + i + ".";
+            props.setProperty(gp + "words", g.words != null ? g.words : "");
+            props.setProperty(gp + "style", g.style != null ? g.style : "Straight");
+        }
+    }
+
+    private static List<SlideTextData.HlGroup> readHlGroups(Properties props, String p) {
+        List<SlideTextData.HlGroup> out = new ArrayList<>();
+        int n = parseIntOr(props.getProperty(p + "hlGroupCount"), 0);
+        for (int i = 0; i < n; i++) {
+            String gp = p + "hlGroup." + i + ".";
+            if (props.getProperty(gp + "words") == null) continue;
+            SlideTextData.HlGroup g = new SlideTextData.HlGroup();
+            g.words = props.getProperty(gp + "words", "");
+            g.color = hexToColor(props.getProperty(gp + "color", "#FF6496B4"));
+            g.style = props.getProperty(gp + "style", "Regular");
+            g.tightness = parseIntOr(props.getProperty(gp + "tightness"), 50);
+            out.add(g);
+        }
+        return out;
+    }
+
+    private static List<SlideTextData.UlGroup> readUlGroups(Properties props, String p) {
+        List<SlideTextData.UlGroup> out = new ArrayList<>();
+        int n = parseIntOr(props.getProperty(p + "ulGroupCount"), 0);
+        for (int i = 0; i < n; i++) {
+            String gp = p + "ulGroup." + i + ".";
+            if (props.getProperty(gp + "words") == null) continue;
+            SlideTextData.UlGroup g = new SlideTextData.UlGroup();
+            g.words = props.getProperty(gp + "words", "");
+            g.style = props.getProperty(gp + "style", "Straight");
+            out.add(g);
+        }
+        return out;
     }
 
     // ---- Shapes (SlideAnnotation) preset serialization --------------------
@@ -3584,6 +3646,13 @@ public class GifSlideShowApp extends JFrame {
         }
     }
 
+    /** Matches HL / HL1 / HL2 / ... headers; group 1 is the number, or "" for bare HL. */
+    private static final java.util.regex.Pattern HL_GROUP_HEADER =
+            java.util.regex.Pattern.compile("HL(\\d+)");
+    /** Matches UL / UL1 / UL2 / ... headers; group 1 is the number, or "" for bare UL. */
+    private static final java.util.regex.Pattern UL_GROUP_HEADER =
+            java.util.regex.Pattern.compile("UL(\\d+)");
+
     private void dictionaryImport() {
         // Choose source: file or clipboard
         String[] options = {"From File (CSV/TSV)", "From Clipboard / Paste"};
@@ -3692,16 +3761,19 @@ public class GifSlideShowApp extends JFrame {
 
         // Ask whether first row is a header
         int headerChoice = JOptionPane.showOptionDialog(this,
-                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting.\nHL_STYLE gives each highlighted word its OWN look:\n\"Scott=#FF0000|Marker; the bell=#00C853|Circle|Wavy\"\n(colour, highlight style, underline, Tight - any of them,\nin any order; a word you leave out keeps the slide's own\nhighlight settings). You can also write it inline in the\nHL column itself: \"his mouth, Scott|#FF0000|Marker\".\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.\nFor TWO audios on one text, put both paths comma-separated in that\ntext's audio cell, quoted: \"first.mp3,second.mp3\" (2nd plays after the\nfirst, separated by the Gap value).\nX-AXIS/Y-AXIS/TEXT-SIZE for position & size per text item.\nTEXT1TIME/TEXT2TIME/... for appear,go timing per text item\n(cell = \"appear,go\" in seconds; \"appear\" alone = never leaves).\nTIMER_TARGET for the Slide Timer's target text — the text the countdown\nreveals and badges at zero. Either a text number (1 = Text 1, 0 = none)\nor the text itself, matched against that row's texts.\nTIMER_END_AUDIO for that slide's \"play when it ends\" sound: a path\nrelative to the sheet (like AUDIOLINK), \"none\" for a quiet slide, or\n\"inherit\"/an empty cell to play the first slide's sound.\nEverything else about the timer comes from the first slide.\nPIC/PIC2/PIC3/... for a slide picture overlay: a path relative to the\nsheet (like AUDIOLINK), or \"none\" to hide that Pic slot. Place it with\nPIC_X, PIC_Y (centre, % of the frame), PIC_W (width, % of the frame),\nPIC_SHAPE (Rectangle or Circle) and PIC_RADIUS (corner radius).\nA bare PIC means Pic 1; PIC2_X places Pic 2, and so on. Hyphens read\nthe same as underscores (PIC2-X = PIC2_X).\nFor the SAME picture on every slide, leave PIC out of the sheet and\nuse the \u21CA All button in the Pic toolbar row instead.)",
+                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting.\nHL/UL are now dropdowns in the app: add HL2, HL3, ... (or\nUL2, UL3, ...) columns and each becomes its own extra row\non the dropdown, exactly like HL itself — just words,\ncomma-separated. Give each row its own colour/style/Tight\nafterwards in the app by opening the dropdown and using the\ncontrols beside it (or the + button there to add one without\nimporting at all).\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.\nFor TWO audios on one text, put both paths comma-separated in that\ntext's audio cell, quoted: \"first.mp3,second.mp3\" (2nd plays after the\nfirst, separated by the Gap value).\nX-AXIS/Y-AXIS/TEXT-SIZE for position & size per text item.\nTEXT1TIME/TEXT2TIME/... for appear,go timing per text item\n(cell = \"appear,go\" in seconds; \"appear\" alone = never leaves).\nTIMER_TARGET for the Slide Timer's target text — the text the countdown\nreveals and badges at zero. Either a text number (1 = Text 1, 0 = none)\nor the text itself, matched against that row's texts.\nTIMER_END_AUDIO for that slide's \"play when it ends\" sound: a path\nrelative to the sheet (like AUDIOLINK), \"none\" for a quiet slide, or\n\"inherit\"/an empty cell to play the first slide's sound.\nEverything else about the timer comes from the first slide.\nPIC/PIC2/PIC3/... for a slide picture overlay: a path relative to the\nsheet (like AUDIOLINK), or \"none\" to hide that Pic slot. Place it with\nPIC_X, PIC_Y (centre, % of the frame), PIC_W (width, % of the frame),\nPIC_SHAPE (Rectangle or Circle) and PIC_RADIUS (corner radius).\nA bare PIC means Pic 1; PIC2_X places Pic 2, and so on. Hyphens read\nthe same as underscores (PIC2-X = PIC2_X).\nFor the SAME picture on every slide, leave PIC out of the sheet and\nuse the \u21CA All button in the Pic toolbar row instead.)",
                 "Dictionary Import", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,
                 null, new String[]{"Yes, skip first row", "No, first row is data"}, "No, first row is data");
 
         // Detect HL/UL/BOLD/ITALIC/COLOR/AUDIOLINK columns from header row
         int hlColIndex = -1;
-        // Per-word HL looks: "Scott=#FF0000|Marker; the bell=#00C853|Circle|Wavy".
-        // The HL column itself also accepts the inline form "Scott|#FF0000|Marker".
-        int hlStyleColIndex = -1;
         int ulColIndex = -1;
+        // Extra HL/UL groups: HL2, HL3, ... and UL2, UL3, ... columns, each one
+        // whole dropdown row (its own comma-separated word list) on the HL/UL
+        // combo. "HL"/"HL1" and "UL"/"UL1" are the same thing — the primary box —
+        // so only numbers 2+ land here; keyed by group number -> column index.
+        java.util.Map<Integer, Integer> hlGroupColByNum = new java.util.TreeMap<>();
+        java.util.Map<Integer, Integer> ulGroupColByNum = new java.util.TreeMap<>();
         int boldColIndex = -1;
         int italicColIndex = -1;
         int colorColIndex = -1;
@@ -3738,10 +3810,16 @@ public class GifSlideShowApp extends JFrame {
             // Scan headers for HL, UL, BOLD, ITALIC, COLOR, and AUDIOLINK columns (case-insensitive)
             for (int c = 0; c < headerFields.size(); c++) {
                 String h = headerFields.get(c).trim().toUpperCase();
-                if (h.equals("HL_STYLE") || h.equals("HL-STYLE") || h.equals("HLSTYLE")
-                        || h.equals("HL_STYLES") || h.equals("HIGHLIGHT_STYLE")) {
-                    // Checked before plain HL so "HL_STYLE" isn't swallowed by it.
-                    hlStyleColIndex = c;
+                // HLn (n >= 2) is checked before plain HL so "HL2" isn't swallowed
+                // by it. "HL1" is just another name for the plain HL column.
+                java.util.regex.Matcher hlNumM = HL_GROUP_HEADER.matcher(h);
+                java.util.regex.Matcher ulNumM = UL_GROUP_HEADER.matcher(h);
+                if (hlNumM.matches()) {
+                    int n = Integer.parseInt(hlNumM.group(1));
+                    if (n <= 1) hlColIndex = c; else hlGroupColByNum.put(n, c);
+                } else if (ulNumM.matches()) {
+                    int n = Integer.parseInt(ulNumM.group(1));
+                    if (n <= 1) ulColIndex = c; else ulGroupColByNum.put(n, c);
                 } else if (h.equals("HL") || h.equals("HIGHLIGHT")) {
                     hlColIndex = c;
                 } else if (h.equals("UL") || h.equals("UNDERLINE")) {
@@ -3926,31 +4004,33 @@ public class GifSlideShowApp extends JFrame {
                 }
             }
 
-            // Apply HL text from CSV if column exists. The cell may carry inline
-            // per-word looks ("his mouth, Scott|#FF0000|Marker"); those are split
-            // off here so only the words themselves reach the HL field.
-            String rowHlPerWord = "";
+            // Apply HL text from CSV if column exists
             if (hlColIndex >= 0 && hlColIndex < fields.size()) {
-                String hlCell = fields.get(hlColIndex).trim();
-                rowHlPerWord = hlInlineSpecs(hlCell);
-                String hlText = hlPlainWords(hlCell);
-                slide.setHighlightText(hlText);
-                slide.setSlideTextHighlightText(hlText);
+                String rowHlText = fields.get(hlColIndex).trim();
+                slide.setHighlightText(rowHlText);
+                slide.setSlideTextHighlightText(rowHlText);
             }
 
-            // An HL_STYLE column says the same thing in one place, and wins over
-            // anything the HL cell spelled inline for the same word.
-            if (hlStyleColIndex >= 0 && hlStyleColIndex < fields.size()) {
-                rowHlPerWord = mergeHlPerWord(rowHlPerWord, fields.get(hlStyleColIndex).trim());
-            }
-            if (hlColIndex >= 0 || hlStyleColIndex >= 0) {
-                slide.applyHlPerWordToAllTexts(rowHlPerWord);
+            // Extra HL groups: HL2, HL3, ... each one dropdown row (its own word
+            // list) on the HL combo, in column-number order. Only touched when the
+            // sheet has at least one, so a sheet without them behaves as always.
+            if (!hlGroupColByNum.isEmpty()) {
+                List<String> hlWordLists = new ArrayList<>();
+                for (int col : hlGroupColByNum.values()) hlWordLists.add(cellAt(fields, col));
+                slide.applyHlGroupColumnsToAllTexts(hlWordLists);
             }
 
             // Apply UL text from CSV if column exists
             if (ulColIndex >= 0 && ulColIndex < fields.size()) {
                 String ulText = fields.get(ulColIndex).trim();
                 slide.setSlideTextUnderlineText(ulText);
+            }
+
+            // Extra UL groups: UL2, UL3, ... same treatment as the HL groups above.
+            if (!ulGroupColByNum.isEmpty()) {
+                List<String> ulWordLists = new ArrayList<>();
+                for (int col : ulGroupColByNum.values()) ulWordLists.add(cellAt(fields, col));
+                slide.applyUlGroupColumnsToAllTexts(ulWordLists);
             }
 
             // Apply Bold text from CSV if column exists
@@ -4211,10 +4291,16 @@ public class GifSlideShowApp extends JFrame {
 
         String importMsg = assigned + " rows imported across " + textColIndices.size() + " text columns.";
         if (hlColIndex >= 0) importMsg += "\nHL column detected — highlight words imported per slide.";
-        if (hlStyleColIndex >= 0) importMsg += "\nHL_STYLE column detected — per-word highlight looks imported.";
-        else if (hlColIndex >= 0) importMsg += "\n  (add an HL_STYLE column, or write \"word|#RRGGBB|Style\" "
-                + "inside HL, to give each word its own look.)";
+        if (!hlGroupColByNum.isEmpty()) {
+            importMsg += "\nHL" + hlGroupColByNum.keySet().stream().map(String::valueOf).reduce((a, b) -> a + "/" + b).orElse("")
+                    + " columns detected — each imported as its own HL dropdown row"
+                    + "\n  (open the HL combo in the toolbar to give each its own colour/style).";
+        }
         if (ulColIndex >= 0) importMsg += "\nUL column detected — underline words imported per slide.";
+        if (!ulGroupColByNum.isEmpty()) {
+            importMsg += "\nUL" + ulGroupColByNum.keySet().stream().map(String::valueOf).reduce((a, b) -> a + "/" + b).orElse("")
+                    + " columns detected — each imported as its own UL dropdown row.";
+        }
         if (boldColIndex >= 0) importMsg += "\nBOLD column detected — bold words imported per slide.";
         if (italicColIndex >= 0) importMsg += "\nITALIC column detected — italic words imported per slide.";
         if (colorColIndex >= 0) importMsg += "\nCOLOR column detected — color words imported per slide.";
@@ -4635,15 +4721,11 @@ public class GifSlideShowApp extends JFrame {
                 }
             }
 
-            // Apply HL column -> slide-level + per-slide-text highlight. Inline
-            // per-word looks ("Scott|#FF0000|Marker") are split off, same as in
-            // Dict Import.
+            // Apply HL column -> slide-level + per-slide-text highlight.
             if (hlColIndex >= 0 && hlColIndex < fields.size()) {
-                String hlCell = fields.get(hlColIndex).trim();
-                String hlText = hlPlainWords(hlCell);
+                String hlText = fields.get(hlColIndex).trim();
                 slide.setHighlightText(hlText);
                 slide.setSlideTextHighlightText(hlText);
-                slide.applyHlPerWordToAllTexts(hlInlineSpecs(hlCell));
             }
 
             String s;
@@ -6515,11 +6597,30 @@ public class GifSlideShowApp extends JFrame {
                 java.util.List<java.util.List<int[]>> stUlSegments = computeWrapSegments(stWrappedLines, ulSrcText);
                 String[] stUlTerms = splitTerms(ulSrcText);
 
-                // Per-word overrides (toolbar 4c "Words…"). Keyed by the lower-cased
-                // word, so a word listed here carries its own colour / highlight
-                // style / underline / Tight wherever it is matched, and every word
-                // left out keeps the text's single look. Empty = the old behaviour.
-                java.util.Map<String, HlWordStyle> stWordStyles = parseHlPerWord(st.hlPerWord);
+                // Extra highlight/underline groups (HL2, HL3, ... / UL2, UL3, ...),
+                // picked via the HL/UL dropdowns. Each group is its own word list
+                // with its own colour/style/tightness (HL) or style (UL); segments
+                // are computed once here, alongside the primary's stHlSegments/
+                // stUlSegments above, then each group draws its own pass per line
+                // (see the HL/UL/foreground-strikethrough blocks below).
+                int stExtraHlCount = st.hlGroups != null ? st.hlGroups.size() : 0;
+                java.util.List<java.util.List<java.util.List<int[]>>> stExtraHlSegments = new java.util.ArrayList<>();
+                java.util.List<String[]> stExtraHlTerms = new java.util.ArrayList<>();
+                for (int gi = 0; gi < stExtraHlCount; gi++) {
+                    SlideTextData.HlGroup setupHlG = st.hlGroups.get(gi);
+                    String setupHlWords = setupHlG != null ? setupHlG.words : "";
+                    stExtraHlSegments.add(computeWrapSegments(stWrappedLines, setupHlWords));
+                    stExtraHlTerms.add(splitTerms(setupHlWords));
+                }
+                int stExtraUlCount = st.ulGroups != null ? st.ulGroups.size() : 0;
+                java.util.List<java.util.List<java.util.List<int[]>>> stExtraUlSegments = new java.util.ArrayList<>();
+                java.util.List<String[]> stExtraUlTerms = new java.util.ArrayList<>();
+                for (int gi = 0; gi < stExtraUlCount; gi++) {
+                    SlideTextData.UlGroup setupUlG = st.ulGroups.get(gi);
+                    String setupUlWords = setupUlG != null ? setupUlG.words : "";
+                    stExtraUlSegments.add(computeWrapSegments(stWrappedLines, setupUlWords));
+                    stExtraUlTerms.add(splitTerms(setupUlWords));
+                }
 
                 // ----- Hide the original word for in-place word effects -----
                 // For a word-targeted Pulse/Shake/Bounce/Spin/Flash, punch the
@@ -6853,36 +6954,44 @@ public class GifSlideShowApp extends JFrame {
                         stTextLayout = new java.awt.font.TextLayout(line, stFont, ((Graphics2D) g).getFontRenderContext());
                     }
 
-                    // === Slide text highlight (supports comma-separated words) ===
-                    String hlStyleSkipCheck = st.highlightStyle != null ? st.highlightStyle : "Regular";
-                    int hlSkipColon = hlStyleSkipCheck.indexOf(':');
-                    if (hlSkipColon > 0) hlStyleSkipCheck = hlStyleSkipCheck.substring(0, hlSkipColon);
-                    // A word with its own style can carry a mark even when the text
-                    // as a whole is set to None, so the row-level "None" only skips
-                    // the block when there are no per-word overrides at all.
-                    if (stHlSegments != null && !stHlSegments.get(li).isEmpty()
-                            && (!"None".equals(hlStyleSkipCheck) || !stWordStyles.isEmpty())) {
-                        for (int[] seg : stHlSegments.get(li)) {
+                    // === Slide text highlight groups: primary + HL2, HL3, ... ===
+                    // Each group is its own uniform-styled pass over its own word
+                    // list — gi = -1 is the primary HL box (existing fields, exactly
+                    // as before), gi >= 0 is one extra HlGroup with its own colour,
+                    // style and tightness. The style switch below (Brush/Marker/
+                    // Circle/etc.) is untouched between groups; only where its inputs
+                    // come from changes.
+                    for (int hlGi = -1; hlGi < stExtraHlCount; hlGi++) {
+                        java.util.List<java.util.List<int[]>> gHlSegs;
+                        String[] gHlTerms;
+                        Color gHlColor;
+                        String gHlStyleRaw;
+                        int gHlTight;
+                        if (hlGi < 0) {
+                            gHlSegs = stHlSegments; gHlTerms = stHlTerms;
+                            gHlColor = st.highlightColor;
+                            gHlStyleRaw = st.highlightStyle != null ? st.highlightStyle : "Regular";
+                            gHlTight = st.highlightTightness;
+                        } else {
+                            SlideTextData.HlGroup hlGrp = st.hlGroups.get(hlGi);
+                            gHlSegs = stExtraHlSegments.get(hlGi); gHlTerms = stExtraHlTerms.get(hlGi);
+                            gHlColor = hlGrp.color;
+                            gHlStyleRaw = hlGrp.style != null ? hlGrp.style : "Regular";
+                            gHlTight = hlGrp.tightness;
+                        }
+                        if (gHlSegs == null || gHlSegs.get(li).isEmpty()) continue;
+                        String gHlStyleSkipCheck = gHlStyleRaw;
+                        int gHlSkipColon = gHlStyleSkipCheck.indexOf(':');
+                        if (gHlSkipColon > 0) gHlStyleSkipCheck = gHlStyleSkipCheck.substring(0, gHlSkipColon);
+                        if ("None".equals(gHlStyleSkipCheck)) continue;
+                        for (int[] seg : gHlSegs.get(li)) {
                             int hlIdx = seg[0];
                             int segLen = seg[1] - seg[0];
-                            String hlTerm = stHlTerms[seg[2]];
-                            // This matched word's own overrides, if it has any. Each
-                            // part falls back to the text's setting when unset.
-                            HlWordStyle hlOwn = stWordStyles.get(hlTerm.toLowerCase());
-                            String rawHlStyle = (hlOwn != null && hlOwn.hlStyle != null)
-                                    ? hlOwn.hlStyle
-                                    : (st.highlightStyle != null ? st.highlightStyle : "Regular");
+                            String hlTerm = gHlTerms[seg[2]];
+                            String rawHlStyle = gHlStyleRaw;
                             {
-                                // …and a word can equally opt out of a mark the rest
-                                // of the text carries.
-                                String hlStyleGate = rawHlStyle;
-                                int hlGateColon = hlStyleGate.indexOf(':');
-                                if (hlGateColon > 0) hlStyleGate = hlStyleGate.substring(0, hlGateColon);
-                                if ("None".equals(hlStyleGate)) continue;
-
                                 // Tightness: positive = padding around text, negative = reduce height
-                                int tightness = (hlOwn != null && hlOwn.tight != null)
-                                        ? hlOwn.tight : st.highlightTightness;
+                                int tightness = gHlTight;
                                 int hlPadX, hlPadY;
                                 int heightShrink = 0;
                                 if (tightness >= 0) {
@@ -6909,8 +7018,7 @@ public class GifSlideShowApp extends JFrame {
                                     hlX = lineX + stFm.stringWidth(before);
                                     hlW = stFm.stringWidth(match);
                                 }
-                                Color hlC = (hlOwn != null && hlOwn.color != null) ? hlOwn.color
-                                        : (st.highlightColor != null ? st.highlightColor : new Color(255, 100, 150, 180));
+                                Color hlC = gHlColor != null ? gHlColor : new Color(255, 100, 150, 180);
                                 Graphics2D gHL = (Graphics2D) g.create();
                                 gHL.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
@@ -7580,23 +7688,32 @@ public class GifSlideShowApp extends JFrame {
                         }
                     }
 
-                    // === Slide text underline (independent word matching) ===
+                    // === Slide text underline groups: primary + UL2, UL3, ... ===
+                    // Same "own uniform pass per group" structure as the highlight
+                    // groups above. Underline groups don't carry their own colour or
+                    // tightness — like the primary underline today, every group uses
+                    // the text's HL colour swatch and Tight value.
                     String ulStyleAll = st.underlineStyle != null ? st.underlineStyle : "None";
-                    if ((!"None".equals(ulStyleAll) || !stWordStyles.isEmpty())
-                            && stUlSegments != null && !stUlSegments.get(li).isEmpty()) {
+                    for (int ulGi = -1; ulGi < stExtraUlCount; ulGi++) {
+                        java.util.List<java.util.List<int[]>> gUlSegs;
+                        String[] gUlTerms;
+                        String gUlStyleRaw;
+                        if (ulGi < 0) {
+                            gUlSegs = stUlSegments; gUlTerms = stUlTerms;
+                            gUlStyleRaw = ulStyleAll;
+                        } else {
+                            SlideTextData.UlGroup ulGrp = st.ulGroups.get(ulGi);
+                            gUlSegs = stExtraUlSegments.get(ulGi); gUlTerms = stExtraUlTerms.get(ulGi);
+                            gUlStyleRaw = ulGrp.style != null ? ulGrp.style : "Straight";
+                        }
+                        if (gUlSegs == null || gUlSegs.get(li).isEmpty()) continue;
+                        if ("None".equals(gUlStyleRaw)) continue;
                         {
-                            for (int[] seg : stUlSegments.get(li)) {
+                            for (int[] seg : gUlSegs.get(li)) {
                                 int ulIdx = seg[0];
                                 int ulSegLen = seg[1] - seg[0];
-                                // Same per-word overrides as the highlight above: a
-                                // word can carry its own underline and colour, or opt
-                                // out of the one the rest of the text carries.
-                                HlWordStyle ulOwn = stWordStyles.get(stUlTerms[seg[2]].toLowerCase());
-                                String ulStyle = (ulOwn != null && ulOwn.ulStyle != null)
-                                        ? ulOwn.ulStyle : ulStyleAll;
-                                if ("None".equals(ulStyle)) continue;
-                                Color hlC = (ulOwn != null && ulOwn.color != null) ? ulOwn.color
-                                        : (st.highlightColor != null ? st.highlightColor : new Color(255, 100, 150, 180));
+                                String ulStyle = gUlStyleRaw;
+                                Color hlC = st.highlightColor != null ? st.highlightColor : new Color(255, 100, 150, 180);
                                 {
                                     // Use TextLayout for correct visual position (handles RTL/bidi text)
                                     int ulMatchX, ulMatchW;
@@ -7615,8 +7732,7 @@ public class GifSlideShowApp extends JFrame {
                                     gUL.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                                     // Tight controls underline distance below the text:
                                     // 0 = flush against text bottom (descent), higher = further down.
-                                    int ulTight = Math.max(0, (ulOwn != null && ulOwn.tight != null)
-                                            ? ulOwn.tight : st.highlightTightness);
+                                    int ulTight = Math.max(0, st.highlightTightness);
                                     int ulY = lineY + stFm.getDescent() + (int) (ulTight * stScaleFactor * 0.2f);
                                     int ulX1 = ulMatchX;
                                     int ulX2 = ulMatchX + ulMatchW;
@@ -9077,26 +9193,35 @@ public class GifSlideShowApp extends JFrame {
                         gOv.dispose();
                     }
 
-                    // === Post-text foreground highlight overlays ===
+                    // === Post-text foreground highlight overlays (per group) ===
                     // Effects that must appear ON TOP of the text (e.g. Strikethrough).
-                    if (stHlSegments != null && !stHlSegments.get(li).isEmpty()) {
+                    // Same "own pass per group" structure as the behind-the-text HL
+                    // block: gi = -1 is the primary HL box, gi >= 0 an extra HlGroup.
+                    for (int fgGi = -1; fgGi < stExtraHlCount; fgGi++) {
+                        java.util.List<java.util.List<int[]>> gFgSegs;
+                        String[] gFgTerms;
+                        Color gFgColor;
+                        String gFgStyleRaw;
+                        if (fgGi < 0) {
+                            gFgSegs = stHlSegments; gFgTerms = stHlTerms;
+                            gFgColor = st.highlightColor;
+                            gFgStyleRaw = st.highlightStyle != null ? st.highlightStyle : "Regular";
+                        } else {
+                            SlideTextData.HlGroup fgGrp = st.hlGroups.get(fgGi);
+                            gFgSegs = stExtraHlSegments.get(fgGi); gFgTerms = stExtraHlTerms.get(fgGi);
+                            gFgColor = fgGrp.color;
+                            gFgStyleRaw = fgGrp.style != null ? fgGrp.style : "Regular";
+                        }
+                        if (gFgSegs == null || gFgSegs.get(li).isEmpty()) continue;
                         {
-                            for (int[] seg : stHlSegments.get(li)) {
-                                // Resolve the style per matched word, exactly as the
-                                // behind-the-text pass does, so one word can be struck
-                                // through while the rest of the text is not (and the
-                                // other way round).
-                                HlWordStyle fgOwn = stWordStyles.get(stHlTerms[seg[2]].toLowerCase());
-                                String rawHlStyleFG = (fgOwn != null && fgOwn.hlStyle != null)
-                                        ? fgOwn.hlStyle
-                                        : (st.highlightStyle != null ? st.highlightStyle : "Regular");
+                            for (int[] seg : gFgSegs.get(li)) {
+                                String rawHlStyleFG = gFgStyleRaw;
                                 String hlStyleFG = rawHlStyleFG;
                                 int colonIdxFG = rawHlStyleFG.indexOf(':');
                                 if (colonIdxFG > 0) hlStyleFG = rawHlStyleFG.substring(0, colonIdxFG);
                                 if (!"Strikethrough".equals(hlStyleFG)) continue;
 
-                                Color hlCFG = (fgOwn != null && fgOwn.color != null) ? fgOwn.color
-                                        : (st.highlightColor != null ? st.highlightColor : new Color(255, 100, 150, 180));
+                                Color hlCFG = gFgColor != null ? gFgColor : new Color(255, 100, 150, 180);
                                 int hlIdxFG = seg[0];
                                 int segLenFG = seg[1] - seg[0];
                                 int hlXFG, hlWFG;
@@ -10695,205 +10820,6 @@ public class GifSlideShowApp extends JFrame {
         return out.isEmpty() ? null : out.toArray(new String[0]);
     }
 
-    // ========== Per-word highlight overrides ==========
-    //
-    // The HL field marks a list of words and the row's colour / style / underline
-    // / Tight decide how ALL of them look. These helpers add the exception list:
-    // per word, any of those four can be overridden, so one sentence can carry a
-    // yellow marker on one word, a red circle on another and a wavy underline on
-    // a third.
-    //
-    // Storage (SlideTextData.hlPerWord) is one line of text so it rides through
-    // presets and the Dict Import sheet unchanged:
-    //
-    //     word=#RRGGBB|HlStyle|UlStyle|Tight; other word=#00C853|Marker
-    //
-    // Every part after the word is optional and order doesn't matter — a part is
-    // recognised by its shape (#hex = colour, a number = Tight, a name from
-    // HIGHLIGHT_STYLES = highlight style, a name from UNDERLINE_STYLES =
-    // underline). Words are matched case-insensitively, exactly like the HL
-    // matching itself.
-
-    /** One word's highlight overrides. A null member means "use the text's own". */
-    static final class HlWordStyle {
-        Color color;      // null = the text's highlightColor
-        String hlStyle;   // null = the text's highlightStyle
-        String ulStyle;   // null = the text's underlineStyle
-        Integer tight;    // null = the text's highlightTightness
-
-        boolean isEmpty() {
-            return color == null && hlStyle == null && ulStyle == null && tight == null;
-        }
-
-        HlWordStyle copy() {
-            HlWordStyle c = new HlWordStyle();
-            c.color = color; c.hlStyle = hlStyle; c.ulStyle = ulStyle; c.tight = tight;
-            return c;
-        }
-    }
-
-    /** True when {@code name} is one of HIGHLIGHT_STYLES (case-insensitive). */
-    static String matchHighlightStyle(String name) {
-        if (name == null) return null;
-        for (String s : HIGHLIGHT_STYLES) if (s.equalsIgnoreCase(name)) return s;
-        return null;
-    }
-
-    /** True when {@code name} is one of UNDERLINE_STYLES (case-insensitive). */
-    static String matchUnderlineStyle(String name) {
-        if (name == null) return null;
-        for (String s : UNDERLINE_STYLES) if (s.equalsIgnoreCase(name)) return s;
-        return null;
-    }
-
-    /**
-     * Read one word's "|"-separated override parts. Parts are recognised by shape,
-     * so they may be given in any order and any of them left out:
-     * {@code #RRGGBB[AA]} = colour, a bare number = Tight, a HIGHLIGHT_STYLES name
-     * = highlight style, an UNDERLINE_STYLES name = underline. "None" appears in
-     * both catalogs, so the first style-like part fills the highlight slot and the
-     * next one fills the underline slot.
-     */
-    static HlWordStyle parseHlStyleParts(String[] parts, int from) {
-        HlWordStyle st = new HlWordStyle();
-        for (int i = from; i < parts.length; i++) {
-            String tok = parts[i].trim();
-            if (tok.isEmpty()) continue;
-            if (tok.charAt(0) == '#') { st.color = hexToColor(tok); continue; }
-            if (tok.matches("-?\\d+")) {
-                try { st.tight = Integer.valueOf(Integer.parseInt(tok)); } catch (NumberFormatException ignored) {}
-                continue;
-            }
-            String hl = st.hlStyle == null ? matchHighlightStyle(tok) : null;
-            if (hl != null) { st.hlStyle = hl; continue; }
-            String ul = st.ulStyle == null ? matchUnderlineStyle(tok) : null;
-            if (ul != null) { st.ulStyle = ul; continue; }
-            // Unrecognised part: a colour name spelled without the '#' is the
-            // likeliest mistake, so try that before giving up on it.
-            Color named = namedColor(tok);
-            if (named != null && st.color == null) st.color = named;
-        }
-        return st;
-    }
-
-    /** A handful of plain colour names, so a sheet can say "red" instead of #FF0000. */
-    static Color namedColor(String name) {
-        if (name == null) return null;
-        switch (name.trim().toLowerCase()) {
-            case "red":     return new Color(255,  60,  60, 180);
-            case "green":   return new Color( 60, 200, 100, 180);
-            case "blue":    return new Color( 70, 150, 255, 180);
-            case "yellow":  return new Color(255, 220,  60, 180);
-            case "orange":  return new Color(255, 150,  50, 180);
-            case "purple":  return new Color(180, 110, 255, 180);
-            case "pink":    return new Color(255, 110, 180, 180);
-            case "cyan":    return new Color( 80, 220, 220, 180);
-            case "white":   return new Color(255, 255, 255, 180);
-            case "black":   return new Color(  0,   0,   0, 180);
-            default:        return null;
-        }
-    }
-
-    /**
-     * Parse a {@code hlPerWord} string into word → overrides, keyed by the
-     * lower-cased word so lookup matches the case-insensitive HL matching.
-     * Never returns null; an unusable entry is simply skipped.
-     */
-    static java.util.LinkedHashMap<String, HlWordStyle> parseHlPerWord(String spec) {
-        java.util.LinkedHashMap<String, HlWordStyle> out = new java.util.LinkedHashMap<>();
-        if (spec == null || spec.trim().isEmpty()) return out;
-        for (String entry : spec.split(";")) {
-            String e = entry.trim();
-            if (e.isEmpty()) continue;
-            int eq = e.indexOf('=');
-            if (eq <= 0) continue;
-            String word = e.substring(0, eq).trim();
-            if (word.isEmpty()) continue;
-            HlWordStyle st = parseHlStyleParts(e.substring(eq + 1).split("\\|"), 0);
-            if (!st.isEmpty()) out.put(word.toLowerCase(), st);
-        }
-        return out;
-    }
-
-    /** Render word → overrides back into the {@code hlPerWord} storage syntax. */
-    static String formatHlPerWord(java.util.Map<String, HlWordStyle> map) {
-        if (map == null || map.isEmpty()) return "";
-        StringBuilder sb = new StringBuilder();
-        for (java.util.Map.Entry<String, HlWordStyle> en : map.entrySet()) {
-            HlWordStyle st = en.getValue();
-            if (st == null || st.isEmpty()) continue;
-            if (sb.length() > 0) sb.append("; ");
-            sb.append(en.getKey()).append('=');
-            boolean first = true;
-            if (st.color != null)   { sb.append(colorToHex(st.color)); first = false; }
-            if (st.hlStyle != null) { if (!first) sb.append('|'); sb.append(st.hlStyle); first = false; }
-            if (st.ulStyle != null) { if (!first) sb.append('|'); sb.append(st.ulStyle); first = false; }
-            if (st.tight != null)   { if (!first) sb.append('|'); sb.append(st.tight); }
-        }
-        return sb.toString();
-    }
-
-    /** True when an HL string carries inline "word|#RRGGBB|Style" specs. */
-    static boolean hlHasInlineSpec(String raw) {
-        return raw != null && raw.indexOf('|') >= 0;
-    }
-
-    /**
-     * The plain word list out of an HL string that may carry inline specs:
-     * {@code "his mouth, Scott|#FF0000|Marker"} → {@code "his mouth, Scott"}.
-     * Everything downstream (matching, bold/italic pairing, the toolbar field)
-     * sees only the words, so the inline form is purely an input shorthand.
-     */
-    static String hlPlainWords(String raw) {
-        if (!hlHasInlineSpec(raw)) return raw == null ? "" : raw;
-        StringBuilder sb = new StringBuilder();
-        for (String term : raw.split(",")) {
-            int bar = term.indexOf('|');
-            String word = (bar >= 0 ? term.substring(0, bar) : term).trim();
-            if (word.isEmpty()) continue;
-            if (sb.length() > 0) sb.append(", ");
-            sb.append(word);
-        }
-        return sb.toString();
-    }
-
-    /**
-     * The overrides carried by an HL string's inline specs, in {@code hlPerWord}
-     * syntax. {@code "Scott|#FF0000|Marker, apple|Circle"} becomes
-     * {@code "scott=#FF0000|Marker; apple=Circle"}. Returns "" when the string
-     * has no inline specs.
-     */
-    static String hlInlineSpecs(String raw) {
-        if (!hlHasInlineSpec(raw)) return "";
-        java.util.LinkedHashMap<String, HlWordStyle> map = new java.util.LinkedHashMap<>();
-        for (String term : raw.split(",")) {
-            int bar = term.indexOf('|');
-            if (bar < 0) continue;
-            String word = term.substring(0, bar).trim();
-            if (word.isEmpty()) continue;
-            HlWordStyle st = parseHlStyleParts(term.substring(bar + 1).split("\\|"), 0);
-            if (!st.isEmpty()) map.put(word.toLowerCase(), st);
-        }
-        return formatHlPerWord(map);
-    }
-
-    /** Merge {@code extra} over {@code base}, entry by entry ({@code extra} wins). */
-    static String mergeHlPerWord(String base, String extra) {
-        if (extra == null || extra.trim().isEmpty()) return base == null ? "" : base;
-        if (base == null || base.trim().isEmpty()) return extra;
-        java.util.LinkedHashMap<String, HlWordStyle> merged = parseHlPerWord(base);
-        merged.putAll(parseHlPerWord(extra));
-        return formatHlPerWord(merged);
-    }
-
-    /**
-     * For each wrapped line, return a list of [startInLine, endExclusiveInLine, termIdx]
-     * segments that the comma-separated terms in {@code csv} cover. Matches are case-
-     * insensitive and may span multiple wrapped lines; spanning matches are decomposed
-     * into one segment per line. Returns null when there is nothing to match.
-     * Lines are joined with a single space because wrapTextStatic only breaks at
-     * whitespace, so the joined string mirrors what the user reads.
-     */
     // =====================================================================
     // Slide-text BG rendering pipeline (toolbars 4b2 / 4b3 / 4b4)
     // =====================================================================
@@ -11644,6 +11570,14 @@ public class GifSlideShowApp extends JFrame {
         return Math.max(1, anyWhole ? whole : sub);
     }
 
+    /**
+     * For each wrapped line, return a list of [startInLine, endExclusiveInLine, termIdx]
+     * segments that the comma-separated terms in {@code csv} cover. Matches are case-
+     * insensitive and may span multiple wrapped lines; spanning matches are decomposed
+     * into one segment per line. Returns null when there is nothing to match.
+     * Lines are joined with a single space because wrapTextStatic only breaks at
+     * whitespace, so the joined string mirrors what the user reads.
+     */
     static java.util.List<java.util.List<int[]>> computeWrapSegments(List<String> wrappedLines, String csv) {
         if (wrappedLines == null || wrappedLines.isEmpty()) return null;
         String[] terms = splitTerms(csv);
@@ -21026,16 +20960,41 @@ public class GifSlideShowApp extends JFrame {
         int highlightHeightPct = 100;    // 50..200 scales the mark's height
         int highlightWidthPct = 100;     // 50..200 scales the mark's width
 
-        // ===== Per-word highlight overrides (toolbar 4c "Words…") =====
-        // highlightText lists the words to mark and highlightColor / highlightStyle
-        // / underlineStyle / highlightTightness say how — one look for all of them.
-        // This is the exception list: one entry per word that wants its OWN colour,
-        // highlight style, underline or tightness, in the syntax
-        //     word=#RRGGBB|HlStyle|UlStyle|Tight; other word=#00C853|Marker
-        // Any part may be left out; a word that isn't listed (or a part that isn't
-        // given) falls back to the text's own setting, so an empty string is
-        // exactly the old single-look behaviour. See parseHlPerWord.
-        String hlPerWord = "";
+        // ===== Extra highlight / underline groups (HL2, HL3, ... / UL2, UL3, ...) =====
+        // The HL/UL boxes on the toolbar are now dropdowns: index 0 is this text's
+        // PRIMARY group (still just highlightText/highlightColor/highlightStyle/
+        // highlightTightness and underlineText/underlineStyle, unchanged from
+        // before), and every extra dropdown row is one entry here — its own word
+        // list plus its own colour/style/tightness (HL) or style (UL). Selecting a
+        // row in the dropdown switches which group the existing colour swatch /
+        // style combo / Tight spinner read and write.
+        List<HlGroup> hlGroups = new ArrayList<>();
+        List<UlGroup> ulGroups = new ArrayList<>();
+
+        /** One extra highlight group: its own word list, colour, style and Tight. */
+        static final class HlGroup {
+            String words = "";
+            Color color = new Color(255, 100, 150, 180);
+            String style = "Regular";
+            int tightness = 50;
+            HlGroup copy() {
+                HlGroup g = new HlGroup();
+                g.words = words; g.color = color; g.style = style; g.tightness = tightness;
+                return g;
+            }
+        }
+
+        /** One extra underline group: its own word list and style. Shares the
+         *  text's HL colour swatch, like the primary underline already does. */
+        static final class UlGroup {
+            String words = "";
+            String style = "Straight";
+            UlGroup copy() {
+                UlGroup g = new UlGroup();
+                g.words = words; g.style = style;
+                return g;
+            }
+        }
 
         // --- Fill paint (Solid / Linear / Radial / Conic / Stripes / Checker / Dots / Lines) ---
         String bgFillKind = "Solid";
@@ -21122,9 +21081,12 @@ public class GifSlideShowApp extends JFrame {
             dst.bgOuterGlowColor  = src.bgOuterGlowColor;
             dst.fxBurst           = src.fxBurst;
             dst.fxBurstStyle      = src.fxBurstStyle;
-            // Per-word HL overrides belong to the words in highlightText, so they
-            // travel with every rebuild / broadcast / HL-clone pass that carries it.
-            dst.hlPerWord         = src.hlPerWord;
+            // Extra HL/UL groups ride along too — deep-copied so the rebuild /
+            // broadcast / HL-clone passes never share mutable group objects with src.
+            dst.hlGroups = new java.util.ArrayList<>();
+            if (src.hlGroups != null) for (HlGroup g : src.hlGroups) if (g != null) dst.hlGroups.add(g.copy());
+            dst.ulGroups = new java.util.ArrayList<>();
+            if (src.ulGroups != null) for (UlGroup g : src.ulGroups) if (g != null) dst.ulGroups.add(g.copy());
             // Texts Timer timeline rides along too, so it survives the same
             // rebuild / broadcast / HL-clone paths as the BG-style block.
             dst.timerAppearMs     = src.timerAppearMs;
@@ -22729,15 +22691,28 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner slideTextAnimDurationSpinner; // seconds (double)
         private final JSpinner slideTextAnimStartSpinner;    // seconds (double)
         private final JComboBox<String> slideTextAnimEasingCombo;
-        private final JTextField slideTextHighlightField;
+        // HL box: an editable dropdown instead of a plain text field. Row 0 is
+        // always this text's PRIMARY group (highlightText/Color/Style/Tightness,
+        // unchanged fields); every other row is one extra HlGroup, imported from
+        // an HL2/HL3/... Dict Import column or added with the "+" button. Picking
+        // a row switches which group the colour swatch / style combo / Tight
+        // spinner beside it read and write; typing edits that row's word list.
+        private final JComboBox<String> slideTextHighlightCombo;
+        private final JButton slideTextHlAddBtn;
+        private final JButton slideTextHlRemoveBtn;
         private final JButton slideTextHighlightColorBtn;
         private Color slideTextHighlightColor = new Color(255, 100, 150, 180);
         private final JComboBox<String> slideTextHighlightStyleCombo;
         private final JSpinner slideTextHighlightTightnessSpinner;
+        /** -1 = the HL combo's row 0 (primary) is selected; >= 0 = hlGroups[this]. */
+        private int currentHlGroupIndex = -1;
         private final JComboBox<String> slideTextUnderlineCombo;
-        private final JTextField slideTextUnderlineTextField;
-        /** Opens the per-word HL editor — one colour / style / underline per word. */
-        private final JButton slideTextHlPerWordBtn;
+        // Same dropdown treatment as the HL box, for UL2/UL3/... groups.
+        private final JComboBox<String> slideTextUnderlineWordsCombo;
+        private final JButton slideTextUlAddBtn;
+        private final JButton slideTextUlRemoveBtn;
+        /** -1 = the UL combo's row 0 (primary) is selected; >= 0 = ulGroups[this]. */
+        private int currentUlGroupIndex = -1;
         private final JTextField slideTextBoldField;
         private final JTextField slideTextItalicField;
         private final JTextField slideTextColorTextField;
@@ -24108,33 +24083,80 @@ public class GifSlideShowApp extends JFrame {
             slideTextOdometerLandCombo.setToolTipText("Landing order — Sequential: chars land left→right. Random: chars land in random order.");
             slideTextOdometerLandCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
-            slideTextHighlightField = new JTextField(8);
-            slideTextHighlightField.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            slideTextHighlightField.setPreferredSize(new Dimension(80, 24));
-            slideTextHighlightField.setToolTipText("<html>Words to highlight — comma-separated, e.g. "
-                    + "<i>hello, world</i>.<br>A word can carry its own look inline: "
-                    + "<tt>hello, world|#FF0000|Marker</tt> — the extra parts move into the "
-                    + "<b>\uD83C\uDFA8 Words\u2026</b> box as soon as you leave the field.</html>");
-            slideTextHighlightField.getDocument().addDocumentListener(new DocumentListener() {
-                @Override public void insertUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
-                @Override public void removeUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
-                @Override public void changedUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
+            slideTextHighlightCombo = new JComboBox<>();
+            // Seed row 0 (primary) immediately so getSelectedIndex() is 0, not -1,
+            // from the very first frame — loadSlideTextFromItem() isn't called
+            // until some later user action (switching text items, etc.), and an
+            // empty combo would leave comboIndex-1 (this box's group-index
+            // convention) undefined until then.
+            slideTextHighlightCombo.addItem("");
+            slideTextHighlightCombo.setEditable(true);
+            slideTextHighlightCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextHighlightCombo.setPreferredSize(new Dimension(110, 24));
+            slideTextHighlightCombo.setToolTipText("<html>Words to highlight — comma-separated, e.g. "
+                    + "<i>hello, world</i>. Type to edit, or open the dropdown to switch to another "
+                    + "HL group (HL2, HL3, ... — imported from a sheet or added with the "
+                    + "<b>+</b> button) and give IT its own colour/style/Tight with the controls "
+                    + "to the right.</html>");
+            // Deferred via invokeLater: switching the combo's OWN selection also
+            // fires these same document events (Swing resets then re-fills the
+            // editor's text to the newly-selected row's label) — SYNCHRONOUSLY,
+            // and BEFORE the ItemEvent below that updates currentHlGroupIndex. An
+            // immediate onFormatChanged() here would therefore commit the row
+            // being switched TO as an edit of the row being switched FROM,
+            // corrupting it. Deferring lets the ItemEvent (same dispatch, runs
+            // first) settle currentHlGroupIndex before this reacts — by which
+            // point, for a real switch, the text is already correctly matched to
+            // the new index; for real typing, currentHlGroupIndex never changes,
+            // so the one-tick delay is invisible.
+            ((JTextField) slideTextHighlightCombo.getEditor().getEditorComponent()).getDocument()
+                    .addDocumentListener(new DocumentListener() {
+                // isLoadingSlideText is checked HERE, synchronously at fire-time —
+                // not inside the deferred Runnable — so a programmatic batch (e.g.
+                // addHlGroup(), which sets it true only for the duration of its own
+                // synchronous block) is still correctly skipped: by the time a
+                // deferred check would run, that block has already finished and
+                // reset the flag to false, which would wrongly let a stale batch
+                // through as a real edit.
+                private void react() {
+                    if (isLoadingSlideText) return;
+                    SwingUtilities.invokeLater(() -> {
+                        if (isLoadingSlideText) return;
+                        syncComboLabelAtSelection(slideTextHighlightCombo);
+                        onFormatChanged();
+                    });
+                }
+                @Override public void insertUpdate(DocumentEvent e) { react(); }
+                @Override public void removeUpdate(DocumentEvent e) { react(); }
+                @Override public void changedUpdate(DocumentEvent e) { react(); }
             });
-            // Typing "word|#FF0000|Marker" here is the keyboard shortcut for the
-            // Words… box: on Enter / focus-lost the spec is lifted out into the
-            // text's per-word overrides and the field is left holding the words
-            // alone, so everything downstream still matches on plain words.
-            slideTextHighlightField.addActionListener(e -> normalizeInlineHighlightSpec());
-            slideTextHighlightField.addFocusListener(new java.awt.event.FocusAdapter() {
-                @Override public void focusLost(java.awt.event.FocusEvent e) { normalizeInlineHighlightSpec(); }
+            slideTextHighlightCombo.addItemListener(e -> {
+                if (isLoadingSlideText || e.getStateChange() != java.awt.event.ItemEvent.SELECTED) return;
+                switchHlGroup(slideTextHighlightCombo.getSelectedIndex());
             });
 
-            slideTextHighlightColorBtn = new JButton("\u25A0");
+            slideTextHlAddBtn = new JButton("+");
+            slideTextHlAddBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            slideTextHlAddBtn.setMargin(new Insets(0, 4, 0, 4));
+            slideTextHlAddBtn.setFocusPainted(false);
+            slideTextHlAddBtn.setToolTipText("Add a new HL group — its own word list, colour, style "
+                    + "and Tight, independent of the group above.");
+            slideTextHlAddBtn.addActionListener(e -> addHlGroup());
+
+            slideTextHlRemoveBtn = new JButton("✕");
+            slideTextHlRemoveBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextHlRemoveBtn.setMargin(new Insets(0, 4, 0, 4));
+            slideTextHlRemoveBtn.setFocusPainted(false);
+            slideTextHlRemoveBtn.setToolTipText("Remove the HL group currently selected above "
+                    + "(the primary HL box can't be removed).");
+            slideTextHlRemoveBtn.addActionListener(e -> removeHlGroup());
+
+            slideTextHighlightColorBtn = new JButton("■");
             slideTextHighlightColorBtn.setForeground(slideTextHighlightColor);
             slideTextHighlightColorBtn.setFont(new Font("Segoe UI", Font.PLAIN, 16));
             slideTextHighlightColorBtn.setPreferredSize(new Dimension(32, 24));
             slideTextHighlightColorBtn.setFocusPainted(false);
-            slideTextHighlightColorBtn.setToolTipText("Highlight color");
+            slideTextHighlightColorBtn.setToolTipText("Highlight colour for the group selected on the left");
             slideTextHighlightColorBtn.addActionListener(e -> pickColorLive(panel, "Slide Text Highlight Color", slideTextHighlightColor, c -> {
                 slideTextHighlightColor = new Color(c.getRed(), c.getGreen(), c.getBlue(), 180);
                 slideTextHighlightColorBtn.setForeground(slideTextHighlightColor);
@@ -24144,7 +24166,7 @@ public class GifSlideShowApp extends JFrame {
             slideTextHighlightStyleCombo = new JComboBox<>(HIGHLIGHT_STYLES);
             slideTextHighlightStyleCombo.setPreferredSize(new Dimension(80, 24));
             slideTextHighlightStyleCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            slideTextHighlightStyleCombo.setToolTipText("Highlight style");
+            slideTextHighlightStyleCombo.setToolTipText("Highlight style for the group selected on the left");
             slideTextHighlightStyleCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
             slideTextHighlightTightnessSpinner = new JSpinner(new SpinnerNumberModel(50, -50, 100, 5));
@@ -24156,27 +24178,62 @@ public class GifSlideShowApp extends JFrame {
             slideTextUnderlineCombo = new JComboBox<>(UNDERLINE_STYLES);
             slideTextUnderlineCombo.setPreferredSize(new Dimension(80, 24));
             slideTextUnderlineCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            slideTextUnderlineCombo.setToolTipText("Underline style for matched text");
+            slideTextUnderlineCombo.setToolTipText("Underline style for the group selected below");
             slideTextUnderlineCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
-            slideTextUnderlineTextField = new JTextField(8);
-            slideTextUnderlineTextField.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            slideTextUnderlineTextField.setPreferredSize(new Dimension(80, 24));
-            slideTextUnderlineTextField.setToolTipText("Words to underline, comma-separated (leave empty to use highlight text)");
-            slideTextUnderlineTextField.getDocument().addDocumentListener(new DocumentListener() {
-                @Override public void insertUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
-                @Override public void removeUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
-                @Override public void changedUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
+            slideTextUnderlineWordsCombo = new JComboBox<>();
+            // Same reason as the HL combo above — seed row 0 (primary) immediately.
+            slideTextUnderlineWordsCombo.addItem("");
+            slideTextUnderlineWordsCombo.setEditable(true);
+            slideTextUnderlineWordsCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextUnderlineWordsCombo.setPreferredSize(new Dimension(110, 24));
+            slideTextUnderlineWordsCombo.setToolTipText("<html>Words to underline, comma-separated "
+                    + "(leave empty to use the highlight words). Same dropdown as HL: switch to "
+                    + "another UL group (UL2, UL3, ...) and give it its own style with the combo "
+                    + "to the left.</html>");
+            // Deferred via invokeLater — see the matching comment on the HL combo's
+            // document listener above for why.
+            ((JTextField) slideTextUnderlineWordsCombo.getEditor().getEditorComponent()).getDocument()
+                    .addDocumentListener(new DocumentListener() {
+                // isLoadingSlideText is checked HERE, synchronously at fire-time —
+                // not inside the deferred Runnable — so a programmatic batch (e.g.
+                // addHlGroup(), which sets it true only for the duration of its own
+                // synchronous block) is still correctly skipped: by the time a
+                // deferred check would run, that block has already finished and
+                // reset the flag to false, which would wrongly let a stale batch
+                // through as a real edit.
+                private void react() {
+                    if (isLoadingSlideText) return;
+                    SwingUtilities.invokeLater(() -> {
+                        if (isLoadingSlideText) return;
+                        syncComboLabelAtSelection(slideTextUnderlineWordsCombo);
+                        onFormatChanged();
+                    });
+                }
+                @Override public void insertUpdate(DocumentEvent e) { react(); }
+                @Override public void removeUpdate(DocumentEvent e) { react(); }
+                @Override public void changedUpdate(DocumentEvent e) { react(); }
+            });
+            slideTextUnderlineWordsCombo.addItemListener(e -> {
+                if (isLoadingSlideText || e.getStateChange() != java.awt.event.ItemEvent.SELECTED) return;
+                switchUlGroup(slideTextUnderlineWordsCombo.getSelectedIndex());
             });
 
-            slideTextHlPerWordBtn = new JButton("\uD83C\uDFA8 Words\u2026");
-            slideTextHlPerWordBtn.setFont(new Font("Segoe UI", Font.BOLD, 10));
-            slideTextHlPerWordBtn.setMargin(new Insets(1, 6, 1, 6));
-            slideTextHlPerWordBtn.setFocusPainted(false);
-            slideTextHlPerWordBtn.setToolTipText("Give each highlighted word its OWN colour, highlight "
-                    + "style, underline and Tight — instead of one look for the whole list. "
-                    + "Words you leave on \u201csame\u201d keep the settings to the left.");
-            slideTextHlPerWordBtn.addActionListener(e -> openHlPerWordDialog());
+            slideTextUlAddBtn = new JButton("+");
+            slideTextUlAddBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            slideTextUlAddBtn.setMargin(new Insets(0, 4, 0, 4));
+            slideTextUlAddBtn.setFocusPainted(false);
+            slideTextUlAddBtn.setToolTipText("Add a new UL group — its own word list and style, "
+                    + "independent of the group above.");
+            slideTextUlAddBtn.addActionListener(e -> addUlGroup());
+
+            slideTextUlRemoveBtn = new JButton("✕");
+            slideTextUlRemoveBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextUlRemoveBtn.setMargin(new Insets(0, 4, 0, 4));
+            slideTextUlRemoveBtn.setFocusPainted(false);
+            slideTextUlRemoveBtn.setToolTipText("Remove the UL group currently selected above "
+                    + "(the primary UL box can't be removed).");
+            slideTextUlRemoveBtn.addActionListener(e -> removeUlGroup());
 
             slideTextBoldField = new JTextField(8);
             slideTextBoldField.setFont(new Font("Segoe UI", Font.PLAIN, 11));
@@ -24249,15 +24306,18 @@ public class GifSlideShowApp extends JFrame {
             toolbar4c.add(slideTextBurstStyleCombo);
 
             toolbar4c1b.add(tc4cHlLbl);
-            toolbar4c1b.add(slideTextHighlightField);
+            toolbar4c1b.add(slideTextHighlightCombo);
+            toolbar4c1b.add(slideTextHlAddBtn);
+            toolbar4c1b.add(slideTextHlRemoveBtn);
             toolbar4c1b.add(slideTextHighlightColorBtn);
             toolbar4c1b.add(slideTextHighlightStyleCombo);
             toolbar4c1b.add(tc4cTightLbl);
             toolbar4c1b.add(slideTextHighlightTightnessSpinner);
             toolbar4c1b.add(tc4cUlLbl);
             toolbar4c1b.add(slideTextUnderlineCombo);
-            toolbar4c1b.add(slideTextUnderlineTextField);
-            toolbar4c1b.add(slideTextHlPerWordBtn);
+            toolbar4c1b.add(slideTextUnderlineWordsCombo);
+            toolbar4c1b.add(slideTextUlAddBtn);
+            toolbar4c1b.add(slideTextUlRemoveBtn);
 
             // --- Odometer toolbar row ---
             JPanel toolbar4c2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
@@ -26781,6 +26841,205 @@ public class GifSlideShowApp extends JFrame {
 
         // ===== Slide text dropdown helpers =====
 
+        // ===== HL / UL group dropdowns =====
+        // The HL and UL boxes are editable JComboBoxes: row 0 is always the text's
+        // primary group (the same highlightText/Color/Style/Tightness and
+        // underlineText/Style fields as before groups existed); every other row is
+        // one extra HlGroup/UlGroup, either imported from an HL2/HL3/.../UL2/UL3/...
+        // Dict Import column or added with the "+" button. These four methods are
+        // the only things that touch currentHlGroupIndex/currentUlGroupIndex and
+        // the combo models — saveCurrentSlideTextToItem() (above… below) reads
+        // whichever index they leave selected.
+
+        /**
+         * Replace the item at the combo's current selection with whatever its
+         * editor is showing, so the underlying MODEL actually holds what was
+         * typed — not just the editor overlay.
+         *
+         * <p>Without this, two rows that still hold the SAME label (most often
+         * both blank — row 0 before it's been typed into, and a freshly-added
+         * "+" row) are indistinguishable to {@link javax.swing.DefaultComboBoxModel}'s
+         * equals()-based change detection: {@code JComboBox.setSelectedIndex}
+         * fetches the element at the target index and hands it to
+         * {@code model.setSelectedItem}, which no-ops — fires nothing — when that
+         * value {@code .equals()} the current selection. Typing into the EDITOR
+         * never touches the model's stored item text on its own, so switching
+         * between two still-blank rows would silently do nothing at all: the
+         * dropdown would look stuck.
+         *
+         * <p>The remove+reinsert this does fires its own transient selection
+         * events, so it's wrapped in {@code isLoadingSlideText} to keep those
+         * from re-entering {@link #switchHlGroup}/{@link #switchUlGroup}.
+         */
+        private void syncComboLabelAtSelection(JComboBox<String> combo) {
+            int idx = combo.getSelectedIndex();
+            if (idx < 0) return;
+            String text = (String) combo.getEditor().getItem();
+            if (text == null) text = "";
+            if (text.equals(combo.getItemAt(idx))) return;
+            boolean was = isLoadingSlideText;
+            isLoadingSlideText = true;
+            try {
+                javax.swing.MutableComboBoxModel<String> model =
+                        (javax.swing.MutableComboBoxModel<String>) combo.getModel();
+                model.removeElementAt(idx);
+                model.insertElementAt(text, idx);
+                combo.setSelectedIndex(idx);
+            } finally {
+                isLoadingSlideText = was;
+            }
+        }
+
+        /** Rebuild the HL combo's rows from `item` and select row 0 (primary). */
+        private void populateHlCombo(SlideTextData item) {
+            slideTextHighlightCombo.removeAllItems();
+            slideTextHighlightCombo.addItem(item.highlightText != null ? item.highlightText : "");
+            if (item.hlGroups != null) {
+                for (SlideTextData.HlGroup g : item.hlGroups) {
+                    slideTextHighlightCombo.addItem(g != null && g.words != null ? g.words : "");
+                }
+            }
+            slideTextHighlightCombo.setSelectedIndex(0);
+            currentHlGroupIndex = -1;
+        }
+
+        /** Rebuild the UL combo's rows from `item` and select row 0 (primary). */
+        private void populateUlCombo(SlideTextData item) {
+            slideTextUnderlineWordsCombo.removeAllItems();
+            slideTextUnderlineWordsCombo.addItem(item.underlineText != null ? item.underlineText : "");
+            if (item.ulGroups != null) {
+                for (SlideTextData.UlGroup g : item.ulGroups) {
+                    slideTextUnderlineWordsCombo.addItem(g != null && g.words != null ? g.words : "");
+                }
+            }
+            slideTextUnderlineWordsCombo.setSelectedIndex(0);
+            currentUlGroupIndex = -1;
+        }
+
+        /** User picked a different row in the HL dropdown: load the newly-selected
+         *  group's colour/style/Tight into the (shared) controls beside it.
+         *
+         *  <p>Deliberately does NOT call saveCurrentSlideTextToItem() first: every
+         *  edit (typing, colour pick, style pick, Tight) already commits on its
+         *  own the instant it happens, via the same onFormatChanged() path, using
+         *  whatever currentHlGroupIndex was THEN — so by the time the user opens
+         *  the dropdown and clicks a different row, the row being left is already
+         *  fully saved. Calling it again here would be worse than redundant: by
+         *  this point the combo's own selection (and so its editor text) has
+         *  ALREADY switched to the NEW row's label, so a save now would read that
+         *  label as an edit to the OLD (soon-to-be-replaced) currentHlGroupIndex —
+         *  overwriting that group's real words with the row it's switching to. */
+        private void switchHlGroup(int comboIndex) {
+            if (currentSlideTextIndex < 0 || currentSlideTextIndex >= slideTextItems.size()) return;
+            currentHlGroupIndex = comboIndex - 1;
+            SlideTextData item = slideTextItems.get(currentSlideTextIndex);
+            isLoadingSlideText = true;
+            try {
+                if (currentHlGroupIndex < 0) {
+                    slideTextHighlightColor = item.highlightColor;
+                    slideTextHighlightColorBtn.setForeground(item.highlightColor);
+                    slideTextHighlightStyleCombo.setSelectedItem(item.highlightStyle);
+                    slideTextHighlightTightnessSpinner.setValue(item.highlightTightness);
+                } else {
+                    SlideTextData.HlGroup g = (item.hlGroups != null && currentHlGroupIndex < item.hlGroups.size())
+                            ? item.hlGroups.get(currentHlGroupIndex) : new SlideTextData.HlGroup();
+                    slideTextHighlightColor = g.color != null ? g.color : new Color(255, 100, 150, 180);
+                    slideTextHighlightColorBtn.setForeground(slideTextHighlightColor);
+                    slideTextHighlightStyleCombo.setSelectedItem(g.style != null ? g.style : "Regular");
+                    slideTextHighlightTightnessSpinner.setValue(g.tightness);
+                }
+            } finally {
+                isLoadingSlideText = false;
+            }
+        }
+
+        /** Same as {@link #switchHlGroup} for the UL dropdown's style combo — see
+         *  its comment for why there's no saveCurrentSlideTextToItem() here. */
+        private void switchUlGroup(int comboIndex) {
+            if (currentSlideTextIndex < 0 || currentSlideTextIndex >= slideTextItems.size()) return;
+            currentUlGroupIndex = comboIndex - 1;
+            SlideTextData item = slideTextItems.get(currentSlideTextIndex);
+            isLoadingSlideText = true;
+            try {
+                if (currentUlGroupIndex < 0) {
+                    slideTextUnderlineCombo.setSelectedItem(item.underlineStyle);
+                } else {
+                    SlideTextData.UlGroup g = (item.ulGroups != null && currentUlGroupIndex < item.ulGroups.size())
+                            ? item.ulGroups.get(currentUlGroupIndex) : new SlideTextData.UlGroup();
+                    slideTextUnderlineCombo.setSelectedItem(g.style != null ? g.style : "Straight");
+                }
+            } finally {
+                isLoadingSlideText = false;
+            }
+        }
+
+        /** "+" next to the HL combo: appends a fresh, empty HL group and selects
+         *  it so the user can type its words and set its own colour/style/Tight. */
+        private void addHlGroup() {
+            if (currentSlideTextIndex < 0 || currentSlideTextIndex >= slideTextItems.size()) return;
+            saveCurrentSlideTextToItem();
+            SlideTextData item = slideTextItems.get(currentSlideTextIndex);
+            int newIdx = item.hlGroups != null ? item.hlGroups.size() : 0;
+            isLoadingSlideText = true;
+            try {
+                slideTextHighlightCombo.addItem("");
+                slideTextHighlightCombo.setSelectedIndex(slideTextHighlightCombo.getItemCount() - 1);
+                currentHlGroupIndex = newIdx;
+                slideTextHighlightColor = new Color(255, 100, 150, 180);
+                slideTextHighlightColorBtn.setForeground(slideTextHighlightColor);
+                slideTextHighlightStyleCombo.setSelectedItem("Regular");
+                slideTextHighlightTightnessSpinner.setValue(50);
+            } finally {
+                isLoadingSlideText = false;
+            }
+        }
+
+        /** "✕" next to the HL combo: drops the currently-selected extra group
+         *  (a no-op on row 0 — the primary HL box can't be removed this way). */
+        private void removeHlGroup() {
+            if (currentHlGroupIndex < 0) return;
+            if (currentSlideTextIndex < 0 || currentSlideTextIndex >= slideTextItems.size()) return;
+            SlideTextData item = slideTextItems.get(currentSlideTextIndex);
+            if (item.hlGroups != null && currentHlGroupIndex < item.hlGroups.size()) {
+                item.hlGroups.remove(currentHlGroupIndex);
+            }
+            isLoadingSlideText = true;
+            try { populateHlCombo(item); }
+            finally { isLoadingSlideText = false; }
+            onFormatChanged();
+        }
+
+        /** Same as {@link #addHlGroup} for the UL dropdown. */
+        private void addUlGroup() {
+            if (currentSlideTextIndex < 0 || currentSlideTextIndex >= slideTextItems.size()) return;
+            saveCurrentSlideTextToItem();
+            SlideTextData item = slideTextItems.get(currentSlideTextIndex);
+            int newIdx = item.ulGroups != null ? item.ulGroups.size() : 0;
+            isLoadingSlideText = true;
+            try {
+                slideTextUnderlineWordsCombo.addItem("");
+                slideTextUnderlineWordsCombo.setSelectedIndex(slideTextUnderlineWordsCombo.getItemCount() - 1);
+                currentUlGroupIndex = newIdx;
+                slideTextUnderlineCombo.setSelectedItem("Straight");
+            } finally {
+                isLoadingSlideText = false;
+            }
+        }
+
+        /** Same as {@link #removeHlGroup} for the UL dropdown. */
+        private void removeUlGroup() {
+            if (currentUlGroupIndex < 0) return;
+            if (currentSlideTextIndex < 0 || currentSlideTextIndex >= slideTextItems.size()) return;
+            SlideTextData item = slideTextItems.get(currentSlideTextIndex);
+            if (item.ulGroups != null && currentUlGroupIndex < item.ulGroups.size()) {
+                item.ulGroups.remove(currentUlGroupIndex);
+            }
+            isLoadingSlideText = true;
+            try { populateUlCombo(item); }
+            finally { isLoadingSlideText = false; }
+            onFormatChanged();
+        }
+
         private void saveCurrentSlideTextToItem() {
             if (currentSlideTextIndex < 0 || currentSlideTextIndex >= slideTextItems.size()) return;
             int fontStyle = Font.PLAIN;
@@ -26798,6 +27057,52 @@ public class GifSlideShowApp extends JFrame {
             double animStartSec = ((Number) slideTextAnimStartSpinner.getValue()).doubleValue();
             int animDurMs = (int) Math.round(animDurSec * 1000.0);
             int animStartMs = (int) Math.round(animStartSec * 1000.0);
+
+            // HL/UL are now dropdowns: row 0 is the primary group (these four/two
+            // constructor args, unchanged), any other row is an extra HlGroup/
+            // UlGroup. Whichever the combo currently has selected is the ONE thing
+            // this rebuild reads live from the toolbar; every other group (primary
+            // included, when an extra row is selected) is carried forward from
+            // prevItem untouched — same "only the active surface is live" rule the
+            // BG-style block already follows for everything else.
+            String newHlText, newUlText;
+            Color newHlColor;
+            String newHlStyle, newUlStyle;
+            int newHlTight;
+            List<SlideTextData.HlGroup> newHlGroups = new java.util.ArrayList<>();
+            if (prevItem.hlGroups != null) for (SlideTextData.HlGroup g : prevItem.hlGroups) if (g != null) newHlGroups.add(g.copy());
+            List<SlideTextData.UlGroup> newUlGroups = new java.util.ArrayList<>();
+            if (prevItem.ulGroups != null) for (SlideTextData.UlGroup g : prevItem.ulGroups) if (g != null) newUlGroups.add(g.copy());
+
+            if (currentHlGroupIndex < 0) {
+                newHlText = (String) slideTextHighlightCombo.getEditor().getItem();
+                newHlColor = slideTextHighlightColor;
+                newHlStyle = (String) slideTextHighlightStyleCombo.getSelectedItem();
+                newHlTight = (int) slideTextHighlightTightnessSpinner.getValue();
+            } else {
+                newHlText = prevItem.highlightText;
+                newHlColor = prevItem.highlightColor;
+                newHlStyle = prevItem.highlightStyle;
+                newHlTight = prevItem.highlightTightness;
+                while (newHlGroups.size() <= currentHlGroupIndex) newHlGroups.add(new SlideTextData.HlGroup());
+                SlideTextData.HlGroup g = newHlGroups.get(currentHlGroupIndex);
+                g.words = (String) slideTextHighlightCombo.getEditor().getItem();
+                g.color = slideTextHighlightColor;
+                g.style = (String) slideTextHighlightStyleCombo.getSelectedItem();
+                g.tightness = (int) slideTextHighlightTightnessSpinner.getValue();
+            }
+            if (currentUlGroupIndex < 0) {
+                newUlStyle = (String) slideTextUnderlineCombo.getSelectedItem();
+                newUlText = (String) slideTextUnderlineWordsCombo.getEditor().getItem();
+            } else {
+                newUlStyle = prevItem.underlineStyle;
+                newUlText = prevItem.underlineText;
+                while (newUlGroups.size() <= currentUlGroupIndex) newUlGroups.add(new SlideTextData.UlGroup());
+                SlideTextData.UlGroup g = newUlGroups.get(currentUlGroupIndex);
+                g.style = (String) slideTextUnderlineCombo.getSelectedItem();
+                g.words = (String) slideTextUnderlineWordsCombo.getEditor().getItem();
+            }
+
             SlideTextData newItem = new SlideTextData(
                     slideTextCheckBox.isSelected(), slideTextArea.getText(),
                     (String) slideTextFontCombo.getSelectedItem(), (int) slideTextSizeSpinner.getValue(),
@@ -26808,11 +27113,8 @@ public class GifSlideShowApp extends JFrame {
                     (int) slideTextShiftXSpinner.getValue(), alignment,
                     (String) slideTextEffectCombo.getSelectedItem(),
                     (int) slideTextEffectIntensitySpinner.getValue(),
-                    slideTextHighlightField.getText(), slideTextHighlightColor,
-                    (String) slideTextHighlightStyleCombo.getSelectedItem(),
-                    (int) slideTextHighlightTightnessSpinner.getValue(),
-                    (String) slideTextUnderlineCombo.getSelectedItem(),
-                    slideTextUnderlineTextField.getText(),
+                    newHlText, newHlColor, newHlStyle, newHlTight,
+                    newUlStyle, newUlText,
                     slideTextBoldField.getText(), slideTextItalicField.getText(),
                     slideTextColorTextField.getText(), slideTextColorTextColor, prevXLeftAligned,
                     slideTextOdometerCheck.isSelected(),
@@ -26857,10 +27159,11 @@ public class GifSlideShowApp extends JFrame {
             newItem.bgOuterGlowColor = slideTextBgGlowColor;
             newItem.fxBurst = slideTextBurstCheck.isSelected();
             newItem.fxBurstStyle = (String) slideTextBurstStyleCombo.getSelectedItem();
-            // Per-word HL overrides are edited in their own dialog, not on the
-            // toolbar, so carry them forward instead of dropping them every time an
-            // unrelated control changes.
-            newItem.hlPerWord = prevItem.hlPerWord;
+            // Extra HL/UL groups: the lists built above already carry every group
+            // forward from prevItem, with the one the dropdown has selected
+            // refreshed from the live toolbar widgets.
+            newItem.hlGroups = newHlGroups;
+            newItem.ulGroups = newUlGroups;
             // The Texts-Timer timeline is edited in its own dialog, not on the
             // main toolbar, so carry it forward from the previous item instead of
             // resetting it every time an unrelated property changes.
@@ -26947,13 +27250,17 @@ public class GifSlideShowApp extends JFrame {
                 slideTextEffectIntensitySpinner.setValue(item.textEffectIntensity);
                 slideTextBurstCheck.setSelected(item.fxBurst);
                 slideTextBurstStyleCombo.setSelectedItem(item.fxBurstStyle != null ? item.fxBurstStyle : "Stars");
-                slideTextHighlightField.setText(item.highlightText);
+                // Repopulate both dropdowns from this item's primary group + its
+                // extra HL2/HL3/... and UL2/UL3/... groups, then select row 0
+                // (primary) so the swatch/style/tight controls start out showing
+                // the text's main HL/UL look, exactly like before groups existed.
+                populateHlCombo(item);
+                populateUlCombo(item);
                 slideTextHighlightColor = item.highlightColor;
                 slideTextHighlightColorBtn.setForeground(item.highlightColor);
                 slideTextHighlightStyleCombo.setSelectedItem(item.highlightStyle);
                 slideTextHighlightTightnessSpinner.setValue(item.highlightTightness);
                 slideTextUnderlineCombo.setSelectedItem(item.underlineStyle);
-                slideTextUnderlineTextField.setText(item.underlineText);
                 slideTextBoldField.setText(item.boldText);
                 slideTextItalicField.setText(item.italicText);
                 slideTextColorTextField.setText(item.colorText);
@@ -28406,353 +28713,6 @@ public class GifSlideShowApp extends JFrame {
             return (idx + 1) + ".  " + a.kind + " · " + name
                     + "   @(" + (int) a.xPct + "," + (int) a.yPct + ")"
                     + "   in " + timerMsToSecStr(a.appearMs) + "s / " + dur;
-        }
-
-        // ===== Per-word highlight overrides ====================================
-        // The HL box marks a list of words and the controls beside it give all of
-        // them one look. This dialog is the exception list: per word, its own
-        // colour, highlight style, underline and Tight, each independently
-        // falling back to the row's setting. Stored on the text as one line of
-        // text (SlideTextData.hlPerWord) so it rides through presets and can be
-        // written straight into a Dict Import sheet's HL_STYLE column.
-
-        /**
-         * Lift any inline "word|#RRGGBB|Style" specs out of the HL field into the
-         * current text's per-word overrides, leaving the field holding just the
-         * words. A no-op when the field has no inline spec, so ordinary typing is
-         * untouched.
-         */
-        private void normalizeInlineHighlightSpec() {
-            if (isLoadingSlideText) return;
-            String raw = slideTextHighlightField.getText();
-            if (!hlHasInlineSpec(raw)) return;
-            String specs = hlInlineSpecs(raw);
-            String plain = hlPlainWords(raw);
-            saveCurrentSlideTextToItem();
-            if (currentSlideTextIndex >= 0 && currentSlideTextIndex < slideTextItems.size()) {
-                SlideTextData item = slideTextItems.get(currentSlideTextIndex);
-                item.hlPerWord = mergeHlPerWord(item.hlPerWord, specs);
-            }
-            isLoadingSlideText = true;
-            try { slideTextHighlightField.setText(plain); }
-            finally { isLoadingSlideText = false; }
-            saveCurrentSlideTextToItem();
-            onFormatChanged();
-        }
-
-        /** Distinct HL palette used by "Auto-colour" — readable over most images. */
-        private static final Color[] HL_WORD_PALETTE = {
-                new Color(255, 220,  60, 180), new Color(255, 110, 180, 180),
-                new Color( 80, 220, 220, 180), new Color(140, 230, 120, 180),
-                new Color(255, 150,  50, 180), new Color(180, 130, 255, 180),
-                new Color(255,  90,  90, 180), new Color(120, 180, 255, 180),
-        };
-
-        /** The words the editor offers: the HL list, plus any word that already
-         *  carries an override so an override can never become unreachable. */
-        private java.util.List<String> hlPerWordCandidates(SlideTextData st) {
-            java.util.LinkedHashMap<String, String> byKey = new java.util.LinkedHashMap<>();
-            String[] terms = splitTerms(st.highlightText);
-            if (terms != null) for (String t : terms) byKey.putIfAbsent(t.toLowerCase(), t);
-            String[] ulTerms = splitTerms(st.underlineText);
-            if (ulTerms != null) for (String t : ulTerms) byKey.putIfAbsent(t.toLowerCase(), t);
-            for (String k : parseHlPerWord(st.hlPerWord).keySet()) byKey.putIfAbsent(k, k);
-            return new java.util.ArrayList<>(byKey.values());
-        }
-
-        private void openHlPerWordDialog() {
-            saveCurrentSlideTextToItem();
-            if (currentSlideTextIndex < 0 || currentSlideTextIndex >= slideTextItems.size()) return;
-            final SlideTextData item = slideTextItems.get(currentSlideTextIndex);
-            final java.util.List<String> words = hlPerWordCandidates(item);
-            if (words.isEmpty()) {
-                JOptionPane.showMessageDialog(panel,
-                        "<html><body style='width:340px'>There are no highlighted words on this "
-                        + "text yet.<br><br>Type them in the <b>HL</b> box first — comma-separated, "
-                        + "like <i>his mouth, Scott, the bell</i> — or import them from your sheet's "
-                        + "HL column. Then come back here to give each one its own look."
-                        + "</body></html>",
-                        "Per-word highlight", JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
-
-            final Window owner = SwingUtilities.getWindowAncestor(panel);
-            final JDialog dlg = new JDialog(owner, "Highlight — one look per word",
-                    Dialog.ModalityType.APPLICATION_MODAL);
-            dlg.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
-
-            final String snapshot = item.hlPerWord;
-            final java.util.LinkedHashMap<String, HlWordStyle> map = parseHlPerWord(item.hlPerWord);
-
-            // Write the map back onto the text and repaint. Called on every edit so
-            // the slide preview tracks the dialog live, like the other FX boxes.
-            final Runnable commit = () -> {
-                item.hlPerWord = formatHlPerWord(map);
-                onFormatChanged();
-            };
-
-            final String SAME = "(same)";
-            JPanel grid = new JPanel(new GridBagLayout());
-            grid.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
-            GridBagConstraints gc = new GridBagConstraints();
-            gc.insets = new Insets(3, 5, 3, 5);
-            gc.anchor = GridBagConstraints.WEST;
-
-            String[] heads = {"Word", "Colour", "", "Highlight style", "Underline", "Tight"};
-            for (int c = 0; c < heads.length; c++) {
-                gc.gridx = c; gc.gridy = 0;
-                JLabel h = new JLabel(heads[c]);
-                h.setFont(new Font("Segoe UI", Font.BOLD, 11));
-                grid.add(h, gc);
-            }
-
-            // One control row per word. Each control writes only its own part of
-            // that word's entry, so "own colour, everything else as the text" works.
-            final java.util.List<JButton> swatches = new java.util.ArrayList<>();
-            for (int wi = 0; wi < words.size(); wi++) {
-                final String word = words.get(wi);
-                final String key = word.toLowerCase();
-                final int rowY = wi + 1;
-
-                java.util.function.Supplier<HlWordStyle> entry = () -> {
-                    HlWordStyle st = map.get(key);
-                    if (st == null) { st = new HlWordStyle(); map.put(key, st); }
-                    return st;
-                };
-
-                gc.gridx = 0; gc.gridy = rowY;
-                JLabel wl = new JLabel(word);
-                wl.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-                grid.add(wl, gc);
-
-                HlWordStyle cur = map.get(key);
-                final JButton swatch = new JButton();
-                swatch.setPreferredSize(new Dimension(64, 22));
-                swatch.setFocusPainted(false);
-                swatch.setFont(new Font("Segoe UI", Font.PLAIN, 10));
-                swatch.setToolTipText("This word's own highlight colour. Reset with ↺ "
-                        + "to use the text's colour instead.");
-                Runnable paintSwatch = () -> {
-                    HlWordStyle st = map.get(key);
-                    if (st != null && st.color != null) {
-                        swatch.setOpaque(true);
-                        repaintColorButton(swatch, st.color);
-                        swatch.setText("");
-                    } else {
-                        swatch.setOpaque(false);
-                        swatch.setBackground(null);
-                        swatch.setForeground(Color.DARK_GRAY);
-                        swatch.setText(SAME);
-                    }
-                };
-                if (cur != null && cur.color != null) { swatch.setOpaque(true); repaintColorButton(swatch, cur.color); }
-                else { swatch.setText(SAME); }
-                swatch.addActionListener(e -> {
-                    HlWordStyle st = entry.get();
-                    Color start = st.color != null ? st.color
-                            : (item.highlightColor != null ? item.highlightColor : new Color(255, 220, 60, 180));
-                    pickColorLive(dlg, "Highlight colour for “" + word + "”", start, c -> {
-                        st.color = new Color(c.getRed(), c.getGreen(), c.getBlue(), 180);
-                        paintSwatch.run();
-                        commit.run();
-                    });
-                });
-                swatches.add(swatch);
-                gc.gridx = 1; grid.add(swatch, gc);
-
-                JButton reset = new JButton("↺");
-                reset.setPreferredSize(new Dimension(30, 22));
-                reset.setMargin(new Insets(0, 0, 0, 0));
-                reset.setFocusPainted(false);
-                reset.setToolTipText("Drop this word's own colour and use the text's again");
-                reset.addActionListener(e -> {
-                    HlWordStyle st = map.get(key);
-                    if (st != null) { st.color = null; if (st.isEmpty()) map.remove(key); }
-                    paintSwatch.run();
-                    commit.run();
-                });
-                gc.gridx = 2; grid.add(reset, gc);
-
-                JComboBox<String> hlCombo = new JComboBox<>();
-                hlCombo.addItem(SAME);
-                for (String hs : HIGHLIGHT_STYLES) hlCombo.addItem(hs);
-                hlCombo.setSelectedItem(cur != null && cur.hlStyle != null ? cur.hlStyle : SAME);
-                hlCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-                hlCombo.setPreferredSize(new Dimension(120, 22));
-                hlCombo.setToolTipText("This word's own highlight style. “None” leaves it "
-                        + "unmarked even when the rest of the text is highlighted.");
-                hlCombo.addActionListener(e -> {
-                    String v = (String) hlCombo.getSelectedItem();
-                    HlWordStyle st = entry.get();
-                    st.hlStyle = SAME.equals(v) ? null : v;
-                    if (st.isEmpty()) map.remove(key);
-                    commit.run();
-                });
-                gc.gridx = 3; grid.add(hlCombo, gc);
-
-                JComboBox<String> ulCombo = new JComboBox<>();
-                ulCombo.addItem(SAME);
-                for (String us : UNDERLINE_STYLES) ulCombo.addItem(us);
-                ulCombo.setSelectedItem(cur != null && cur.ulStyle != null ? cur.ulStyle : SAME);
-                ulCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-                ulCombo.setPreferredSize(new Dimension(120, 22));
-                ulCombo.setToolTipText("This word's own underline style, independent of the "
-                        + "highlight above it.");
-                ulCombo.addActionListener(e -> {
-                    String v = (String) ulCombo.getSelectedItem();
-                    HlWordStyle st = entry.get();
-                    st.ulStyle = SAME.equals(v) ? null : v;
-                    if (st.isEmpty()) map.remove(key);
-                    commit.run();
-                });
-                gc.gridx = 4; grid.add(ulCombo, gc);
-
-                JTextField tightField = new JTextField(4);
-                tightField.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-                tightField.setText(cur != null && cur.tight != null ? String.valueOf(cur.tight) : "");
-                tightField.setToolTipText("This word's own Tight (-50…100). Leave blank to use "
-                        + "the text's Tight value.");
-                tightField.getDocument().addDocumentListener(new DocumentListener() {
-                    private void upd() {
-                        String v = tightField.getText().trim();
-                        HlWordStyle st = entry.get();
-                        if (v.isEmpty()) st.tight = null;
-                        else {
-                            try { st.tight = Integer.valueOf(Math.max(-50, Math.min(100, Integer.parseInt(v)))); }
-                            catch (NumberFormatException ex) { return; }
-                        }
-                        if (st.isEmpty()) map.remove(key);
-                        commit.run();
-                    }
-                    @Override public void insertUpdate(DocumentEvent e) { upd(); }
-                    @Override public void removeUpdate(DocumentEvent e) { upd(); }
-                    @Override public void changedUpdate(DocumentEvent e) { upd(); }
-                });
-                gc.gridx = 5; grid.add(tightField, gc);
-            }
-
-            JLabel hint = new JLabel("<html><body style='width:520px'>"
-                    + "Every box left on <i>(same)</i> uses the setting beside the HL field, so you "
-                    + "only fill in the words that should stand out differently.<br>"
-                    + "In a Dict Import sheet the same thing goes in an <b>HL_STYLE</b> column "
-                    + "(<tt>Scott=#FF0000|Marker; the bell=#00C853|Circle|Wavy</tt>), or inline in "
-                    + "the <b>HL</b> column itself (<tt>his mouth, Scott|#FF0000|Marker</tt>)."
-                    + "</body></html>");
-            hint.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            hint.setBorder(BorderFactory.createEmptyBorder(4, 10, 8, 10));
-
-            JButton autoBtn = new JButton("🎨 Auto-colour");
-            autoBtn.setToolTipText("Give every word a different colour from a readable palette. "
-                    + "Styles and Tight are left as they are.");
-            autoBtn.addActionListener(e -> {
-                for (int i = 0; i < words.size(); i++) {
-                    String key = words.get(i).toLowerCase();
-                    HlWordStyle st = map.get(key);
-                    if (st == null) { st = new HlWordStyle(); map.put(key, st); }
-                    st.color = HL_WORD_PALETTE[i % HL_WORD_PALETTE.length];
-                }
-                for (int i = 0; i < swatches.size(); i++) {
-                    JButton sw = swatches.get(i);
-                    sw.setOpaque(true);
-                    repaintColorButton(sw, HL_WORD_PALETTE[i % HL_WORD_PALETTE.length]);
-                    sw.setText("");
-                }
-                commit.run();
-            });
-
-            JButton clearBtn = new JButton("Clear all");
-            clearBtn.setToolTipText("Drop every per-word override — all the words go back to the "
-                    + "one look set beside the HL field.");
-            clearBtn.addActionListener(e -> {
-                map.clear();
-                commit.run();
-                dlg.dispose();
-                openHlPerWordDialog();
-            });
-
-            JButton allTextsBtn = new JButton("→ All texts on this slide");
-            allTextsBtn.setToolTipText("Copy these per-word looks onto every other text on this "
-                    + "slide, so an imported list that repeats across texts is styled once.");
-            allTextsBtn.addActionListener(e -> {
-                String spec = formatHlPerWord(map);
-                int n = 0;
-                for (int i = 0; i < slideTextItems.size(); i++) {
-                    if (i == currentSlideTextIndex) continue;
-                    slideTextItems.get(i).hlPerWord = spec;
-                    n++;
-                }
-                onFormatChanged();
-                JOptionPane.showMessageDialog(dlg, "Copied to " + n + " other text(s) on this slide.",
-                        "Per-word highlight", JOptionPane.INFORMATION_MESSAGE);
-            });
-
-            JButton allSlidesBtn = new JButton("→ All slides");
-            allSlidesBtn.setToolTipText("Copy these per-word looks to every text on every other "
-                    + "slide. Useful when the same words recur across the deck. Locked slides are "
-                    + "left alone.");
-            allSlidesBtn.addActionListener(e -> {
-                int ok = JOptionPane.showConfirmDialog(dlg,
-                        "<html><body style='width:330px'>Copy these per-word highlight looks to "
-                        + "every text on every other slide? Each slide keeps its own list of "
-                        + "highlighted words — only the per-word looks are copied.</body></html>",
-                        "Per-word highlight", JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
-                if (ok != JOptionPane.OK_OPTION) return;
-                String spec = formatHlPerWord(map);
-                int applied = 0, locked = 0;
-                for (SlideRow row : slideRows) {
-                    if (row == SlideRow.this || row.isTitleGridSlide) continue;
-                    if (row.isLocked()) { locked++; continue; }
-                    row.applyHlPerWordToAllTexts(spec);
-                    applied++;
-                }
-                String msg = "Copied to " + applied + " slide(s).";
-                if (locked > 0) msg += "\n" + locked + " locked slide(s) were left alone.";
-                JOptionPane.showMessageDialog(dlg, msg, "Per-word highlight",
-                        JOptionPane.INFORMATION_MESSAGE);
-            });
-
-            JButton cancelBtn = new JButton("Cancel");
-            cancelBtn.addActionListener(e -> {
-                item.hlPerWord = snapshot;
-                onFormatChanged();
-                dlg.dispose();
-            });
-            JButton closeBtn = new JButton("Close");
-            closeBtn.addActionListener(e -> dlg.dispose());
-
-            JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-            left.add(autoBtn); left.add(clearBtn); left.add(allTextsBtn); left.add(allSlidesBtn);
-            JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
-            right.add(cancelBtn); right.add(closeBtn);
-            JPanel south = new JPanel(new BorderLayout(8, 0));
-            south.setBorder(BorderFactory.createEmptyBorder(4, 8, 8, 8));
-            south.add(left, BorderLayout.WEST);
-            south.add(right, BorderLayout.EAST);
-
-            JPanel main = new JPanel(new BorderLayout(0, 4));
-            main.add(new JScrollPane(grid,
-                    JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
-                    JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED), BorderLayout.CENTER);
-            main.add(hint, BorderLayout.NORTH);
-            main.add(south, BorderLayout.SOUTH);
-
-            dlg.setContentPane(main);
-            dlg.pack();
-            Dimension d = dlg.getPreferredSize();
-            dlg.setSize(Math.max(660, d.width), Math.min(560, Math.max(260, d.height)));
-            dlg.setLocationRelativeTo(owner);
-            dlg.setVisible(true);
-        }
-
-        /** Stamp one per-word HL spec onto every text on this slide (the
-         *  "All slides" button and the Dict Import HL_STYLE column). */
-        void applyHlPerWordToAllTexts(String spec) {
-            String v = spec != null ? spec : "";
-            for (SlideTextData t : slideTextItems) t.hlPerWord = v;
-            if (currentSlideTextIndex >= 0 && currentSlideTextIndex < slideTextItems.size()) {
-                loadSlideTextFromItem(currentSlideTextIndex);
-            }
-            schedulePreview();
         }
 
         /**
@@ -30542,9 +30502,16 @@ public class GifSlideShowApp extends JFrame {
             m.fxBurst      = fxFrom.fxBurst;
             m.fxBurstStyle = fxFrom.fxBurstStyle;
 
-            // Per-word HL overrides belong to the Highlight group, alongside the
-            // highlight text / colour / style / tightness picked above.
-            m.hlPerWord = (gHl ? src : dst).hlPerWord;
+            // Extra HL groups belong to the Highlight toggle (alongside the
+            // primary highlight text/colour/style/tightness above); extra UL
+            // groups belong to the Word toggle (alongside underlineStyle).
+            // Deep-copied so m never shares mutable group lists with src/dst.
+            List<SlideTextData.HlGroup> hlGroupsFrom = (gHl ? src : dst).hlGroups;
+            m.hlGroups = new java.util.ArrayList<>();
+            if (hlGroupsFrom != null) for (SlideTextData.HlGroup hg : hlGroupsFrom) if (hg != null) m.hlGroups.add(hg.copy());
+            List<SlideTextData.UlGroup> ulGroupsFrom = (gWord ? src : dst).ulGroups;
+            m.ulGroups = new java.util.ArrayList<>();
+            if (ulGroupsFrom != null) for (SlideTextData.UlGroup ug : ulGroupsFrom) if (ug != null) m.ulGroups.add(ug.copy());
 
             SlideTextData tmFrom = gTimer ? src : dst;
             m.timerAppearMs     = tmFrom.timerAppearMs;
@@ -32206,13 +32173,16 @@ public class GifSlideShowApp extends JFrame {
                         fmt.animEnabled, fmt.animPath, fmt.animDurationMs, fmt.animStartMs, fmt.animEasing,
                         fmt.tiltDegrees, fmt.letterSpacing, fmt.lineSpacing, fmt.opacity);
                 SlideTextData.copyBgStyle(fmt, applied);
-                // Per-word HL overrides sit between the two rules above: they are a
-                // look (so the master broadcasts them, like the single HL colour and
-                // style) but they name specific words (so a slide that imported its
-                // own — Dict Import's HL_STYLE column — must not lose them). A slide
-                // carrying none takes the master's; one carrying its own keeps them.
-                applied.hlPerWord = (existing.hlPerWord != null && !existing.hlPerWord.isEmpty())
-                        ? existing.hlPerWord : fmt.hlPerWord;
+                // Extra HL/UL groups sit between the two rules above: they are a
+                // look (so the master broadcasts them, like the primary HL colour
+                // and style) but they name specific words (so a slide that imported
+                // its own — Dict Import's HL2/HL3/... columns — must not lose
+                // them). A slide carrying none takes the master's; one carrying its
+                // own keeps them, list for list.
+                applied.hlGroups = (existing.hlGroups != null && !existing.hlGroups.isEmpty())
+                        ? existing.hlGroups : fmt.hlGroups;
+                applied.ulGroups = (existing.ulGroups != null && !existing.ulGroups.isEmpty())
+                        ? existing.ulGroups : fmt.ulGroups;
                 // Texts-Timer timeline is per-slide (like HL/UL/audio), so keep
                 // this row's own timing instead of the master's after copyBgStyle.
                 applied.timerAppearMs = existing.timerAppearMs;
@@ -32253,8 +32223,10 @@ public class GifSlideShowApp extends JFrame {
                             lastFmt.tiltDegrees, lastFmt.letterSpacing, lastFmt.lineSpacing, lastFmt.opacity);
                     SlideTextData.copyBgStyle(lastFmt, applied);
                     // Same rule as the matched items above.
-                    applied.hlPerWord = (existing.hlPerWord != null && !existing.hlPerWord.isEmpty())
-                            ? existing.hlPerWord : lastFmt.hlPerWord;
+                    applied.hlGroups = (existing.hlGroups != null && !existing.hlGroups.isEmpty())
+                            ? existing.hlGroups : lastFmt.hlGroups;
+                    applied.ulGroups = (existing.ulGroups != null && !existing.ulGroups.isEmpty())
+                            ? existing.ulGroups : lastFmt.ulGroups;
                     // Keep this row's own Texts-Timer timeline (per-slide).
                     applied.timerAppearMs = existing.timerAppearMs;
                     applied.timerDisappearMs = existing.timerDisappearMs;
@@ -32454,6 +32426,52 @@ public class GifSlideShowApp extends JFrame {
             if (currentSlideTextIndex < slideTextItems.size()) {
                 loadSlideTextFromItem(currentSlideTextIndex);
             }
+        }
+
+        /** Replace every text's extra HL groups (HL2, HL3, ...) with one group per
+         *  word list in {@code wordLists}, in order — Dict Import's HL2/HL3/...
+         *  columns. Each group gets a fresh default colour/style/Tight; imported
+         *  looks are given their own colour/style afterwards in the app, via the
+         *  HL dropdown, exactly like the primary HL box always has been. */
+        void applyHlGroupColumnsToAllTexts(List<String> wordLists) {
+            List<SlideTextData.HlGroup> groups = new ArrayList<>();
+            if (wordLists != null) {
+                for (String w : wordLists) {
+                    SlideTextData.HlGroup g = new SlideTextData.HlGroup();
+                    g.words = w != null ? w : "";
+                    groups.add(g);
+                }
+            }
+            for (SlideTextData t : slideTextItems) {
+                List<SlideTextData.HlGroup> copy = new ArrayList<>();
+                for (SlideTextData.HlGroup g : groups) copy.add(g.copy());
+                t.hlGroups = copy;
+            }
+            if (currentSlideTextIndex >= 0 && currentSlideTextIndex < slideTextItems.size()) {
+                loadSlideTextFromItem(currentSlideTextIndex);
+            }
+            schedulePreview();
+        }
+
+        /** Same as {@link #applyHlGroupColumnsToAllTexts} for UL2/UL3/... columns. */
+        void applyUlGroupColumnsToAllTexts(List<String> wordLists) {
+            List<SlideTextData.UlGroup> groups = new ArrayList<>();
+            if (wordLists != null) {
+                for (String w : wordLists) {
+                    SlideTextData.UlGroup g = new SlideTextData.UlGroup();
+                    g.words = w != null ? w : "";
+                    groups.add(g);
+                }
+            }
+            for (SlideTextData t : slideTextItems) {
+                List<SlideTextData.UlGroup> copy = new ArrayList<>();
+                for (SlideTextData.UlGroup g : groups) copy.add(g.copy());
+                t.ulGroups = copy;
+            }
+            if (currentSlideTextIndex >= 0 && currentSlideTextIndex < slideTextItems.size()) {
+                loadSlideTextFromItem(currentSlideTextIndex);
+            }
+            schedulePreview();
         }
 
         /** Set bold text on all slide text items for this slide. */
