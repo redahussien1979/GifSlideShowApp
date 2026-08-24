@@ -28520,8 +28520,22 @@ public class GifSlideShowApp extends JFrame {
 
             // Write the map back onto the text and repaint. Called on every edit so
             // the slide preview tracks the dialog live, like the other FX boxes.
+            //
+            // Writes go through the LIVE array slot, fetched fresh each time — never
+            // onto the captured `item` reference. onFormatChanged() below calls
+            // schedulePreview() (and, when this is the master slide, broadcasts
+            // synchronously), both of which end up in saveCurrentSlideTextToItem():
+            // that method REPLACES slideTextItems[currentSlideTextIndex] with a
+            // freshly-built object read off the toolbar widgets. After that first
+            // replace, `item` is an orphaned copy — mutating it further would be
+            // invisible to the deck, so every word after the first (or every property
+            // after the first on the very same word) would silently vanish.
             final Runnable commit = () -> {
-                item.hlPerWord = formatHlPerWord(map);
+                String spec = formatHlPerWord(map);
+                if (currentSlideTextIndex >= 0 && currentSlideTextIndex < slideTextItems.size()) {
+                    slideTextItems.get(currentSlideTextIndex).hlPerWord = spec;
+                }
+                item.hlPerWord = spec; // keep the snapshot copy in sync too, for reads below
                 onFormatChanged();
             };
 
@@ -28768,6 +28782,11 @@ public class GifSlideShowApp extends JFrame {
 
             JButton cancelBtn = new JButton("Cancel");
             cancelBtn.addActionListener(e -> {
+                // Same live-slot rule as commit(): write the reverted value onto
+                // whatever object is actually in the deck right now, not `item`.
+                if (currentSlideTextIndex >= 0 && currentSlideTextIndex < slideTextItems.size()) {
+                    slideTextItems.get(currentSlideTextIndex).hlPerWord = snapshot;
+                }
                 item.hlPerWord = snapshot;
                 onFormatChanged();
                 dlg.dispose();
