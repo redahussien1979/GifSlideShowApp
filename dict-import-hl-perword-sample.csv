@@ -1,0 +1,6 @@
+TEXT1,HL,HL_COLOR,HL_STYLE,HL_UL,HL_TIGHT
+The dog ran home,"dog, home","red, green","Marker, Circle",", Wavy",
+A cat sat on the mat,"cat, mat","yellow, brown","Glow, Ink",", Straight","0, 30"
+Wear gloves at all times,"gloves, all times","blue, purple","Box, Tag",", Dotted",
+Do not touch the wire,"not, wire","red, orange","Strikethrough, Marker",", Thick",
+Only the second one is special,"Only, second one",", gold",", Circle",,

@@ -3692,15 +3692,19 @@ public class GifSlideShowApp extends JFrame {
 
         // Ask whether first row is a header
         int headerChoice = JOptionPane.showOptionDialog(this,
-                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting.\nHL_STYLE gives each highlighted word its OWN look:\n\"Scott=#FF0000|Marker; the bell=#00C853|Circle|Wavy\"\n(colour, highlight style, underline, Tight - any of them,\nin any order; a word you leave out keeps the slide's own\nhighlight settings). You can also write it inline in the\nHL column itself: \"his mouth, Scott|#FF0000|Marker\".\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.\nFor TWO audios on one text, put both paths comma-separated in that\ntext's audio cell, quoted: \"first.mp3,second.mp3\" (2nd plays after the\nfirst, separated by the Gap value).\nX-AXIS/Y-AXIS/TEXT-SIZE for position & size per text item.\nTEXT1TIME/TEXT2TIME/... for appear,go timing per text item\n(cell = \"appear,go\" in seconds; \"appear\" alone = never leaves).\nTIMER_TARGET for the Slide Timer's target text — the text the countdown\nreveals and badges at zero. Either a text number (1 = Text 1, 0 = none)\nor the text itself, matched against that row's texts.\nTIMER_END_AUDIO for that slide's \"play when it ends\" sound: a path\nrelative to the sheet (like AUDIOLINK), \"none\" for a quiet slide, or\n\"inherit\"/an empty cell to play the first slide's sound.\nEverything else about the timer comes from the first slide.\nPIC/PIC2/PIC3/... for a slide picture overlay: a path relative to the\nsheet (like AUDIOLINK), or \"none\" to hide that Pic slot. Place it with\nPIC_X, PIC_Y (centre, % of the frame), PIC_W (width, % of the frame),\nPIC_SHAPE (Rectangle or Circle) and PIC_RADIUS (corner radius).\nA bare PIC means Pic 1; PIC2_X places Pic 2, and so on. Hyphens read\nthe same as underscores (PIC2-X = PIC2_X).\nFor the SAME picture on every slide, leave PIC out of the sheet and\nuse the \u21CA All button in the Pic toolbar row instead.)",
+                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting.\nTo give each highlighted word its OWN look, add any of\nHL_COLOR / HL_STYLE / HL_UL / HL_TIGHT next to HL. Each is\na plain comma-separated list lined up with HL word by word:\n   HL         dog, home\n   HL_COLOR   red, green\n   HL_STYLE   Marker, Circle\n   HL_UL      , Wavy\nColours may be a name (red, green, blue, yellow, orange,\npurple, pink, cyan, teal, lime, gold, grey...) or #RRGGBB.\nLeave a slot empty to keep that word on the slide's own\nhighlight settings.\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.\nFor TWO audios on one text, put both paths comma-separated in that\ntext's audio cell, quoted: \"first.mp3,second.mp3\" (2nd plays after the\nfirst, separated by the Gap value).\nX-AXIS/Y-AXIS/TEXT-SIZE for position & size per text item.\nTEXT1TIME/TEXT2TIME/... for appear,go timing per text item\n(cell = \"appear,go\" in seconds; \"appear\" alone = never leaves).\nTIMER_TARGET for the Slide Timer's target text — the text the countdown\nreveals and badges at zero. Either a text number (1 = Text 1, 0 = none)\nor the text itself, matched against that row's texts.\nTIMER_END_AUDIO for that slide's \"play when it ends\" sound: a path\nrelative to the sheet (like AUDIOLINK), \"none\" for a quiet slide, or\n\"inherit\"/an empty cell to play the first slide's sound.\nEverything else about the timer comes from the first slide.\nPIC/PIC2/PIC3/... for a slide picture overlay: a path relative to the\nsheet (like AUDIOLINK), or \"none\" to hide that Pic slot. Place it with\nPIC_X, PIC_Y (centre, % of the frame), PIC_W (width, % of the frame),\nPIC_SHAPE (Rectangle or Circle) and PIC_RADIUS (corner radius).\nA bare PIC means Pic 1; PIC2_X places Pic 2, and so on. Hyphens read\nthe same as underscores (PIC2-X = PIC2_X).\nFor the SAME picture on every slide, leave PIC out of the sheet and\nuse the \u21CA All button in the Pic toolbar row instead.)",
                 "Dictionary Import", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,
                 null, new String[]{"Yes, skip first row", "No, first row is data"}, "No, first row is data");
 
         // Detect HL/UL/BOLD/ITALIC/COLOR/AUDIOLINK columns from header row
         int hlColIndex = -1;
-        // Per-word HL looks: "Scott=#FF0000|Marker; the bell=#00C853|Circle|Wavy".
-        // The HL column itself also accepts the inline form "Scott|#FF0000|Marker".
+        // Per-word HL looks. Each is a plain comma-separated list lined up with the
+        // HL column by position — HL "dog, home" + HL_COLOR "red, green" makes dog
+        // red and home green. A blank slot leaves that word on the slide's setting.
+        int hlColorColIndex = -1;
         int hlStyleColIndex = -1;
+        int hlUlColIndex = -1;
+        int hlTightColIndex = -1;
         int ulColIndex = -1;
         int boldColIndex = -1;
         int italicColIndex = -1;
@@ -3738,10 +3742,18 @@ public class GifSlideShowApp extends JFrame {
             // Scan headers for HL, UL, BOLD, ITALIC, COLOR, and AUDIOLINK columns (case-insensitive)
             for (int c = 0; c < headerFields.size(); c++) {
                 String h = headerFields.get(c).trim().toUpperCase();
-                if (h.equals("HL_STYLE") || h.equals("HL-STYLE") || h.equals("HLSTYLE")
-                        || h.equals("HL_STYLES") || h.equals("HIGHLIGHT_STYLE")) {
-                    // Checked before plain HL so "HL_STYLE" isn't swallowed by it.
+                // The HL_* variants are checked before plain HL so they aren't
+                // swallowed by it. Hyphens read the same as underscores.
+                if (h.equals("HL_COLOR") || h.equals("HL-COLOR") || h.equals("HLCOLOR")
+                        || h.equals("HL_COLOUR") || h.equals("HL-COLOUR")) {
+                    hlColorColIndex = c;
+                } else if (h.equals("HL_STYLE") || h.equals("HL-STYLE") || h.equals("HLSTYLE")) {
                     hlStyleColIndex = c;
+                } else if (h.equals("HL_UL") || h.equals("HL-UL") || h.equals("HLUL")
+                        || h.equals("HL_UNDERLINE") || h.equals("HL-UNDERLINE")) {
+                    hlUlColIndex = c;
+                } else if (h.equals("HL_TIGHT") || h.equals("HL-TIGHT") || h.equals("HLTIGHT")) {
+                    hlTightColIndex = c;
                 } else if (h.equals("HL") || h.equals("HIGHLIGHT")) {
                     hlColIndex = c;
                 } else if (h.equals("UL") || h.equals("UNDERLINE")) {
@@ -3926,25 +3938,22 @@ public class GifSlideShowApp extends JFrame {
                 }
             }
 
-            // Apply HL text from CSV if column exists. The cell may carry inline
-            // per-word looks ("his mouth, Scott|#FF0000|Marker"); those are split
-            // off here so only the words themselves reach the HL field.
-            String rowHlPerWord = "";
+            // Apply HL text from CSV if column exists
+            String rowHlText = "";
             if (hlColIndex >= 0 && hlColIndex < fields.size()) {
-                String hlCell = fields.get(hlColIndex).trim();
-                rowHlPerWord = hlInlineSpecs(hlCell);
-                String hlText = hlPlainWords(hlCell);
-                slide.setHighlightText(hlText);
-                slide.setSlideTextHighlightText(hlText);
+                rowHlText = fields.get(hlColIndex).trim();
+                slide.setHighlightText(rowHlText);
+                slide.setSlideTextHighlightText(rowHlText);
             }
 
-            // An HL_STYLE column says the same thing in one place, and wins over
-            // anything the HL cell spelled inline for the same word.
-            if (hlStyleColIndex >= 0 && hlStyleColIndex < fields.size()) {
-                rowHlPerWord = mergeHlPerWord(rowHlPerWord, fields.get(hlStyleColIndex).trim());
-            }
-            if (hlColIndex >= 0 || hlStyleColIndex >= 0) {
-                slide.applyHlPerWordToAllTexts(rowHlPerWord);
+            // Per-word looks: HL_COLOR / HL_STYLE / HL_UL / HL_TIGHT, each lined up
+            // with the HL words by position. Only touched when the sheet has at
+            // least one of them, so a sheet without them behaves as it always did.
+            if (hlColorColIndex >= 0 || hlStyleColIndex >= 0
+                    || hlUlColIndex >= 0 || hlTightColIndex >= 0) {
+                slide.applyHlPerWordToAllTexts(hlPerWordFromColumns(rowHlText,
+                        cellAt(fields, hlColorColIndex), cellAt(fields, hlStyleColIndex),
+                        cellAt(fields, hlUlColIndex),    cellAt(fields, hlTightColIndex)));
             }
 
             // Apply UL text from CSV if column exists
@@ -4211,9 +4220,12 @@ public class GifSlideShowApp extends JFrame {
 
         String importMsg = assigned + " rows imported across " + textColIndices.size() + " text columns.";
         if (hlColIndex >= 0) importMsg += "\nHL column detected — highlight words imported per slide.";
-        if (hlStyleColIndex >= 0) importMsg += "\nHL_STYLE column detected — per-word highlight looks imported.";
-        else if (hlColIndex >= 0) importMsg += "\n  (add an HL_STYLE column, or write \"word|#RRGGBB|Style\" "
-                + "inside HL, to give each word its own look.)";
+        if (hlColorColIndex >= 0 || hlStyleColIndex >= 0 || hlUlColIndex >= 0 || hlTightColIndex >= 0) {
+            importMsg += "\nPer-word highlight columns detected — each word takes its own look.";
+        } else if (hlColIndex >= 0) {
+            importMsg += "\n  (add HL_COLOR / HL_STYLE / HL_UL / HL_TIGHT columns — one value per HL"
+                    + "\n   word, same order — to give each word its own look.)";
+        }
         if (ulColIndex >= 0) importMsg += "\nUL column detected — underline words imported per slide.";
         if (boldColIndex >= 0) importMsg += "\nBOLD column detected — bold words imported per slide.";
         if (italicColIndex >= 0) importMsg += "\nITALIC column detected — italic words imported per slide.";
@@ -4635,15 +4647,11 @@ public class GifSlideShowApp extends JFrame {
                 }
             }
 
-            // Apply HL column -> slide-level + per-slide-text highlight. Inline
-            // per-word looks ("Scott|#FF0000|Marker") are split off, same as in
-            // Dict Import.
+            // Apply HL column -> slide-level + per-slide-text highlight.
             if (hlColIndex >= 0 && hlColIndex < fields.size()) {
-                String hlCell = fields.get(hlColIndex).trim();
-                String hlText = hlPlainWords(hlCell);
+                String hlText = fields.get(hlColIndex).trim();
                 slide.setHighlightText(hlText);
                 slide.setSlideTextHighlightText(hlText);
-                slide.applyHlPerWordToAllTexts(hlInlineSpecs(hlCell));
             }
 
             String s;
@@ -10776,7 +10784,8 @@ public class GifSlideShowApp extends JFrame {
         return st;
     }
 
-    /** A handful of plain colour names, so a sheet can say "red" instead of #FF0000. */
+    /** Plain colour names, so a sheet can say "red" and never touch a hex code.
+     *  All at the highlight's usual 180 alpha so they sit over the text nicely. */
     static Color namedColor(String name) {
         if (name == null) return null;
         switch (name.trim().toLowerCase()) {
@@ -10786,8 +10795,17 @@ public class GifSlideShowApp extends JFrame {
             case "yellow":  return new Color(255, 220,  60, 180);
             case "orange":  return new Color(255, 150,  50, 180);
             case "purple":  return new Color(180, 110, 255, 180);
+            case "violet":  return new Color(180, 110, 255, 180);
             case "pink":    return new Color(255, 110, 180, 180);
             case "cyan":    return new Color( 80, 220, 220, 180);
+            case "teal":    return new Color( 40, 180, 175, 180);
+            case "lime":    return new Color(170, 230,  80, 180);
+            case "gold":    return new Color(240, 190,  40, 180);
+            case "brown":   return new Color(165, 115,  75, 180);
+            case "navy":    return new Color( 50,  80, 170, 180);
+            case "olive":   return new Color(150, 160,  60, 180);
+            case "magenta": return new Color(230,  80, 220, 180);
+            case "grey": case "gray": return new Color(170, 170, 170, 180);
             case "white":   return new Color(255, 255, 255, 180);
             case "black":   return new Color(  0,   0,   0, 180);
             default:        return null;
@@ -10833,58 +10851,107 @@ public class GifSlideShowApp extends JFrame {
         return sb.toString();
     }
 
-    /** True when an HL string carries inline "word|#RRGGBB|Style" specs. */
-    static boolean hlHasInlineSpec(String raw) {
-        return raw != null && raw.indexOf('|') >= 0;
+    /**
+     * Split a comma-separated sheet cell into trimmed parts, KEEPING the empty
+     * ones. The per-word HL columns line up with the HL column by position, so
+     * "red, , blue" has to stay three entries with the middle one blank ("leave
+     * that word as the slide's own"). {@link #splitTerms} drops blanks, which is
+     * right for word lists and wrong here.
+     */
+    static String[] splitListKeepBlanks(String csv) {
+        if (csv == null) return new String[0];
+        String t = csv.trim();
+        if (t.isEmpty()) return new String[0];
+        String[] raw = t.split(",", -1);
+        for (int i = 0; i < raw.length; i++) raw[i] = raw[i].trim();
+        return raw;
     }
 
     /**
-     * The plain word list out of an HL string that may carry inline specs:
-     * {@code "his mouth, Scott|#FF0000|Marker"} → {@code "his mouth, Scott"}.
-     * Everything downstream (matching, bold/italic pairing, the toolbar field)
-     * sees only the words, so the inline form is purely an input shorthand.
+     * Build the per-word override string from the sheet's parallel columns.
+     *
+     * <p>Each column is a plain comma-separated list lined up with HL by
+     * position — the same shape as the HL cell itself, so filling them in is one
+     * value per word and nothing else to remember:
+     *
+     * <pre>
+     *   HL        dog, home
+     *   HL_COLOR  red, green
+     *   HL_STYLE  Marker, Circle
+     *   HL_UL     , Wavy
+     *   HL_TIGHT  , 30
+     * </pre>
+     *
+     * A blank slot (or a short/absent column) means "leave that word on the
+     * slide's own setting", so only the cells that differ need filling.
      */
-    static String hlPlainWords(String raw) {
-        if (!hlHasInlineSpec(raw)) return raw == null ? "" : raw;
-        StringBuilder sb = new StringBuilder();
-        for (String term : raw.split(",")) {
-            int bar = term.indexOf('|');
-            String word = (bar >= 0 ? term.substring(0, bar) : term).trim();
-            if (word.isEmpty()) continue;
-            if (sb.length() > 0) sb.append(", ");
-            sb.append(word);
-        }
-        return sb.toString();
-    }
+    static String hlPerWordFromColumns(String hlWords, String colors, String hlStyles,
+                                       String ulStyles, String tights) {
+        String[] words = splitTerms(hlWords);
+        if (words == null) return "";
+        String[] cs = splitListKeepBlanks(colors);
+        String[] hs = splitListKeepBlanks(hlStyles);
+        String[] us = splitListKeepBlanks(ulStyles);
+        String[] ts = splitListKeepBlanks(tights);
+        if (cs.length == 0 && hs.length == 0 && us.length == 0 && ts.length == 0) return "";
 
-    /**
-     * The overrides carried by an HL string's inline specs, in {@code hlPerWord}
-     * syntax. {@code "Scott|#FF0000|Marker, apple|Circle"} becomes
-     * {@code "scott=#FF0000|Marker; apple=Circle"}. Returns "" when the string
-     * has no inline specs.
-     */
-    static String hlInlineSpecs(String raw) {
-        if (!hlHasInlineSpec(raw)) return "";
         java.util.LinkedHashMap<String, HlWordStyle> map = new java.util.LinkedHashMap<>();
-        for (String term : raw.split(",")) {
-            int bar = term.indexOf('|');
-            if (bar < 0) continue;
-            String word = term.substring(0, bar).trim();
-            if (word.isEmpty()) continue;
-            HlWordStyle st = parseHlStyleParts(term.substring(bar + 1).split("\\|"), 0);
-            if (!st.isEmpty()) map.put(word.toLowerCase(), st);
+        for (int i = 0; i < words.length; i++) {
+            HlWordStyle st = new HlWordStyle();
+            st.color   = i < cs.length ? parseHlColor(cs[i]) : null;
+            st.hlStyle = i < hs.length ? matchHighlightStyle(hs[i]) : null;
+            st.ulStyle = i < us.length ? matchUnderlineStyle(us[i]) : null;
+            if (i < ts.length && !ts[i].isEmpty()) {
+                try { st.tight = Integer.valueOf(Math.max(-50, Math.min(100, Integer.parseInt(ts[i])))); }
+                catch (NumberFormatException ignored) { /* not a number → leave it alone */ }
+            }
+            if (!st.isEmpty()) map.put(words[i].toLowerCase(), st);
         }
         return formatHlPerWord(map);
     }
 
-    /** Merge {@code extra} over {@code base}, entry by entry ({@code extra} wins). */
-    static String mergeHlPerWord(String base, String extra) {
-        if (extra == null || extra.trim().isEmpty()) return base == null ? "" : base;
-        if (base == null || base.trim().isEmpty()) return extra;
-        java.util.LinkedHashMap<String, HlWordStyle> merged = parseHlPerWord(base);
-        merged.putAll(parseHlPerWord(extra));
-        return formatHlPerWord(merged);
+    /** A sheet colour cell: "#RRGGBB[AA]" or a plain name like "red". */
+    static Color parseHlColor(String cell) {
+        if (cell == null) return null;
+        String t = cell.trim();
+        if (t.isEmpty()) return null;
+        if (t.charAt(0) == '#') return hexToColor(t);
+        return namedColor(t);
     }
+
+    /**
+     * The sheet's HL_COLOR / HL_STYLE / HL_UL / HL_TIGHT cells for one text,
+     * rebuilt from its stored overrides. Backs the Words… box's "copy for sheet"
+     * button so a look designed in the app can be pasted straight into Excel.
+     * Returns the four cells in that order, each lined up with {@code hlWords}.
+     */
+    static String[] hlPerWordToColumns(String hlWords, String spec) {
+        String[] words = splitTerms(hlWords);
+        java.util.Map<String, HlWordStyle> map = parseHlPerWord(spec);
+        StringBuilder cs = new StringBuilder(), hs = new StringBuilder();
+        StringBuilder us = new StringBuilder(), ts = new StringBuilder();
+        if (words != null) {
+            for (int i = 0; i < words.length; i++) {
+                if (i > 0) { cs.append(", "); hs.append(", "); us.append(", "); ts.append(", "); }
+                HlWordStyle st = map.get(words[i].toLowerCase());
+                if (st == null) continue;
+                if (st.color   != null) cs.append(colorToHex(st.color));
+                if (st.hlStyle != null) hs.append(st.hlStyle);
+                if (st.ulStyle != null) us.append(st.ulStyle);
+                if (st.tight   != null) ts.append(st.tight);
+            }
+        }
+        // An all-blank list means that column has nothing to say.
+        return new String[]{blankIfEmptyList(cs), blankIfEmptyList(hs),
+                            blankIfEmptyList(us), blankIfEmptyList(ts)};
+    }
+
+    /** "" when a built-up list holds nothing but separators. */
+    private static String blankIfEmptyList(StringBuilder sb) {
+        String s = sb.toString();
+        return s.replace(",", "").trim().isEmpty() ? "" : s;
+    }
+
 
     /**
      * For each wrapped line, return a list of [startInLine, endExclusiveInLine, termIdx]
@@ -24112,21 +24179,12 @@ public class GifSlideShowApp extends JFrame {
             slideTextHighlightField.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             slideTextHighlightField.setPreferredSize(new Dimension(80, 24));
             slideTextHighlightField.setToolTipText("<html>Words to highlight — comma-separated, e.g. "
-                    + "<i>hello, world</i>.<br>A word can carry its own look inline: "
-                    + "<tt>hello, world|#FF0000|Marker</tt> — the extra parts move into the "
-                    + "<b>\uD83C\uDFA8 Words\u2026</b> box as soon as you leave the field.</html>");
+                    + "<i>hello, world</i>.<br>To give each word its own colour or style, use the "
+                    + "<b>\uD83C\uDFA8 Words\u2026</b> button at the end of this row.</html>");
             slideTextHighlightField.getDocument().addDocumentListener(new DocumentListener() {
                 @Override public void insertUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
                 @Override public void removeUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
                 @Override public void changedUpdate(DocumentEvent e) { if (!isLoadingSlideText) onFormatChanged(); }
-            });
-            // Typing "word|#FF0000|Marker" here is the keyboard shortcut for the
-            // Words… box: on Enter / focus-lost the spec is lifted out into the
-            // text's per-word overrides and the field is left holding the words
-            // alone, so everything downstream still matches on plain words.
-            slideTextHighlightField.addActionListener(e -> normalizeInlineHighlightSpec());
-            slideTextHighlightField.addFocusListener(new java.awt.event.FocusAdapter() {
-                @Override public void focusLost(java.awt.event.FocusEvent e) { normalizeInlineHighlightSpec(); }
             });
 
             slideTextHighlightColorBtn = new JButton("\u25A0");
@@ -28416,30 +28474,6 @@ public class GifSlideShowApp extends JFrame {
         // text (SlideTextData.hlPerWord) so it rides through presets and can be
         // written straight into a Dict Import sheet's HL_STYLE column.
 
-        /**
-         * Lift any inline "word|#RRGGBB|Style" specs out of the HL field into the
-         * current text's per-word overrides, leaving the field holding just the
-         * words. A no-op when the field has no inline spec, so ordinary typing is
-         * untouched.
-         */
-        private void normalizeInlineHighlightSpec() {
-            if (isLoadingSlideText) return;
-            String raw = slideTextHighlightField.getText();
-            if (!hlHasInlineSpec(raw)) return;
-            String specs = hlInlineSpecs(raw);
-            String plain = hlPlainWords(raw);
-            saveCurrentSlideTextToItem();
-            if (currentSlideTextIndex >= 0 && currentSlideTextIndex < slideTextItems.size()) {
-                SlideTextData item = slideTextItems.get(currentSlideTextIndex);
-                item.hlPerWord = mergeHlPerWord(item.hlPerWord, specs);
-            }
-            isLoadingSlideText = true;
-            try { slideTextHighlightField.setText(plain); }
-            finally { isLoadingSlideText = false; }
-            saveCurrentSlideTextToItem();
-            onFormatChanged();
-        }
-
         /** Distinct HL palette used by "Auto-colour" — readable over most images. */
         private static final Color[] HL_WORD_PALETTE = {
                 new Color(255, 220,  60, 180), new Color(255, 110, 180, 180),
@@ -28631,12 +28665,15 @@ public class GifSlideShowApp extends JFrame {
                 gc.gridx = 5; grid.add(tightField, gc);
             }
 
-            JLabel hint = new JLabel("<html><body style='width:520px'>"
+            JLabel hint = new JLabel("<html><body style='width:560px'>"
                     + "Every box left on <i>(same)</i> uses the setting beside the HL field, so you "
                     + "only fill in the words that should stand out differently.<br>"
-                    + "In a Dict Import sheet the same thing goes in an <b>HL_STYLE</b> column "
-                    + "(<tt>Scott=#FF0000|Marker; the bell=#00C853|Circle|Wavy</tt>), or inline in "
-                    + "the <b>HL</b> column itself (<tt>his mouth, Scott|#FF0000|Marker</tt>)."
+                    + "In a Dict Import sheet these are four ordinary columns next to <b>HL</b> — "
+                    + "<b>HL_COLOR</b>, <b>HL_STYLE</b>, <b>HL_UL</b>, <b>HL_TIGHT</b> — one value "
+                    + "per word, in the same order as HL (<tt>dog, home</tt> \u2192 "
+                    + "<tt>red, green</tt>). Leave a slot empty to keep that word as it is. "
+                    + "<b>Copy for sheet</b> below puts this table on the clipboard, ready to paste "
+                    + "into Excel."
                     + "</body></html>");
             hint.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             hint.setBorder(BorderFactory.createEmptyBorder(4, 10, 8, 10));
@@ -28658,6 +28695,24 @@ public class GifSlideShowApp extends JFrame {
                     sw.setText("");
                 }
                 commit.run();
+            });
+
+            JButton copyBtn = new JButton("\u29C9 Copy for sheet");
+            copyBtn.setToolTipText("Put this table on the clipboard as five tab-separated cells "
+                    + "(HL, HL_COLOR, HL_STYLE, HL_UL, HL_TIGHT) — paste it into one row of your "
+                    + "Dict Import sheet and the columns fill themselves in.");
+            copyBtn.addActionListener(e -> {
+                String[] cols = hlPerWordToColumns(item.highlightText, formatHlPerWord(map));
+                String line = item.highlightText + "\t" + cols[0] + "\t" + cols[1]
+                        + "\t" + cols[2] + "\t" + cols[3];
+                Toolkit.getDefaultToolkit().getSystemClipboard()
+                        .setContents(new java.awt.datatransfer.StringSelection(line), null);
+                JOptionPane.showMessageDialog(dlg,
+                        "<html><body style='width:360px'>Copied. Paste it into the <b>HL</b> cell of "
+                        + "this slide's row and it fills <b>HL</b>, <b>HL_COLOR</b>, <b>HL_STYLE</b>, "
+                        + "<b>HL_UL</b> and <b>HL_TIGHT</b> across five columns.<br><br><tt>"
+                        + line.replace("\t", "  \u2502  ") + "</tt></body></html>",
+                        "Copy for sheet", JOptionPane.INFORMATION_MESSAGE);
             });
 
             JButton clearBtn = new JButton("Clear all");
@@ -28721,7 +28776,8 @@ public class GifSlideShowApp extends JFrame {
             closeBtn.addActionListener(e -> dlg.dispose());
 
             JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-            left.add(autoBtn); left.add(clearBtn); left.add(allTextsBtn); left.add(allSlidesBtn);
+            left.add(autoBtn); left.add(copyBtn); left.add(clearBtn);
+            left.add(allTextsBtn); left.add(allSlidesBtn);
             JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
             right.add(cancelBtn); right.add(closeBtn);
             JPanel south = new JPanel(new BorderLayout(8, 0));
