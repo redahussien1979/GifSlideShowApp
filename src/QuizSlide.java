@@ -2774,7 +2774,7 @@ public class QuizSlide {
     // ============================================================
 
     private static final String[] FX_NAMES = {
-            "Glow", "Enlarge", "Bold", "Underline", "Color", "Shake", "Pulse"
+            "Glow", "Glow2", "Enlarge", "Bold", "Underline", "Color", "Shake", "Pulse"
     };
 
     /** Build a one-line summary of the configured cues for the main dialog label. */
