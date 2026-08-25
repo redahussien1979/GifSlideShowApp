@@ -6702,6 +6702,27 @@ public class GifSlideShowApp extends JFrame {
                     stExtraUlTerms.add(splitTerms(setupUlWords));
                 }
 
+                // Per-word overrides (the Bold / Italic / Colour word lists and
+                // every font group) get the SAME multi-line decomposition as
+                // HL/UL above. They used to be matched with a plain indexOf inside
+                // each wrapped line, which silently dropped any phrase the wrap
+                // split in two: "rat race" broken across lines matched neither
+                // half. computeWrapSegments searches the lines joined end to end,
+                // so a phrase that spans the break styles both of its halves.
+                java.util.List<java.util.List<int[]>> stBoldSegments   = computeWrapSegments(stWrappedLines, st.boldText);
+                java.util.List<java.util.List<int[]>> stItalicSegments = computeWrapSegments(stWrappedLines, st.italicText);
+                java.util.List<java.util.List<int[]>> stColorSegments  = computeWrapSegments(stWrappedLines, st.colorText);
+                int stFnCount = st.fnGroups != null ? st.fnGroups.size() : 0;
+                java.util.List<java.util.List<java.util.List<int[]>>> stFnSegments = new java.util.ArrayList<>();
+                for (int gi = 0; gi < stFnCount; gi++) {
+                    SlideTextData.FnGroup setupFnG = st.fnGroups.get(gi);
+                    // Groups that would not change anything are skipped outright,
+                    // so an empty or untouched row never drags the line through
+                    // the erase-and-redraw pass below.
+                    stFnSegments.add(setupFnG != null && setupFnG.hasOverride()
+                            ? computeWrapSegments(stWrappedLines, setupFnG.words) : null);
+                }
+
                 // ----- Hide the original word for in-place word effects -----
                 // For a word-targeted Pulse/Shake/Bounce/Spin/Flash, punch the
                 // word's rectangle out of the text-draw clip so the paragraph
@@ -8138,113 +8159,76 @@ public class GifSlideShowApp extends JFrame {
                     }
 
                     // === Pre-collect per-word override regions and save background pixels ===
-                    boolean hasBoldWords = st.boldText != null && !st.boldText.isEmpty();
-                    boolean hasItalicWords = st.italicText != null && !st.italicText.isEmpty();
-                    boolean hasColorWords = st.colorText != null && !st.colorText.isEmpty();
-                    // Font groups only count when they would actually change how
-                    // their words look — an empty or untouched row must not drag
-                    // the whole line through the erase-and-redraw pass below.
-                    boolean hasFontWords = false;
-                    if (st.fnGroups != null) {
-                        for (SlideTextData.FnGroup fg : st.fnGroups) {
-                            if (fg != null && fg.hasOverride()) { hasFontWords = true; break; }
-                        }
+                    // Ranges come from the whole-paragraph segments computed above,
+                    // so a phrase the wrap split across two lines styles both of
+                    // its halves. They are keyed by the character range they cover
+                    // so a word that appears in SEVERAL lists (bold and a font
+                    // group, say) is drawn once carrying every override, instead of
+                    // twice with the second draw erasing the first.
+                    java.util.LinkedHashMap<Long, int[]> ovFlagsByRange = new java.util.LinkedHashMap<>();
+                    addOverrideRanges(ovFlagsByRange, stBoldSegments, li, 0, 1);
+                    addOverrideRanges(ovFlagsByRange, stItalicSegments, li, 1, 1);
+                    addOverrideRanges(ovFlagsByRange, stColorSegments, li, 2, 1);
+                    // Slot 3 holds the 1-based font group index. A word claimed by
+                    // two groups belongs to the FIRST of them, so the row order in
+                    // the dropdown decides — a stable rule the user can see, rather
+                    // than last-wins.
+                    for (int fgi = 0; fgi < stFnSegments.size(); fgi++) {
+                        addOverrideRanges(ovFlagsByRange, stFnSegments.get(fgi), li, 3, fgi + 1);
                     }
-                    // List of: [ovIdx, termLen, ovX, ovW, boldFlag, italicFlag, colorFlag, savedPixels[]]
-                    java.util.List<Object[]> overrideRegions = new java.util.ArrayList<>();
-                    if (hasBoldWords || hasItalicWords || hasColorWords || hasFontWords) {
-                        java.util.LinkedHashMap<String, int[]> overrideTerms = new java.util.LinkedHashMap<>();
-                        if (hasBoldWords) {
-                            for (String bt : st.boldText.split(",")) {
-                                bt = bt.trim();
-                                if (!bt.isEmpty()) {
-                                    int[] flags = overrideTerms.computeIfAbsent(bt.toLowerCase(), k -> new int[4]);
-                                    flags[0] = 1;
-                                }
-                            }
-                        }
-                        if (hasItalicWords) {
-                            for (String it : st.italicText.split(",")) {
-                                it = it.trim();
-                                if (!it.isEmpty()) {
-                                    int[] flags = overrideTerms.computeIfAbsent(it.toLowerCase(), k -> new int[4]);
-                                    flags[1] = 1;
-                                }
-                            }
-                        }
-                        if (hasColorWords) {
-                            for (String ct : st.colorText.split(",")) {
-                                ct = ct.trim();
-                                if (!ct.isEmpty()) {
-                                    int[] flags = overrideTerms.computeIfAbsent(ct.toLowerCase(), k -> new int[4]);
-                                    flags[2] = 1;
-                                }
-                            }
-                        }
-                        if (hasFontWords) {
-                            // flags[3] is the 1-based font group index (0 = none).
-                            // A word listed in two groups belongs to the FIRST that
-                            // claims it, so the row order in the dropdown decides —
-                            // a stable rule the user can see, rather than last-wins.
-                            for (int fgi = 0; fgi < st.fnGroups.size(); fgi++) {
-                                SlideTextData.FnGroup fg = st.fnGroups.get(fgi);
-                                if (fg == null || !fg.hasOverride()) continue;
-                                for (String ft : fg.words.split(",")) {
-                                    ft = ft.trim();
-                                    if (ft.isEmpty()) continue;
-                                    int[] flags = overrideTerms.computeIfAbsent(ft.toLowerCase(), k -> new int[4]);
-                                    if (flags[3] == 0) flags[3] = fgi + 1;
-                                }
-                            }
-                        }
 
-                        String ovLineLower = visibleLine.toLowerCase();
-                        for (java.util.Map.Entry<String, int[]> entry : overrideTerms.entrySet()) {
-                            String termLower = entry.getKey();
-                            int[] flags = entry.getValue();
-                            int ovSearchFrom = 0;
-                            while (ovSearchFrom < ovLineLower.length()) {
-                                int ovIdx = ovLineLower.indexOf(termLower, ovSearchFrom);
-                                if (ovIdx < 0) break;
-                                int ovX, ovW;
-                                if (stTextLayout != null && ovIdx + termLower.length() <= line.length()) {
-                                    java.awt.Shape ovShape = stTextLayout.getLogicalHighlightShape(ovIdx, ovIdx + termLower.length());
-                                    java.awt.geom.Rectangle2D ovBounds = ovShape.getBounds2D();
-                                    ovX = lineX + (int) ovBounds.getX();
-                                    ovW = (int) Math.ceil(ovBounds.getWidth());
-                                } else {
-                                    String ovBefore = visibleLine.substring(0, ovIdx);
-                                    ovX = lineX + stFm.stringWidth(ovBefore);
-                                    ovW = stFm.stringWidth(visibleLine.substring(ovIdx, ovIdx + termLower.length()));
-                                }
-                                // Save background pixels before text is drawn.
-                                // The box is the term's LOGICAL advance, but glyph
-                                // ink overhangs it (antialiased edges, italic
-                                // slant, script tails), and whatever is left
-                                // outside the box survives the restore below as a
-                                // ghost fringe of the original word beside the
-                                // replacement. A small margin, scaled with the
-                                // font so it holds at any size, takes that fringe
-                                // with it; words are space-separated, so it stays
-                                // clear of the neighbours' ink.
-                                int ovPad = Math.max(1, (int) Math.ceil(scaledStSize * 0.08));
-                                int saveY = lineY - stFm.getAscent() - 2 - ovPad;
-                                int saveH = stFm.getHeight() + 4 + ovPad * 2;
-                                int sx = Math.max(0, ovX - ovPad);
-                                int sy = Math.max(0, saveY);
-                                int sw = Math.min(ovW + (ovX - sx) + ovPad, frame.getWidth() - sx);
-                                int sh = Math.min(saveH, frame.getHeight() - sy);
-                                int[] savedPixels = null;
-                                if (sw > 0 && sh > 0) {
-                                    savedPixels = frame.getRGB(sx, sy, sw, sh, null, 0, sw);
-                                }
-                                overrideRegions.add(new Object[]{
-                                        ovIdx, termLower.length(), ovX, ovW, flags[0], flags[1], flags[2],
-                                        savedPixels, sx, sy, sw, sh, flags[3]
-                                });
-                                ovSearchFrom = ovIdx + termLower.length();
-                            }
+                    // List of: [ovIdx, termLen, ovX, ovW, boldFlag, italicFlag, colorFlag, savedPixels[], sx, sy, sw, sh, fnGroup]
+                    java.util.List<Object[]> overrideRegions = new java.util.ArrayList<>();
+                    for (java.util.Map.Entry<Long, int[]> entry : ovFlagsByRange.entrySet()) {
+                        long ovKey = entry.getKey();
+                        int[] flags = entry.getValue();
+                        int ovIdx = (int) (ovKey >> 32);
+                        int ovEnd = (int) (ovKey & 0xFFFFFFFFL);
+                        // A partially-revealed line (word-by-word reveal, or the
+                        // Typewriter effect) is a PREFIX of the wrapped line the
+                        // segments were measured against, so style only as much of
+                        // the range as is actually on screen this frame.
+                        if (ovIdx >= visibleLine.length()) continue;
+                        ovEnd = Math.min(ovEnd, visibleLine.length());
+                        if (ovEnd <= ovIdx) continue;
+                        int termLen = ovEnd - ovIdx;
+
+                        int ovX, ovW;
+                        if (stTextLayout != null && ovEnd <= line.length()) {
+                            java.awt.Shape ovShape = stTextLayout.getLogicalHighlightShape(ovIdx, ovEnd);
+                            java.awt.geom.Rectangle2D ovBounds = ovShape.getBounds2D();
+                            ovX = lineX + (int) ovBounds.getX();
+                            ovW = (int) Math.ceil(ovBounds.getWidth());
+                        } else {
+                            String ovBefore = visibleLine.substring(0, ovIdx);
+                            ovX = lineX + stFm.stringWidth(ovBefore);
+                            ovW = stFm.stringWidth(visibleLine.substring(ovIdx, ovEnd));
                         }
+                        // Save background pixels before text is drawn.
+                        // The box is the term's LOGICAL advance, but glyph
+                        // ink overhangs it (antialiased edges, italic
+                        // slant, script tails), and whatever is left
+                        // outside the box survives the restore below as a
+                        // ghost fringe of the original word beside the
+                        // replacement. A small margin, scaled with the
+                        // font so it holds at any size, takes that fringe
+                        // with it; words are space-separated, so it stays
+                        // clear of the neighbours' ink.
+                        int ovPad = Math.max(1, (int) Math.ceil(scaledStSize * 0.08));
+                        int saveY = lineY - stFm.getAscent() - 2 - ovPad;
+                        int saveH = stFm.getHeight() + 4 + ovPad * 2;
+                        int sx = Math.max(0, ovX - ovPad);
+                        int sy = Math.max(0, saveY);
+                        int sw = Math.min(ovW + (ovX - sx) + ovPad, frame.getWidth() - sx);
+                        int sh = Math.min(saveH, frame.getHeight() - sy);
+                        int[] savedPixels = null;
+                        if (sw > 0 && sh > 0) {
+                            savedPixels = frame.getRGB(sx, sy, sw, sh, null, 0, sw);
+                        }
+                        overrideRegions.add(new Object[]{
+                                ovIdx, termLen, ovX, ovW, flags[0], flags[1], flags[2],
+                                savedPixels, sx, sy, sw, sh, flags[3]
+                        });
                     }
 
                     Graphics2D g2 = (Graphics2D) g.create();
@@ -11847,6 +11831,34 @@ public class GifSlideShowApp extends JFrame {
      * Lines are joined with a single space because wrapTextStatic only breaks at
      * whitespace, so the joined string mirrors what the user reads.
      */
+    /**
+     * Fold one word list's segments on wrapped line {@code li} into the per-range
+     * flag map the per-word override pass draws from.
+     *
+     * <p>The key packs the range into a single long, so two lists that cover the
+     * same characters land on the SAME entry: a word that is both bold and in a
+     * font group ends up as one region carrying both, rather than two regions
+     * where the second restores the background over the first's glyphs.
+     *
+     * <p>{@code slot} 0/1/2 are the bold / italic / colour flags; slot 3 holds a
+     * 1-based font group index, and only the first group to claim a range wins.
+     */
+    private static void addOverrideRanges(java.util.Map<Long, int[]> out,
+                                          java.util.List<java.util.List<int[]>> segs,
+                                          int li, int slot, int value) {
+        if (segs == null || li < 0 || li >= segs.size()) return;
+        for (int[] seg : segs.get(li)) {
+            if (seg == null || seg.length < 2 || seg[1] <= seg[0]) continue;
+            long key = ((long) seg[0] << 32) | (seg[1] & 0xFFFFFFFFL);
+            int[] flags = out.computeIfAbsent(key, k -> new int[4]);
+            if (slot == 3) {
+                if (flags[3] == 0) flags[3] = value;
+            } else {
+                flags[slot] = value;
+            }
+        }
+    }
+
     static java.util.List<java.util.List<int[]>> computeWrapSegments(List<String> wrappedLines, String csv) {
         if (wrappedLines == null || wrappedLines.isEmpty()) return null;
         String[] terms = splitTerms(csv);
