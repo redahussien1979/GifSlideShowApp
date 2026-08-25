@@ -3689,6 +3689,12 @@ public class GifSlideShowApp extends JFrame {
     /** Matches UL / UL1 / UL2 / ... headers; group 1 is the number, or "" for bare UL. */
     private static final java.util.regex.Pattern UL_GROUP_HEADER =
             java.util.regex.Pattern.compile("UL(\\d+)");
+    /** Matches FONT1 / FONT2 / FN1 / ... headers; group 1 is the number. Bare
+     *  FONT / FN is handled alongside and means group 1. Unlike HL/UL there is no
+     *  "primary" font box on the toolbar, so EVERY numbered column — FONT1
+     *  included — is one row of the Font dropdown. */
+    private static final java.util.regex.Pattern FONT_GROUP_HEADER =
+            java.util.regex.Pattern.compile("(?:FONT|FN)(\\d+)");
 
     private void dictionaryImport() {
         // Choose source: file or clipboard
@@ -3798,7 +3804,7 @@ public class GifSlideShowApp extends JFrame {
 
         // Ask whether first row is a header
         int headerChoice = JOptionPane.showOptionDialog(this,
-                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting.\nHL/UL are now dropdowns in the app: add HL2, HL3, ... (or\nUL2, UL3, ...) columns and each becomes its own extra row\non the dropdown, exactly like HL itself — just words,\ncomma-separated. Give each row its own colour/style/Tight\nafterwards in the app by opening the dropdown and using the\ncontrols beside it (or the + button there to add one without\nimporting at all).\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.\nFor TWO audios on one text, put both paths comma-separated in that\ntext's audio cell, quoted: \"first.mp3,second.mp3\" (2nd plays after the\nfirst, separated by the Gap value).\nX-AXIS/Y-AXIS/TEXT-SIZE for position & size per text item.\nTEXT1TIME/TEXT2TIME/... for appear,go timing per text item\n(cell = \"appear,go\" in seconds; \"appear\" alone = never leaves).\nTIMER_TARGET for the Slide Timer's target text — the text the countdown\nreveals and badges at zero. Either a text number (1 = Text 1, 0 = none)\nor the text itself, matched against that row's texts.\nTIMER_END_AUDIO for that slide's \"play when it ends\" sound: a path\nrelative to the sheet (like AUDIOLINK), \"none\" for a quiet slide, or\n\"inherit\"/an empty cell to play the first slide's sound.\nEverything else about the timer comes from the first slide.\nPIC/PIC2/PIC3/... for a slide picture overlay: a path relative to the\nsheet (like AUDIOLINK), or \"none\" to hide that Pic slot. Place it with\nPIC_X, PIC_Y (centre, % of the frame), PIC_W (width, % of the frame),\nPIC_SHAPE (Rectangle or Circle) and PIC_RADIUS (corner radius).\nA bare PIC means Pic 1; PIC2_X places Pic 2, and so on. Hyphens read\nthe same as underscores (PIC2-X = PIC2_X).\nFor the SAME picture on every slide, leave PIC out of the sheet and\nuse the \u21CA All button in the Pic toolbar row instead.)",
+                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting.\nHL/UL are now dropdowns in the app: add HL2, HL3, ... (or\nUL2, UL3, ...) columns and each becomes its own extra row\non the dropdown, exactly like HL itself — just words,\ncomma-separated. Give each row its own colour/style/Tight\nafterwards in the app by opening the dropdown and using the\ncontrols beside it (or the + button there to add one without\nimporting at all).\nFONT (or FONT1, FONT2, ...) works the same way for the Font row:\neach column is one font group's word list. Pick the font, type and\ncolour for each group once in the app — that reaches the whole deck.\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.\nFor TWO audios on one text, put both paths comma-separated in that\ntext's audio cell, quoted: \"first.mp3,second.mp3\" (2nd plays after the\nfirst, separated by the Gap value).\nX-AXIS/Y-AXIS/TEXT-SIZE for position & size per text item.\nTEXT1TIME/TEXT2TIME/... for appear,go timing per text item\n(cell = \"appear,go\" in seconds; \"appear\" alone = never leaves).\nTIMER_TARGET for the Slide Timer's target text — the text the countdown\nreveals and badges at zero. Either a text number (1 = Text 1, 0 = none)\nor the text itself, matched against that row's texts.\nTIMER_END_AUDIO for that slide's \"play when it ends\" sound: a path\nrelative to the sheet (like AUDIOLINK), \"none\" for a quiet slide, or\n\"inherit\"/an empty cell to play the first slide's sound.\nEverything else about the timer comes from the first slide.\nPIC/PIC2/PIC3/... for a slide picture overlay: a path relative to the\nsheet (like AUDIOLINK), or \"none\" to hide that Pic slot. Place it with\nPIC_X, PIC_Y (centre, % of the frame), PIC_W (width, % of the frame),\nPIC_SHAPE (Rectangle or Circle) and PIC_RADIUS (corner radius).\nA bare PIC means Pic 1; PIC2_X places Pic 2, and so on. Hyphens read\nthe same as underscores (PIC2-X = PIC2_X).\nFor the SAME picture on every slide, leave PIC out of the sheet and\nuse the \u21CA All button in the Pic toolbar row instead.)",
                 "Dictionary Import", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,
                 null, new String[]{"Yes, skip first row", "No, first row is data"}, "No, first row is data");
 
@@ -3811,6 +3817,11 @@ public class GifSlideShowApp extends JFrame {
         // so only numbers 2+ land here; keyed by group number -> column index.
         java.util.Map<Integer, Integer> hlGroupColByNum = new java.util.TreeMap<>();
         java.util.Map<Integer, Integer> ulGroupColByNum = new java.util.TreeMap<>();
+        // Font-words groups: FONT / FONT1, FONT2, ... columns, each one whole row
+        // (its own comma-separated word list) on the Font dropdown. Every number
+        // counts here, FONT1 included — there is no "primary" font box the way
+        // there is for HL/UL. Keyed by group number -> column index.
+        java.util.Map<Integer, Integer> fontGroupColByNum = new java.util.TreeMap<>();
         int boldColIndex = -1;
         int italicColIndex = -1;
         int colorColIndex = -1;
@@ -3851,12 +3862,20 @@ public class GifSlideShowApp extends JFrame {
                 // by it. "HL1" is just another name for the plain HL column.
                 java.util.regex.Matcher hlNumM = HL_GROUP_HEADER.matcher(h);
                 java.util.regex.Matcher ulNumM = UL_GROUP_HEADER.matcher(h);
+                java.util.regex.Matcher fnNumM = FONT_GROUP_HEADER.matcher(h);
                 if (hlNumM.matches()) {
                     int n = Integer.parseInt(hlNumM.group(1));
                     if (n <= 1) hlColIndex = c; else hlGroupColByNum.put(n, c);
                 } else if (ulNumM.matches()) {
                     int n = Integer.parseInt(ulNumM.group(1));
                     if (n <= 1) ulColIndex = c; else ulGroupColByNum.put(n, c);
+                } else if (fnNumM.matches()) {
+                    // FONT1, FONT2, ... — every number is its own Font dropdown row.
+                    int n = Integer.parseInt(fnNumM.group(1));
+                    if (n >= 1) fontGroupColByNum.put(n, c);
+                } else if (h.equals("FONT") || h.equals("FN")) {
+                    // A bare FONT column means the first font group.
+                    fontGroupColByNum.put(1, c);
                 } else if (h.equals("HL") || h.equals("HIGHLIGHT")) {
                     hlColIndex = c;
                 } else if (h.equals("UL") || h.equals("UNDERLINE")) {
@@ -3979,6 +3998,8 @@ public class GifSlideShowApp extends JFrame {
         java.util.Set<Integer> hlUlGroupColIndices = new java.util.HashSet<>();
         hlUlGroupColIndices.addAll(hlGroupColByNum.values());
         hlUlGroupColIndices.addAll(ulGroupColByNum.values());
+        // FONT / FONT1, FONT2, ... are formatting columns too, for the same reason.
+        hlUlGroupColIndices.addAll(fontGroupColByNum.values());
         List<Integer> textColIndices = new ArrayList<>();
         for (int c = 0; c < maxCols; c++) {
             if (c != hlColIndex && c != ulColIndex && c != boldColIndex
@@ -4076,6 +4097,15 @@ public class GifSlideShowApp extends JFrame {
                 List<String> ulWordLists = new ArrayList<>();
                 for (int col : ulGroupColByNum.values()) ulWordLists.add(cellAt(fields, col));
                 slide.applyUlGroupColumnsToAllTexts(ulWordLists);
+            }
+
+            // Font groups: FONT / FONT1, FONT2, ... — same treatment again. The
+            // sheet says WHICH words get their own font; the font itself is picked
+            // once in the app and reaches the deck through the slide-1 broadcast.
+            if (!fontGroupColByNum.isEmpty()) {
+                List<String> fnWordLists = new ArrayList<>();
+                for (int col : fontGroupColByNum.values()) fnWordLists.add(cellAt(fields, col));
+                slide.applyFnGroupColumnsToAllTexts(fnWordLists);
             }
 
             // Apply Bold text from CSV if column exists
@@ -4345,6 +4375,11 @@ public class GifSlideShowApp extends JFrame {
         if (!ulGroupColByNum.isEmpty()) {
             importMsg += "\nUL" + ulGroupColByNum.keySet().stream().map(String::valueOf).reduce((a, b) -> a + "/" + b).orElse("")
                     + " columns detected — each imported as its own UL dropdown row.";
+        }
+        if (!fontGroupColByNum.isEmpty()) {
+            importMsg += "\nFONT" + fontGroupColByNum.keySet().stream().map(String::valueOf).reduce((a, b) -> a + "/" + b).orElse("")
+                    + " column(s) detected — each imported as its own Font dropdown row."
+                    + "\n  Pick each row's font, type and colour on slide 1 (🔤 Font) and it reaches the deck.";
         }
         if (boldColIndex >= 0) importMsg += "\nBOLD column detected — bold words imported per slide.";
         if (italicColIndex >= 0) importMsg += "\nITALIC column detected — italic words imported per slide.";
@@ -33268,6 +33303,33 @@ public class GifSlideShowApp extends JFrame {
                 List<SlideTextData.HlGroup> copy = new ArrayList<>();
                 for (SlideTextData.HlGroup g : groups) copy.add(g.copy());
                 t.hlGroups = copy;
+            }
+            if (currentSlideTextIndex >= 0 && currentSlideTextIndex < slideTextItems.size()) {
+                loadSlideTextFromItem(currentSlideTextIndex);
+            }
+            schedulePreview();
+        }
+
+        /** Same as {@link #applyHlGroupColumnsToAllTexts} for FONT/FONT1/FONT2/...
+         *  columns — one Font dropdown row per column, in column order.
+         *
+         *  <p>Unlike the HL/UL versions this KEEPS the font, type and colour any
+         *  group at that index already carries: the sheet only ever says which
+         *  words get their own font, and re-importing a word list must not throw
+         *  away a look that was picked in the app (or broadcast from slide 1). */
+        void applyFnGroupColumnsToAllTexts(List<String> wordLists) {
+            for (SlideTextData t : slideTextItems) {
+                List<SlideTextData.FnGroup> copy = new ArrayList<>();
+                if (wordLists != null) {
+                    for (int i = 0; i < wordLists.size(); i++) {
+                        SlideTextData.FnGroup g =
+                                (t.fnGroups != null && i < t.fnGroups.size() && t.fnGroups.get(i) != null)
+                                        ? t.fnGroups.get(i).copy() : new SlideTextData.FnGroup();
+                        g.words = wordLists.get(i) != null ? wordLists.get(i) : "";
+                        copy.add(g);
+                    }
+                }
+                t.fnGroups = copy;
             }
             if (currentSlideTextIndex >= 0 && currentSlideTextIndex < slideTextItems.size()) {
                 loadSlideTextFromItem(currentSlideTextIndex);
