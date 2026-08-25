@@ -6999,6 +6999,76 @@ public class GifSlideShowApp extends JFrame {
                         stTextLayout = new java.awt.font.TextLayout(line, stFont, ((Graphics2D) g).getFontRenderContext());
                     }
 
+                    // ----- Audio-FX "Glow2" (toolbar 7b): rectangular back-light -----
+                    // Where "Glow" dilates the glyph outlines, "Glow2" lights up the
+                    // line's own bounding box: a rounded-rect halo that radiates out
+                    // from the text band, the way a backlit lower-third panel reads on
+                    // video. Drawn FIRST -- below the glyph glow and below this line's
+                    // highlight marks -- so it is the bottom-most layer and the author's
+                    // HL phrases and HL2/HL3 groups still paint over it at full strength.
+                    //
+                    // It is built from concentric STROKED round-rects rather than stacked
+                    // fills: strokes leave the interior clear, so even at Sz 20 the text
+                    // sits in a lit frame instead of behind an opaque slab. A single faint
+                    // interior wash plus a crisp core edge finish the panel.
+                    if (st.audioGlowSize2 > 0 && !visibleLine.isEmpty()) {
+                        Color rgC = st.audioGlowColor != null ? st.audioGlowColor : stColor;
+                        int rgR = rgC.getRed(), rgG = rgC.getGreen(), rgB = rgC.getBlue();
+                        int rgBaseA = rgC.getAlpha();
+                        double rgLeft, rgW;
+                        if (justified && justifyWords != null && justifyWords.length > 1) {
+                            double rgSum = 0;
+                            for (String w : justifyWords) rgSum += stFm.stringWidth(w);
+                            rgLeft = stBlockLeft;
+                            rgW    = rgSum + justifyExtraSpace * (justifyWords.length - 1);
+                        } else {
+                            rgLeft = lineX;
+                            rgW    = stFm.stringWidth(visibleLine);
+                        }
+                        // Sz drives the outward BLOOM, not the panel: the box stays snug
+                        // around the words (padding creeps up only slightly) while the halo
+                        // reaches further out. Growing the padding instead marched the frame
+                        // away from the text at high Sz, which read as a box, not a glow.
+                        double rgPad = Math.max(4.0,
+                                scaledStSize * (0.10 + 0.010 * Math.min(20, st.audioGlowSize2)));
+                        double rgX   = rgLeft - rgPad;
+                        double rgY   = lineY - stAscent - rgPad * 0.55;
+                        double rgH   = stAscent + stFm.getDescent() + rgPad * 1.10;
+                        double rgBoxW = rgW + rgPad * 2;
+                        double rgArc = Math.min(rgH * 0.5, scaledStSize * 0.40);
+                        java.awt.geom.RoundRectangle2D.Double rgBox =
+                                new java.awt.geom.RoundRectangle2D.Double(rgX, rgY, rgBoxW, rgH, rgArc, rgArc);
+
+                        Graphics2D rg = (Graphics2D) g.create();
+                        rg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                        rg.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+                        int rgLayers = 10;
+                        // Same spread curve as the glyph glow, so one Sz step changes both
+                        // by the same amount and the two can be stacked without one of them
+                        // swallowing the other.
+                        double rgSpread = Math.max(3.0,
+                                scaledStSize * (0.02 + 0.035 * Math.min(20, st.audioGlowSize2)));
+                        for (int rgL = rgLayers; rgL >= 1; rgL--) {
+                            double rgT = (double) rgL / rgLayers;   // 1.0 = outermost ring
+                            // A stroke of width w reaches w/2 outside the box edge, so the
+                            // widest ring lands exactly rgSpread px out.
+                            float rgStroke = (float) (rgSpread * 2.0 * rgT);
+                            int rgA = Math.max(4, (int) (rgBaseA * 0.26 * (1.0 - rgT * rgT)));
+                            rg.setColor(new Color(rgR, rgG, rgB, Math.min(255, rgA)));
+                            rg.setStroke(new BasicStroke(rgStroke, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                            rg.draw(rgBox);
+                        }
+                        // Interior wash: reads as light coming from behind the words.
+                        rg.setColor(new Color(rgR, rgG, rgB, Math.min(255, Math.max(6, (int) (rgBaseA * 0.13)))));
+                        rg.fill(rgBox);
+                        // Core edge: keeps the panel's outline crisp at any spread.
+                        rg.setColor(new Color(rgR, rgG, rgB, Math.min(255, (int) (rgBaseA * 0.62))));
+                        rg.setStroke(new BasicStroke(Math.max(1.2f, (float) (rgSpread * 0.16)),
+                                BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                        rg.draw(rgBox);
+                        rg.dispose();
+                    }
+
                     // ----- Audio-FX "Glow" (toolbar 7b): additive halo around the glyphs -----
                     // Drawn BEFORE this line's highlight marks, so the halo is the
                     // bottom layer: the author's HL phrases and HL2/HL3 groups paint over
@@ -20045,6 +20115,10 @@ public class GifSlideShowApp extends JFrame {
                 // render hook that paints a halo around the glyphs -- see the
                 // audioGlowSize pass in renderFrame.
                 boolean glowFx = fx.contains("Glow");
+                // Glow2 is the same additive deal, drawn around the line's box
+                // instead of the glyphs. It is a separate token from "Glow", so
+                // the two are independent toggles rather than exclusive modes.
+                boolean glow2Fx = fx.contains("Glow2");
                 String useHlText  = st.highlightText;
                 Color  useHlColor = st.highlightColor;
                 String useHlStyle = st.highlightStyle;
@@ -20278,6 +20352,10 @@ public class GifSlideShowApp extends JFrame {
                 // copying its style over would clear what we just decided here.
                 if (glowFx) {
                     hl.audioGlowSize  = glowSize;
+                    hl.audioGlowColor = hlColor;
+                }
+                if (glow2Fx) {
+                    hl.audioGlowSize2 = glowSize;
                     hl.audioGlowColor = hlColor;
                 }
                 hl.quizHidden = st.quizHidden;
@@ -21307,6 +21385,11 @@ public class GifSlideShowApp extends JFrame {
         // phrases and its HL2/HL3 groups keep rendering exactly as authored.
         int   audioGlowSize  = 0;    // 0 = no glow; 1..20 = spread, from the Sz spinner
         Color audioGlowColor = null; // halo colour (the HL swatch); null = use the text colour
+        // ===== Audio-FX "Glow2" (toolbar 7b): rectangular back-light =====
+        // Same additive contract as audioGlowSize, but the halo is built around
+        // the line's bounding box instead of the glyph outlines, so the text sits
+        // in a lit panel rather than wearing a per-letter aura. Both may be set.
+        int   audioGlowSize2 = 0;    // 0 = no rect glow; 1..20 = spread, from the Sz spinner
 
         // --- Fill paint (Solid / Linear / Radial / Conic / Stripes / Checker / Dots / Lines) ---
         String bgFillKind = "Solid";
@@ -23185,6 +23268,11 @@ public class GifSlideShowApp extends JFrame {
         private Color audioHlColor = new Color(255, 200, 50, 160);
         private final JToggleButton audioFxGlow, audioFxEnlarge, audioFxBold,
                 audioFxUnderline, audioFxColor, audioFxShake, audioFxPulse, audioFxBounce;
+        // "Glow2" — the rectangular back-light. Where Glow dilates the glyph
+        // outlines, Glow2 lights up the line's own bounding box as a soft
+        // rounded-rect halo (the backlit lower-third look). Independent of
+        // Glow: either, both or neither can be on.
+        private final JToggleButton audioFxGlow2;
         // "Words" — progressively highlights each spoken word of the active
         // audio segment (an estimated, Scribe-free word-by-word highlight).
         private final JToggleButton audioFxSpokenWords;
@@ -26109,9 +26197,16 @@ public class GifSlideShowApp extends JFrame {
             toolbar7.add(quizStatusLabel);
 
             // ===== Toolbar Row 7b: Audio Highlight Effects =====
+            // Row 7b is laid out over TWO lines. As one FlowLayout row it ran past
+            // the toolbar's width and silently wrapped its tail (Bounce / Words /
+            // Others) out of view, so the settings + static FX live on line 1 and
+            // the motion FX + Others popup on line 2.
             JPanel toolbar7b = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
             toolbar7b.setBackground(new Color(35, 42, 58));
-            toolbar7b.setBorder(BorderFactory.createEmptyBorder(1, 4, 2, 4));
+            toolbar7b.setBorder(BorderFactory.createEmptyBorder(1, 4, 0, 4));
+            JPanel toolbar7b2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            toolbar7b2.setBackground(new Color(35, 42, 58));
+            toolbar7b2.setBorder(BorderFactory.createEmptyBorder(0, 4, 2, 4));
 
             audioGapSpinner = new JSpinner(new SpinnerNumberModel(0.0, 0.0, 10.0, 0.1));
             audioGapSpinner.setPreferredSize(new Dimension(58, 26));
@@ -26164,6 +26259,18 @@ public class GifSlideShowApp extends JFrame {
             audioFxGlow.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
             audioFxGlow.addItemListener(fxToggleStyler);
             audioFxGlow.addItemListener(e -> onFormatChanged());
+
+            audioFxGlow2 = new JToggleButton("Glow2");
+            audioFxGlow2.setFont(fxBtnFont); audioFxGlow2.setPreferredSize(new Dimension(56, 24));
+            audioFxGlow2.setFocusPainted(false);
+            audioFxGlow2.setToolTipText("Rectangular glow: a soft rounded-rect back-light around the active "
+                    + "text's own line box (the backlit lower-third look). Combine with Glow for a lit panel "
+                    + "plus a per-letter aura; Sz drives the spread of both.");
+            audioFxGlow2.setBackground(fxBtnOffBg); audioFxGlow2.setForeground(fxBtnOffFg);
+            audioFxGlow2.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
+            audioFxGlow2.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+            audioFxGlow2.addItemListener(fxToggleStyler);
+            audioFxGlow2.addItemListener(e -> onFormatChanged());
 
             audioFxEnlarge = new JToggleButton("Big");
             audioFxEnlarge.setFont(fxBtnFont); audioFxEnlarge.setPreferredSize(new Dimension(42, 24));
@@ -26246,7 +26353,7 @@ public class GifSlideShowApp extends JFrame {
             audioFxNone.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
             audioFxNone.addItemListener(fxToggleStyler);
 
-            JToggleButton[] fxGroup = { audioFxGlow, audioFxEnlarge, audioFxBold,
+            JToggleButton[] fxGroup = { audioFxGlow, audioFxGlow2, audioFxEnlarge, audioFxBold,
                     audioFxUnderline, audioFxColor, audioFxShake, audioFxPulse, audioFxBounce,
                     audioFxSpokenWords };
             audioFxNone.addItemListener(e -> {
@@ -26360,6 +26467,11 @@ public class GifSlideShowApp extends JFrame {
             glowSzLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
             glowSzLbl.setForeground(new Color(140, 170, 220));
 
+            JLabel fxMotionLbl = styledLabel("  \u21B3 Motion:");
+            fxMotionLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            fxMotionLbl.setForeground(new Color(140, 170, 220));
+
+            // Line 1: the highlight settings + the FX that restyle the glyphs.
             toolbar7b.add(styledLabel("   "));
             toolbar7b.add(gapLbl);
             toolbar7b.add(audioGapSpinner);
@@ -26371,15 +26483,20 @@ public class GifSlideShowApp extends JFrame {
             toolbar7b.add(fxLbl);
             toolbar7b.add(audioFxNone);
             toolbar7b.add(audioFxGlow);
+            toolbar7b.add(audioFxGlow2);
             toolbar7b.add(audioFxEnlarge);
             toolbar7b.add(audioFxBold);
             toolbar7b.add(audioFxUnderline);
             toolbar7b.add(audioFxColor);
-            toolbar7b.add(audioFxShake);
-            toolbar7b.add(audioFxPulse);
-            toolbar7b.add(audioFxBounce);
-            toolbar7b.add(audioFxSpokenWords);
-            toolbar7b.add(audioFxOthersBtn);
+
+            // Line 2: the FX that move the text, plus the Others multi-select.
+            toolbar7b2.add(styledLabel("   "));
+            toolbar7b2.add(fxMotionLbl);
+            toolbar7b2.add(audioFxShake);
+            toolbar7b2.add(audioFxPulse);
+            toolbar7b2.add(audioFxBounce);
+            toolbar7b2.add(audioFxSpokenWords);
+            toolbar7b2.add(audioFxOthersBtn);
             refreshAudioFxOthersBtnAppearance();
 
             // ===== Toolbar Row 7d: Karaoke (per-word highlight via ElevenLabs Scribe) =====
@@ -27254,6 +27371,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar7);
             toolbarsPanel.add(toolbar7b);
+            toolbarsPanel.add(toolbar7b2);
             toolbarsPanel.add(toolbar7d);
             toolbarsPanel.add(toolbar7c);
             toolbarsPanel.add(toolbar7cB);
@@ -34957,6 +35075,7 @@ public class GifSlideShowApp extends JFrame {
             if (audioFxNone.isSelected()) return "None";
             StringBuilder sb = new StringBuilder();
             if (audioFxGlow.isSelected())      sb.append("Glow,");
+            if (audioFxGlow2.isSelected())     sb.append("Glow2,");
             if (audioFxEnlarge.isSelected())   sb.append("Enlarge,");
             if (audioFxBold.isSelected())      sb.append("Bold,");
             if (audioFxUnderline.isSelected()) sb.append("Underline,");
@@ -35013,6 +35132,7 @@ public class GifSlideShowApp extends JFrame {
             try {
                 Set<String> fxSet = new HashSet<>(Arrays.asList(effects.split(",")));
                 audioFxGlow.setSelected(fxSet.contains("Glow"));
+                audioFxGlow2.setSelected(fxSet.contains("Glow2"));
                 audioFxEnlarge.setSelected(fxSet.contains("Enlarge"));
                 audioFxBold.setSelected(fxSet.contains("Bold"));
                 audioFxUnderline.setSelected(fxSet.contains("Underline"));
