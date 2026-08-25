@@ -23278,6 +23278,78 @@ public class GifSlideShowApp extends JFrame {
         private final JToggleButton audioFxSpokenWords;
         private final JToggleButton audioFxNone;
         private final JSpinner audioGlowSizeSp;
+        // ===== Row 7b FX button palette =====
+        // Every toggle carries its OWN accent hue, so the row reads as a labelled
+        // palette instead of a wall of identical blue chips and a button can be
+        // found by colour alone. ON fills with the accent; OFF keeps the dark
+        // toolbar chrome but tints label, border and background with it, so the
+        // colour coding survives the unselected state.
+        private static final Color FX_ACC_NONE   = new Color(120, 128, 148);
+        private static final Color FX_ACC_GLOW   = new Color(230, 170,  40);
+        private static final Color FX_ACC_GLOW2  = new Color(232, 110,  50);
+        private static final Color FX_ACC_BIG    = new Color( 70, 170,  95);
+        private static final Color FX_ACC_BOLD   = new Color( 55, 120, 200);
+        private static final Color FX_ACC_UL     = new Color( 40, 165, 180);
+        private static final Color FX_ACC_CLR    = new Color(200,  75, 145);
+        private static final Color FX_ACC_SHAKE  = new Color(140,  95, 205);
+        private static final Color FX_ACC_PULSE  = new Color(205,  70,  70);
+        private static final Color FX_ACC_BOUNCE = new Color(150, 180,  50);
+        private static final Color FX_ACC_WORDS  = new Color( 95, 110, 215);
+        private static final Color FX_ACC_OTHERS = new Color( 45, 155, 140);
+        // The unselected chrome every accent is mixed into.
+        private static final Color FX_CHROME_BG     = new Color( 50,  55,  68);
+        private static final Color FX_CHROME_BORDER = new Color( 70,  75,  90);
+        private static final Color FX_CHROME_FG     = new Color(140, 145, 160);
+
+        /** Blend a toward b: t = 0 is all a, t = 1 is all b. */
+        private static Color fxMix(Color a, Color b, double t) {
+            return new Color(
+                    (int) Math.round(a.getRed()   + (b.getRed()   - a.getRed())   * t),
+                    (int) Math.round(a.getGreen() + (b.getGreen() - a.getGreen()) * t),
+                    (int) Math.round(a.getBlue()  + (b.getBlue()  - a.getBlue())  * t));
+        }
+
+        /** Readable label colour on a filled accent: near-black on the bright ones
+         *  (amber, lime), white on the dark ones. White on amber is unreadable. */
+        private static Color fxLabelOn(Color bg) {
+            double lum = 0.2126 * bg.getRed() + 0.7152 * bg.getGreen() + 0.0722 * bg.getBlue();
+            return lum > 150 ? new Color(24, 28, 38) : Color.WHITE;
+        }
+
+        /** Paint one row-7b toggle in its accent and keep it in sync as it flips.
+         *
+         *  contentAreaFilled(false) + opaque(true) is what makes the accent
+         *  actually show: left to itself a JToggleButton lets its look-and-feel
+         *  fill the content area, and several L&Fs (GTK, Metal) paint their own
+         *  selected/unselected shading straight over setBackground -- the toggles
+         *  came out uniformly grey with only the text tinted. Opting out of the
+         *  L&F fill and letting JComponent paint the background gives the same
+         *  flat chip on every platform. The hover lift is added back by hand,
+         *  since that was the L&F feedback we just gave up. */
+        private static void styleFxToggle(JToggleButton b, Color accent) {
+            final Color onFg      = fxLabelOn(accent);
+            final Color onBorder  = fxMix(accent, Color.WHITE, 0.30);
+            final Color offBg     = fxMix(FX_CHROME_BG,     accent, 0.12);
+            final Color offFg     = fxMix(FX_CHROME_FG,     accent, 0.55);
+            final Color offBorder = fxMix(FX_CHROME_BORDER, accent, 0.45);
+            final boolean[] hover = { false };
+            b.setContentAreaFilled(false);
+            b.setOpaque(true);
+            Runnable paint = () -> {
+                Color bg = b.isSelected() ? accent : offBg;
+                if (hover[0]) bg = fxMix(bg, Color.WHITE, 0.18);
+                b.setBackground(bg);
+                b.setForeground(b.isSelected() ? onFg : offFg);
+                b.setBorder(BorderFactory.createLineBorder(b.isSelected() ? onBorder : offBorder, 1));
+            };
+            b.addItemListener(e -> paint.run());
+            b.addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override public void mouseEntered(java.awt.event.MouseEvent e) { hover[0] = true;  paint.run(); }
+                @Override public void mouseExited (java.awt.event.MouseEvent e) { hover[0] = false; paint.run(); }
+            });
+            paint.run();   // adopt whatever state the button was constructed in
+        }
+
         // "Others" multi-select effects (button + checkbox popup). Effect names
         // live in slideAudioHlEffectsMap as "Other:<Name>" tokens alongside the
         // existing comma-separated effect string, so persistence stays compatible.
@@ -26229,35 +26301,17 @@ public class GifSlideShowApp extends JFrame {
                 onFormatChanged();
             }));
 
-            // Professional styled toggle buttons with clear selected/unselected states
+            // Professional styled toggle buttons with clear selected/unselected
+            // states. Colour comes from styleFxToggle + the FX_ACC_* palette, one
+            // accent per button, so each toggle is identifiable at a glance.
             Font fxBtnFont = new Font("Segoe UI", Font.BOLD, 10);
-            Color fxBtnOffBg = new Color(50, 55, 68);
-            Color fxBtnOffFg = new Color(140, 145, 160);
-            Color fxBtnOnBg = new Color(55, 120, 200);
-            Color fxBtnOnFg = Color.WHITE;
-            Color fxBtnBorder = new Color(70, 75, 90);
-            Color fxBtnOnBorder = new Color(80, 150, 230);
-
-            java.awt.event.ItemListener fxToggleStyler = evt -> {
-                JToggleButton btn = (JToggleButton) evt.getSource();
-                if (btn.isSelected()) {
-                    btn.setBackground(fxBtnOnBg);
-                    btn.setForeground(fxBtnOnFg);
-                    btn.setBorder(BorderFactory.createLineBorder(fxBtnOnBorder, 1));
-                } else {
-                    btn.setBackground(fxBtnOffBg);
-                    btn.setForeground(fxBtnOffFg);
-                    btn.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
-                }
-            };
+            Color fxBtnBorder = FX_CHROME_BORDER;
 
             audioFxGlow = new JToggleButton("Glow", true);
             audioFxGlow.setFont(fxBtnFont); audioFxGlow.setPreferredSize(new Dimension(52, 24));
             audioFxGlow.setFocusPainted(false); audioFxGlow.setToolTipText("Background glow highlight on active text");
-            audioFxGlow.setBackground(fxBtnOnBg); audioFxGlow.setForeground(fxBtnOnFg);
-            audioFxGlow.setBorder(BorderFactory.createLineBorder(fxBtnOnBorder, 1));
             audioFxGlow.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
-            audioFxGlow.addItemListener(fxToggleStyler);
+            styleFxToggle(audioFxGlow, FX_ACC_GLOW);
             audioFxGlow.addItemListener(e -> onFormatChanged());
 
             audioFxGlow2 = new JToggleButton("Glow2");
@@ -26266,92 +26320,72 @@ public class GifSlideShowApp extends JFrame {
             audioFxGlow2.setToolTipText("Rectangular glow: a soft rounded-rect back-light around the active "
                     + "text's own line box (the backlit lower-third look). Combine with Glow for a lit panel "
                     + "plus a per-letter aura; Sz drives the spread of both.");
-            audioFxGlow2.setBackground(fxBtnOffBg); audioFxGlow2.setForeground(fxBtnOffFg);
-            audioFxGlow2.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
             audioFxGlow2.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
-            audioFxGlow2.addItemListener(fxToggleStyler);
+            styleFxToggle(audioFxGlow2, FX_ACC_GLOW2);
             audioFxGlow2.addItemListener(e -> onFormatChanged());
 
             audioFxEnlarge = new JToggleButton("Big");
             audioFxEnlarge.setFont(fxBtnFont); audioFxEnlarge.setPreferredSize(new Dimension(42, 24));
             audioFxEnlarge.setFocusPainted(false); audioFxEnlarge.setToolTipText("Enlarge active text by 25%");
-            audioFxEnlarge.setBackground(fxBtnOffBg); audioFxEnlarge.setForeground(fxBtnOffFg);
-            audioFxEnlarge.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
             audioFxEnlarge.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
-            audioFxEnlarge.addItemListener(fxToggleStyler);
+            styleFxToggle(audioFxEnlarge, FX_ACC_BIG);
             audioFxEnlarge.addItemListener(e -> onFormatChanged());
 
             audioFxBold = new JToggleButton("Bold");
             audioFxBold.setFont(fxBtnFont); audioFxBold.setPreferredSize(new Dimension(48, 24));
             audioFxBold.setFocusPainted(false); audioFxBold.setToolTipText("Make active text bold");
-            audioFxBold.setBackground(fxBtnOffBg); audioFxBold.setForeground(fxBtnOffFg);
-            audioFxBold.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
             audioFxBold.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
-            audioFxBold.addItemListener(fxToggleStyler);
+            styleFxToggle(audioFxBold, FX_ACC_BOLD);
             audioFxBold.addItemListener(e -> onFormatChanged());
 
             audioFxUnderline = new JToggleButton("UL");
             audioFxUnderline.setFont(fxBtnFont); audioFxUnderline.setPreferredSize(new Dimension(36, 24));
             audioFxUnderline.setFocusPainted(false); audioFxUnderline.setToolTipText("Underline active text");
-            audioFxUnderline.setBackground(fxBtnOffBg); audioFxUnderline.setForeground(fxBtnOffFg);
-            audioFxUnderline.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
             audioFxUnderline.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
-            audioFxUnderline.addItemListener(fxToggleStyler);
+            styleFxToggle(audioFxUnderline, FX_ACC_UL);
             audioFxUnderline.addItemListener(e -> onFormatChanged());
 
             audioFxColor = new JToggleButton("Clr");
             audioFxColor.setFont(fxBtnFont); audioFxColor.setPreferredSize(new Dimension(38, 24));
             audioFxColor.setFocusPainted(false); audioFxColor.setToolTipText("Change active text color to highlight color");
-            audioFxColor.setBackground(fxBtnOffBg); audioFxColor.setForeground(fxBtnOffFg);
-            audioFxColor.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
             audioFxColor.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
-            audioFxColor.addItemListener(fxToggleStyler);
+            styleFxToggle(audioFxColor, FX_ACC_CLR);
             audioFxColor.addItemListener(e -> onFormatChanged());
 
             audioFxShake = new JToggleButton("Shake");
             audioFxShake.setFont(fxBtnFont); audioFxShake.setPreferredSize(new Dimension(52, 24));
             audioFxShake.setFocusPainted(false); audioFxShake.setToolTipText("Shake active text (animated video only)");
-            audioFxShake.setBackground(fxBtnOffBg); audioFxShake.setForeground(fxBtnOffFg);
-            audioFxShake.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
             audioFxShake.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
-            audioFxShake.addItemListener(fxToggleStyler);
+            styleFxToggle(audioFxShake, FX_ACC_SHAKE);
             audioFxShake.addItemListener(e -> onFormatChanged());
 
             audioFxPulse = new JToggleButton("Pulse");
             audioFxPulse.setFont(fxBtnFont); audioFxPulse.setPreferredSize(new Dimension(52, 24));
             audioFxPulse.setFocusPainted(false); audioFxPulse.setToolTipText("Pulse active text size (animated video only)");
-            audioFxPulse.setBackground(fxBtnOffBg); audioFxPulse.setForeground(fxBtnOffFg);
-            audioFxPulse.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
             audioFxPulse.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
-            audioFxPulse.addItemListener(fxToggleStyler);
+            styleFxToggle(audioFxPulse, FX_ACC_PULSE);
             audioFxPulse.addItemListener(e -> onFormatChanged());
 
             audioFxBounce = new JToggleButton("Bounce");
             audioFxBounce.setFont(fxBtnFont); audioFxBounce.setPreferredSize(new Dimension(58, 24));
             audioFxBounce.setFocusPainted(false); audioFxBounce.setToolTipText("Bounce active text with a springy hop (animated video only)");
-            audioFxBounce.setBackground(fxBtnOffBg); audioFxBounce.setForeground(fxBtnOffFg);
-            audioFxBounce.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
             audioFxBounce.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
-            audioFxBounce.addItemListener(fxToggleStyler);
+            styleFxToggle(audioFxBounce, FX_ACC_BOUNCE);
             audioFxBounce.addItemListener(e -> onFormatChanged());
 
             audioFxSpokenWords = new JToggleButton("Words");
             audioFxSpokenWords.setFont(fxBtnFont); audioFxSpokenWords.setPreferredSize(new Dimension(56, 24));
             audioFxSpokenWords.setFocusPainted(false);
             audioFxSpokenWords.setToolTipText("Highlight spoken words: light up each word of the active text one-by-one, paced across the audio (animated video only)");
-            audioFxSpokenWords.setBackground(fxBtnOffBg); audioFxSpokenWords.setForeground(fxBtnOffFg);
-            audioFxSpokenWords.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
             audioFxSpokenWords.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
-            audioFxSpokenWords.addItemListener(fxToggleStyler);
+            styleFxToggle(audioFxSpokenWords, FX_ACC_WORDS);
             audioFxSpokenWords.addItemListener(e -> onFormatChanged());
 
             audioFxNone = new JToggleButton("None");
             audioFxNone.setFont(fxBtnFont); audioFxNone.setPreferredSize(new Dimension(48, 24));
             audioFxNone.setFocusPainted(false); audioFxNone.setToolTipText("Disable all audio highlight effects");
-            audioFxNone.setBackground(fxBtnOffBg); audioFxNone.setForeground(fxBtnOffFg);
-            audioFxNone.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
             audioFxNone.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
-            audioFxNone.addItemListener(fxToggleStyler);
+            styleFxToggle(audioFxNone, FX_ACC_NONE);
 
             JToggleButton[] fxGroup = { audioFxGlow, audioFxGlow2, audioFxEnlarge, audioFxBold,
                     audioFxUnderline, audioFxColor, audioFxShake, audioFxPulse, audioFxBounce,
@@ -26376,11 +26410,11 @@ public class GifSlideShowApp extends JFrame {
             audioFxOthersBtn.setPreferredSize(new Dimension(78, 24));
             audioFxOthersBtn.setFocusPainted(false);
             audioFxOthersBtn.setToolTipText("More highlight effects (multi-select)");
-            audioFxOthersBtn.setBackground(fxBtnOffBg);
-            audioFxOthersBtn.setForeground(fxBtnOffFg);
-            audioFxOthersBtn.setBorder(BorderFactory.createLineBorder(fxBtnBorder, 1));
             audioFxOthersBtn.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
             audioFxOthersBtn.setFocusable(false);
+            // Same L&F opt-out as styleFxToggle, so its accent survives too.
+            audioFxOthersBtn.setContentAreaFilled(false);
+            audioFxOthersBtn.setOpaque(true);
 
             JPopupMenu audioFxOthersPopup = new JPopupMenu();
             audioFxOthersPopup.setBackground(new Color(40, 44, 56));
@@ -35095,20 +35129,25 @@ public class GifSlideShowApp extends JFrame {
             return sb.toString();
         }
 
-        /** Update the Others button label + colors to reflect how many effects are checked. */
+        /** Update the Others button label + colors to reflect how many effects are
+         *  checked. It is a JButton rather than a toggle, so it can't ride on
+         *  styleFxToggle, but it follows the same two-state accent rules against
+         *  its own FX_ACC_OTHERS hue. */
         private void refreshAudioFxOthersBtnAppearance() {
             if (audioFxOthersBtn == null) return;
             int n = 0;
             for (JCheckBox cb : audioFxOthersChecks.values()) if (cb.isSelected()) n++;
             audioFxOthersBtn.setText(n == 0 ? "Others ▾" : ("Others (" + n + ") ▾"));
             if (n > 0) {
-                audioFxOthersBtn.setBackground(new Color(55, 120, 200));
-                audioFxOthersBtn.setForeground(Color.WHITE);
-                audioFxOthersBtn.setBorder(BorderFactory.createLineBorder(new Color(80, 150, 230), 1));
+                audioFxOthersBtn.setBackground(FX_ACC_OTHERS);
+                audioFxOthersBtn.setForeground(fxLabelOn(FX_ACC_OTHERS));
+                audioFxOthersBtn.setBorder(BorderFactory.createLineBorder(
+                        fxMix(FX_ACC_OTHERS, Color.WHITE, 0.30), 1));
             } else {
-                audioFxOthersBtn.setBackground(new Color(50, 55, 68));
-                audioFxOthersBtn.setForeground(new Color(140, 145, 160));
-                audioFxOthersBtn.setBorder(BorderFactory.createLineBorder(new Color(70, 75, 90), 1));
+                audioFxOthersBtn.setBackground(fxMix(FX_CHROME_BG,     FX_ACC_OTHERS, 0.12));
+                audioFxOthersBtn.setForeground(fxMix(FX_CHROME_FG,     FX_ACC_OTHERS, 0.55));
+                audioFxOthersBtn.setBorder(BorderFactory.createLineBorder(
+                        fxMix(FX_CHROME_BORDER, FX_ACC_OTHERS, 0.45), 1));
             }
         }
 
