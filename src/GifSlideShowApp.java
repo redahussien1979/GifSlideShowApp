@@ -433,6 +433,7 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(p + "highlightStyle", t.highlightStyle);
             props.setProperty(p + "highlightTightness", String.valueOf(t.highlightTightness));
             writeHlGroups(props, p, t.hlGroups, t.ulGroups);
+            writeFnGroups(props, p, t.fnGroups);
             props.setProperty(p + "underlineStyle", t.underlineStyle);
             props.setProperty(p + "underlineText", t.underlineText);
             props.setProperty(p + "boldText", t.boldText);
@@ -941,6 +942,7 @@ public class GifSlideShowApp extends JFrame {
             // dropdown rows, exactly the old single-HL-box behaviour.
             loaded.hlGroups = readHlGroups(props, p);
             loaded.ulGroups = readUlGroups(props, p);
+            loaded.fnGroups = readFnGroups(props, p);
             loaded.bgColor2          = hexToColor(props.getProperty(p + "bgColor2", "#3C3C3C"));
             // bgFillKind defaults to Solid; legacy bgGradient=true upgrades to Linear.
             String legacyGrad = props.getProperty(p + "bgGradient");
@@ -2060,6 +2062,41 @@ public class GifSlideShowApp extends JFrame {
             g.color = hexToColor(props.getProperty(gp + "color", "#FF6496B4"));
             g.style = props.getProperty(gp + "style", "Regular");
             g.tightness = parseIntOr(props.getProperty(gp + "tightness"), 50);
+            out.add(g);
+        }
+        return out;
+    }
+
+    /** Persist a text's font-words groups (Font1, Font2, ...). Absence of the
+     *  count key means the preset predates the feature, i.e. no groups — every
+     *  word drawn in the text's own font, exactly as those presets looked. */
+    private static void writeFnGroups(Properties props, String p, List<SlideTextData.FnGroup> fnGroups) {
+        int n = fnGroups == null ? 0 : fnGroups.size();
+        props.setProperty(p + "fnGroupCount", String.valueOf(n));
+        for (int i = 0; i < n; i++) {
+            SlideTextData.FnGroup g = fnGroups.get(i);
+            if (g == null) continue;
+            String gp = p + "fnGroup." + i + ".";
+            props.setProperty(gp + "words", g.words != null ? g.words : "");
+            props.setProperty(gp + "fontName", g.fontName != null ? g.fontName : FN_FONT_INHERIT);
+            props.setProperty(gp + "style", g.style != null ? g.style : FN_STYLE_INHERIT);
+            props.setProperty(gp + "color", colorToHex(g.color != null ? g.color : new Color(255, 210, 90)));
+            props.setProperty(gp + "useColor", String.valueOf(g.useColor));
+        }
+    }
+
+    private static List<SlideTextData.FnGroup> readFnGroups(Properties props, String p) {
+        List<SlideTextData.FnGroup> out = new ArrayList<>();
+        int n = parseIntOr(props.getProperty(p + "fnGroupCount"), 0);
+        for (int i = 0; i < n; i++) {
+            String gp = p + "fnGroup." + i + ".";
+            if (props.getProperty(gp + "words") == null) continue;
+            SlideTextData.FnGroup g = new SlideTextData.FnGroup();
+            g.words = props.getProperty(gp + "words", "");
+            g.fontName = props.getProperty(gp + "fontName", FN_FONT_INHERIT);
+            g.style = props.getProperty(gp + "style", FN_STYLE_INHERIT);
+            g.color = hexToColor(props.getProperty(gp + "color", "#FFD25A"));
+            g.useColor = Boolean.parseBoolean(props.getProperty(gp + "useColor", "false"));
             out.add(g);
         }
         return out;
@@ -7999,15 +8036,24 @@ public class GifSlideShowApp extends JFrame {
                     boolean hasBoldWords = st.boldText != null && !st.boldText.isEmpty();
                     boolean hasItalicWords = st.italicText != null && !st.italicText.isEmpty();
                     boolean hasColorWords = st.colorText != null && !st.colorText.isEmpty();
+                    // Font groups only count when they would actually change how
+                    // their words look — an empty or untouched row must not drag
+                    // the whole line through the erase-and-redraw pass below.
+                    boolean hasFontWords = false;
+                    if (st.fnGroups != null) {
+                        for (SlideTextData.FnGroup fg : st.fnGroups) {
+                            if (fg != null && fg.hasOverride()) { hasFontWords = true; break; }
+                        }
+                    }
                     // List of: [ovIdx, termLen, ovX, ovW, boldFlag, italicFlag, colorFlag, savedPixels[]]
                     java.util.List<Object[]> overrideRegions = new java.util.ArrayList<>();
-                    if (hasBoldWords || hasItalicWords || hasColorWords) {
+                    if (hasBoldWords || hasItalicWords || hasColorWords || hasFontWords) {
                         java.util.LinkedHashMap<String, int[]> overrideTerms = new java.util.LinkedHashMap<>();
                         if (hasBoldWords) {
                             for (String bt : st.boldText.split(",")) {
                                 bt = bt.trim();
                                 if (!bt.isEmpty()) {
-                                    int[] flags = overrideTerms.computeIfAbsent(bt.toLowerCase(), k -> new int[3]);
+                                    int[] flags = overrideTerms.computeIfAbsent(bt.toLowerCase(), k -> new int[4]);
                                     flags[0] = 1;
                                 }
                             }
@@ -8016,7 +8062,7 @@ public class GifSlideShowApp extends JFrame {
                             for (String it : st.italicText.split(",")) {
                                 it = it.trim();
                                 if (!it.isEmpty()) {
-                                    int[] flags = overrideTerms.computeIfAbsent(it.toLowerCase(), k -> new int[3]);
+                                    int[] flags = overrideTerms.computeIfAbsent(it.toLowerCase(), k -> new int[4]);
                                     flags[1] = 1;
                                 }
                             }
@@ -8025,8 +8071,24 @@ public class GifSlideShowApp extends JFrame {
                             for (String ct : st.colorText.split(",")) {
                                 ct = ct.trim();
                                 if (!ct.isEmpty()) {
-                                    int[] flags = overrideTerms.computeIfAbsent(ct.toLowerCase(), k -> new int[3]);
+                                    int[] flags = overrideTerms.computeIfAbsent(ct.toLowerCase(), k -> new int[4]);
                                     flags[2] = 1;
+                                }
+                            }
+                        }
+                        if (hasFontWords) {
+                            // flags[3] is the 1-based font group index (0 = none).
+                            // A word listed in two groups belongs to the FIRST that
+                            // claims it, so the row order in the dropdown decides —
+                            // a stable rule the user can see, rather than last-wins.
+                            for (int fgi = 0; fgi < st.fnGroups.size(); fgi++) {
+                                SlideTextData.FnGroup fg = st.fnGroups.get(fgi);
+                                if (fg == null || !fg.hasOverride()) continue;
+                                for (String ft : fg.words.split(",")) {
+                                    ft = ft.trim();
+                                    if (ft.isEmpty()) continue;
+                                    int[] flags = overrideTerms.computeIfAbsent(ft.toLowerCase(), k -> new int[4]);
+                                    if (flags[3] == 0) flags[3] = fgi + 1;
                                 }
                             }
                         }
@@ -8050,12 +8112,22 @@ public class GifSlideShowApp extends JFrame {
                                     ovX = lineX + stFm.stringWidth(ovBefore);
                                     ovW = stFm.stringWidth(visibleLine.substring(ovIdx, ovIdx + termLower.length()));
                                 }
-                                // Save background pixels before text is drawn
-                                int saveY = lineY - stFm.getAscent() - 2;
-                                int saveH = stFm.getHeight() + 4;
-                                int sx = Math.max(0, ovX);
+                                // Save background pixels before text is drawn.
+                                // The box is the term's LOGICAL advance, but glyph
+                                // ink overhangs it (antialiased edges, italic
+                                // slant, script tails), and whatever is left
+                                // outside the box survives the restore below as a
+                                // ghost fringe of the original word beside the
+                                // replacement. A small margin, scaled with the
+                                // font so it holds at any size, takes that fringe
+                                // with it; words are space-separated, so it stays
+                                // clear of the neighbours' ink.
+                                int ovPad = Math.max(1, (int) Math.ceil(scaledStSize * 0.08));
+                                int saveY = lineY - stFm.getAscent() - 2 - ovPad;
+                                int saveH = stFm.getHeight() + 4 + ovPad * 2;
+                                int sx = Math.max(0, ovX - ovPad);
                                 int sy = Math.max(0, saveY);
-                                int sw = Math.min(ovW, frame.getWidth() - sx);
+                                int sw = Math.min(ovW + (ovX - sx) + ovPad, frame.getWidth() - sx);
                                 int sh = Math.min(saveH, frame.getHeight() - sy);
                                 int[] savedPixels = null;
                                 if (sw > 0 && sh > 0) {
@@ -8063,7 +8135,7 @@ public class GifSlideShowApp extends JFrame {
                                 }
                                 overrideRegions.add(new Object[]{
                                         ovIdx, termLower.length(), ovX, ovW, flags[0], flags[1], flags[2],
-                                        savedPixels, sx, sy, sw, sh
+                                        savedPixels, sx, sy, sw, sh, flags[3]
                                 });
                                 ovSearchFrom = ovIdx + termLower.length();
                             }
@@ -9207,7 +9279,7 @@ public class GifSlideShowApp extends JFrame {
                         }
                     }
 
-                    // === Per-word bold, italic, and color overrides ===
+                    // === Per-word bold, italic, colour and font overrides ===
                     // Restore saved background pixels, then draw override word on clean background
                     for (Object[] region : overrideRegions) {
                         int ovIdx = (int) region[0];
@@ -9222,6 +9294,7 @@ public class GifSlideShowApp extends JFrame {
                         int sy = (int) region[9];
                         int sw = (int) region[10];
                         int sh = (int) region[11];
+                        int fnFlag = (int) region[12];
 
                         // Restore the background pixels (erases the original text in this region)
                         if (savedPixels != null && sw > 0 && sh > 0) {
@@ -9232,8 +9305,35 @@ public class GifSlideShowApp extends JFrame {
                         int wordStyle = st.fontStyle;
                         if (boldFlag == 1) wordStyle |= Font.BOLD;
                         if (italicFlag == 1) wordStyle |= Font.ITALIC;
-                        Font wordFont = new Font(st.fontName, wordStyle, (int) scaledStSize);
                         Color wordColor = (colorFlag == 1) ? st.colorTextColor : stColor;
+                        // Font group (toolbar 4c1c) for this word, if any. Family,
+                        // style and colour are each independently opt-in, so a
+                        // group can restyle one aspect and leave the rest to the
+                        // text — including the Bold/Italic word lists above, whose
+                        // flags stay folded in on top of the group's own style.
+                        String wordFontName = st.fontName;
+                        if (fnFlag > 0 && st.fnGroups != null && fnFlag - 1 < st.fnGroups.size()) {
+                            SlideTextData.FnGroup fnG = st.fnGroups.get(fnFlag - 1);
+                            if (fnG != null) {
+                                if (fnG.fontName != null && !fnG.fontName.isEmpty()
+                                        && !FN_FONT_INHERIT.equals(fnG.fontName)) {
+                                    wordFontName = fnG.fontName;
+                                }
+                                Integer fnBits = fnStyleBits(fnG.style);
+                                if (fnBits != null) {
+                                    wordStyle = fnBits
+                                            | (boldFlag == 1 ? Font.BOLD : 0)
+                                            | (italicFlag == 1 ? Font.ITALIC : 0);
+                                }
+                                if (fnG.useColor && fnG.color != null) wordColor = fnG.color;
+                            }
+                        }
+                        Font wordFont = resolveFontByName(wordFontName, wordStyle, scaledStSize);
+                        if (st.letterSpacing != 0) {
+                            java.util.Map<java.awt.font.TextAttribute, Object> ovAttrs = new java.util.HashMap<>();
+                            ovAttrs.put(java.awt.font.TextAttribute.TRACKING, st.letterSpacing * 0.01f);
+                            wordFont = wordFont.deriveFont(ovAttrs);
+                        }
                         String wordText = visibleLine.substring(ovIdx, ovIdx + termLen);
 
                         Graphics2D gOv = (Graphics2D) g.create();
@@ -20615,6 +20715,43 @@ public class GifSlideShowApp extends JFrame {
     static final String[] UNDERLINE_STYLES = { "None", "Straight", "Wavy", "Double", "Dotted", "Dashed", "Thick", "Zigzag",
             "Hand Sketch", "Hand Wave", "Hand Double", "Hand Loop", "Hand Scribble" };
 
+    // ---- "Font words" groups (toolbar row under HL/UL) ---------------------
+    // Each group gives its own comma-separated word list a font family, a font
+    // style and (optionally) a colour, so one text can mix typefaces. Both
+    // pickers carry an explicit "inherit" row, which is also their default: a
+    // group can therefore change only the family, only the style, only the
+    // colour, or any combination, and everything left on inherit keeps the
+    // text's own toolbar-4a setting.
+    static final String FN_FONT_INHERIT  = "(text font)";
+    static final String FN_STYLE_INHERIT = "(text style)";
+    static final String[] FN_WORD_STYLES = { FN_STYLE_INHERIT, "Regular", "Bold", "Italic", "Bold Italic" };
+
+    /** Font-style bits for a {@link #FN_WORD_STYLES} entry, or null for
+     *  "inherit" (keep whatever Bold/Italic the text itself is set to). */
+    static Integer fnStyleBits(String style) {
+        if (style == null || FN_STYLE_INHERIT.equals(style)) return null;
+        switch (style) {
+            case "Bold":        return Font.BOLD;
+            case "Italic":      return Font.ITALIC;
+            case "Bold Italic": return Font.BOLD | Font.ITALIC;
+            case "Regular":     return Font.PLAIN;
+            default:            return null;
+        }
+    }
+
+    /** Resolve a font family name to a real Font at the given style and size.
+     *  Fonts loaded from the .ttf/.otf files next to the app are keyed by their
+     *  FILE name (e.g. "PlayfairDisplay"), which is not the family name Java
+     *  registered them under, so {@code new Font(name, ...)} alone would quietly
+     *  fall back to Dialog for exactly the fonts this app ships. Looking them up
+     *  in {@code loadedFonts} first is what makes the bundled fonts usable
+     *  anywhere a per-word font is drawn. */
+    static Font resolveFontByName(String name, int style, float size) {
+        Font loaded = name != null ? loadedFonts.get(name) : null;
+        if (loaded != null) return loaded.deriveFont(style, size);
+        return new Font(name != null && !name.isEmpty() ? name : "SansSerif", style, Math.max(1, Math.round(size)));
+    }
+
     /** A snapshot of a text's BG-box styling (toolbars 4b2/4b3/4b4). Used by the
      *  Layout Group dialog to stamp one box look onto many texts (group-level or
      *  per-column). Field defaults match SlideTextData's BG defaults. Note that
@@ -21123,6 +21260,45 @@ public class GifSlideShowApp extends JFrame {
             }
         }
 
+        // ===== Font words (Font1, Font2, ...) =====
+        // The "Font:" row under HL/UL, same dropdown mechanics: each row is one
+        // group here — unlike HL/UL there is no separate "primary" set of fields,
+        // because a text's own font already lives in fontName/fontStyle/color.
+        // An empty list is the pre-feature state: every word drawn in the text's
+        // own font, exactly as before.
+        List<FnGroup> fnGroups = new ArrayList<>();
+
+        /** One font group: a word list plus the family / style / colour those
+         *  words are drawn in. Family and style default to their inherit marker
+         *  and the colour is opt-in, so a fresh group changes nothing until the
+         *  user actually picks something. */
+        static final class FnGroup {
+            String words = "";
+            String fontName = FN_FONT_INHERIT;
+            String style = FN_STYLE_INHERIT;
+            Color color = new Color(255, 210, 90);
+            boolean useColor = false;
+
+            /** True when this group would actually change how its words look —
+             *  i.e. it has words AND at least one of family / style / colour is
+             *  set. Groups that fail this are skipped by the renderer so an
+             *  empty or untouched row costs nothing and, more importantly, never
+             *  triggers the erase-and-redraw pass for no visible reason. */
+            boolean hasOverride() {
+                if (words == null || words.trim().isEmpty()) return false;
+                boolean famSet   = fontName != null && !fontName.isEmpty() && !FN_FONT_INHERIT.equals(fontName);
+                boolean styleSet = fnStyleBits(style) != null;
+                return famSet || styleSet || useColor;
+            }
+
+            FnGroup copy() {
+                FnGroup g = new FnGroup();
+                g.words = words; g.fontName = fontName; g.style = style;
+                g.color = color; g.useColor = useColor;
+                return g;
+            }
+        }
+
         // ===== Audio-FX "Glow" (toolbar 7b) =====
         // Set only on the per-frame clone that applyActiveTextHighlight builds for
         // the audio-active text when its FX include "Glow". The glow is ADDITIVE:
@@ -21223,6 +21399,10 @@ public class GifSlideShowApp extends JFrame {
             if (src.hlGroups != null) for (HlGroup g : src.hlGroups) if (g != null) dst.hlGroups.add(g.copy());
             dst.ulGroups = new java.util.ArrayList<>();
             if (src.ulGroups != null) for (UlGroup g : src.ulGroups) if (g != null) dst.ulGroups.add(g.copy());
+            // Font-words groups ride along on the same terms as HL/UL, so a
+            // cloned / broadcast / HL-pass copy keeps its mixed typefaces.
+            dst.fnGroups = new java.util.ArrayList<>();
+            if (src.fnGroups != null) for (FnGroup g : src.fnGroups) if (g != null) dst.fnGroups.add(g.copy());
             // Texts Timer timeline rides along too, so it survives the same
             // rebuild / broadcast / HL-clone paths as the BG-style block.
             dst.timerAppearMs     = src.timerAppearMs;
@@ -22849,6 +23029,21 @@ public class GifSlideShowApp extends JFrame {
         private final JButton slideTextUlRemoveBtn;
         /** -1 = the UL combo's row 0 (primary) is selected; >= 0 = ulGroups[this]. */
         private int currentUlGroupIndex = -1;
+        // Font-words row (toolbar 4c1c), same dropdown mechanics as HL/UL: the
+        // editable combo lists this text's font groups (Font1, Font2, ...), the
+        // controls beside it read and write whichever row is selected. The one
+        // difference is that row 0 is a group like any other — a text's own font
+        // is already on toolbar 4a, so there is no "primary" row to reserve.
+        private final JComboBox<String> slideTextFontWordsCombo;
+        private final JButton slideTextFnAddBtn;
+        private final JButton slideTextFnRemoveBtn;
+        private final JComboBox<String> slideTextFontWordsFontCombo;
+        private final JComboBox<String> slideTextFontWordsStyleCombo;
+        private final JButton slideTextFontWordsColorBtn;
+        private final JCheckBox slideTextFontWordsColorCheck;
+        private Color slideTextFontWordsColor = new Color(255, 210, 90);
+        /** Index into the selected text's fnGroups that the row above edits. */
+        private int currentFnGroupIndex = 0;
         private final JTextField slideTextBoldField;
         private final JTextField slideTextItalicField;
         private final JTextField slideTextColorTextField;
@@ -23502,6 +23697,10 @@ public class GifSlideShowApp extends JFrame {
             // window; they get their own line so nothing is cut off.
             JPanel toolbar4c1b = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
             toolbar4c1b.setBackground(new Color(50, 95, 60));
+            // Third line of the same block: per-word font family / style / colour
+            // groups, built exactly like the HL and UL dropdowns above it.
+            JPanel toolbar4c1c = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
+            toolbar4c1c.setBackground(new Color(50, 95, 60));
             JPanel toolbar4d = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
             toolbar4d.setBackground(new Color(50, 95, 60));
             JPanel toolbar4f = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
@@ -24371,6 +24570,111 @@ public class GifSlideShowApp extends JFrame {
                     + "(the primary UL box can't be removed).");
             slideTextUlRemoveBtn.addActionListener(e -> removeUlGroup());
 
+            // ===== Font words (toolbar 4c1c) =====
+            // Same three-part shape as the HL row: an editable dropdown holding
+            // this text's font groups, "+"/"✕" to add and drop rows, and the
+            // family / style / colour controls that read and write whichever row
+            // is selected.
+            slideTextFontWordsCombo = new JComboBox<>();
+            // Seed row 0 immediately, for the same reason as the HL/UL combos:
+            // getSelectedIndex() must be 0 rather than -1 from the first frame,
+            // long before loadSlideTextFromItem() first runs.
+            slideTextFontWordsCombo.addItem("");
+            slideTextFontWordsCombo.setEditable(true);
+            slideTextFontWordsCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextFontWordsCombo.setPreferredSize(new Dimension(110, 24));
+            slideTextFontWordsCombo.setToolTipText("<html>Words to draw in a different font — comma-separated, "
+                    + "e.g. <i>hello, world</i>. Type to edit, or open the dropdown to switch to another "
+                    + "font group (Font2, Font3, ... — added with the <b>+</b> button) and give IT its own "
+                    + "font/style/colour with the controls to the right.<br>"
+                    + "Each word keeps the space it occupies in the line, so the replacement font is "
+                    + "fitted to that width.</html>");
+            // Deferred via invokeLater — see the matching comment on the HL
+            // combo's document listener above for why.
+            ((JTextField) slideTextFontWordsCombo.getEditor().getEditorComponent()).getDocument()
+                    .addDocumentListener(new DocumentListener() {
+                private void react() {
+                    if (isLoadingSlideText) return;
+                    SwingUtilities.invokeLater(() -> {
+                        if (isLoadingSlideText) return;
+                        syncComboLabelAtSelection(slideTextFontWordsCombo);
+                        onFormatChanged();
+                    });
+                }
+                @Override public void insertUpdate(DocumentEvent e) { react(); }
+                @Override public void removeUpdate(DocumentEvent e) { react(); }
+                @Override public void changedUpdate(DocumentEvent e) { react(); }
+            });
+            slideTextFontWordsCombo.addItemListener(e -> {
+                if (isLoadingSlideText || e.getStateChange() != java.awt.event.ItemEvent.SELECTED) return;
+                switchFnGroup(slideTextFontWordsCombo.getSelectedIndex());
+            });
+
+            slideTextFnAddBtn = new JButton("+");
+            slideTextFnAddBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            slideTextFnAddBtn.setMargin(new Insets(0, 4, 0, 4));
+            slideTextFnAddBtn.setFocusPainted(false);
+            slideTextFnAddBtn.setToolTipText("Add a new font group — its own word list, font, style "
+                    + "and colour, independent of the group above.");
+            slideTextFnAddBtn.addActionListener(e -> addFnGroup());
+
+            slideTextFnRemoveBtn = new JButton("✕");
+            slideTextFnRemoveBtn.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextFnRemoveBtn.setMargin(new Insets(0, 4, 0, 4));
+            slideTextFnRemoveBtn.setFocusPainted(false);
+            slideTextFnRemoveBtn.setToolTipText("Remove the font group currently selected above "
+                    + "(the last remaining group is cleared instead).");
+            slideTextFnRemoveBtn.addActionListener(e -> removeFnGroup());
+
+            java.util.List<String> fnFontChoices = new java.util.ArrayList<>();
+            fnFontChoices.add(FN_FONT_INHERIT);
+            for (String fn : allFontNames()) fnFontChoices.add(fn);
+            slideTextFontWordsFontCombo = new JComboBox<>(fnFontChoices.toArray(new String[0]));
+            slideTextFontWordsFontCombo.setSelectedItem(FN_FONT_INHERIT);
+            slideTextFontWordsFontCombo.setPreferredSize(new Dimension(115, 24));
+            slideTextFontWordsFontCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextFontWordsFontCombo.setToolTipText("Font for the group selected on the left "
+                    + "(loaded fonts listed first). \"" + FN_FONT_INHERIT + "\" keeps the text's own font.");
+            slideTextFontWordsFontCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextFontWordsStyleCombo = new JComboBox<>(FN_WORD_STYLES);
+            slideTextFontWordsStyleCombo.setSelectedItem(FN_STYLE_INHERIT);
+            slideTextFontWordsStyleCombo.setPreferredSize(new Dimension(95, 24));
+            slideTextFontWordsStyleCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextFontWordsStyleCombo.setToolTipText("Font type for the group selected on the left. \""
+                    + FN_STYLE_INHERIT + "\" keeps whatever Bold/Italic the text itself is set to.");
+            slideTextFontWordsStyleCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextFontWordsColorCheck = new JCheckBox("Clr");
+            slideTextFontWordsColorCheck.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            slideTextFontWordsColorCheck.setForeground(new Color(140, 210, 160));
+            slideTextFontWordsColorCheck.setBackground(new Color(50, 95, 60));
+            slideTextFontWordsColorCheck.setFocusPainted(false);
+            slideTextFontWordsColorCheck.setToolTipText("Paint this group's words in the colour beside it. "
+                    + "Off = they keep the text's own colour, so the group changes only the font.");
+            slideTextFontWordsColorCheck.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextFontWordsColorBtn = new JButton("■");
+            slideTextFontWordsColorBtn.setForeground(slideTextFontWordsColor);
+            slideTextFontWordsColorBtn.setFont(new Font("Segoe UI", Font.PLAIN, 16));
+            slideTextFontWordsColorBtn.setPreferredSize(new Dimension(32, 24));
+            slideTextFontWordsColorBtn.setFocusPainted(false);
+            slideTextFontWordsColorBtn.setToolTipText("Colour for the group selected on the left "
+                    + "(only used while \"Clr\" is ticked)");
+            slideTextFontWordsColorBtn.addActionListener(e -> pickColorLive(panel, "Font Words Color", slideTextFontWordsColor, c -> {
+                slideTextFontWordsColor = c;
+                slideTextFontWordsColorBtn.setForeground(c);
+                // Picking a colour is only ever meant to be seen, so tick the
+                // box for the user instead of leaving the pick with no effect.
+                if (!slideTextFontWordsColorCheck.isSelected()) {
+                    boolean was = isLoadingSlideText;
+                    isLoadingSlideText = true;
+                    try { slideTextFontWordsColorCheck.setSelected(true); }
+                    finally { isLoadingSlideText = was; }
+                }
+                onFormatChanged();
+            }));
+
             slideTextBoldField = new JTextField(8);
             slideTextBoldField.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             slideTextBoldField.setPreferredSize(new Dimension(80, 24));
@@ -24431,6 +24735,12 @@ public class GifSlideShowApp extends JFrame {
             JLabel tc4cUlLbl = styledLabel("UL:");
             tc4cUlLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
             tc4cUlLbl.setForeground(new Color(140, 210, 160));
+            JLabel tc4cFnLbl = styledLabel("  🔤 Font:");
+            tc4cFnLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4cFnLbl.setForeground(new Color(140, 210, 160));
+            JLabel tc4cFnTypeLbl = styledLabel("Type:");
+            tc4cFnTypeLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4cFnTypeLbl.setForeground(new Color(140, 210, 160));
 
             toolbar4c.add(tc4cAlignLbl);
             toolbar4c.add(slideTextAlignCombo);
@@ -24454,6 +24764,16 @@ public class GifSlideShowApp extends JFrame {
             toolbar4c1b.add(slideTextUnderlineWordsCombo);
             toolbar4c1b.add(slideTextUlAddBtn);
             toolbar4c1b.add(slideTextUlRemoveBtn);
+
+            toolbar4c1c.add(tc4cFnLbl);
+            toolbar4c1c.add(slideTextFontWordsCombo);
+            toolbar4c1c.add(slideTextFnAddBtn);
+            toolbar4c1c.add(slideTextFnRemoveBtn);
+            toolbar4c1c.add(slideTextFontWordsFontCombo);
+            toolbar4c1c.add(tc4cFnTypeLbl);
+            toolbar4c1c.add(slideTextFontWordsStyleCombo);
+            toolbar4c1c.add(slideTextFontWordsColorBtn);
+            toolbar4c1c.add(slideTextFontWordsColorCheck);
 
             // --- Odometer toolbar row ---
             JPanel toolbar4c2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
@@ -26912,6 +27232,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(toolbar4b4);
             toolbarsPanel.add(toolbar4c);
             toolbarsPanel.add(toolbar4c1b);
+            toolbarsPanel.add(toolbar4c1c);
             toolbarsPanel.add(toolbar4c2);
             toolbarsPanel.add(toolbar4f);
             toolbarsPanel.add(toolbar4d);
@@ -27162,6 +27483,117 @@ public class GifSlideShowApp extends JFrame {
             }
         }
 
+        // ===== Font-words groups =====
+        // Same four methods as HL/UL, with one structural difference: every row
+        // of the Font dropdown is an fnGroups entry (row N == fnGroups[N]).
+        // There is no "primary" row to reserve because a text's own font already
+        // lives on toolbar 4a, so currentFnGroupIndex is the combo index itself.
+
+        /** Push one group's family/style/colour into the row's shared controls. */
+        private void applyFnGroupToControls(SlideTextData.FnGroup g) {
+            slideTextFontWordsFontCombo.setSelectedItem(
+                    g.fontName != null && !g.fontName.isEmpty() ? g.fontName : FN_FONT_INHERIT);
+            slideTextFontWordsStyleCombo.setSelectedItem(
+                    g.style != null && !g.style.isEmpty() ? g.style : FN_STYLE_INHERIT);
+            slideTextFontWordsColor = g.color != null ? g.color : new Color(255, 210, 90);
+            slideTextFontWordsColorBtn.setForeground(slideTextFontWordsColor);
+            slideTextFontWordsColorCheck.setSelected(g.useColor);
+            // A font that is no longer installed (preset authored elsewhere)
+            // leaves the combo's selection unchanged, which would silently
+            // re-label the group with the previous row's font. Fall back to
+            // "inherit" so what the toolbar shows is what will be drawn.
+            if (slideTextFontWordsFontCombo.getSelectedIndex() < 0) {
+                slideTextFontWordsFontCombo.setSelectedItem(FN_FONT_INHERIT);
+            }
+        }
+
+        /** Rebuild the Font combo's rows from `item` and select row 0. A text
+         *  with no groups yet still gets one (empty) row to type into. */
+        private void populateFnCombo(SlideTextData item) {
+            slideTextFontWordsCombo.removeAllItems();
+            if (item.fnGroups == null || item.fnGroups.isEmpty()) {
+                slideTextFontWordsCombo.addItem("");
+            } else {
+                for (SlideTextData.FnGroup g : item.fnGroups) {
+                    slideTextFontWordsCombo.addItem(g != null && g.words != null ? g.words : "");
+                }
+            }
+            slideTextFontWordsCombo.setSelectedIndex(0);
+            currentFnGroupIndex = 0;
+            SlideTextData.FnGroup first = (item.fnGroups != null && !item.fnGroups.isEmpty() && item.fnGroups.get(0) != null)
+                    ? item.fnGroups.get(0) : new SlideTextData.FnGroup();
+            applyFnGroupToControls(first);
+        }
+
+        /** Same as {@link #switchHlGroup} for the Font dropdown — see its comment
+         *  for why there's no saveCurrentSlideTextToItem() here. */
+        private void switchFnGroup(int comboIndex) {
+            if (comboIndex < 0) return;
+            if (currentSlideTextIndex < 0 || currentSlideTextIndex >= slideTextItems.size()) return;
+            currentFnGroupIndex = comboIndex;
+            SlideTextData item = slideTextItems.get(currentSlideTextIndex);
+            isLoadingSlideText = true;
+            try {
+                SlideTextData.FnGroup g = (item.fnGroups != null && comboIndex < item.fnGroups.size()
+                        && item.fnGroups.get(comboIndex) != null)
+                        ? item.fnGroups.get(comboIndex) : new SlideTextData.FnGroup();
+                applyFnGroupToControls(g);
+            } finally {
+                isLoadingSlideText = false;
+            }
+        }
+
+        /** "+" next to the Font combo: appends a fresh, empty font group and
+         *  selects it so the user can type its words and pick its font. */
+        private void addFnGroup() {
+            if (currentSlideTextIndex < 0 || currentSlideTextIndex >= slideTextItems.size()) return;
+            saveCurrentSlideTextToItem();
+            SlideTextData item = slideTextItems.get(currentSlideTextIndex);
+            // The combo always shows at least one row, so a text whose groups
+            // list is still empty already has row 0 on screen: the new row is
+            // whichever index that leaves free, not blindly size().
+            int newIdx = Math.max(slideTextFontWordsCombo.getItemCount(),
+                    item.fnGroups != null ? item.fnGroups.size() : 0);
+            isLoadingSlideText = true;
+            try {
+                // Push what the editor is showing into the MODEL before adding a
+                // row. Without it the row being left still holds its old (usually
+                // blank) label, the new blank row equals it, and
+                // DefaultComboBoxModel's equals()-based setSelectedItem no-ops —
+                // so the dropdown would stay parked on the previous row. See
+                // syncComboLabelAtSelection's own comment for the full story.
+                syncComboLabelAtSelection(slideTextFontWordsCombo);
+                slideTextFontWordsCombo.addItem("");
+                slideTextFontWordsCombo.setSelectedIndex(slideTextFontWordsCombo.getItemCount() - 1);
+                // Deliberately NOT getSelectedIndex(): it returns the FIRST row
+                // whose label equals the selection, which is the wrong row as soon
+                // as two rows are still blank. The index we just appended at is
+                // the one this edit belongs to.
+                currentFnGroupIndex = newIdx;
+                applyFnGroupToControls(new SlideTextData.FnGroup());
+            } finally {
+                isLoadingSlideText = false;
+            }
+            // Materialise every row up to the new one, so the fresh row's index
+            // lines up with fnGroups even when earlier rows were never filled in.
+            if (item.fnGroups == null) item.fnGroups = new java.util.ArrayList<>();
+            while (item.fnGroups.size() <= newIdx) item.fnGroups.add(new SlideTextData.FnGroup());
+        }
+
+        /** "✕" next to the Font combo: drops the selected group. The dropdown
+         *  always keeps one row, so removing the last group clears it instead. */
+        private void removeFnGroup() {
+            if (currentSlideTextIndex < 0 || currentSlideTextIndex >= slideTextItems.size()) return;
+            SlideTextData item = slideTextItems.get(currentSlideTextIndex);
+            if (item.fnGroups != null && currentFnGroupIndex >= 0 && currentFnGroupIndex < item.fnGroups.size()) {
+                item.fnGroups.remove(currentFnGroupIndex);
+            }
+            isLoadingSlideText = true;
+            try { populateFnCombo(item); }
+            finally { isLoadingSlideText = false; }
+            onFormatChanged();
+        }
+
         /** Same as {@link #removeHlGroup} for the UL dropdown. */
         private void removeUlGroup() {
             if (currentUlGroupIndex < 0) return;
@@ -27209,6 +27641,8 @@ public class GifSlideShowApp extends JFrame {
             if (prevItem.hlGroups != null) for (SlideTextData.HlGroup g : prevItem.hlGroups) if (g != null) newHlGroups.add(g.copy());
             List<SlideTextData.UlGroup> newUlGroups = new java.util.ArrayList<>();
             if (prevItem.ulGroups != null) for (SlideTextData.UlGroup g : prevItem.ulGroups) if (g != null) newUlGroups.add(g.copy());
+            List<SlideTextData.FnGroup> newFnGroups = new java.util.ArrayList<>();
+            if (prevItem.fnGroups != null) for (SlideTextData.FnGroup g : prevItem.fnGroups) if (g != null) newFnGroups.add(g.copy());
 
             if (currentHlGroupIndex < 0) {
                 newHlText = (String) slideTextHighlightCombo.getEditor().getItem();
@@ -27237,6 +27671,29 @@ public class GifSlideShowApp extends JFrame {
                 SlideTextData.UlGroup g = newUlGroups.get(currentUlGroupIndex);
                 g.style = (String) slideTextUnderlineCombo.getSelectedItem();
                 g.words = (String) slideTextUnderlineWordsCombo.getEditor().getItem();
+            }
+            // Font words: the selected row is the one live surface, exactly like
+            // HL/UL above. A row that has never been given words and still holds
+            // the inherit-everything defaults is NOT materialised, so texts that
+            // never touch this row keep an empty group list — and presets written
+            // for them stay byte-for-byte what they were before the feature.
+            String fnWords = (String) slideTextFontWordsCombo.getEditor().getItem();
+            String fnFont  = (String) slideTextFontWordsFontCombo.getSelectedItem();
+            String fnStyle = (String) slideTextFontWordsStyleCombo.getSelectedItem();
+            boolean fnUseColor = slideTextFontWordsColorCheck.isSelected();
+            boolean fnRowIsDefault = (fnWords == null || fnWords.trim().isEmpty())
+                    && (fnFont == null || FN_FONT_INHERIT.equals(fnFont))
+                    && (fnStyle == null || FN_STYLE_INHERIT.equals(fnStyle))
+                    && !fnUseColor;
+            if (currentFnGroupIndex >= 0
+                    && (currentFnGroupIndex < newFnGroups.size() || !fnRowIsDefault)) {
+                while (newFnGroups.size() <= currentFnGroupIndex) newFnGroups.add(new SlideTextData.FnGroup());
+                SlideTextData.FnGroup g = newFnGroups.get(currentFnGroupIndex);
+                g.words = fnWords != null ? fnWords : "";
+                g.fontName = fnFont != null ? fnFont : FN_FONT_INHERIT;
+                g.style = fnStyle != null ? fnStyle : FN_STYLE_INHERIT;
+                g.color = slideTextFontWordsColor;
+                g.useColor = fnUseColor;
             }
 
             SlideTextData newItem = new SlideTextData(
@@ -27300,6 +27757,7 @@ public class GifSlideShowApp extends JFrame {
             // refreshed from the live toolbar widgets.
             newItem.hlGroups = newHlGroups;
             newItem.ulGroups = newUlGroups;
+            newItem.fnGroups = newFnGroups;
             // The Texts-Timer timeline is edited in its own dialog, not on the
             // main toolbar, so carry it forward from the previous item instead of
             // resetting it every time an unrelated property changes.
@@ -27392,6 +27850,10 @@ public class GifSlideShowApp extends JFrame {
                 // the text's main HL/UL look, exactly like before groups existed.
                 populateHlCombo(item);
                 populateUlCombo(item);
+                // Same treatment for the Font row: rebuild its rows from this
+                // text's groups and select row 0, which also loads that group's
+                // font/style/colour into the controls beside the dropdown.
+                populateFnCombo(item);
                 slideTextHighlightColor = item.highlightColor;
                 slideTextHighlightColorBtn.setForeground(item.highlightColor);
                 slideTextHighlightStyleCombo.setSelectedItem(item.highlightStyle);
@@ -30541,7 +31003,7 @@ public class GifSlideShowApp extends JFrame {
                     "Text effect & burst",
                     "Background / box style",
                     "Highlight words",
-                    "Bold / Italic / Underline / Colour words",
+                    "Bold / Italic / Underline / Colour / Font words",
                     "Odometer",
                     "Entry animation",
                     "Timer / Motion / Alternate" };
@@ -30648,6 +31110,11 @@ public class GifSlideShowApp extends JFrame {
             List<SlideTextData.UlGroup> ulGroupsFrom = (gWord ? src : dst).ulGroups;
             m.ulGroups = new java.util.ArrayList<>();
             if (ulGroupsFrom != null) for (SlideTextData.UlGroup ug : ulGroupsFrom) if (ug != null) m.ulGroups.add(ug.copy());
+            // Font-words groups are word-level styling, so they travel with the
+            // Word toggle rather than the whole-text "Font & size" one.
+            List<SlideTextData.FnGroup> fnGroupsFrom = (gWord ? src : dst).fnGroups;
+            m.fnGroups = new java.util.ArrayList<>();
+            if (fnGroupsFrom != null) for (SlideTextData.FnGroup fg : fnGroupsFrom) if (fg != null) m.fnGroups.add(fg.copy());
 
             SlideTextData tmFrom = gTimer ? src : dst;
             m.timerAppearMs     = tmFrom.timerAppearMs;
@@ -32321,6 +32788,24 @@ public class GifSlideShowApp extends JFrame {
             return out;
         }
 
+        /** Same as {@link #mergeHlGroupsForBroadcast} for font-words groups
+         *  (their look is the font family, style and colour). */
+        private static List<SlideTextData.FnGroup> mergeFnGroupsForBroadcast(
+                List<SlideTextData.FnGroup> master, List<SlideTextData.FnGroup> existing, boolean keepOwnWords) {
+            List<SlideTextData.FnGroup> out = new ArrayList<>();
+            if (master == null) return out;
+            for (int i = 0; i < master.size(); i++) {
+                SlideTextData.FnGroup m = master.get(i);
+                if (m == null) continue;
+                SlideTextData.FnGroup g = m.copy();
+                if (keepOwnWords && existing != null && i < existing.size() && existing.get(i) != null) {
+                    g.words = existing.get(i).words;
+                }
+                out.add(g);
+            }
+            return out;
+        }
+
         void applySlideTextFormats(List<SlideTextData> formats) {
             if (formats == null || formats.isEmpty()) return;
             // Ensure we have at least as many items as the source.
@@ -32365,6 +32850,10 @@ public class GifSlideShowApp extends JFrame {
                 boolean ownWords = existingText != null && !existingText.isEmpty();
                 applied.hlGroups = mergeHlGroupsForBroadcast(fmt.hlGroups, existing.hlGroups, ownWords);
                 applied.ulGroups = mergeUlGroupsForBroadcast(fmt.ulGroups, existing.ulGroups, ownWords);
+                // Font groups split the same way: which words get a different
+                // font is this slide's business, what that font IS comes from the
+                // master — so restyling Font1 on slide 1 restyles the deck.
+                applied.fnGroups = mergeFnGroupsForBroadcast(fmt.fnGroups, existing.fnGroups, ownWords);
                 // Texts-Timer timeline is per-slide (like HL/UL/audio), so keep
                 // this row's own timing instead of the master's after copyBgStyle.
                 applied.timerAppearMs = existing.timerAppearMs;
