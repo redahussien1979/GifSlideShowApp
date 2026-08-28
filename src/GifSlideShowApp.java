@@ -16617,6 +16617,16 @@ public class GifSlideShowApp extends JFrame {
                                 if (s.videoRepeatCrossfade) repeatCrossfade = true;
                             }
                         }
+                        // The whole-video slow is resolved here so the repeat pass can
+                        // fold it in: a repeated span that is also slowed would
+                        // otherwise be time-stretched twice, and atempo's warble
+                        // compounds on exactly those spans.
+                        int globalSlowPct = 100;
+                        for (SlideData s : slides) {
+                            if (s.videoGlobalSlowPct > globalSlowPct) globalSlowPct = s.videoGlobalSlowPct;
+                        }
+                        double globalSlowF = globalSlowPct / 100.0;
+                        boolean globalSlowApplied = false;
                         if (anyRepeat) {
                             publish("Repeating chosen video part(s)...");
                             java.util.List<int[]> allRepeats = new java.util.ArrayList<>();
@@ -16629,23 +16639,22 @@ public class GifSlideShowApp extends JFrame {
                                 if (scrollEnabled && i < slides.size() - 1) off += transSec;
                             }
                             try {
-                                insertVideoRepeats(finalOut, allRepeats, crf, tempDir, repeatCrossfade);
+                                insertVideoRepeats(finalOut, allRepeats, crf, tempDir,
+                                        repeatCrossfade, globalSlowF);
+                                globalSlowApplied = true;   // folded into the same pass
                             } catch (Exception rex) {
                                 publish("Repeat part failed: " + rex.getMessage());
                             }
                         }
 
-                        // Slow the ENTIRE finished video (optional). Applied last so
-                        // it also stretches any repeated spans. Pitch-preserving audio.
-                        int globalSlowPct = 100;
-                        for (SlideData s : slides) {
-                            if (s.videoGlobalSlowPct > globalSlowPct) globalSlowPct = s.videoGlobalSlowPct;
-                        }
-                        if (globalSlowPct > 100) {
-                            double slowF = globalSlowPct / 100.0;
-                            publish(String.format(java.util.Locale.US, "Slowing whole video to %.2g× ...", slowF));
+                        // Slow the ENTIRE finished video (optional). Only needed as its
+                        // own pass when the repeat pass did not already fold it in —
+                        // there are no repeats, or that pass failed.
+                        if (globalSlowF > 1.0 && !globalSlowApplied) {
+                            publish(String.format(java.util.Locale.US,
+                                    "Slowing whole video to %.2g\u00d7 ...", globalSlowF));
                             try {
-                                applyGlobalSlow(finalOut, slowF, crf, tempDir);
+                                applyGlobalSlow(finalOut, globalSlowF, crf, tempDir);
                             } catch (Exception gex) {
                                 publish("Slow whole video failed: " + gex.getMessage());
                             }
@@ -17365,7 +17374,7 @@ public class GifSlideShowApp extends JFrame {
                                 publish("Repeating chosen part(s) of slide " + (si + 1) + "...");
                                 try {
                                     insertVideoRepeats(slideOutFile, s.videoRepeats, crf, tempDir,
-                                            s.videoRepeatCrossfade);
+                                            s.videoRepeatCrossfade, 1.0);
                                 } catch (Exception rex) {
                                     publish("Repeat part failed for slide " + (si + 1) + ": " + rex.getMessage());
                                 }
@@ -17824,7 +17833,8 @@ public class GifSlideShowApp extends JFrame {
      *                 taking the largest play count.
      */
     private static void insertVideoRepeats(File video, java.util.List<int[]> rangesMs,
-                                           int crf, File tempDir, boolean crossfade)
+                                           int crf, File tempDir, boolean crossfade,
+                                           double globalSlow)
             throws IOException, InterruptedException {
         if (video == null || !video.exists() || rangesMs == null || rangesMs.isEmpty()) return;
 
@@ -17909,7 +17919,12 @@ public class GifSlideShowApp extends JFrame {
             // Round a slowed copy to a whole number of output frames and use THAT
             // as the effective stretch, so the piece is an exact frame count long
             // and its picture and sound have identical lengths.
-            pnOut[i] = Math.max(1, Math.round(nIn * pieces.get(i)[2]));
+            // The whole-video slow is folded in here rather than run as a second
+            // pass. atempo is a WSOLA stretch: putting the repeated spans through
+            // it twice (once for their own slow, once for the whole-video slow)
+            // compounds its warble on exactly those spans, so they end up rougher
+            // than the audio around them. One stretch per sample, done once.
+            pnOut[i] = Math.max(1, Math.round(nIn * pieces.get(i)[2] * globalSlow));
             pSlow[i] = pnOut[i] / (double) nIn;
             pDur[i]  = pnOut[i] * frameSec;
         }
@@ -17935,7 +17950,7 @@ public class GifSlideShowApp extends JFrame {
         // surplus is trimmed off afterwards. 250 ms covers atempo's window at any
         // stretch factor this dialog allows.
         final double ATEMPO_PRIMER_SEC = 0.250;
-        final double XFADE_SEC = 0.030;                  // 30 ms transition
+        final double XFADE_SEC = 0.012;                  // 12 ms transition
         double[] xfade     = new double[Math.max(1, k - 1)];
         boolean[] discJoin = new boolean[Math.max(1, k - 1)];
         for (int j = 0; j < k - 1; j++) {
@@ -18021,6 +18036,11 @@ public class GifSlideShowApp extends JFrame {
             // discarded, and the length is reached by trimming, never by padding.
             double srcEnd = f1 * frameSec;
             if (slowed) srcEnd = Math.min(durSec, srcEnd + ATEMPO_PRIMER_SEC);
+            // The last piece runs to the end of the video, so there is nothing to
+            // over-read: atempo's shortfall there gets padded with silence and the
+            // video would end on an abrupt cut into it. Fade the end out instead.
+            boolean padsSilence = slowed && srcEnd >= durSec - 1e-9
+                                  && f1 * frameSec >= durSec - 1e-9;
             fc.append("[sa").append(i).append("]atrim=").append(fmtSec(f0 * frameSec))
               .append(':').append(fmtSec(srcEnd)).append(",asetpts=N/SR/TB");
             if (slowed) fc.append(atempoChain(pSlow[i]));  // pitch-preserving stretch
@@ -18035,6 +18055,11 @@ public class GifSlideShowApp extends JFrame {
                 // Duck this copy's own tail out under the lead-in (equal power).
                 fc.append(",afade=t=out:curve=qsin:st=").append(fmtSec(pDur[i] - xf))
                   .append(":d=").append(fmtSec(xf));
+            }
+            if (padsSilence) {
+                double d = Math.min(0.030, pDur[i] * 0.4);
+                fc.append(",afade=t=out:curve=tri:st=").append(fmtSec(Math.max(0, pDur[i] - d)))
+                  .append(":d=").append(fmtSec(d));
             }
             if (fadeIn[i] || fadeOut[i]) {
                 double d = Math.min(0.012, pDur[i] * 0.4); // keep 2*d <= piece
