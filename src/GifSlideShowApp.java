@@ -17787,20 +17787,13 @@ public class GifSlideShowApp extends JFrame {
         preOverlay.delete();
     }
 
-    /**
-     * Rebuild {@code video} in place so that each {startMs,endMs} range (in this
-     * file's own timeline) plays twice back-to-back. The whole timeline is cut
-     * into ordered pieces — normal gaps plus each chosen range duplicated — and
-     * re-concatenated with a single re-encode, so the repeat is seamless (no
-     * black frames, freeze, or container-level seek glitches) and audio rides
-     * along with the picture. No-op when there are no valid ranges.
-     *
-     * @param rangesMs list of {startMs, endMs} or {startMs, endMs, plays} ranges,
-     *                 where {@code plays} is how many times that part plays
-     *                 (default 2, min 2). Unsorted / overlapping / out-of-range
-     *                 entries are sanitized away; identical ranges are merged by
-     *                 taking the largest play count.
-     */
+    /** Format a time in seconds for an ffmpeg filter argument. Six decimals is
+     *  well below one audio sample at 96 kHz, so snapped frame times survive the
+     *  round-trip through the filter string exactly. */
+    private static String fmtSec(double sec) {
+        return String.format(java.util.Locale.US, "%.6f", sec);
+    }
+
     /** Build a pitch-preserving audio time-stretch filter chain that plays audio
      *  {@code slow}× slower (slow≥1). atempo only accepts 0.5–2.0 per instance,
      *  so factors beyond 2× are reached by chaining. Returns a leading-comma
@@ -17816,26 +17809,56 @@ public class GifSlideShowApp extends JFrame {
         return sb.toString();
     }
 
+    /**
+     * Rebuild {@code video} in place so that each {startMs,endMs} range (in this
+     * file's own timeline) plays twice back-to-back. The whole timeline is cut
+     * into ordered pieces — normal gaps plus each chosen range duplicated — and
+     * re-concatenated with a single re-encode, so the repeat is seamless (no
+     * black frames, freeze, or container-level seek glitches) and audio rides
+     * along with the picture. No-op when there are no valid ranges.
+     *
+     * @param rangesMs list of {startMs, endMs} or {startMs, endMs, plays} ranges,
+     *                 where {@code plays} is how many times that part plays
+     *                 (default 2, min 2). Unsorted / overlapping / out-of-range
+     *                 entries are sanitized away; identical ranges are merged by
+     *                 taking the largest play count.
+     */
     private static void insertVideoRepeats(File video, java.util.List<int[]> rangesMs,
                                            int crf, File tempDir, boolean crossfade)
             throws IOException, InterruptedException {
         if (video == null || !video.exists() || rangesMs == null || rangesMs.isEmpty()) return;
-        double durSec = probeAudioDurationMs(video) / 1000.0; // format=duration works for video too
-        if (durSec <= 0) return; // unknown length — can't safely build the trailing piece
 
-        // Sanitize: clamp to [0,dur], drop invalid / <20ms; carry play count + slow.
-        // segs entries: {startSec, endSec, plays, slowFactor}.
+        // --- Output frame grid -------------------------------------------------
+        // Every cut below is snapped to a whole frame and every piece is re-timed
+        // onto this exact grid before concatenation, so the result is strictly
+        // constant frame rate. Without that, a cut at an arbitrary word time
+        // (0.19 s, 0.88 s, ...) lands between two frames: the pieces then carry
+        // timestamps that are off the grid and the muxer duplicates or drops a
+        // frame at every join — which is the hitch/stutter seen at each repeat.
+        // The crossfade option is audio-only and can never fix that.
+        String rateStr = probeVideoFrameRate(video);
+        double fps = parseFrameRate(rateStr);
+        if (fps <= 0) { fps = 30.0; rateStr = "30/1"; }
+        double frameSec = 1.0 / fps;
+
+        double durSec = probeVideoDurationSec(video);
+        if (durSec <= 0) durSec = probeAudioDurationMs(video) / 1000.0;
+        if (durSec <= 0) return; // unknown length — can't safely build the trailing piece
+        long totalFrames = Math.max(1, Math.round(durSec * fps));
+
+        // Sanitize: clamp to [0,totalFrames] in whole frames; drop invalid / <20ms;
+        // carry play count + slow. segs entries: {startFrame, endFrame, plays, slowFactor}.
         java.util.List<double[]> segs = new java.util.ArrayList<>();
         for (int[] r : rangesMs) {
             if (r == null || r.length < 2) continue;
-            double a = Math.max(0, Math.min(r[0] / 1000.0, durSec));
-            double b = Math.max(0, Math.min(r[1] / 1000.0, durSec));
-            if (b - a < 0.02) continue;
+            long fa = Math.max(0, Math.min(Math.round(r[0] / 1000.0 * fps), totalFrames));
+            long fb = Math.max(0, Math.min(Math.round(r[1] / 1000.0 * fps), totalFrames));
+            if ((fb - fa) * frameSec < 0.02 || fb - fa < 1) continue;
             int plays = (r.length >= 3) ? r[2] : 2;
             plays = Math.max(2, Math.min(20, plays)); // sane bounds
             double slow = (r.length >= 4 ? r[3] : 100) / 100.0; // slowPct → factor
             slow = Math.max(1.0, Math.min(4.0, slow));          // 1× (normal) … 4× slower
-            segs.add(new double[]{ a, b, plays, slow });
+            segs.add(new double[]{ fa, fb, plays, slow });
         }
         if (segs.isEmpty()) return;
         segs.sort((x, y) -> Double.compare(x[0], y[0]));
@@ -17845,23 +17868,23 @@ public class GifSlideShowApp extends JFrame {
         for (double[] s : segs) {
             if (!clean.isEmpty()) {
                 double[] prev = clean.get(clean.size() - 1);
-                if (Math.abs(prev[0] - s[0]) < 1e-6 && Math.abs(prev[1] - s[1]) < 1e-6) {
+                if (prev[0] == s[0] && prev[1] == s[1]) {
                     prev[2] = Math.max(prev[2], s[2]); // same range listed twice → max plays
                     prev[3] = Math.max(prev[3], s[3]); // … and the larger slow factor
                     continue;
                 }
             }
-            if (s[0] >= lastEnd - 1e-6) { clean.add(s); lastEnd = s[1]; }
+            if (s[0] >= lastEnd) { clean.add(s); lastEnd = s[1]; }
         }
         segs = clean;
 
-        // Ordered pieces covering [0,dur]. Each piece is {startSec, endSec, slow}.
+        // Ordered pieces covering [0,totalFrames]. Each piece is {startFrame, endFrame, slow}.
         // The first play of a range is normal speed; the extra (repeat) copies get
         // the slow factor, so it "plays normally then replays in slow motion".
         java.util.List<double[]> pieces = new java.util.ArrayList<>();
         double cursor = 0;
         for (double[] s : segs) {
-            if (s[0] > cursor + 1e-6) pieces.add(new double[]{ cursor, s[0], 1.0 }); // normal gap
+            if (s[0] > cursor) pieces.add(new double[]{ cursor, s[0], 1.0 }); // normal gap
             int plays = (int) s[2];
             double slow = s[3];
             for (int p = 0; p < plays; p++) {
@@ -17869,11 +17892,12 @@ public class GifSlideShowApp extends JFrame {
             }
             cursor = s[1];
         }
-        if (durSec > cursor + 1e-6) pieces.add(new double[]{ cursor, durSec, 1.0 }); // tail
+        if (totalFrames > cursor) pieces.add(new double[]{ cursor, totalFrames, 1.0 }); // tail
         int k = pieces.size();
         if (k < 2) return; // nothing actually duplicated
 
         boolean hasAudio = probeHasAudio(video);
+        int sampleRate = hasAudio ? probeAudioSampleRate(video) : 48000;
 
         // Per-piece audio de-click flags. A seam is "discontinuous" (a jump in the
         // source timeline) only where a piece's end does not equal the next
@@ -17886,8 +17910,8 @@ public class GifSlideShowApp extends JFrame {
         boolean[] fadeOut = new boolean[k];
         if (crossfade && hasAudio) {
             for (int i = 0; i < k; i++) {
-                if (i > 0     && Math.abs(pieces.get(i - 1)[1] - pieces.get(i)[0]) > 1e-6) fadeIn[i]  = true;
-                if (i < k - 1 && Math.abs(pieces.get(i)[1] - pieces.get(i + 1)[0]) > 1e-6) fadeOut[i] = true;
+                if (i > 0     && pieces.get(i - 1)[1] != pieces.get(i)[0]) fadeIn[i]  = true;
+                if (i < k - 1 && pieces.get(i)[1] != pieces.get(i + 1)[0]) fadeOut[i] = true;
             }
         }
 
@@ -17904,37 +17928,68 @@ public class GifSlideShowApp extends JFrame {
         }
         StringBuilder cat = new StringBuilder();
         for (int i = 0; i < k; i++) {
-            String a = String.format(java.util.Locale.US, "%.3f", pieces.get(i)[0]);
-            String b = String.format(java.util.Locale.US, "%.3f", pieces.get(i)[1]);
+            long f0 = (long) pieces.get(i)[0];
+            long f1 = (long) pieces.get(i)[1];
+            long nIn = f1 - f0;                       // frames read from the source
             double slow = pieces.get(i)[2];
-            boolean slowed = slow > 1.0 + 1e-6;
-            // Video: stretch presentation timestamps by `slow` for repeat copies.
-            fc.append("[sv").append(i).append("]trim=").append(a).append(':').append(b).append(',');
+            // Round the slowed piece to a whole number of output frames and use
+            // THAT as the effective stretch. The piece is then exactly nOut
+            // frames long, so its picture and its sound have identical lengths
+            // and the next piece starts precisely on the grid — no half-frame
+            // left over to drift into the following joins.
+            long nOut = Math.max(1, Math.round(nIn * slow));
+            double slowV = nOut / (double) nIn;
+            boolean slowed = nOut != nIn;
+
+            // Video trim boundaries sit half a frame BEFORE each wanted frame, so
+            // frames f0..f1-1 are selected whatever tiny rounding the container's
+            // timebase introduces — no off-by-one frame at a join.
+            String vA = fmtSec((f0 - 0.5) * frameSec);
+            String vB = fmtSec((f1 - 0.5) * frameSec);
+            // Audio is sample-accurate: cut it at exactly the same instants.
+            String aA = fmtSec(f0 * frameSec);
+            String aB = fmtSec(f1 * frameSec);
+            // Output duration of this piece after any slow-down. Video and audio
+            // are both forced to exactly this length, so the concat filter never
+            // has to stall one stream waiting for the other (that mismatch is what
+            // freezes a frame and drifts the sound out of sync at a join).
+            double pieceDur = nOut * frameSec;
+            String durStr = fmtSec(pieceDur);
+
+            fc.append("[sv").append(i).append("]trim=").append(vA).append(':').append(vB).append(',');
             if (slowed) {
-                fc.append("setpts=").append(String.format(java.util.Locale.US, "%.4f", slow))
+                fc.append("setpts=").append(String.format(java.util.Locale.US, "%.9f", slowV))
                   .append("*(PTS-STARTPTS)");
             } else {
                 fc.append("setpts=PTS-STARTPTS");
             }
-            fc.append("[v").append(i).append("];");
+            // Re-lay the piece on the exact output grid. A slowed piece would
+            // otherwise run at fps/slow (e.g. 23.08 instead of 30) and judder
+            // against its neighbours; fps= duplicates frames instead.
+            fc.append(",fps=").append(rateStr).append(":round=near,setpts=PTS-STARTPTS")
+              .append("[v").append(i).append("];");
+
             if (hasAudio) {
-                // Output duration of this piece after any slow-down (afade uses it).
-                double pieceDur = (pieces.get(i)[1] - pieces.get(i)[0]) * slow;
-                fc.append("[sa").append(i).append("]atrim=").append(a).append(':').append(b)
-                  .append(",asetpts=PTS-STARTPTS");
-                if (slowed) fc.append(atempoChain(slow)); // time-stretch, pitch-preserving
+                fc.append("[sa").append(i).append("]atrim=").append(aA).append(':').append(aB)
+                  .append(",asetpts=N/SR/TB");
+                if (slowed) fc.append(atempoChain(slowV)); // time-stretch, pitch-preserving
+                // Normalise to the piece's exact length: pad if atempo came up a few
+                // samples short, cut if it overran. Guarantees audio == video length.
+                fc.append(",asetpts=N/SR/TB,apad,atrim=0:").append(durStr)
+                  .append(",asetpts=N/SR/TB");
                 if (fadeIn[i] || fadeOut[i]) {
                     double d = Math.min(0.012, pieceDur * 0.4); // keep 2*d <= pieceDur
-                    String dStr = String.format(java.util.Locale.US, "%.3f", d);
+                    String dStr = fmtSec(d);
                     if (fadeIn[i]) {
-                        fc.append(",afade=t=in:st=0:d=").append(dStr);
+                        fc.append(",afade=t=in:curve=tri:st=0:d=").append(dStr);
                     }
                     if (fadeOut[i]) {
-                        String stOut = String.format(java.util.Locale.US, "%.3f", Math.max(0, pieceDur - d));
-                        fc.append(",afade=t=out:st=").append(stOut).append(":d=").append(dStr);
+                        String stOut = fmtSec(Math.max(0, pieceDur - d));
+                        fc.append(",afade=t=out:curve=tri:st=").append(stOut).append(":d=").append(dStr);
                     }
                 }
-                fc.append("[a").append(i).append("];");
+                fc.append(",aformat=sample_fmts=fltp:sample_rates=").append(sampleRate)
+                  .append("[a").append(i).append("];");
             }
             cat.append("[v").append(i).append(']');
             if (hasAudio) cat.append("[a").append(i).append(']');
@@ -17960,6 +18015,9 @@ public class GifSlideShowApp extends JFrame {
         cmd.add("-preset"); cmd.add("fast");
         cmd.add("-crf"); cmd.add(String.valueOf(crf));
         cmd.add("-pix_fmt"); cmd.add("yuv420p");
+        // Pin the muxed frame rate to the grid the pieces were built on, so the
+        // joins stay exactly where they were placed instead of being re-timed.
+        cmd.add("-r"); cmd.add(rateStr);
         cmd.add("-movflags"); cmd.add("+faststart");
         cmd.add(out.getAbsolutePath());
         runFfmpeg(cmd);
@@ -17983,10 +18041,19 @@ public class GifSlideShowApp extends JFrame {
         if (video == null || !video.exists() || slow <= 1.0 + 1e-9) return;
         boolean hasAudio = probeHasAudio(video);
 
+        // Stretching PTS alone would leave the file running at fps/slow (30 fps
+        // at 1.3× becomes 23.08 fps), which many players show as judder — and it
+        // is easy to mistake for the repeat joins glitching. Re-lay the stretched
+        // picture on the original frame grid instead, duplicating frames.
+        String rateStr = probeVideoFrameRate(video);
+        if (parseFrameRate(rateStr) <= 0) rateStr = null;
+
         StringBuilder fc = new StringBuilder();
         fc.append("[0:v]setpts=")
-          .append(String.format(java.util.Locale.US, "%.4f", slow))
-          .append("*PTS[v]");
+          .append(String.format(java.util.Locale.US, "%.6f", slow))
+          .append("*PTS");
+        if (rateStr != null) fc.append(",fps=").append(rateStr).append(":round=near");
+        fc.append("[v]");
         if (hasAudio) {
             // atempoChain returns a leading-comma fragment (",atempo=…"); as a
             // standalone filter graph we drop that leading comma.
@@ -18000,6 +18067,7 @@ public class GifSlideShowApp extends JFrame {
         cmd.add("-filter_complex"); cmd.add(fc.toString());
         cmd.add("-map"); cmd.add("[v]");
         if (hasAudio) { cmd.add("-map"); cmd.add("[a]"); }
+        if (rateStr != null) { cmd.add("-r"); cmd.add(rateStr); }
         cmd.add("-c:v"); cmd.add("libx264");
         cmd.add("-preset"); cmd.add("medium");
         cmd.add("-crf"); cmd.add(String.valueOf(crf));
@@ -20734,6 +20802,77 @@ public class GifSlideShowApp extends JFrame {
             }
         } catch (Exception e) {
             return false;
+        }
+    }
+
+    /** Read a single ffprobe field, or null when ffprobe fails / prints nothing. */
+    private static String probeField(File file, String selectStreams, String showEntries) {
+        try {
+            java.util.List<String> cmd = new java.util.ArrayList<>();
+            cmd.add("ffprobe"); cmd.add("-v"); cmd.add("quiet");
+            if (selectStreams != null) { cmd.add("-select_streams"); cmd.add(selectStreams); }
+            cmd.add("-show_entries"); cmd.add(showEntries);
+            cmd.add("-of"); cmd.add("default=noprint_wrappers=1:nokey=1");
+            cmd.add(file.getAbsolutePath());
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            pb.redirectErrorStream(true);
+            Process proc = pb.start();
+            String line;
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(proc.getInputStream()))) {
+                line = br.readLine();
+            }
+            proc.waitFor();
+            if (line == null) return null;
+            line = line.trim();
+            return line.isEmpty() || "N/A".equals(line) ? null : line;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** The video stream's exact frame rate as ffprobe reports it ("30/1",
+     *  "30000/1001"), or null when unknown. Kept as a rational string so the
+     *  fps filter and -r get the exact value, not a rounded decimal. */
+    private static String probeVideoFrameRate(File file) {
+        String r = probeField(file, "v:0", "stream=r_frame_rate");
+        if (r == null || r.startsWith("0/")) r = probeField(file, "v:0", "stream=avg_frame_rate");
+        if (r == null || r.startsWith("0/")) return null;
+        return r;
+    }
+
+    /** "30000/1001" or "29.97" -> 29.97…; returns -1 when unparsable. */
+    private static double parseFrameRate(String rate) {
+        if (rate == null) return -1;
+        try {
+            int slash = rate.indexOf('/');
+            if (slash < 0) return Double.parseDouble(rate);
+            double num = Double.parseDouble(rate.substring(0, slash));
+            double den = Double.parseDouble(rate.substring(slash + 1));
+            return den > 0 ? num / den : -1;
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    /** Length of the video stream in seconds (falls back to the container
+     *  duration), or -1 when unknown. */
+    private static double probeVideoDurationSec(File file) {
+        String d = probeField(file, "v:0", "stream=duration");
+        if (d == null) d = probeField(file, null, "format=duration");
+        try {
+            return d == null ? -1 : Double.parseDouble(d);
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    /** Audio sample rate in Hz, or 48000 when unknown. */
+    private static int probeAudioSampleRate(File file) {
+        String r = probeField(file, "a:0", "stream=sample_rate");
+        try {
+            return r == null ? 48000 : Integer.parseInt(r);
+        } catch (Exception e) {
+            return 48000;
         }
     }
 
@@ -31797,8 +31936,11 @@ public class GifSlideShowApp extends JFrame {
             JCheckBox crossfadeCheck = new JCheckBox(
                     "Crossfade audio at repeat joins (removes the click)", isVideoRepeatCrossfade());
             crossfadeCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            crossfadeCheck.setToolTipText("Off = clean cut (exact copy, may click on continuous music). "
-                    + "On = a ~12 ms audio fade hides the click at each loop-back (duration unchanged).");
+            crossfadeCheck.setToolTipText("<html>Affects the SOUND only. "
+                    + "Off = clean cut (exact copy, may click on continuous music).<br>"
+                    + "On = a ~12 ms audio fade hides the click at each loop-back (duration unchanged).<br>"
+                    + "The picture is always cut on whole frames and rebuilt at the video's own "
+                    + "frame rate, so joins never stutter either way.</html>");
 
             // ----- Slow the entire video -----
             // Whole-video pitch-preserving slow-down, applied as a final pass on
