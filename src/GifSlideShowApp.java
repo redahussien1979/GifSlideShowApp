@@ -17899,66 +17899,106 @@ public class GifSlideShowApp extends JFrame {
         boolean hasAudio = probeHasAudio(video);
         int sampleRate = hasAudio ? probeAudioSampleRate(video) : 48000;
 
-        // Per-piece audio de-click flags. A seam is "discontinuous" (a jump in the
-        // source timeline) only where a piece's end does not equal the next
-        // piece's start — i.e. exactly the loop-backs between repeated copies.
-        // We fade audio OUT at the end of the piece before such a seam and IN at
-        // the start of the piece after it. Fades ramp amplitude only (duration is
-        // preserved), so audio stays perfectly in sync with the clean video cut.
-        // Genuinely contiguous joins (gap→segment, last copy→tail) are left alone.
-        boolean[] fadeIn  = new boolean[k];
-        boolean[] fadeOut = new boolean[k];
-        if (crossfade && hasAudio) {
-            for (int i = 0; i < k; i++) {
-                if (i > 0     && pieces.get(i - 1)[1] != pieces.get(i)[0]) fadeIn[i]  = true;
-                if (i < k - 1 && pieces.get(i)[1] != pieces.get(i + 1)[0]) fadeOut[i] = true;
-            }
+        // Per-piece geometry, worked out up front so the joins can be planned.
+        long[] pf0 = new long[k], pf1 = new long[k], pnOut = new long[k];
+        double[] pSlow = new double[k], pDur = new double[k];
+        for (int i = 0; i < k; i++) {
+            pf0[i] = (long) pieces.get(i)[0];
+            pf1[i] = (long) pieces.get(i)[1];
+            long nIn = pf1[i] - pf0[i];
+            // Round a slowed copy to a whole number of output frames and use THAT
+            // as the effective stretch, so the piece is an exact frame count long
+            // and its picture and sound have identical lengths.
+            pnOut[i] = Math.max(1, Math.round(nIn * pieces.get(i)[2]));
+            pSlow[i] = pnOut[i] / (double) nIn;
+            pDur[i]  = pnOut[i] * frameSec;
         }
 
-        // Split the single input into k copies first (each filter output pad may
-        // only feed one consumer), then trim each copy to its piece and concat.
+        // A join is "discontinuous" — a jump backwards in the source timeline —
+        // only where a piece's end does not equal the next piece's start, i.e.
+        // exactly the loop-backs between repeated copies. Those are the joins
+        // that click. Contiguous joins (gap→segment, last copy→tail) are left
+        // strictly alone.
+        //
+        // At each loop-back we build a REAL crossfade. Fading the outgoing copy
+        // out to silence and the incoming one in from silence — what this used to
+        // do — leaves a ~24 ms hole where the sound drops away and comes back:
+        // that dropout is itself audible, so ticking the box traded a click for a
+        // blip. Instead, the tail of the outgoing copy is cross-faded (equal
+        // power) into the audio that immediately PRECEDES the incoming copy's
+        // start. That lead-in is real material from the source, and it runs right
+        // up to the incoming copy's first sample, so the junction is continuous
+        // rather than merely blended — no click and no hole. It happens entirely
+        // inside the outgoing piece, so no duration changes and the picture stays
+        // in sync.
+        // Extra source fed to atempo so it can deliver a full-length piece; the
+        // surplus is trimmed off afterwards. 250 ms covers atempo's window at any
+        // stretch factor this dialog allows.
+        final double ATEMPO_PRIMER_SEC = 0.250;
+        final double XFADE_SEC = 0.030;                  // 30 ms transition
+        double[] xfade     = new double[Math.max(1, k - 1)];
+        boolean[] discJoin = new boolean[Math.max(1, k - 1)];
+        for (int j = 0; j < k - 1; j++) {
+            discJoin[j] = pf1[j] != pf0[j + 1];
+            // A change of SPEED needs the same treatment even when the source
+            // timeline runs straight on (normal copy → slow copy, slow copy →
+            // tail). atempo re-times the waveform, so the two sides do not line
+            // up at the boundary and it snaps just as audibly as a real cut.
+            boolean tempoStep = Math.abs(pSlow[j] - pSlow[j + 1]) > 1e-9;
+            // The loop-back itself is the user's call — that is what the crossfade
+            // box governs. A speed change is not: nobody asked for that seam, it
+            // is a side effect of stretching, and "off = exact copy" cannot apply
+            // to audio that has been time-stretched anyway. So smooth it either way.
+            if (!(tempoStep || (discJoin[j] && crossfade)) || !hasAudio) continue;
+            double h = Math.min(XFADE_SEC, pDur[j] * 0.5);   // never cover more than half the copy
+            // The lead-in has to exist: it is the source immediately before the
+            // incoming piece's first sample.
+            h = Math.min(h, pf0[j + 1] * frameSec);
+            xfade[j] = h > 0.001 ? h : 0;                    // under ~1 ms is not worth it
+        }
+
+        // Where a loop-back cannot be crossfaded (the incoming copy starts at the
+        // very beginning of the video, so there is no lead-in, or the outgoing
+        // copy is too short), fall back to the old short fade to silence: it costs
+        // a tiny dip, but it still beats a click.
+        boolean[] fadeIn  = new boolean[k];
+        boolean[] fadeOut = new boolean[k];
+        int[] leadOf = new int[k];                       // piece → its lead-in branch, -1 if none
+        java.util.Arrays.fill(leadOf, -1);
+        int nLeads = 0;
+        for (int j = 0; j < k - 1; j++) {
+            if (xfade[j] > 0)      leadOf[j] = nLeads++;
+            else if (discJoin[j] && crossfade && hasAudio) {
+                // A real cut with no lead-in to borrow — fade instead.
+                fadeOut[j] = true; fadeIn[j + 1] = true;
+            }
+            // A speed change with no lead-in available is left alone: a fade to
+            // silence there would carve a hole worse than the seam it smooths.
+        }
+
+        // Split the single input into one copy per piece (each filter output pad
+        // may only feed one consumer), plus one per crossfade lead-in.
         StringBuilder fc = new StringBuilder();
         fc.append("[0:v]split=").append(k);
         for (int i = 0; i < k; i++) fc.append("[sv").append(i).append(']');
         fc.append(';');
         if (hasAudio) {
-            fc.append("[0:a]asplit=").append(k);
+            fc.append("[0:a]asplit=").append(k + nLeads);
             for (int i = 0; i < k; i++) fc.append("[sa").append(i).append(']');
+            for (int i = 0; i < nLeads; i++) fc.append("[sl").append(i).append(']');
             fc.append(';');
         }
-        StringBuilder cat = new StringBuilder();
         for (int i = 0; i < k; i++) {
-            long f0 = (long) pieces.get(i)[0];
-            long f1 = (long) pieces.get(i)[1];
-            long nIn = f1 - f0;                       // frames read from the source
-            double slow = pieces.get(i)[2];
-            // Round the slowed piece to a whole number of output frames and use
-            // THAT as the effective stretch. The piece is then exactly nOut
-            // frames long, so its picture and its sound have identical lengths
-            // and the next piece starts precisely on the grid — no half-frame
-            // left over to drift into the following joins.
-            long nOut = Math.max(1, Math.round(nIn * slow));
-            double slowV = nOut / (double) nIn;
-            boolean slowed = nOut != nIn;
+            long f0 = pf0[i], f1 = pf1[i];
+            boolean slowed = pnOut[i] != f1 - f0;
 
             // Video trim boundaries sit half a frame BEFORE each wanted frame, so
             // frames f0..f1-1 are selected whatever tiny rounding the container's
             // timebase introduces — no off-by-one frame at a join.
-            String vA = fmtSec((f0 - 0.5) * frameSec);
-            String vB = fmtSec((f1 - 0.5) * frameSec);
-            // Audio is sample-accurate: cut it at exactly the same instants.
-            String aA = fmtSec(f0 * frameSec);
-            String aB = fmtSec(f1 * frameSec);
-            // Output duration of this piece after any slow-down. Video and audio
-            // are both forced to exactly this length, so the concat filter never
-            // has to stall one stream waiting for the other (that mismatch is what
-            // freezes a frame and drifts the sound out of sync at a join).
-            double pieceDur = nOut * frameSec;
-            String durStr = fmtSec(pieceDur);
-
-            fc.append("[sv").append(i).append("]trim=").append(vA).append(':').append(vB).append(',');
+            fc.append("[sv").append(i).append("]trim=").append(fmtSec((f0 - 0.5) * frameSec))
+              .append(':').append(fmtSec((f1 - 0.5) * frameSec)).append(',');
             if (slowed) {
-                fc.append("setpts=").append(String.format(java.util.Locale.US, "%.9f", slowV))
+                fc.append("setpts=").append(String.format(java.util.Locale.US, "%.9f", pSlow[i]))
                   .append("*(PTS-STARTPTS)");
             } else {
                 fc.append("setpts=PTS-STARTPTS");
@@ -17969,34 +18009,83 @@ public class GifSlideShowApp extends JFrame {
             fc.append(",fps=").append(rateStr).append(":round=near,setpts=PTS-STARTPTS")
               .append("[v").append(i).append("];");
 
-            if (hasAudio) {
-                fc.append("[sa").append(i).append("]atrim=").append(aA).append(':').append(aB)
-                  .append(",asetpts=N/SR/TB");
-                if (slowed) fc.append(atempoChain(slowV)); // time-stretch, pitch-preserving
-                // Normalise to the piece's exact length: pad if atempo came up a few
-                // samples short, cut if it overran. Guarantees audio == video length.
-                fc.append(",asetpts=N/SR/TB,apad,atrim=0:").append(durStr)
-                  .append(",asetpts=N/SR/TB");
-                if (fadeIn[i] || fadeOut[i]) {
-                    double d = Math.min(0.012, pieceDur * 0.4); // keep 2*d <= pieceDur
-                    String dStr = fmtSec(d);
-                    if (fadeIn[i]) {
-                        fc.append(",afade=t=in:curve=tri:st=0:d=").append(dStr);
-                    }
-                    if (fadeOut[i]) {
-                        String stOut = fmtSec(Math.max(0, pieceDur - d));
-                        fc.append(",afade=t=out:curve=tri:st=").append(stOut).append(":d=").append(dStr);
-                    }
-                }
-                fc.append(",aformat=sample_fmts=fltp:sample_rates=").append(sampleRate)
+            if (!hasAudio) continue;
+
+            long nD = Math.round(pDur[i] * sampleRate);   // exact samples in this piece
+            // atempo is a streaming stretch: fed exactly the samples this piece
+            // covers, it hands back slightly FEWER than asked for. Padding that
+            // shortfall leaves a few ms of digital silence at the end of every
+            // slowed copy — a hole you hear as a dropout at the repeat, with or
+            // without the crossfade option. So read a little past the piece and
+            // cut back to the exact count instead: the trailing material is
+            // discarded, and the length is reached by trimming, never by padding.
+            double srcEnd = f1 * frameSec;
+            if (slowed) srcEnd = Math.min(durSec, srcEnd + ATEMPO_PRIMER_SEC);
+            fc.append("[sa").append(i).append("]atrim=").append(fmtSec(f0 * frameSec))
+              .append(':').append(fmtSec(srcEnd)).append(",asetpts=N/SR/TB");
+            if (slowed) fc.append(atempoChain(pSlow[i]));  // pitch-preserving stretch
+            // apad is only a backstop for a piece that runs to the very end of the
+            // video, where there is nothing left to read past it.
+            fc.append(",asetpts=N/SR/TB,apad,atrim=end_sample=").append(nD)
+              .append(",asetpts=N/SR/TB");
+
+            int lead = (i < k - 1) ? leadOf[i] : -1;
+            double xf = lead >= 0 ? xfade[i] : 0;
+            if (lead >= 0) {
+                // Duck this copy's own tail out under the lead-in (equal power).
+                fc.append(",afade=t=out:curve=qsin:st=").append(fmtSec(pDur[i] - xf))
+                  .append(":d=").append(fmtSec(xf));
+            }
+            if (fadeIn[i] || fadeOut[i]) {
+                double d = Math.min(0.012, pDur[i] * 0.4); // keep 2*d <= piece
+                String dStr = fmtSec(d);
+                if (fadeIn[i])  fc.append(",afade=t=in:curve=tri:st=0:d=").append(dStr);
+                if (fadeOut[i]) fc.append(",afade=t=out:curve=tri:st=")
+                                  .append(fmtSec(Math.max(0, pDur[i] - d)))
+                                  .append(":d=").append(dStr);
+            }
+            fc.append(",aformat=sample_fmts=fltp:sample_rates=").append(sampleRate);
+            if (lead < 0) {
+                fc.append("[a").append(i).append("];");
+            } else {
+                fc.append("[am").append(i).append("];");
+                // The lead-in: the source just before the NEXT piece's start, at
+                // the next piece's speed, faded up and parked at the end of this
+                // piece so the two sum to constant power across the transition.
+                long nXf  = Math.round(xf * sampleRate);
+                // The lead-in is taken at NORMAL speed and never run through
+                // atempo, even when the piece it leads into is slowed. Two
+                // separate atempo instances do not agree on phase, so stretching
+                // the lead would put a snap at the very junction it is there to
+                // smooth. Un-stretched, its last sample sits immediately before
+                // the next piece's first one and the junction is continuous;
+                // 30 ms at the wrong pace is not something you can hear.
+                double leadA = pf0[i + 1] * frameSec - xf;
+                double leadB = pf0[i + 1] * frameSec;
+                fc.append("[sl").append(lead).append("]atrim=").append(fmtSec(Math.max(0, leadA)))
+                  .append(':').append(fmtSec(leadB)).append(",asetpts=N/SR/TB");
+                fc.append(",asetpts=N/SR/TB,apad,atrim=end_sample=").append(nXf)
+                  .append(",asetpts=N/SR/TB")
+                  .append(",afade=t=in:curve=qsin:st=0:d=").append(fmtSec(xf))
+                  .append(",adelay=").append(nD - nXf).append("S:all=1")
+                  .append(",apad,atrim=end_sample=").append(nD).append(",asetpts=N/SR/TB")
+                  .append(",aformat=sample_fmts=fltp:sample_rates=").append(sampleRate)
+                  .append("[al").append(i).append("];");
+                // normalize=0 sums the two at full level: the qsin pair is already
+                // constant power, so normalising would dip the middle instead.
+                fc.append("[am").append(i).append("][al").append(i)
+                  .append("]amix=inputs=2:duration=first:normalize=0")
                   .append("[a").append(i).append("];");
             }
-            cat.append("[v").append(i).append(']');
-            if (hasAudio) cat.append("[a").append(i).append(']');
         }
-        cat.append("concat=n=").append(k).append(":v=1:a=").append(hasAudio ? 1 : 0);
-        cat.append(hasAudio ? "[outv][outa]" : "[outv]");
-        fc.append(cat);
+
+        // Concat the frame-aligned pieces — one straight join for each stream.
+        for (int i = 0; i < k; i++) {
+            fc.append("[v").append(i).append(']');
+            if (hasAudio) fc.append("[a").append(i).append(']');
+        }
+        fc.append("concat=n=").append(k).append(":v=1:a=").append(hasAudio ? 1 : 0)
+          .append(hasAudio ? "[outv][outa]" : "[outv]");
 
         File out = new File(tempDir, "rpt_" + System.currentTimeMillis() + ".mp4");
         java.util.List<String> cmd = new java.util.ArrayList<>();
@@ -31936,11 +32025,13 @@ public class GifSlideShowApp extends JFrame {
             JCheckBox crossfadeCheck = new JCheckBox(
                     "Crossfade audio at repeat joins (removes the click)", isVideoRepeatCrossfade());
             crossfadeCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            crossfadeCheck.setToolTipText("<html>Affects the SOUND only. "
+            crossfadeCheck.setToolTipText("<html>Affects the SOUND at the loop-back only. "
                     + "Off = clean cut (exact copy, may click on continuous music).<br>"
-                    + "On = a ~12 ms audio fade hides the click at each loop-back (duration unchanged).<br>"
-                    + "The picture is always cut on whole frames and rebuilt at the video's own "
-                    + "frame rate, so joins never stutter either way.</html>");
+                    + "On = the outgoing copy is cross-faded into the audio that runs up to the "
+                    + "repeat's start, so the join is seamless (duration unchanged).<br>"
+                    + "Either way: the picture is cut on whole frames and rebuilt at the video's "
+                    + "own frame rate, and a change of speed is always smoothed \u2014 so neither "
+                    + "setting stutters or drops out.</html>");
 
             // ----- Slow the entire video -----
             // Whole-video pitch-preserving slow-down, applied as a final pass on
