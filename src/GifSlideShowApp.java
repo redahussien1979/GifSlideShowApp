@@ -32004,12 +32004,17 @@ public class GifSlideShowApp extends JFrame {
             // Labels for the "trigger another text" picker in the Motion editor,
             // index-aligned to slideTextItems.
             final String[] textLabels = new String[slideTextItems.size()];
+            // Each text's own place on the slide (X%,Y% from the main window),
+            // index-aligned to textLabels, so picking a trigger can pre-fill the
+            // "at X%/Y%" boxes with where that text already sits.
+            final int[][] textPositions = new int[slideTextItems.size()][];
             for (int li = 0; li < slideTextItems.size(); li++) {
                 SlideTextData sx = slideTextItems.get(li);
                 String c = sx.text == null ? "" : sx.text.replace('\n', ' ').trim();
                 if (c.isEmpty()) c = "(empty)";
                 if (c.length() > 24) c = c.substring(0, 21) + "…";
                 textLabels[li] = "Text " + (li + 1) + ": " + c;
+                textPositions[li] = new int[]{ sx.x, sx.y };
             }
 
             // Entrance-effect choices — same set the Quiz reveal already renders,
@@ -32115,7 +32120,7 @@ public class GifSlideShowApp extends JFrame {
                 };
                 updMotionLbl.run();
                 motionBtn.addActionListener(ev -> {
-                    openTextMotionEditor(dlg, rowIdx + 1, rowActions.get(rowIdx), textLabels);
+                    openTextMotionEditor(dlg, rowIdx + 1, rowActions.get(rowIdx), textLabels, textPositions);
                     updMotionLbl.run();
                 });
                 motionBtns.add(motionBtn);
@@ -32875,7 +32880,9 @@ public class GifSlideShowApp extends JFrame {
          * Editor for one text's timed actions (Texts Timer → "Motion…"). Edits the
          * supplied list in place: on OK the list is rebuilt from the on-screen rows;
          * Cancel leaves it untouched. {@code textLabels} are the choices for the
-         * "trigger another text" picker (index-aligned to the slide's text list).
+         * "trigger another text" picker (index-aligned to the slide's text list),
+         * and {@code textPositions} their current {X%,Y%} on the slide, so choosing
+         * a trigger fills the "at X%/Y%" boxes with where that text already is.
          *
          * The action model is a list, so extra behaviours can be added later just by
          * extending {@code SlideTextData.Action.KINDS} and the render switch — the
@@ -32883,7 +32890,7 @@ public class GifSlideShowApp extends JFrame {
          */
         private void openTextMotionEditor(Window owner, int textNumber,
                                           java.util.List<SlideTextData.Action> actions,
-                                          String[] textLabels) {
+                                          String[] textLabels, int[][] textPositions) {
             final JDialog dlg = new JDialog(owner, "Text Motion — Text " + textNumber,
                     Dialog.ModalityType.APPLICATION_MODAL);
             dlg.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
@@ -32934,7 +32941,7 @@ public class GifSlideShowApp extends JFrame {
 
             for (SlideTextData.Action a : actions) {
                 if (a != null) {
-                    ActionRowUI r = new ActionRowUI(a, triggerChoices, rowUIs, rebuild, pInt, pDbl);
+                    ActionRowUI r = new ActionRowUI(a, triggerChoices, textPositions, rowUIs, rebuild, pInt, pDbl);
                     r.markActiveOn(x -> activeRow[0] = x);
                     rowUIs.add(r);
                 }
@@ -32944,7 +32951,7 @@ public class GifSlideShowApp extends JFrame {
             JButton addBtn = new JButton("＋ Add action");
             addBtn.addActionListener(e -> {
                 ActionRowUI r = new ActionRowUI(new SlideTextData.Action(),
-                        triggerChoices, rowUIs, rebuild, pInt, pDbl);
+                        triggerChoices, textPositions, rowUIs, rebuild, pInt, pDbl);
                 r.markActiveOn(x -> activeRow[0] = x);
                 rowUIs.add(r);
                 activeRow[0] = r;
@@ -32955,14 +32962,15 @@ public class GifSlideShowApp extends JFrame {
             timingBtn.setToolTipText("Show every word of Text " + textNumber + " with its spoken time; "
                     + "double-click a word to set the active action's Word and At(s).");
             timingBtn.addActionListener(e -> showWordTimingPicker(dlg, textNumber, activeRow,
-                    rowUIs, rebuild, triggerChoices, pInt, pDbl));
+                    rowUIs, rebuild, triggerChoices, textPositions, pInt, pDbl));
 
             JLabel help = new JLabel("<html>Each action fires at its own time (seconds from the start of this "
                     + "slide).<br><b>Move</b> sends this text to a new spot; <b>Move Copy</b> leaves the "
                     + "original in place and sends a duplicate; <b>Pulse / Shake / Bounce / Spin / Flash</b> "
                     + "play in place. <b>To X% / Y%</b> is the destination as a percentage of the frame. "
                     + "<b>Format on landing</b> scales &amp; recolours the arrival; <b>Trigger</b> makes "
-                    + "another text appear when this action lands.<br><b>Word</b> (optional) targets a single "
+                    + "another text appear when this action lands — its <b>at X%/Y%</b> fill in with "
+                    + "the spot that text already has, so change them only to reveal it elsewhere.<br><b>Word</b> (optional) targets a single "
                     + "word inside the text — a formatted copy of that word animates while the paragraph "
                     + "stays put (great for pulling one word out of a sentence).</html>");
             help.setFont(new Font("Segoe UI", Font.PLAIN, 11));
@@ -33093,7 +33101,7 @@ public class GifSlideShowApp extends JFrame {
          */
         private void showWordTimingPicker(Window owner, int textNumber,
                 ActionRowUI[] activeRow, java.util.List<ActionRowUI> rowUIs, Runnable rebuild,
-                String[] triggerChoices,
+                String[] triggerChoices, int[][] textPositions,
                 java.util.function.BiFunction<String, Integer, Integer> pInt,
                 java.util.function.BiFunction<String, Double, Double> pDbl) {
             // Two timing sources, in priority order:
@@ -33157,7 +33165,7 @@ public class GifSlideShowApp extends JFrame {
                         : (!rowUIs.isEmpty() ? rowUIs.get(rowUIs.size() - 1) : null);
                 if (target == null) {
                     target = new ActionRowUI(new SlideTextData.Action(),
-                            triggerChoices, rowUIs, rebuild, pInt, pDbl);
+                            triggerChoices, textPositions, rowUIs, rebuild, pInt, pDbl);
                     target.markActiveOn(x -> activeRow[0] = x);
                     rowUIs.add(target);
                     rebuild.run();
@@ -33316,6 +33324,10 @@ public class GifSlideShowApp extends JFrame {
             private final JTextField scaleField = new JTextField(4);
             private final JButton colorBtn = new JButton("Colour…");
             private final JComboBox<String> triggerCombo;
+            /** {X%,Y%} of every text on the slide, index-aligned to the trigger
+             *  choices minus the leading "(none)". Lets a picked trigger fill its
+             *  own place into the position boxes. */
+            private final int[][] textPositions;
             private final JTextField trigXField = new JTextField(4);
             private final JTextField trigYField = new JTextField(4);
             private final JTextField wordField = new JTextField(14);
@@ -33324,12 +33336,13 @@ public class GifSlideShowApp extends JFrame {
             private final java.util.function.BiFunction<String, Integer, Integer> pInt;
             private final java.util.function.BiFunction<String, Double, Double> pDbl;
 
-            ActionRowUI(SlideTextData.Action a, String[] triggerChoices,
+            ActionRowUI(SlideTextData.Action a, String[] triggerChoices, int[][] textPositions,
                         java.util.List<ActionRowUI> owner, Runnable rebuild,
                         java.util.function.BiFunction<String, Integer, Integer> pInt,
                         java.util.function.BiFunction<String, Double, Double> pDbl) {
                 this.pInt = pInt;
                 this.pDbl = pDbl;
+                this.textPositions = textPositions;
                 this.triggerCombo = new JComboBox<>(triggerChoices);
                 this.landColor = a.landColor;
 
@@ -33364,13 +33377,19 @@ public class GifSlideShowApp extends JFrame {
                         + "applies if earlier).");
                 int ti = a.triggerTextIndex;
                 triggerCombo.setSelectedIndex(ti >= 0 && ti + 1 < triggerChoices.length ? ti + 1 : 0);
-                triggerCombo.addActionListener(ev -> syncEnabled());
+                // Picking a trigger fills the boxes with where that text already
+                // sits on the slide — the usual answer — so it only has to be
+                // typed when the reveal should land somewhere else.
+                triggerCombo.addActionListener(ev -> { fillTriggerPosFromChoice(); syncEnabled(); });
                 trigXField.setText(a.triggerXPct >= 0 ? String.valueOf(a.triggerXPct) : "");
                 trigYField.setText(a.triggerYPct >= 0 ? String.valueOf(a.triggerYPct) : "");
-                trigXField.setToolTipText("Optional: place the triggered text at this X% of the frame (0–100). "
-                        + "Leave empty to keep its own position.");
-                trigYField.setToolTipText("Optional: place the triggered text at this Y% of the frame (0–100). "
-                        + "Leave empty to keep its own position.");
+                trigXField.setToolTipText("Where the triggered text appears — X% of the frame (0–100). "
+                        + "Filled in from that text's own place when you pick it; change it to land elsewhere.");
+                trigYField.setToolTipText("Where the triggered text appears — Y% of the frame (0–100). "
+                        + "Filled in from that text's own place when you pick it; change it to land elsewhere.");
+                // An action saved before this (or one that never set a position)
+                // shows the triggered text's current place rather than two blanks.
+                if (a.triggerXPct < 0 || a.triggerYPct < 0) fillTriggerPosFromChoice();
 
                 wordField.setText(a.word == null ? "" : a.word);
                 wordField.setToolTipText("Optional: act on just this word inside the text — a formatted copy of "
@@ -33438,6 +33457,20 @@ public class GifSlideShowApp extends JFrame {
                     colorBtn.setText("Colour…");
                     colorBtn.setForeground(Color.BLACK);
                 }
+            }
+
+            /** Copy the selected trigger text's own X%/Y% into the position boxes
+             *  (both cleared when the trigger is "(none)"). An off-frame text — these
+             *  boxes only take 0–100 — is left blank instead, which keeps its own
+             *  position rather than dragging it back into frame. */
+            private void fillTriggerPosFromChoice() {
+                int i = triggerCombo.getSelectedIndex() - 1;
+                int[] pos = (i >= 0 && textPositions != null && i < textPositions.length)
+                        ? textPositions[i] : null;
+                boolean inFrame = pos != null
+                        && pos[0] >= 0 && pos[0] <= 100 && pos[1] >= 0 && pos[1] <= 100;
+                trigXField.setText(inFrame ? String.valueOf(pos[0]) : "");
+                trigYField.setText(inFrame ? String.valueOf(pos[1]) : "");
             }
 
             private void syncEnabled() {
