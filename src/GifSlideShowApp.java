@@ -6461,12 +6461,12 @@ public class GifSlideShowApp extends JFrame {
                     stMaxWrapWidth = (int) (targetW * st.widthPct / 100.0);
                 }
 
-                List<String> stWrappedLines = new ArrayList<>();
-                for (String paragraph : st.text.split("\n")) {
-                    if (paragraph.isEmpty()) { stWrappedLines.add(""); continue; }
-                    List<String> wrapped = wrapTextStatic(paragraph, stFm, stMaxWrapWidth);
-                    stWrappedLines.addAll(wrapped);
-                }
+                // Hyphenate only for justified text. Hyphens earn their place by
+                // keeping justified word gaps tight; on ragged-right text they would
+                // just be breaks nobody asked for, and every deck built before this
+                // would resettle. wrapTextStatic already splits on \n itself.
+                WrappedText stWrapped = wrapTextStatic(st.text, stFm, stMaxWrapWidth, st.justify);
+                List<String> stWrappedLines = stWrapped.lines;
 
                 int stLineHeight = stFm.getHeight() + (int) Math.round(st.lineSpacing * stScaleFactor);
                 int stAscent = stFm.getAscent();
@@ -6481,6 +6481,18 @@ public class GifSlideShowApp extends JFrame {
                 int stMaxLineWidth = 0;
                 for (String line : stWrappedLines) {
                     stMaxLineWidth = Math.max(stMaxLineWidth, stFm.stringWidth(line));
+                }
+                // Justified copy should sit in a true rectangle, so pin the block to
+                // the W% box rather than to whatever the longest line happened to
+                // reach — otherwise the right margin drifts from slide to slide with
+                // the wording. Guarded twice: only once the text actually wraps, and
+                // only when the longest line is already near the box, so a short
+                // one-line caption doesn't stretch its background across the frame.
+                // stMaxLineWidth itself moves because the BG box, block left edge and
+                // HL geometry are all measured from it — they must track the lines.
+                if (st.justify && stWrappedLines.size() > 1 && stMaxWrapWidth > 0
+                        && stMaxLineWidth >= stMaxWrapWidth * 0.55) {
+                    stMaxLineWidth = stMaxWrapWidth;
                 }
 
                 // When xLeftAligned (set via CSV X-AXIS import), treat X as edge-aligned:
@@ -6663,18 +6675,18 @@ public class GifSlideShowApp extends JFrame {
                 double intensity = st.textEffectIntensity / 100.0;
 
                 // Precompute HL segments per wrapped line so a phrase that wraps
-                // across lines still highlights on every line it covers. Lines
-                // are joined with a single space because wrapTextStatic only
-                // breaks at whitespace, so the joined string mirrors what the
-                // user reads.
-                java.util.List<java.util.List<int[]>> stHlSegments = computeWrapSegments(stWrappedLines, st.highlightText);
+                // across lines still highlights on every line it covers. The lines
+                // are joined back into the string the user reads: a single space at
+                // an ordinary line end, and nothing at all where the wrapper
+                // hyphenated a word across the break.
+                java.util.List<java.util.List<int[]>> stHlSegments = computeWrapSegments(stWrapped, st.highlightText);
                 String[] stHlTerms = splitTerms(st.highlightText);
 
                 // Same multi-line decomposition for UL. Falls back to highlightText
                 // when underlineText is empty, mirroring the runtime behavior below.
                 String ulSrcText = (st.underlineText != null && !st.underlineText.isEmpty())
                         ? st.underlineText : st.highlightText;
-                java.util.List<java.util.List<int[]>> stUlSegments = computeWrapSegments(stWrappedLines, ulSrcText);
+                java.util.List<java.util.List<int[]>> stUlSegments = computeWrapSegments(stWrapped, ulSrcText);
                 String[] stUlTerms = splitTerms(ulSrcText);
 
                 // Extra highlight/underline groups (HL2, HL3, ... / UL2, UL3, ...),
@@ -6689,7 +6701,7 @@ public class GifSlideShowApp extends JFrame {
                 for (int gi = 0; gi < stExtraHlCount; gi++) {
                     SlideTextData.HlGroup setupHlG = st.hlGroups.get(gi);
                     String setupHlWords = setupHlG != null ? setupHlG.words : "";
-                    stExtraHlSegments.add(computeWrapSegments(stWrappedLines, setupHlWords));
+                    stExtraHlSegments.add(computeWrapSegments(stWrapped, setupHlWords));
                     stExtraHlTerms.add(splitTerms(setupHlWords));
                 }
                 int stExtraUlCount = st.ulGroups != null ? st.ulGroups.size() : 0;
@@ -6698,7 +6710,7 @@ public class GifSlideShowApp extends JFrame {
                 for (int gi = 0; gi < stExtraUlCount; gi++) {
                     SlideTextData.UlGroup setupUlG = st.ulGroups.get(gi);
                     String setupUlWords = setupUlG != null ? setupUlG.words : "";
-                    stExtraUlSegments.add(computeWrapSegments(stWrappedLines, setupUlWords));
+                    stExtraUlSegments.add(computeWrapSegments(stWrapped, setupUlWords));
                     stExtraUlTerms.add(splitTerms(setupUlWords));
                 }
 
@@ -6709,9 +6721,9 @@ public class GifSlideShowApp extends JFrame {
                 // split in two: "rat race" broken across lines matched neither
                 // half. computeWrapSegments searches the lines joined end to end,
                 // so a phrase that spans the break styles both of its halves.
-                java.util.List<java.util.List<int[]>> stBoldSegments   = computeWrapSegments(stWrappedLines, st.boldText);
-                java.util.List<java.util.List<int[]>> stItalicSegments = computeWrapSegments(stWrappedLines, st.italicText);
-                java.util.List<java.util.List<int[]>> stColorSegments  = computeWrapSegments(stWrappedLines, st.colorText);
+                java.util.List<java.util.List<int[]>> stBoldSegments   = computeWrapSegments(stWrapped, st.boldText);
+                java.util.List<java.util.List<int[]>> stItalicSegments = computeWrapSegments(stWrapped, st.italicText);
+                java.util.List<java.util.List<int[]>> stColorSegments  = computeWrapSegments(stWrapped, st.colorText);
                 int stFnCount = st.fnGroups != null ? st.fnGroups.size() : 0;
                 java.util.List<java.util.List<java.util.List<int[]>>> stFnSegments = new java.util.ArrayList<>();
                 for (int gi = 0; gi < stFnCount; gi++) {
@@ -6720,7 +6732,7 @@ public class GifSlideShowApp extends JFrame {
                     // so an empty or untouched row never drags the line through
                     // the erase-and-redraw pass below.
                     stFnSegments.add(setupFnG != null && setupFnG.hasOverride()
-                            ? computeWrapSegments(stWrappedLines, setupFnG.words) : null);
+                            ? computeWrapSegments(stWrapped, setupFnG.words) : null);
                 }
 
                 // ----- Hide the original word for in-place word effects -----
@@ -6737,7 +6749,7 @@ public class GifSlideShowApp extends JFrame {
                     java.awt.geom.Area clipArea = null;
                     for (SlideTextData.WordMotionRender wm : st.wordMotionsRender) {
                         if (wm == null || wm.isMove || wm.word == null || wm.word.isEmpty()) continue;
-                        double[] loc = locateWordCenter(stWrappedLines, stFm, wm.word, wm.occ,
+                        double[] loc = locateWordCenter(stWrapped, stFm, wm.word, wm.occ,
                                 st.alignment, stAlignLeft, stAlignWidth, stCenterX,
                                 firstBaselineH, stLineHeight);
                         if (loc == null) continue;
@@ -6799,7 +6811,11 @@ public class GifSlideShowApp extends JFrame {
                         int wordsBefore = 0;
                         for (int tli = 0; tli < li; tli++) {
                             String pl = stWrappedLines.get(tli).trim();
-                            wordsBefore += pl.isEmpty() ? 0 : pl.split("\\s+").length;
+                            if (pl.isEmpty()) continue;
+                            // A hyphenated line ends mid-word, so its last fragment
+                            // belongs to the word that finishes on the next line —
+                            // counting it here would run the reveal one word ahead.
+                            wordsBefore += pl.split("\\s+").length - (stWrapped.wordContinues(tli) ? 1 : 0);
                         }
                         String trimmed = line.trim();
                         String[] lineWords = trimmed.isEmpty() ? new String[0] : trimmed.split("\\s+");
@@ -9671,7 +9687,7 @@ public class GifSlideShowApp extends JFrame {
                     int firstBaseline = stCenterY - totalTextHeight / 2 + stAscent;
                     for (SlideTextData.WordMotionRender wm : st.wordMotionsRender) {
                         if (wm == null || wm.word == null || wm.word.isEmpty()) continue;
-                        double[] loc = locateWordCenter(stWrappedLines, stFm, wm.word, wm.occ,
+                        double[] loc = locateWordCenter(stWrapped, stFm, wm.word, wm.occ,
                                 st.alignment, stAlignLeft, stAlignWidth, stCenterX,
                                 firstBaseline, stLineHeight);
                         if (loc == null) continue;
@@ -9742,7 +9758,8 @@ public class GifSlideShowApp extends JFrame {
                 maxWrapWidth = (int) (maxWrapWidth * textWidthPct / 100.0);
             }
 
-            List<String> lines = wrapTextStatic(subtitle, fm, maxWrapWidth);
+            // Hyphenate when justified, for the same reason as the slide text above.
+            List<String> lines = wrapTextStatic(subtitle, fm, maxWrapWidth, textJustify).lines;
 
             int lineHeight = fm.getHeight() + (int) (3 * scaleFactor);
             int blockHeight = lines.size() * lineHeight + paddingY * 2;
@@ -9752,6 +9769,13 @@ public class GifSlideShowApp extends JFrame {
             int maxLineWidth = 0;
             for (String line : lines) {
                 maxLineWidth = Math.max(maxLineWidth, fm.stringWidth(line));
+            }
+            // Pin justified copy to the wrap box so the right margin holds still —
+            // same two guards as the slide text: only once it wraps, and only when
+            // the longest line is already close to the box.
+            if (textJustify && lines.size() > 1 && maxWrapWidth > 0
+                    && maxLineWidth >= maxWrapWidth * 0.55) {
+                maxLineWidth = maxWrapWidth;
             }
 
             int blockWidth, blockX;
@@ -11828,8 +11852,9 @@ public class GifSlideShowApp extends JFrame {
      * segments that the comma-separated terms in {@code csv} cover. Matches are case-
      * insensitive and may span multiple wrapped lines; spanning matches are decomposed
      * into one segment per line. Returns null when there is nothing to match.
-     * Lines are joined with a single space because wrapTextStatic only breaks at
-     * whitespace, so the joined string mirrors what the user reads.
+     * Lines are joined into the string the user reads: a single space at an
+     * ordinary line end, and nothing where the wrapper hyphenated a word across
+     * the break (see {@link WrappedText}).
      */
     /**
      * Fold one word list's segments on wrapped line {@code li} into the per-range
@@ -11860,18 +11885,29 @@ public class GifSlideShowApp extends JFrame {
     }
 
     static java.util.List<java.util.List<int[]>> computeWrapSegments(List<String> wrappedLines, String csv) {
-        if (wrappedLines == null || wrappedLines.isEmpty()) return null;
+        return computeWrapSegments(WrappedText.of(wrappedLines), csv);
+    }
+
+    static java.util.List<java.util.List<int[]>> computeWrapSegments(WrappedText wrapped, String csv) {
+        if (wrapped == null || wrapped.lines.isEmpty()) return null;
+        List<String> wrappedLines = wrapped.lines;
         String[] terms = splitTerms(csv);
         if (terms == null) return null;
         int n = wrappedLines.size();
         java.util.List<java.util.List<int[]>> perLine = new java.util.ArrayList<>(n);
         for (int i = 0; i < n; i++) perLine.add(new java.util.ArrayList<>());
         int[] lineStart = new int[n];
+        int[] lineLen = new int[n];   // flattened length: one short on a hyphenated line
         StringBuilder flat = new StringBuilder();
         for (int i = 0; i < n; i++) {
-            if (i > 0) flat.append(' ');
+            // A line the wrapper hyphenated joins the next with neither the hyphen
+            // nor a space, so "com-" + "pulsive" still reads as "compulsive" here.
+            if (i > 0 && !wrapped.wordContinues(i - 1)) flat.append(' ');
+            String ln = wrappedLines.get(i);
+            if (wrapped.hyphenAdded(i) && !ln.isEmpty()) ln = ln.substring(0, ln.length() - 1);
             lineStart[i] = flat.length();
-            flat.append(wrappedLines.get(i));
+            lineLen[i] = ln.length();
+            flat.append(ln);
         }
         String flatLower = flat.toString().toLowerCase();
         for (int ti = 0; ti < terms.length; ti++) {
@@ -11893,11 +11929,15 @@ public class GifSlideShowApp extends JFrame {
                 int matchEnd = m.end();
                 for (int li = 0; li < n; li++) {
                     int ls = lineStart[li];
-                    int le = ls + wrappedLines.get(li).length();
+                    int le = ls + lineLen[li];
                     int segS = Math.max(ls, idx);
                     int segE = Math.min(le, matchEnd);
                     if (segS < segE) {
-                        perLine.get(li).add(new int[]{segS - ls, segE - ls, ti});
+                        int inLineEnd = segE - ls;
+                        // A term running off the end of a hyphenated line takes the
+                        // hyphen with it, so the highlight doesn't stop a glyph short.
+                        if (wrapped.hyphenAdded(li) && inLineEnd == lineLen[li]) inLineEnd++;
+                        perLine.get(li).add(new int[]{segS - ls, inLineEnd, ti});
                     }
                     if (le >= matchEnd) break;
                 }
@@ -11948,19 +11988,27 @@ public class GifSlideShowApp extends JFrame {
      * fly a copy from the word's spot. Returns {cx, cy, wordWidth} or null if not
      * found. Layout inputs mirror the render loop's own maths.
      */
-    private static double[] locateWordCenter(List<String> lines, FontMetrics fm, String word, int occ,
+    private static double[] locateWordCenter(WrappedText wrapped, FontMetrics fm, String word, int occ,
                                              int alignment, int alignLeft, int alignWidth, int centerX,
                                              int firstBaseline, int lineHeight) {
-        if (lines == null || lines.isEmpty() || word == null) return null;
+        if (wrapped == null || wrapped.lines.isEmpty() || word == null) return null;
+        List<String> lines = wrapped.lines;
         String needle = word.trim().toLowerCase();
         if (needle.isEmpty()) return null;
         int n = lines.size();
         int[] lineStart = new int[n];
+        int[] lineLen = new int[n];
         StringBuilder flat = new StringBuilder();
         for (int i = 0; i < n; i++) {
-            if (i > 0) flat.append(' ');
+            // Mirrors computeWrapSegments: a hyphenated line joins the next with
+            // neither the hyphen nor a space, so a word split across the break is
+            // still findable and still gets its motion.
+            if (i > 0 && !wrapped.wordContinues(i - 1)) flat.append(' ');
+            String ln = lines.get(i);
+            if (wrapped.hyphenAdded(i) && !ln.isEmpty()) ln = ln.substring(0, ln.length() - 1);
             lineStart[i] = flat.length();
-            flat.append(lines.get(i));
+            lineLen[i] = ln.length();
+            flat.append(ln);
         }
         String hay = flat.toString();
         String hayLower = hay.toLowerCase();
@@ -11996,7 +12044,7 @@ public class GifSlideShowApp extends JFrame {
         int end = idx + needle.length();
         int li = 0;
         for (int k = 0; k < n; k++) {
-            int ls = lineStart[k], le = ls + lines.get(k).length();
+            int ls = lineStart[k], le = ls + lineLen[k];
             if (idx >= ls && idx <= le) { li = k; break; }
         }
         String line = lines.get(li);
@@ -12540,25 +12588,284 @@ public class GifSlideShowApp extends JFrame {
         }
     }
 
+    /**
+     * A wrap result: the lines, plus a note per line of how it ended — a whole word,
+     * or mid-word at a hyphen, which is in turn either one the word already carried
+     * ("self-esteem") or one the wrapper inserted ("com-" + "pulsive"). Rejoining
+     * must keep the first and drop the second.
+     *
+     * <p>That bookkeeping is not cosmetic. {@link #computeWrapSegments} and
+     * {@link #locateWordCenter} flatten these lines back into one string to find the
+     * HL / UL / bold / font-group / word-motion terms in them. Joining "com-" and
+     * "pulsive" with a space would hide "compulsive" from every one of those
+     * features at once — the same silent-vanish this file already warns about for
+     * collapsed whitespace. Joining them with neither the hyphen nor a space keeps
+     * every term findable, so hyphenation costs nothing downstream.
+     */
+    static final class WrappedText {
+        /** An ordinary line end: the next line starts a new word. */
+        static final int BREAK_SPACE = 0;
+        /** The line ends mid-word at a hyphen the word itself carries ("self-esteem"). */
+        static final int BREAK_OWN_HYPHEN = 1;
+        /** The line ends mid-word at a hyphen the wrapper inserted ("com-" + "pulsive"). */
+        static final int BREAK_ADDED_HYPHEN = 2;
+
+        final List<String> lines = new ArrayList<>();
+        private final List<Integer> kind = new ArrayList<>();
+
+        void add(String line, int breakKind) { lines.add(line); kind.add(breakKind); }
+
+        private int kind(int i) { return i >= 0 && i < kind.size() ? kind.get(i) : BREAK_SPACE; }
+
+        /** True when the word on line {@code i} carries on into the next line. */
+        boolean wordContinues(int i) { return kind(i) != BREAK_SPACE; }
+
+        /** True when line {@code i}'s trailing hyphen is the wrapper's, not the text's. */
+        boolean hyphenAdded(int i) { return kind(i) == BREAK_ADDED_HYPHEN; }
+
+        /** Wrap an already-split list, none of whose lines break mid-word. */
+        static WrappedText of(List<String> lines) {
+            WrappedText w = new WrappedText();
+            if (lines != null) for (String l : lines) w.add(l, BREAK_SPACE);
+            return w;
+        }
+    }
+
+    /** Shortest word the wrapper will break. Below this a hyphen costs more than it saves. */
+    private static final int HYPHEN_MIN_WORD = 6;
+    /** Letters that must stay before the hyphen, and letters that must carry past it. */
+    private static final int HYPHEN_MIN_HEAD = 2, HYPHEN_MIN_TAIL = 3;
+    /** Never set more than this many hyphenated lines in a row (a "ladder" reads badly). */
+    private static final int HYPHEN_MAX_LADDER = 2;
+    /** Break quality: a prefix / suffix / "-le" boundary, i.e. a break at the word's shape. */
+    private static final int HYPHEN_TIER_SHAPE = 0;
+    /** Break quality: the general vowel/consonant fallback. Used only when no shape break fits. */
+    private static final int HYPHEN_TIER_SOUND = 1;
+
     static List<String> wrapTextStatic(String text, FontMetrics fm, int maxWidth) {
-        List<String> lines = new ArrayList<>();
-        if (maxWidth <= 0) { lines.add(text); return lines; }
+        return wrapTextStatic(text, fm, maxWidth, false).lines;
+    }
+
+    /**
+     * Wrap {@code text} to {@code maxWidth}, breaking on whitespace.
+     *
+     * <p>With {@code hyphenate} on, a word that will not fit the space left on the
+     * line is also broken at a syllable boundary and the head keeps a hyphen — the
+     * way a book sets justified copy. That is what stops the word gaps on a
+     * justified line from opening into rivers: without it, a single long word
+     * pushed to the next line leaves the current one to stretch across the gap it
+     * left behind.
+     */
+    static WrappedText wrapTextStatic(String text, FontMetrics fm, int maxWidth, boolean hyphenate) {
+        WrappedText out = new WrappedText();
+        if (maxWidth <= 0) { out.add(text, WrappedText.BREAK_SPACE); return out; }
+        int ladder = 0;   // consecutive hyphenated lines, capped at HYPHEN_MAX_LADDER
         for (String paragraph : text.split("\n")) {
-            if (paragraph.isEmpty()) { lines.add(""); continue; }
+            if (paragraph.isEmpty()) { out.add("", WrappedText.BREAK_SPACE); ladder = 0; continue; }
             String[] words = paragraph.split("\\s+");
             StringBuilder current = new StringBuilder();
             for (String word : words) {
                 String test = current.length() == 0 ? word : current + " " + word;
-                if (fm.stringWidth(test) > maxWidth && current.length() > 0) {
-                    lines.add(current.toString());
-                    current = new StringBuilder(word);
-                } else {
-                    current = new StringBuilder(test);
+                if (fm.stringWidth(test) <= maxWidth) { current = new StringBuilder(test); continue; }
+
+                // Doesn't fit. Try to break the word across the line end before
+                // giving up and pushing the whole of it down a line.
+                String pending = word;
+                while (true) {
+                    boolean lineHasText = current.length() > 0;
+                    int used = lineHasText ? fm.stringWidth(current + " ") : 0;
+                    // Only ever break a word that will not fit the space left. Once
+                    // the line below has been flushed the word usually fits whole,
+                    // and breaking it there would strand a stub for no reason.
+                    if (fm.stringWidth(pending) <= maxWidth - used) break;
+                    String[] split = (hyphenate && ladder < HYPHEN_MAX_LADDER)
+                            ? splitWordForHyphen(pending, fm, maxWidth - used) : null;
+                    if (split != null) {
+                        // split[2] tells the two hyphens apart: one the wrapper added
+                        // and must strip when rejoining, one the word owns and must keep.
+                        out.add(lineHasText ? current + " " + split[0] : split[0],
+                                "1".equals(split[2]) ? WrappedText.BREAK_ADDED_HYPHEN
+                                                     : WrappedText.BREAK_OWN_HYPHEN);
+                        ladder++;
+                        current = new StringBuilder();
+                        pending = split[1];
+                        if (fm.stringWidth(pending) <= maxWidth) break;
+                        continue;                 // tail still overruns — break it again
+                    }
+                    if (lineHasText) {
+                        out.add(current.toString(), WrappedText.BREAK_SPACE);
+                        ladder = 0;               // an unbroken line ends the ladder
+                        current = new StringBuilder();
+                        continue;                 // retry the word on the fresh line
+                    }
+                    break;                        // fresh line and unsplittable: let it overrun
                 }
+                current = current.length() == 0 ? new StringBuilder(pending)
+                        : new StringBuilder(current + " " + pending);
             }
-            if (current.length() > 0) lines.add(current.toString());
+            if (current.length() > 0) { out.add(current.toString(), WrappedText.BREAK_SPACE); ladder = 0; }
         }
-        return lines;
+        return out;
+    }
+
+    /**
+     * Break {@code word} so its head plus a hyphen fits in {@code avail} pixels.
+     * Returns {@code {head + "-", tail, added}}, where {@code added} is "1" when the
+     * hyphen is the wrapper's own and "0" when it is one the word already carried
+     * ("self-esteem") — rejoining the two lines must drop the first and keep the
+     * second. Returns null when there is no decent break —
+     * too short, too tight, an all-caps acronym, or a token holding a digit
+     * (splitting "1,250" or "3.14" reads as a typo, so numbers are left whole).
+     */
+    private static String[] splitWordForHyphen(String word, FontMetrics fm, int avail) {
+        if (word == null || avail <= 0 || word.length() < HYPHEN_MIN_WORD) return null;
+        boolean allCaps = true;
+        for (int i = 0; i < word.length(); i++) {
+            char c = word.charAt(i);
+            if (Character.isDigit(c)) return null;
+            if (Character.isLowerCase(c)) allCaps = false;
+        }
+        if (allCaps) return null;
+
+        // Points come back ascending, so within a tier the last one that fits is the
+        // longest head. A word-shape break (prefix / suffix / "-le") always beats a
+        // generic one, though, even when it leaves the line shorter: "under-mines"
+        // is worth three characters of line fill against "undermi-nes".
+        int best = -1, bestTier = Integer.MAX_VALUE;
+        for (int[] pt : hyphenPoints(word)) {
+            int i = pt[0], tier = pt[1];
+            if (tier > bestTier) continue;
+            String head = word.substring(0, i);
+            if (!head.endsWith("-")) head = head + "-";
+            if (fm.stringWidth(head) > avail) break;   // ascending: nothing after fits either
+            bestTier = tier;
+            best = i;
+        }
+        if (best < 0) return null;
+        String head = word.substring(0, best);
+        // Breaking at the word's own hyphen ("self-esteem") already leaves one there.
+        boolean own = head.endsWith("-");
+        return new String[]{ own ? head : head + "-", word.substring(best), own ? "0" : "1" };
+    }
+
+    /**
+     * Word starts that read as a unit, so the break after them is the one a reader
+     * expects: "un-pleasant", not "unplea-sant". Longest first, so "inter" wins over
+     * "in" on the same word.
+     */
+    private static final String[] HYPHEN_PREFIXES = {
+        "counter", "inter", "under", "over", "trans", "super", "anti", "auto", "semi",
+        "com", "con", "dis", "mis", "non", "out", "pre", "pro", "sub", "for",
+        "un", "re", "in", "im", "de", "ex"
+    };
+
+    /** Word endings that read as a unit, so the break falls before them ("stress-ful"). */
+    private static final String[] HYPHEN_SUFFIXES = {
+        "ically", "ation", "ition", "ously", "tion", "sion", "ness", "ment", "able",
+        "ible", "less", "edly", "ing", "ive", "ity", "ous", "ial", "ent", "ant", "ful"
+    };
+
+    /**
+     * Candidate break points in {@code word}, ascending. No dictionary here, but
+     * four rules between them carry most English: break after a prefix
+     * ("un-pleasant"), before a suffix ("stress-ful"), before the consonant of a
+     * final "-le" ("peo-ple"), and — the general case — inside a consonant pair
+     * sitting between vowels ("dif-ficult", "com-pulsive") or before a lone
+     * consonant following a vowel ("be-havior"). A word that already carries a
+     * hyphen breaks there and nowhere else, which is what a reader expects of
+     * "self-esteem".
+     *
+     * <p>Coverage is the whole point rather than a nicety: a line the wrapper
+     * cannot break is a line the renderer has to stretch, and past three space
+     * widths of gap it gives up and sets that line ragged — one ragged line in a
+     * justified block being far more visible than a slightly loose one.
+     *
+     * <p>Text in a script without Latin vowels — Arabic, Hebrew, CJK — matches no
+     * rule here, so it yields no break points and is never hyphenated.
+     */
+    private static List<int[]> hyphenPoints(String word) {
+        int len = word.length();
+
+        int explicit = word.indexOf('-');
+        if (explicit > 0 && explicit < len - 1) {
+            List<int[]> only = new ArrayList<>();
+            only.add(new int[]{explicit + 1, HYPHEN_TIER_SHAPE});
+            return only;
+        }
+
+        // Trailing punctuation ("pervasive," / "tasks.") is not a letter to break
+        // before, so the tail minimum is measured against the letters only.
+        int end = len;
+        while (end > 0 && !Character.isLetter(word.charAt(end - 1))) end--;
+
+        String lower = word.toLowerCase();
+        // index -> tier, kept sorted by index; a shape rule overwrites a generic one
+        // that landed on the same spot.
+        java.util.TreeMap<Integer, Integer> pts = new java.util.TreeMap<>();
+
+        for (String pre : HYPHEN_PREFIXES) {
+            if (lower.startsWith(pre)) { pts.put(pre.length(), HYPHEN_TIER_SHAPE); break; }
+        }
+        for (String suf : HYPHEN_SUFFIXES) {
+            if (end > suf.length() && lower.startsWith(suf, end - suf.length())) {
+                pts.put(end - suf.length(), HYPHEN_TIER_SHAPE);
+                break;
+            }
+        }
+        // "-le" endings break before their consonant: peo-ple, ta-ble, sim-ple.
+        if (end >= 4 && lower.charAt(end - 1) == 'e' && lower.charAt(end - 2) == 'l'
+                && !isHyphenVowel(lower.charAt(end - 3))) {
+            pts.put(end - 3, HYPHEN_TIER_SHAPE);
+        }
+        for (int i = 2; i < end; i++) {
+            char prev2 = i >= 2 ? word.charAt(i - 2) : 0;
+            char prev  = word.charAt(i - 1);
+            char cur   = word.charAt(i);
+            char next  = i + 1 < len ? word.charAt(i + 1) : 0;
+            if (!Character.isLetter(prev) || !Character.isLetter(cur)) continue;
+            boolean vcCv = isHyphenVowel(prev2) && !isHyphenVowel(prev)
+                    && !isHyphenVowel(cur) && isHyphenVowel(next);
+            boolean vCv  = isHyphenVowel(prev) && !isHyphenVowel(cur) && isHyphenVowel(next);
+            if (vcCv || vCv) pts.putIfAbsent(i, HYPHEN_TIER_SOUND);
+        }
+
+        // One filter for every rule above: enough letters left behind, enough
+        // carried on, and a letter on each side of the break.
+        List<int[]> out = new ArrayList<>();
+        for (java.util.Map.Entry<Integer, Integer> e : pts.entrySet()) {
+            int i = e.getKey();
+            if (i < HYPHEN_MIN_HEAD || i > end - HYPHEN_MIN_TAIL) continue;
+            if (!Character.isLetter(word.charAt(i - 1)) || !Character.isLetter(word.charAt(i))) continue;
+            out.add(new int[]{i, e.getValue()});
+        }
+        return out;
+    }
+
+    private static boolean isHyphenVowel(char c) {
+        return "aeiouyAEIOUY".indexOf(c) >= 0;
+    }
+
+    /**
+     * Strip the hard line breaks out of pasted copy so the renderer can wrap it
+     * itself. Text pasted from a book, a PDF or a web page carries a newline at the
+     * end of every printed line, and each of those wraps here on its own — which is
+     * exactly what strands a single word on a line of its own and leaves the block
+     * looking ragged. A blank line still separates paragraphs, and a word the source
+     * had already hyphenated across its own line break is put back together.
+     */
+    static String joinWrappedLines(String text) {
+        if (text == null || text.isEmpty()) return text;
+        // "procrasti-\nnate" came from the source's own line break, not from the word.
+        String t = text.replaceAll("(\\p{L})-\\r?\\n[ \\t]*(\\p{Ll})", "$1$2");
+        String[] paragraphs = t.split("\\r?\\n[ \\t]*\\r?\\n");
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < paragraphs.length; i++) {
+            String joined = paragraphs[i].replaceAll("\\s*\\r?\\n\\s*", " ").trim();
+            if (joined.isEmpty()) continue;
+            if (out.length() > 0) out.append("\n\n");
+            out.append(joined);
+        }
+        return out.toString();
     }
 
     private static void drawJustified(Graphics2D g, String[] words, int startX, int y,
@@ -23324,6 +23631,7 @@ public class GifSlideShowApp extends JFrame {
         private final JButton slideTextBgGlowColorBtn;
         private Color slideTextBgGlowColor = new Color(255, 220, 120);
         private final JCheckBox slideTextJustifyCheck;
+        private final JButton slideTextJoinLinesBtn;
         private final JSpinner slideTextWidthSpinner;
         private final JSpinner slideTextShiftXSpinner;
         // ===== Layout Group: dialog-driven bulk-stamp of position/style across selected slide texts.
@@ -24365,6 +24673,25 @@ public class GifSlideShowApp extends JFrame {
             slideTextScroll.setPreferredSize(new Dimension(140, 48));
             slideTextScroll.setBorder(BorderFactory.createLineBorder(new Color(60, 63, 68)));
 
+            slideTextJoinLinesBtn = new JButton("\u00B6");
+            slideTextJoinLinesBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            slideTextJoinLinesBtn.setPreferredSize(new Dimension(28, 28));
+            slideTextJoinLinesBtn.setMargin(new Insets(1, 1, 1, 1));
+            slideTextJoinLinesBtn.setFocusPainted(false);
+            slideTextJoinLinesBtn.setToolTipText(
+                    "<html>Join wrapped lines &mdash; drop the hard line breaks inside each paragraph"
+                    + "<br>so the text re-wraps to the W% width on its own."
+                    + "<br>Text pasted from a book or a PDF carries a break at the end of every"
+                    + "<br>printed line, which is what leaves a single word stranded on its own line."
+                    + "<br>A blank line still starts a new paragraph.</html>");
+            slideTextJoinLinesBtn.addActionListener(e -> {
+                String joined = joinWrappedLines(slideTextArea.getText());
+                if (joined != null && !joined.equals(slideTextArea.getText())) {
+                    slideTextArea.setText(joined);   // the document listener repaints
+                    slideTextArea.setCaretPosition(0);
+                }
+            });
+
             slideTextFontCombo = new JComboBox<>(allFontNames());
             slideTextFontCombo.setSelectedItem(loadedFontNames.length > 0 ? loadedFontNames[0] : "Segoe UI");
             slideTextFontCombo.setPreferredSize(new Dimension(105, 28));
@@ -24428,6 +24755,7 @@ public class GifSlideShowApp extends JFrame {
             toolbar4a.add(removeSlideTextBtn);
             toolbar4a.add(slideTextCheckBox);
             toolbar4a.add(slideTextScroll);
+            toolbar4a.add(slideTextJoinLinesBtn);
             toolbar4a.add(slideTextFontCombo);
             toolbar4a.add(styledLabel("Size:"));
             toolbar4a.add(slideTextSizeSpinner);
