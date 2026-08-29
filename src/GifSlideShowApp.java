@@ -23135,7 +23135,11 @@ public class GifSlideShowApp extends JFrame {
         // When true, short (~12ms) audio fades are applied at each repeat seam so
         // the loop-back does not click. Duration is preserved (fades ramp
         // amplitude only), so audio stays in sync with the clean video cut.
-        boolean videoRepeatCrossfade = false;
+        // On by default: a click at a loop-back is not something anyone asks
+        // for, and `slow` is optional, so a plain "start,end" range must come out
+        // clean with nothing else configured. Untick it only to keep the repeated
+        // audio bit-exact.
+        boolean videoRepeatCrossfade = true;
         // Slow the WHOLE finished video by this percent (100 = normal speed,
         // 150 = 1.5× slower, …). Applied as a final pitch-preserving pass on the
         // exported MP4. Set externally after construction (like videoRepeats).
@@ -23753,7 +23757,7 @@ public class GifSlideShowApp extends JFrame {
         // Edited in the Texts Timer dialog; each range plays twice in the export.
         private final java.util.List<int[]> videoRepeats = new java.util.ArrayList<>();
         // When true, short audio fades de-click the repeat seams (see SlideData).
-        private boolean videoRepeatCrossfade = false;
+        private boolean videoRepeatCrossfade = true;   // see SlideData: on by default
         // Slow the whole finished video by this percent (100 = normal). Edited in
         // the Texts Timer dialog; applied as a final pass on the exported MP4.
         private int videoGlobalSlowPct = 100;
@@ -32049,6 +32053,8 @@ public class GifSlideShowApp extends JFrame {
 
             JCheckBox crossfadeCheck = new JCheckBox(
                     "Crossfade audio at repeat joins (removes the click)", isVideoRepeatCrossfade());
+            // Leave this on unless you specifically want the repeated audio copied
+            // sample-for-sample; the blend is 12 ms and changes no timing.
             crossfadeCheck.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             crossfadeCheck.setToolTipText("<html>Affects the SOUND at the loop-back only. "
                     + "Off = clean cut (exact copy, may click on continuous music).<br>"
@@ -32056,7 +32062,10 @@ public class GifSlideShowApp extends JFrame {
                     + "repeat's start, so the join is seamless (duration unchanged).<br>"
                     + "Either way: the picture is cut on whole frames and rebuilt at the video's "
                     + "own frame rate, and a change of speed is always smoothed \u2014 so neither "
-                    + "setting stutters or drops out.</html>");
+                    + "setting stutters or drops out.<br>"
+                    + "On by default. A range written as just start,end (no slow) relies on this, "
+                    + "because with no speed change at the join there is nothing else to smooth it."
+                    + "</html>");
 
             // ----- Slow the entire video -----
             // Whole-video pitch-preserving slow-down, applied as a final pass on
