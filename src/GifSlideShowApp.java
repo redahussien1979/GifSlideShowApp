@@ -6430,6 +6430,9 @@ public class GifSlideShowApp extends JFrame {
             // the post-passes that run right after renderFrame returns.
             java.util.Map<Integer, int[]> boundsBoard = TEXT_BOUNDS.get();
             boundsBoard.clear();
+            // Same deal for the Slice gap geometry: stale entries from the previous
+            // frame would place a reveal into a cut that is no longer open.
+            SLICE_GAP.get().clear();
             for (int bi = 0; bi < slideTexts.size(); bi++) {
                 SlideTextData bst = slideTexts.get(bi);
                 if (bst != null) bst.slideTextIndex = bi;
@@ -6437,7 +6440,9 @@ public class GifSlideShowApp extends JFrame {
             // Expand any active alternating-text copies and "Move Copy" ghosts into
             // extra render entries (the original list is returned unchanged when
             // none are active).
-            for (SlideTextData st : expandActionGhosts(expandAlternateTexts(slideTexts))) {
+            // Slice expands first, so the band copies it produces (which carry no
+            // alt list and no actions) pass through the other two expanders inert.
+            for (SlideTextData st : expandActionGhosts(expandAlternateTexts(expandSliceBands(slideTexts)))) {
                 // forceShow lets a fired trigger reveal a text marked hidden (show=false).
                 if ((!st.show && !st.forceShow) || st.quizHidden || st.text == null || st.text.isEmpty()) continue;
                 float stScaleFactor = Math.max(targetW, targetH) / 1920.0f;
@@ -6594,6 +6599,89 @@ public class GifSlideShowApp extends JFrame {
                 Object savedSlideTextAA = g.getRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING);
                 Object savedSlideTextFM = g.getRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS);
                 boolean transformWrapApplied = false;
+
+                // ===== Slice: cut the block open and reveal a second text in the gap.
+                // Applied first so it is the outermost transform — tilt, pulse and
+                // the rest then compose inside each half exactly as they would on an
+                // uncut text. The two halves deliberately keep a strip of the far
+                // side of the seam (the overlap below): both showing past the middle
+                // of the glyphs is what makes this read as a cut rather than a break,
+                // and it is derived from the box height rather than exposed so it can
+                // never be set to a value that looks like a rendering fault.
+                java.awt.Shape savedSliceClip = null;
+                boolean sliceClipApplied = false;
+                if (st.sliceBand != 0 && st.sliceCfg != null && st.sliceOpen > 0.0) {
+                    SliceConfig sc = st.sliceCfg;
+                    // Measure the INK, not the background box. bgY/bgH carry the box's
+                    // padding and the font's full line height, so a seam placed in that
+                    // space lands in empty air above or below the letters and the cut
+                    // never crosses a glyph — both halves then show the whole word.
+                    // Cap height off the font puts the seam through the letterforms.
+                    double capH = stAscent * 0.72;
+                    try {
+                        Rectangle2D capB = stFont.createGlyphVector(
+                                g.getFontRenderContext(), "H").getVisualBounds();
+                        if (capB.getHeight() > 1) capH = capB.getHeight();
+                    } catch (Exception ignored) {
+                        // Fall back to the ascent ratio above for exotic fonts.
+                    }
+                    double blockTop = stCenterY - totalTextHeight / 2.0;
+                    double inkTop   = blockTop + stAscent - capH;
+                    double inkBot   = blockTop + totalTextHeight - stFm.getDescent();
+                    double inkH     = Math.max(1.0, inkBot - inkTop);
+                    double inkW     = Math.max(1.0, stMaxLineWidth > 0 ? stMaxLineWidth : bgW);
+
+                    double seamY  = inkTop + inkH * (sc.seamPct / 100.0);
+                    double gapH   = inkH * (sc.gapPct / 100.0) * st.sliceOpen;
+                    // Each half keeps this much of the far side of the seam.
+                    double overlap = inkH * 0.15;
+                    // Shift by half the gap PLUS the overlap. Without the overlap term
+                    // the two halves each carry an extra strip toward the seam and the
+                    // opening comes out at (gap - 2*overlap) — so "Gap %" would not be
+                    // the gap you see. With it, the opening is exactly gapH, centred on
+                    // the seam, which is also what the plate and the reveal clip assume.
+                    double halfGap = gapH / 2.0 + overlap;
+                    double bandW  = Math.max(1.0, inkW * (sc.bandWidthPct / 100.0));
+                    double bandX  = stCenterX - bandW / 2.0;
+                    final double BIG = 1e6;
+
+                    if (st.sliceBand == 1) {
+                        // Furniture goes down before this band takes its own offset
+                        // and clip, so it sits under both halves and under the reveal.
+                        drawSliceFurniture(g, sc, bandX, bandW, seamY, gapH,
+                                st.sliceOwnerColor != null ? st.sliceOwnerColor : st.color,
+                                st.sliceRevealColor, animFrameIndex, targetW, targetH);
+                        SLICE_GAP.get().put(st.slideTextIndex,
+                                new double[]{ stCenterX, seamY, bandW, gapH });
+                        g.translate(0.0, -halfGap);
+                        savedSliceClip = g.getClip();
+                        // Clip AFTER the translate, using untranslated seam coords: the
+                        // clip then selects the glyph rows that were above the seam
+                        // originally and shows them at their lifted position.
+                        g.clip(new Rectangle2D.Double(-BIG, -BIG, 2 * BIG, BIG + seamY + overlap));
+                        sliceClipApplied = true;
+                        transformWrapApplied = true;
+                    } else if (st.sliceBand == 2) {
+                        g.translate(0.0, halfGap);
+                        savedSliceClip = g.getClip();
+                        g.clip(new Rectangle2D.Double(-BIG, seamY - overlap, 2 * BIG, BIG));
+                        sliceClipApplied = true;
+                        transformWrapApplied = true;
+                    } else if (st.sliceBand == 3) {
+                        double[] gap = SLICE_GAP.get().get(st.sliceOwnerIndex);
+                        if (gap != null) {
+                            // Confine the reveal to the opening so it is wiped away
+                            // by the closing halves instead of spilling over them.
+                            savedSliceClip = g.getClip();
+                            g.clip(new Rectangle2D.Double(gap[0] - gap[2] / 2.0,
+                                    gap[1] - gap[3] / 2.0, gap[2], gap[3]));
+                            sliceClipApplied = true;
+                            g.translate(gap[0] - stCenterX, gap[1] - stCenterY);
+                            transformWrapApplied = true;
+                        }
+                    }
+                }
+
                 if (st.tiltDegrees != 0) {
                     g.rotate(Math.toRadians(st.tiltDegrees), stCenterX, stCenterY);
                     transformWrapApplied = true;
@@ -9642,6 +9730,9 @@ public class GifSlideShowApp extends JFrame {
                 // done here, under the same transform it was set, before the wrap is
                 // reversed — so the animated word below draws unclipped).
                 if (wordClipApplied) g.setClip(savedWordClip);
+                // Slice band clip comes off before the transform wrap is unwound —
+                // it was taken in the pre-transform space and must be handed back there.
+                if (sliceClipApplied) g.setClip(savedSliceClip);
 
                 // Reverse the tilt + opacity wrap before the animation translate is
                 // reversed, so the absolute matrix returns to its pre-text state.
@@ -15116,7 +15207,7 @@ public class GifSlideShowApp extends JFrame {
                                         applyQuizHideMask(s.slideTexts, s.quiz, elapsedMs);
                                         applyTimerEndActions(s, elapsedMs, false);
                                         int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
-                                        activeAudioSegmentIdx.set(activeIdx);
+                                        publishActiveAudioSegment(s, activeIdx);
                                         long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
                                         int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
                                         String frameName = String.format("frame_%05d.png", f);
@@ -15503,7 +15594,7 @@ public class GifSlideShowApp extends JFrame {
                                             applyQuizHideMask(s.slideTexts, s.quiz, elapsedMs);
                                             applyTimerEndActions(s, elapsedMs, false);
                                             int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
-                                        activeAudioSegmentIdx.set(activeIdx);
+                                        publishActiveAudioSegment(s, activeIdx);
                                             long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
                                             int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
                                             List<SlideTextData> hlTexts = (activeIdx >= 0)
@@ -15587,7 +15678,7 @@ public class GifSlideShowApp extends JFrame {
                                             applyQuizHideMask(s.slideTexts, s.quiz, elapsedMs);
                                             applyTimerEndActions(s, elapsedMs, false);
                                             int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
-                                        activeAudioSegmentIdx.set(activeIdx);
+                                        publishActiveAudioSegment(s, activeIdx);
                                             long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
                                             int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
                                             List<SlideTextData> hlTexts = applyActiveTextHighlight(
@@ -15764,7 +15855,7 @@ public class GifSlideShowApp extends JFrame {
                                             applyTimerEndActions(s, elapsedMs, false);
                                             // Keep the bulk-picture audio-effect gate in sync every frame,
                                             // even when there's no text highlight on this slide.
-                                            activeAudioSegmentIdx.set(getActiveAudioTextIndex(s, elapsedMs));
+                                            publishActiveAudioSegment(s, getActiveAudioTextIndex(s, elapsedMs));
                                             // Apply audio-highlight effects on the active text segment
                                             // (works for single-audio too — activeIdx is the lone segment).
                                             // Quiz slides always take this path so quiz cue effects (whose
@@ -17154,7 +17245,7 @@ public class GifSlideShowApp extends JFrame {
                                         applyQuizHideMask(s.slideTexts, s.quiz, elapsedMs);
                                         applyTimerEndActions(s, elapsedMs, false);
                                         int activeIdx = getActiveAudioTextIndex(s, elapsedMs);
-                                        activeAudioSegmentIdx.set(activeIdx);
+                                        publishActiveAudioSegment(s, activeIdx);
                                         long segStartMs = getActiveSegmentStartMs(s, elapsedMs);
                                         int segFrame = (int) Math.round((elapsedMs - segStartMs) * fps / 1000.0);
                                         List<SlideTextData> hlTexts = applyActiveTextHighlight(
@@ -17224,7 +17315,7 @@ public class GifSlideShowApp extends JFrame {
                                         applyTimerEndActions(s, elapsedMs, false);
                                         // Keep the bulk-picture audio-effect gate in sync every frame,
                                         // even when there's no text highlight on this slide.
-                                        activeAudioSegmentIdx.set(getActiveAudioTextIndex(s, elapsedMs));
+                                        publishActiveAudioSegment(s, getActiveAudioTextIndex(s, elapsedMs));
                                         // Apply audio-highlight on the active segment so single-audio
                                         // slides still get Pulse/Shake/Other-* effects animated. Quiz
                                         // slides always take this path so quiz cue effects (baked into
@@ -19113,6 +19204,305 @@ public class GifSlideShowApp extends JFrame {
     // -1 = no audio active / static preview. Thread-local because GIF/MP4
     // exports run on a background thread that never overlaps the EDT preview.
     static final ThreadLocal<Integer> activeAudioSegmentIdx = ThreadLocal.withInitial(() -> -1);
+    // Length of the audio segment named by activeAudioSegmentIdx. Slice needs it
+    // to know when to snap shut (it holds open for as long as the voice runs), and
+    // applyActiveTextHighlight has no SlideData to look it up from — so the export
+    // loop publishes both together via publishActiveAudioSegment(...).
+    static final ThreadLocal<Integer> activeAudioSegmentDurMs = ThreadLocal.withInitial(() -> 0);
+
+    /**
+     * Per-frame audio state the render passes need but cannot look up themselves:
+     * which segment is sounding, how long it runs, and which texts are spoken for
+     * as a Slice reveal.
+     *
+     * <p>The claim pass has to look at EVERY row's effects string, not just the
+     * active one. A text used as a reveal must stay out of the normal render at all
+     * times — including while the slice that claims it is shut, and while some other
+     * text's audio is playing — or it would sit at its authored position for most of
+     * the slide and only jump into the gap when the cut opens.
+     */
+    private static void publishActiveAudioSegment(SlideData s, int activeIdx) {
+        activeAudioSegmentIdx.set(activeIdx);
+        int dur = 0;
+        if (s != null && s.audioDurationsMs != null
+                && activeIdx >= 0 && activeIdx < s.audioDurationsMs.size()) {
+            Integer d = s.audioDurationsMs.get(activeIdx);
+            if (d != null && d > 0) dur = d;
+        }
+        activeAudioSegmentDurMs.set(dur);
+
+        if (s == null || s.slideTexts == null || s.slideTexts.isEmpty()) return;
+        for (SlideTextData st : s.slideTexts) if (st != null) st.sliceClaimed = false;
+        if (s.audioHlEffects == null) return;
+        for (String fx : s.audioHlEffects) {
+            SliceConfig sc = sliceFromEffects(fx);
+            if (sc == null) continue;
+            int ri = sc.insertIndex;
+            if (ri >= 0 && ri < s.slideTexts.size()) {
+                SlideTextData claimed = s.slideTexts.get(ri);
+                if (claimed != null) claimed.sliceClaimed = true;
+            }
+        }
+    }
+
+    // ==================== Slice (toolbar 7b2 audio FX) ====================
+
+    /** Marker that opens a Slice token inside an audio-FX string. The settings ride
+     *  in the parentheses, so Slice needs no parallel list of its own and no new
+     *  SlideData field: it saves, loads, copies and broadcasts wherever the existing
+     *  per-text effects string already does. */
+    static final String SLICE_TOKEN = "Other:Slice";
+    /** How long the halves take to tear apart, in ms. Fast on purpose — a slow
+     *  slice reads as cheap. Not exposed; the reference sits at ~130 ms. */
+    private static final double SLICE_TEAR_MS = 150.0;
+    /** How long the halves take to slam back together as the segment ends. */
+    private static final double SLICE_SNAP_MS = 180.0;
+    /** How far before the segment's end the snap finishes, so the last frames of
+     *  the segment show the text whole again rather than caught mid-close. */
+    private static final double SLICE_SNAP_TAIL_MS = 90.0;
+
+    /**
+     * "Slice" — the audio-triggered text effect on toolbar row 7b2.
+     *
+     * <p>While the owning text's own audio segment plays, that text is cut along a
+     * horizontal seam and the two halves pull apart; a second text (any other text
+     * on the slide) is revealed in the gap; the halves slam shut as the segment
+     * ends. The two bands deliberately OVERLAP at the seam — both show past the
+     * middle of the glyphs — which is what makes it read as a deliberate slice
+     * rather than a broken word, so the overlap is derived here rather than
+     * exposed as a control that could be set to a value that looks like a bug.
+     *
+     * <p>Serialized as {@code Other:Slice(k=v;k=v;...)} INSIDE the row's existing
+     * audio-FX string. Riding in that string rather than a parallel list of its own
+     * means Slice inherits every path that string already travels — project save
+     * and load, per-text copy, master-slide broadcast, quiz cue overrides — and the
+     * per-frame export gate at {@link #anyAudioHlAnimates} already fires on the
+     * {@code Other:} prefix, so nothing had to be widened to let it animate.
+     * Fields are {@code ;}-separated because {@code ,} separates FX tokens.
+     */
+    static final class SliceConfig {
+        /** Which text drops into the gap (index into the slide's text list); -1 = none. */
+        int   insertIndex    = -1;
+        /** Where down the owner's box the cut falls, 10..90. */
+        int   seamPct        = 55;
+        /** Height of the opening as a % of the sliced text's cap height, 5..200.
+         *  The reference this was modelled on sits near 70. */
+        int   gapPct         = 70;
+        /** Gap/band width as a % of the owner's box width, 20..400. */
+        int   bandWidthPct   = 100;
+        /** Plate the insert text sits on. Black at 85% keeps it legible over photos
+         *  and stays invisible on a dark slide. */
+        Color gapFill        = Color.BLACK;
+        /** 0 = fully transparent gap (the reference look, good on solid dark slides). */
+        int   gapFillOpacity = 85;
+        /** null = derive from the owner + insert text colours, which is what makes
+         *  the garnish read as part of the same object. */
+        Color artifactColor  = null;
+        /** Streak/dash garnish strength, 0..100. Scales thickness, count and alpha. */
+        int   noise          = 40;
+        /** Delay after the audio segment starts before the cut opens, in ms. */
+        int   startDelayMs   = 300;
+
+        SliceConfig copy() {
+            SliceConfig c = new SliceConfig();
+            c.insertIndex = insertIndex; c.seamPct = seamPct; c.gapPct = gapPct;
+            c.bandWidthPct = bandWidthPct; c.gapFill = gapFill;
+            c.gapFillOpacity = gapFillOpacity; c.artifactColor = artifactColor;
+            c.noise = noise; c.startDelayMs = startDelayMs;
+            return c;
+        }
+
+        /** The whole FX token, ready to drop into an audio-FX string. */
+        String toToken() {
+            StringBuilder sb = new StringBuilder(SLICE_TOKEN).append('(');
+            sb.append("i=").append(insertIndex)
+              .append(";s=").append(seamPct)
+              .append(";g=").append(gapPct)
+              .append(";w=").append(bandWidthPct)
+              .append(";f=").append(colorToHex(gapFill != null ? gapFill : Color.BLACK))
+              .append(";o=").append(gapFillOpacity)
+              .append(";n=").append(noise)
+              .append(";d=").append(startDelayMs);
+            if (artifactColor != null) sb.append(";a=").append(colorToHex(artifactColor));
+            return sb.append(')').toString();
+        }
+
+        static SliceConfig parse(String s) {
+            SliceConfig c = new SliceConfig();
+            if (s == null || s.trim().isEmpty()) return c;
+            for (String part : s.split(";")) {
+                int eq = part.indexOf('=');
+                if (eq <= 0) continue;
+                String k = part.substring(0, eq).trim();
+                String v = part.substring(eq + 1).trim();
+                if (v.isEmpty()) continue;
+                try {
+                    switch (k) {
+                        case "i": c.insertIndex    = Integer.parseInt(v); break;
+                        case "s": c.seamPct        = clampInt(Integer.parseInt(v), 10, 90); break;
+                        case "g": c.gapPct         = clampInt(Integer.parseInt(v), 5, 200); break;
+                        case "w": c.bandWidthPct   = clampInt(Integer.parseInt(v), 20, 400); break;
+                        case "f": c.gapFill        = hexToColor(v); break;
+                        case "o": c.gapFillOpacity = clampInt(Integer.parseInt(v), 0, 100); break;
+                        case "n": c.noise          = clampInt(Integer.parseInt(v), 0, 100); break;
+                        case "d": c.startDelayMs   = Math.max(0, Integer.parseInt(v)); break;
+                        case "a": c.artifactColor  = hexToColor(v); break;
+                        default: break;
+                    }
+                } catch (NumberFormatException ignored) {
+                    // A malformed field keeps its default rather than failing the whole parse.
+                }
+            }
+            if (c.gapFill == null) c.gapFill = Color.BLACK;
+            return c;
+        }
+    }
+
+    /**
+     * Pull the Slice settings out of an audio-FX string, or null when the row has
+     * no Slice on. Tolerates a bare {@code Other:Slice} with no parentheses (all
+     * defaults) so a hand-edited project file still loads.
+     */
+    static SliceConfig sliceFromEffects(String effects) {
+        if (effects == null) return null;
+        int at = effects.indexOf(SLICE_TOKEN);
+        if (at < 0) return null;
+        int open = at + SLICE_TOKEN.length();
+        if (open >= effects.length() || effects.charAt(open) != '(') return new SliceConfig();
+        int close = effects.indexOf(')', open);
+        if (close < 0) return new SliceConfig();
+        return SliceConfig.parse(effects.substring(open + 1, close));
+    }
+
+    /**
+     * How far open the slice is at {@code segMs} into an audio segment of
+     * {@code segDurMs}: 0 = shut, 1 = fully apart.
+     *
+     * <p>Opens after the configured delay, holds for the body of the segment, and
+     * shuts as the segment ends. When the duration is unknown (a static preview, or
+     * an audio whose length never got probed) it opens and stays open, so the effect
+     * is still visible rather than silently doing nothing.
+     */
+    private static double sliceOpenAmount(SliceConfig cfg, long segMs, int segDurMs) {
+        if (cfg == null || segMs < 0) return 0.0;
+        double start = Math.max(0, cfg.startDelayMs);
+        if (segMs <= start) return 0.0;
+        double openP = Math.min(1.0, (segMs - start) / SLICE_TEAR_MS);
+        double close = 1.0;
+        if (segDurMs > 0) {
+            // Land shut a couple of frames BEFORE the segment ends. Snapping exactly
+            // at segDurMs means the last rendered frame is still mid-close and the
+            // viewer never sees the text whole again before the next segment takes
+            // over — the cut reads as broken rather than as having healed.
+            double snapEnd = Math.max(1.0, segDurMs - SLICE_SNAP_TAIL_MS);
+            double snapDur = SLICE_SNAP_MS;
+            double snapAt  = snapEnd - snapDur;
+            if (snapAt <= start) {
+                // Segment too short for a full-length snap: begin shutting at 60% of
+                // it and compress the snap into whatever time is left, so a brief clip
+                // still resolves to shut instead of freezing half-torn.
+                snapAt  = Math.max(start, snapEnd * 0.6);
+                snapDur = Math.max(1.0, snapEnd - snapAt);
+            }
+            if (segMs >= snapAt) close = Math.max(0.0, 1.0 - (segMs - snapAt) / snapDur);
+        }
+        double raw = Math.min(openP, close);
+        // Ease-out cubic on the way open and on the way shut: the halves leave and
+        // arrive with zero velocity, which is what stops it looking mechanical.
+        return 1.0 - Math.pow(1.0 - Math.max(0.0, Math.min(1.0, raw)), 3);
+    }
+
+    /**
+     * Where each open gap landed on this frame — {@code [centreX, centreY, width,
+     * height]} in frame pixels, published by a top band as the render loop measures
+     * its owner and read by the reveal drawn after it. Thread-local for the same
+     * reason as {@link #TEXT_BOUNDS}: exports run off the EDT.
+     *
+     * <p>Keyed by the owning text's slot rather than being a single slot, because
+     * every reveal is drawn after every band: with one slot a second sliced text
+     * would overwrite the first's geometry before the first's reveal was placed,
+     * and both reveals would land in the same gap. Only one text can be audio-active
+     * at a time today, so that cannot happen yet — keying it costs nothing and stops
+     * it becoming a bug the day something else sets a second cut.
+     */
+    private static final ThreadLocal<java.util.Map<Integer, double[]>> SLICE_GAP =
+            ThreadLocal.withInitial(java.util.HashMap::new);
+
+    /**
+     * Paint the plate the revealed text sits on, plus the torn-edge garnish.
+     * Drawn by the top band before it takes its own clip and offset, so it lands
+     * under both halves and under the reveal.
+     */
+    private static void drawSliceFurniture(Graphics2D g, SliceConfig sc,
+                                           double bandX, double bandW,
+                                           double seamY, double gapH,
+                                           Color ownerColor, Color revealColor,
+                                           int animFrameIndex, int targetW, int targetH) {
+        if (sc == null || gapH <= 0.5 || bandW <= 0.5) return;
+        double top = seamY - gapH / 2.0;
+        Composite savedComp = g.getComposite();
+        Color savedColor = g.getColor();
+
+        // ----- The plate. Keeps the revealed text legible when the slide behind it
+        // is a photo; at opacity 0 the gap is seamless, which is the look when the
+        // slide is already a flat dark colour. -----
+        if (sc.gapFillOpacity > 0 && sc.gapFill != null) {
+            g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER,
+                    (float) Math.max(0.0, Math.min(1.0, sc.gapFillOpacity / 100.0))));
+            g.setColor(sc.gapFill);
+            g.fill(new Rectangle2D.Double(bandX, top, bandW, gapH));
+            g.setComposite(savedComp);
+        }
+
+        if (sc.noise <= 0) { g.setColor(savedColor); return; }
+
+        // ----- Torn-edge garnish. Two palettes by default — the sliced text's own
+        // colour and the revealed text's — because sampling the object's own colours
+        // is what makes the debris read as part of it rather than as decoration
+        // dropped on top. -----
+        Color cA = sc.artifactColor != null ? sc.artifactColor
+                : (ownerColor != null ? ownerColor : new Color(245, 40, 60));
+        Color cB = sc.artifactColor != null ? sc.artifactColor
+                : (revealColor != null ? revealColor : Color.WHITE);
+        double strength = sc.noise / 100.0;
+        double scale = Math.max(targetW, targetH) / 1920.0;
+        // Re-seeded per frame so the debris flickers instead of sitting still, but
+        // deterministic so re-rendering the same frame gives the same picture.
+        long seed = 0x5DEECE66DL ^ (animFrameIndex < 0 ? 7L : animFrameIndex * 2654435761L);
+        Random rng = new Random(seed);
+
+        int dashes = (int) Math.round(2 + 6 * strength);
+        for (int i = 0; i < dashes; i++) {
+            boolean left = rng.nextBoolean();
+            double len = (10 + rng.nextDouble() * 55) * scale * (0.5 + strength);
+            double th  = Math.max(1.0, (1.2 + rng.nextDouble() * 2.2) * scale * (0.5 + strength));
+            // Ride the seam, drifting outward from the two cut edges.
+            double y = top - gapH * 0.35 + rng.nextDouble() * (gapH * 1.7);
+            double x = left ? (bandX - len - rng.nextDouble() * 40 * scale)
+                            : (bandX + bandW + rng.nextDouble() * 40 * scale);
+            g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER,
+                    (float) (0.35 + 0.5 * rng.nextDouble() * strength)));
+            g.setColor(rng.nextBoolean() ? cA : cB);
+            g.fill(new Rectangle2D.Double(x, y, len, th));
+        }
+
+        int streaks = (int) Math.round(1 + 4 * strength);
+        for (int i = 0; i < streaks; i++) {
+            double h  = (14 + rng.nextDouble() * 46) * scale * (0.5 + strength);
+            double th = Math.max(1.0, (1.0 + rng.nextDouble() * 1.6) * scale);
+            double x  = bandX + rng.nextDouble() * bandW;
+            // Above the cut or below it, never across the gap itself.
+            double y  = rng.nextBoolean() ? (top - h - rng.nextDouble() * 30 * scale)
+                                          : (top + gapH + rng.nextDouble() * 30 * scale);
+            g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER,
+                    (float) (0.25 + 0.45 * rng.nextDouble() * strength)));
+            g.setColor(rng.nextBoolean() ? cA : cB);
+            g.fill(new Rectangle2D.Double(x, y, th, h));
+        }
+
+        g.setComposite(savedComp);
+        g.setColor(savedColor);
+    }
 
     private static String hlEffectsAt(List<String> list, int idx) {
         if (list == null || idx < 0 || idx >= list.size()) return DEFAULT_AUDIO_HL_EFFECTS;
@@ -19852,6 +20242,100 @@ public class GifSlideShowApp extends JFrame {
         return out;
     }
 
+    /**
+     * Turn each Slice-active text into the entries the renderer actually draws:
+     * a top band, a bottom band, and (last) the text revealed in the gap.
+     *
+     * <p>Run before the alternate/ghost expanders so the band copies — which carry
+     * no alt list and no actions — pass through those untouched.
+     *
+     * <p>The gap text is appended at the END of the list on purpose. Its position
+     * is derived from where the owner actually landed, and the owner's box is only
+     * measured once the render loop reaches it, so the reveal has to be drawn after
+     * every band. That is also why a text used as a gap reveal is dropped from its
+     * own slot here: it is drawn where the slice puts it or not at all, so it can
+     * never double-render at its authored X/Y.
+     */
+    private static List<SlideTextData> expandSliceBands(List<SlideTextData> texts) {
+        if (texts == null) return null;
+        boolean any = false;
+        for (SlideTextData st : texts) {
+            if (st == null) continue;
+            if (st.sliceClaimed) { any = true; break; }
+            if (st.sliceCfg != null && st.sliceOpen > 0.0 && (st.show || st.forceShow)) {
+                any = true; break;
+            }
+        }
+        if (!any) return texts;
+
+        // Every text spoken for as a gap reveal. sliceClaimed covers the shut cut
+        // and the case where some other text's audio is the one playing; the
+        // sliceCfg walk covers a live cut whose claim pass never ran.
+        java.util.Set<Integer> revealed = new java.util.HashSet<>();
+        for (int i = 0; i < texts.size(); i++) {
+            SlideTextData st = texts.get(i);
+            if (st == null) continue;
+            if (st.sliceClaimed) revealed.add(i);
+            if (st.sliceCfg == null || st.sliceOpen <= 0.0) continue;
+            if (!st.show && !st.forceShow) continue;
+            int ri = st.sliceCfg.insertIndex;
+            if (ri >= 0 && ri < texts.size()) revealed.add(ri);
+        }
+
+        List<SlideTextData> out = new ArrayList<>(texts.size() + 4);
+        List<SlideTextData> reveals = new ArrayList<>(2);
+        for (int i = 0; i < texts.size(); i++) {
+            SlideTextData st = texts.get(i);
+            if (st == null) continue;
+            boolean sliced = st.sliceCfg != null && st.sliceOpen > 0.0 && (st.show || st.forceShow);
+            if (revealed.contains(i) && !sliced) continue;   // drawn in the gap instead
+            if (!sliced) { out.add(st); continue; }
+
+            int ri = st.sliceCfg.insertIndex;
+            SlideTextData src = (ri >= 0 && ri < texts.size() && ri != i) ? texts.get(ri) : null;
+            if (src != null && (src.text == null || src.text.trim().isEmpty())) src = null;
+            Color revealColor = src != null ? src.color : null;
+
+            SlideTextData top = st.cloneForSliceBand();
+            top.sliceBand = 1;
+            top.sliceCfg = st.sliceCfg;
+            top.sliceOpen = st.sliceOpen;
+            top.sliceOwnerColor = st.sliceOwnerColor;
+            top.sliceRevealColor = revealColor;
+            SlideTextData bottom = st.cloneForSliceBand();
+            bottom.sliceBand = 2;
+            bottom.sliceCfg = st.sliceCfg;
+            bottom.sliceOpen = st.sliceOpen;
+            bottom.sliceOwnerColor = st.sliceOwnerColor;
+            bottom.sliceRevealColor = revealColor;
+            out.add(top);
+            out.add(bottom);
+
+            if (src != null) {
+                SlideTextData ins = src.cloneForSliceBand();
+                ins.sliceBand = 3;
+                // The band clones keep the OWNER's slot, which is the key its gap
+                // geometry is published under; the reveal carries its own slot, so
+                // it has to remember whose cut it belongs in.
+                ins.sliceOwnerIndex = st.slideTextIndex;
+                ins.sliceCfg = st.sliceCfg;
+                ins.sliceOpen = st.sliceOpen;
+                ins.sliceOwnerColor = st.sliceOwnerColor;
+                ins.sliceRevealColor = revealColor;
+                // Fade in behind the widening gap rather than popping at full
+                // strength the instant the cut starts. Squared so it stays faint
+                // until there is actually room for it.
+                ins.audioOtherAlpha = Math.max(0.0, Math.min(1.0,
+                        st.sliceOpen * st.sliceOpen * src.audioOtherAlpha));
+                // cloneForSliceBand already drops the fly-in: the reveal rides
+                // the owner's cut, not an entry animation of its own.
+                reveals.add(ins);
+            }
+        }
+        out.addAll(reveals);
+        return out;
+    }
+
     /** True iff any shown text on the slide has a timeline, so the slide must be
      *  rendered frame-by-frame for the appear/disappear to take effect. */
     private static boolean anySlideTextTimer(SlideData s) {
@@ -20569,6 +21053,26 @@ public class GifSlideShowApp extends JFrame {
                 hl.audioOtherAlpha  = otherAlpha;
                 hl.audioOtherTiltDeg = otherTilt;
                 hl.audioOtherLightEffects = lightSb.toString();
+                // ----- Slice: cut this text open while its own audio segment plays -----
+                // Only the audio-active row reaches here, which IS the trigger: the
+                // cut opens when this text's voice-over starts and shuts as it ends.
+                // Read off the raw effects string rather than the token set, because
+                // the token carries its settings in parentheses.
+                if (!explicitNone) {
+                    SliceConfig sc = sliceFromEffects(effects);
+                    if (sc != null) {
+                        double open = sliceOpenAmount(sc, segElapsedMs,
+                                activeAudioSegmentDurMs.get());
+                        // A static preview has no segment clock — show it open so the
+                        // editor reflects that Slice is on instead of looking inert.
+                        if (animFrame < 0) open = 1.0;
+                        if (open > 0.0) {
+                            hl.sliceCfg = sc;
+                            hl.sliceOpen = open;
+                            hl.sliceOwnerColor = textColor;
+                        }
+                    }
+                }
                 hl.karaokeWordIndex = karaokeIdx;
                 if (spokenStyle != null && !spokenStyle.isEmpty()) hl.karaokeStyle = spokenStyle;
                 if (spokenColor != null) hl.karaokeColor = spokenColor;
@@ -20850,7 +21354,7 @@ public class GifSlideShowApp extends JFrame {
             List<SlideTextData> framedTexts = s.slideTexts;
             long elapsedMs = (long) (f * 1000.0 / fps);
             // Keep the bulk-picture audio-effect gate in sync every frame.
-            activeAudioSegmentIdx.set(getActiveAudioTextIndex(s, elapsedMs));
+            publishActiveAudioSegment(s, getActiveAudioTextIndex(s, elapsedMs));
             // Apply quiz hide/reveal mask so the delayed-reveal text behaves
             // the same on video-bg slides as on image-bg slides.
             applyQuizHideMask(framedTexts, s.quiz, elapsedMs);
@@ -21381,6 +21885,30 @@ public class GifSlideShowApp extends JFrame {
         // renderFrame itself so a post-pass (the Slide Timer's answer badge) can
         // look up where a given text was drawn. Transient, not persisted.
         int slideTextIndex = -1;
+        // ---- Slice render hooks (transient, not persisted) ----
+        // Set by expandSliceBands so one text can be drawn as two clipped halves
+        // pulling apart, with a second text revealed in the gap between them.
+        //   0 = normal draw (no slice)
+        //   1 = top band     — clipped above the seam, translated UP
+        //   2 = bottom band  — clipped below the seam, translated DOWN
+        //   3 = the insert text, repositioned into the gap
+        int sliceBand = 0;
+        /** How far open the cut is on this frame, 0..1. */
+        double sliceOpen = 0.0;
+        /** The owner's Slice settings, carried so the render pass can draw the
+         *  gap plate and garnish without re-reading the parallel lists. */
+        SliceConfig sliceCfg = null;
+        /** Colour of the text that owns the cut, and of the text revealed in the
+         *  gap — the two halves of the auto-derived garnish palette. */
+        Color sliceOwnerColor = null;
+        Color sliceRevealColor = null;
+        /** True while some text's Slice names this one as its gap reveal. Set every
+         *  frame by publishActiveAudioSegment. Keeps the reveal out of the normal
+         *  render even when the cut is shut, so it never shows at its own position. */
+        boolean sliceClaimed = false;
+        /** On a reveal copy, the slot of the text whose cut it belongs in — the key
+         *  it looks its gap geometry up under. -1 on everything else. */
+        int sliceOwnerIndex = -1;
         // Per-frame quiz visibility mask. When true (set by applyQuizHideMask
         // just before renderFrame), the render loop skips this text entirely.
         // Used by the quiz "delayed reveal text" feature so the picked text
@@ -21868,6 +22396,33 @@ public class GifSlideShowApp extends JFrame {
             c.timerAppearEffect = "None";
             c.wordRevealMs = null;
             c.wordRevealCount = -1;
+            return c;
+        }
+
+        /**
+         * Copy for one Slice band (or for the text being revealed in the gap).
+         * Unlike {@link #cloneForRenderAltText} this carries the per-frame render
+         * hooks across, because the text being sliced has usually already been
+         * through the audio-highlight pass — dropping them would make the two
+         * halves lose the glow / recolour / pulse the un-sliced text was wearing.
+         */
+        SlideTextData cloneForSliceBand() {
+            SlideTextData c = cloneForRenderAltText(text);
+            c.slideTextIndex     = slideTextIndex;
+            c.pulseRenderScale   = pulseRenderScale;
+            c.shakeRenderDyFrac  = shakeRenderDyFrac;
+            c.audioOtherDxFrac   = audioOtherDxFrac;
+            c.audioOtherAlpha    = audioOtherAlpha;
+            c.audioOtherTiltDeg  = audioOtherTiltDeg;
+            c.audioGlowSize      = audioGlowSize;
+            c.audioGlowSize2     = audioGlowSize2;
+            c.audioGlowColor     = audioGlowColor;
+            c.karaokeWordIndex   = karaokeWordIndex;
+            c.karaokeIntensity   = karaokeIntensity;
+            c.karaokeTight       = karaokeTight;
+            c.renderColorOverride = renderColorOverride;
+            c.quizHidden         = false;
+            c.forceShow          = true;   // the gap text is shown by the slice, not by its own flag
             return c;
         }
 
@@ -23600,6 +24155,7 @@ public class GifSlideShowApp extends JFrame {
         private static final Color FX_ACC_BOUNCE = new Color(150, 180,  50);
         private static final Color FX_ACC_WORDS  = new Color( 95, 110, 215);
         private static final Color FX_ACC_OTHERS = new Color( 45, 155, 140);
+        private static final Color FX_ACC_SLICE  = new Color(200, 105,  45);
         // The unselected chrome every accent is mixed into.
         private static final Color FX_CHROME_BG     = new Color( 50,  55,  68);
         private static final Color FX_CHROME_BORDER = new Color( 70,  75,  90);
@@ -23666,6 +24222,22 @@ public class GifSlideShowApp extends JFrame {
         private JButton audioFxOthersBtn;
         private final java.util.LinkedHashMap<String, JCheckBox> audioFxOthersChecks
                 = new java.util.LinkedHashMap<>();
+
+        // ---- Slice (row 7b2): its own button + settings popup ----
+        // Nine controls of four different kinds will not fit in the Others
+        // checkbox list, so Slice reuses the Others *construction* — a JButton
+        // that pops a JPanel — with a form in the panel instead of checkboxes.
+        private JButton audioSliceBtn;
+        private JComboBox<String> sliceInsertCombo;
+        private JSpinner sliceSeamSp, sliceGapSp, sliceBandWSp, sliceOpacitySp,
+                sliceNoiseSp, sliceDelaySp;
+        private JButton sliceFillColorBtn, sliceArtColorBtn;
+        private JCheckBox sliceOnCheck, sliceArtAutoCheck;
+        /** Slice settings for the text currently selected in the main Text dropdown.
+         *  Mirrors how audioHlColor tracks the visible swatch: saved into / loaded
+         *  from the per-text effects string by saveAudioHlForCurrentText(). */
+        private SliceConfig audioSliceCfg = new SliceConfig();
+        private boolean audioSliceOn = false;
 
         // Slide picture overlay items
         private final List<SlidePictureData> slidePictureItems = new ArrayList<>();
@@ -26780,8 +27352,15 @@ public class GifSlideShowApp extends JFrame {
                         if (cb.isSelected()) { cb.setSelected(false); any = true; }
                     }
                     if (any) refreshAudioFxOthersBtnAppearance();
+                    if (audioSliceOn) {
+                        audioSliceOn = false;
+                        if (sliceOnCheck != null) sliceOnCheck.setSelected(false);
+                        refreshAudioSliceBtnAppearance();
+                    }
                 }
             });
+
+            buildAudioSliceControl();
 
             audioGlowSizeSp = new JSpinner(new SpinnerNumberModel(7, 1, 20, 1));
             audioGlowSizeSp.setPreferredSize(new Dimension(48, 24));
@@ -26836,6 +27415,8 @@ public class GifSlideShowApp extends JFrame {
             toolbar7b2.add(audioFxSpokenWords);
             toolbar7b2.add(audioFxOthersBtn);
             refreshAudioFxOthersBtnAppearance();
+            toolbar7b2.add(audioSliceBtn);
+            refreshAudioSliceBtnAppearance();
 
             // ===== Toolbar Row 7d: Karaoke (per-word highlight via ElevenLabs Scribe) =====
             JPanel toolbar7d = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
@@ -35466,6 +36047,10 @@ public class GifSlideShowApp extends JFrame {
                     }
                 }
             }
+            // Slice carries its whole settings form inside its own token.
+            if (audioSliceOn && audioSliceCfg != null) {
+                sb.append(audioSliceCfg.toToken()).append(",");
+            }
             if (sb.length() > 0) sb.setLength(sb.length() - 1);
             return sb.toString();
         }
@@ -35474,6 +36059,260 @@ public class GifSlideShowApp extends JFrame {
          *  checked. It is a JButton rather than a toggle, so it can't ride on
          *  styleFxToggle, but it follows the same two-state accent rules against
          *  its own FX_ACC_OTHERS hue. */
+        /**
+         * Build the "✂ Slice" control on row 7b2 — a button that pops a settings
+         * form. Same construction as {@code Others ▾} (button → JPopupMenu → JPanel),
+         * because Slice needs nine controls of four different kinds and a checkbox
+         * list cannot hold them.
+         */
+        private void buildAudioSliceControl() {
+            final Color popBg = new Color(40, 44, 56);
+            final Color popFg = new Color(220, 225, 235);
+            final Font  rowFont = new Font("Segoe UI", Font.PLAIN, 11);
+
+            audioSliceBtn = new JButton("✂ Slice ▾");
+            audioSliceBtn.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            audioSliceBtn.setPreferredSize(new Dimension(84, 24));
+            audioSliceBtn.setFocusPainted(false);
+            audioSliceBtn.setFocusable(false);
+            audioSliceBtn.setContentAreaFilled(false);
+            audioSliceBtn.setOpaque(true);
+            audioSliceBtn.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+            audioSliceBtn.setToolTipText("<html><b>Slice</b> — while THIS text's own audio plays, cut it "
+                    + "along a horizontal seam,<br>pull the two halves apart, and reveal another text in the gap. "
+                    + "Shuts as the audio ends.<br><br>Needs an audio file on this text's row: no audio, no slice."
+                    + "</html>");
+
+            JPopupMenu pop = new JPopupMenu();
+            pop.setBackground(popBg);
+            pop.setBorder(BorderFactory.createLineBorder(new Color(70, 75, 90), 1));
+            JPanel form = new JPanel(new GridBagLayout());
+            form.setBackground(popBg);
+            form.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+            GridBagConstraints gc = new GridBagConstraints();
+            gc.insets = new Insets(2, 3, 2, 3);
+            gc.anchor = GridBagConstraints.WEST;
+            final int[] row = { 0 };
+
+            // One labelled row of the form; components flow left to right after the label.
+            final java.util.function.BiConsumer<String, Component[]> addRow = (label, comps) -> {
+                gc.gridx = 0; gc.gridy = row[0]; gc.gridwidth = 1;
+                JLabel l = new JLabel(label);
+                l.setForeground(popFg);
+                l.setFont(rowFont);
+                form.add(l, gc);
+                JPanel holder = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+                holder.setBackground(popBg);
+                for (Component c : comps) holder.add(c);
+                gc.gridx = 1;
+                form.add(holder, gc);
+                row[0]++;
+            };
+
+            sliceOnCheck = new JCheckBox("Slice this text open when its audio plays");
+            sliceOnCheck.setBackground(popBg);
+            sliceOnCheck.setForeground(popFg);
+            sliceOnCheck.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            sliceOnCheck.setFocusPainted(false);
+            sliceOnCheck.addActionListener(e -> {
+                audioSliceOn = sliceOnCheck.isSelected();
+                if (audioSliceOn && audioFxNone.isSelected()) audioFxNone.setSelected(false);
+                refreshAudioSliceBtnAppearance();
+                if (!isLoadingAudioHl) onFormatChanged();
+            });
+            gc.gridx = 0; gc.gridy = row[0]; gc.gridwidth = 2;
+            form.add(sliceOnCheck, gc);
+            gc.gridwidth = 1;
+            row[0]++;
+
+            sliceInsertCombo = new JComboBox<>();
+            sliceInsertCombo.setPreferredSize(new Dimension(150, 23));
+            sliceInsertCombo.setFont(rowFont);
+            sliceInsertCombo.setToolTipText("Which text drops into the gap. It is drawn ONLY in the gap — "
+                    + "never at its own position — so it cannot render twice.");
+            sliceInsertCombo.addActionListener(e -> {
+                if (isLoadingAudioHl) return;
+                int sel = sliceInsertCombo.getSelectedIndex();
+                audioSliceCfg.insertIndex = sel - 1;   // row 0 is "(none)"
+                onFormatChanged();
+            });
+            addRow.accept("Reveal in gap:", new Component[]{ sliceInsertCombo });
+
+            sliceSeamSp   = sliceSpinner(55, 10,  90, 5, "Where down the text the cut falls. Low = a lid lifting, high = a base sliding out.",
+                    v -> audioSliceCfg.seamPct = v);
+            sliceGapSp    = sliceSpinner(70,  5, 200, 5, "Height of the opening, as a % of the text's cap height.",
+                    v -> audioSliceCfg.gapPct = v);
+            addRow.accept("Seam / Gap %:", new Component[]{ sliceSeamSp, sliceGapSp });
+
+            sliceBandWSp  = sliceSpinner(100, 20, 400, 10, "How far the gap runs left and right, as a % of the text's width. "
+                    + "Over 100 turns the plate into a banner wider than the word.",
+                    v -> audioSliceCfg.bandWidthPct = v);
+            sliceDelaySp  = sliceSpinner(300, 0, 5000, 50, "Delay after the audio starts before the cut opens, in ms.",
+                    v -> audioSliceCfg.startDelayMs = v);
+            addRow.accept("Band w% / Delay ms:", new Component[]{ sliceBandWSp, sliceDelaySp });
+
+            sliceFillColorBtn = new JButton("■");
+            sliceFillColorBtn.setFont(new Font("Segoe UI", Font.BOLD, 14));
+            sliceFillColorBtn.setPreferredSize(new Dimension(30, 23));
+            sliceFillColorBtn.setFocusPainted(false);
+            sliceFillColorBtn.setToolTipText("Plate the revealed text sits on. Keeps it legible over a photo; "
+                    + "drop the opacity to 0 for a see-through gap.");
+            sliceFillColorBtn.setForeground(audioSliceCfg.gapFill);
+            sliceFillColorBtn.addActionListener(e -> pickColorLive(panel, "Slice gap fill",
+                    audioSliceCfg.gapFill != null ? audioSliceCfg.gapFill : Color.BLACK, c -> {
+                        audioSliceCfg.gapFill = c;
+                        sliceFillColorBtn.setForeground(c);
+                        onFormatChanged();
+                    }));
+            sliceOpacitySp = sliceSpinner(85, 0, 100, 5, "Plate opacity. 0 = fully transparent gap.",
+                    v -> audioSliceCfg.gapFillOpacity = v);
+            addRow.accept("Gap fill / opacity:", new Component[]{ sliceFillColorBtn, sliceOpacitySp });
+
+            sliceArtAutoCheck = new JCheckBox("auto");
+            sliceArtAutoCheck.setBackground(popBg);
+            sliceArtAutoCheck.setForeground(popFg);
+            sliceArtAutoCheck.setFont(rowFont);
+            sliceArtAutoCheck.setFocusPainted(false);
+            sliceArtAutoCheck.setSelected(true);
+            sliceArtAutoCheck.setToolTipText("Auto takes the debris colours from the sliced text and the revealed "
+                    + "text, which is what makes them read as part of the same object.");
+            sliceArtColorBtn = new JButton("■");
+            sliceArtColorBtn.setFont(new Font("Segoe UI", Font.BOLD, 14));
+            sliceArtColorBtn.setPreferredSize(new Dimension(30, 23));
+            sliceArtColorBtn.setFocusPainted(false);
+            sliceArtColorBtn.setForeground(Color.WHITE);
+            sliceArtColorBtn.setEnabled(false);
+            sliceArtColorBtn.setToolTipText("Override colour for the torn-edge streaks and dashes.");
+            sliceArtAutoCheck.addActionListener(e -> {
+                boolean auto = sliceArtAutoCheck.isSelected();
+                sliceArtColorBtn.setEnabled(!auto);
+                audioSliceCfg.artifactColor = auto ? null : sliceArtColorBtn.getForeground();
+                if (!isLoadingAudioHl) onFormatChanged();
+            });
+            sliceArtColorBtn.addActionListener(e -> pickColorLive(panel, "Slice edge artifacts",
+                    audioSliceCfg.artifactColor != null ? audioSliceCfg.artifactColor : Color.WHITE, c -> {
+                        audioSliceCfg.artifactColor = c;
+                        sliceArtColorBtn.setForeground(c);
+                        onFormatChanged();
+                    }));
+            sliceNoiseSp = sliceSpinner(40, 0, 100, 5, "Strength of the torn-edge streaks and dashes. 0 = a clean cut.",
+                    v -> audioSliceCfg.noise = v);
+            addRow.accept("Artifacts / noise:", new Component[]{ sliceArtAutoCheck, sliceArtColorBtn, sliceNoiseSp });
+
+            JPanel footer = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 2));
+            footer.setBackground(popBg);
+            JButton resetBtn = new JButton("Reset");
+            resetBtn.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+            resetBtn.setMargin(new Insets(2, 6, 2, 6));
+            resetBtn.setFocusPainted(false);
+            resetBtn.addActionListener(e -> {
+                int keep = audioSliceCfg.insertIndex;
+                audioSliceCfg = new SliceConfig();
+                audioSliceCfg.insertIndex = keep;
+                loadSliceControlsFromCfg();
+                onFormatChanged();
+            });
+            JButton okBtn = new JButton("OK");
+            okBtn.setFont(new Font("Segoe UI", Font.BOLD, 10));
+            okBtn.setMargin(new Insets(2, 8, 2, 8));
+            okBtn.setFocusPainted(false);
+            okBtn.addActionListener(e -> pop.setVisible(false));
+            footer.add(resetBtn);
+            footer.add(okBtn);
+            gc.gridx = 0; gc.gridy = row[0]; gc.gridwidth = 2;
+            gc.anchor = GridBagConstraints.EAST;
+            form.add(footer, gc);
+
+            pop.add(form);
+            audioSliceBtn.addActionListener(e -> {
+                refreshSliceInsertCombo();
+                pop.show(audioSliceBtn, 0, audioSliceBtn.getHeight());
+            });
+        }
+
+        /** One integer spinner for the Slice form, wired to write straight into
+         *  {@link #audioSliceCfg} and refresh the preview. */
+        private JSpinner sliceSpinner(int val, int min, int max, int step, String tip,
+                                      java.util.function.IntConsumer sink) {
+            JSpinner sp = new JSpinner(new SpinnerNumberModel(val, min, max, step));
+            sp.setPreferredSize(new Dimension(58, 23));
+            sp.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            sp.setToolTipText(tip);
+            sp.addChangeListener(e -> {
+                sink.accept(((Number) sp.getValue()).intValue());
+                if (!isLoadingAudioHl) onFormatChanged();
+            });
+            return sp;
+        }
+
+        /** Repopulate the gap-reveal dropdown from the slide's current text list. */
+        private void refreshSliceInsertCombo() {
+            if (sliceInsertCombo == null) return;
+            boolean wasLoading = isLoadingAudioHl;
+            isLoadingAudioHl = true;
+            try {
+                int keep = audioSliceCfg.insertIndex;
+                sliceInsertCombo.removeAllItems();
+                sliceInsertCombo.addItem("(none)");
+                for (int i = 0; i < slideTextItems.size(); i++) {
+                    SlideTextData t = slideTextItems.get(i);
+                    String preview = (t != null && t.text != null) ? t.text.replace("\n", " ").trim() : "";
+                    if (preview.length() > 18) preview = preview.substring(0, 18) + "…";
+                    String self = (i == currentSlideTextIndex) ? "  (this text)" : "";
+                    sliceInsertCombo.addItem("Text " + (i + 1)
+                            + (preview.isEmpty() ? "" : " — " + preview) + self);
+                }
+                int sel = keep + 1;
+                sliceInsertCombo.setSelectedIndex(
+                        (sel >= 0 && sel < sliceInsertCombo.getItemCount()) ? sel : 0);
+            } finally {
+                isLoadingAudioHl = wasLoading;
+            }
+        }
+
+        /** Push {@link #audioSliceCfg} into the popup's widgets. */
+        private void loadSliceControlsFromCfg() {
+            if (sliceSeamSp == null) return;
+            boolean wasLoading = isLoadingAudioHl;
+            isLoadingAudioHl = true;
+            try {
+                sliceOnCheck.setSelected(audioSliceOn);
+                sliceSeamSp.setValue(audioSliceCfg.seamPct);
+                sliceGapSp.setValue(audioSliceCfg.gapPct);
+                sliceBandWSp.setValue(audioSliceCfg.bandWidthPct);
+                sliceDelaySp.setValue(audioSliceCfg.startDelayMs);
+                sliceOpacitySp.setValue(audioSliceCfg.gapFillOpacity);
+                sliceNoiseSp.setValue(audioSliceCfg.noise);
+                sliceFillColorBtn.setForeground(
+                        audioSliceCfg.gapFill != null ? audioSliceCfg.gapFill : Color.BLACK);
+                boolean auto = audioSliceCfg.artifactColor == null;
+                sliceArtAutoCheck.setSelected(auto);
+                sliceArtColorBtn.setEnabled(!auto);
+                if (!auto) sliceArtColorBtn.setForeground(audioSliceCfg.artifactColor);
+                refreshSliceInsertCombo();
+            } finally {
+                isLoadingAudioHl = wasLoading;
+            }
+            refreshAudioSliceBtnAppearance();
+        }
+
+        /** Two-state accent on the Slice button, matching the Others button's rules. */
+        private void refreshAudioSliceBtnAppearance() {
+            if (audioSliceBtn == null) return;
+            audioSliceBtn.setText(audioSliceOn ? "✂ Slice ✓" : "✂ Slice ▾");
+            if (audioSliceOn) {
+                audioSliceBtn.setBackground(FX_ACC_SLICE);
+                audioSliceBtn.setForeground(fxLabelOn(FX_ACC_SLICE));
+                audioSliceBtn.setBorder(BorderFactory.createLineBorder(
+                        fxMix(FX_ACC_SLICE, Color.WHITE, 0.30), 1));
+            } else {
+                audioSliceBtn.setBackground(fxMix(FX_CHROME_BG,     FX_ACC_SLICE, 0.12));
+                audioSliceBtn.setForeground(fxMix(FX_CHROME_FG,     FX_ACC_SLICE, 0.55));
+                audioSliceBtn.setBorder(BorderFactory.createLineBorder(
+                        fxMix(FX_CHROME_BORDER, FX_ACC_SLICE, 0.45), 1));
+            }
+        }
+
         private void refreshAudioFxOthersBtnAppearance() {
             if (audioFxOthersBtn == null) return;
             int n = 0;
@@ -35527,6 +36366,13 @@ public class GifSlideShowApp extends JFrame {
                     e.getValue().setSelected(fxSet.contains("Other:" + e.getKey()));
                 }
                 refreshAudioFxOthersBtnAppearance();
+
+                // Slice: parsed off the raw string, not the token set, because its
+                // token carries a parenthesised payload rather than matching exactly.
+                SliceConfig sc = sliceFromEffects(effects);
+                audioSliceOn = (sc != null);
+                audioSliceCfg = (sc != null) ? sc : new SliceConfig();
+                loadSliceControlsFromCfg();
 
                 audioHlColor = color;
                 audioHlColorBtn.setForeground(audioHlColor);
