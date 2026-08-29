@@ -485,6 +485,7 @@ public class GifSlideShowApp extends JFrame {
                 props.setProperty(ap + "triggerYPct", String.valueOf(a.triggerYPct));
                 props.setProperty(ap + "word", a.word == null ? "" : a.word);
                 props.setProperty(ap + "wordOccurrence", String.valueOf(a.wordOccurrence));
+                props.setProperty(ap + "sound", a.sound == null ? "" : a.sound);
             }
             // Alternating Text (Texts Timer → "Alternate…"). Absent keys load as
             // defaults so presets written before this feature keep working. Each
@@ -1012,6 +1013,7 @@ public class GifSlideShowApp extends JFrame {
                 a.triggerYPct = Integer.parseInt(props.getProperty(ap + "triggerYPct", "-1"));
                 a.word = props.getProperty(ap + "word", "");
                 a.wordOccurrence = Integer.parseInt(props.getProperty(ap + "wordOccurrence", "1"));
+                a.sound = props.getProperty(ap + "sound", "");
                 loaded.actions.add(a);
             }
             // Alternating Text (parallel to the save block above). Missing keys fall
@@ -16835,14 +16837,14 @@ public class GifSlideShowApp extends JFrame {
                             }
                         }
 
-                        // Built-in motion "whoosh": overlay a synthesized cue at each
-                        // move action's time onto the composited video. Placed BEFORE
-                        // the repeat/slow passes so it stretches and repeats along with
-                        // the video. Fully guarded and non-destructive — when there are
-                        // no move actions nothing runs (export byte-identical), and any
-                        // failure leaves finalOut exactly as it was.
+                        // Built-in motion sounds: overlay each action's cue at its own
+                        // time onto the composited video. Placed BEFORE the repeat/slow
+                        // passes so they stretch and repeat along with the video. Fully
+                        // guarded and non-destructive — when no action has a cue nothing
+                        // runs (export byte-identical), and any failure leaves finalOut
+                        // exactly as it was.
                         try {
-                            java.util.List<Long> whooshAtMs = new java.util.ArrayList<>();
+                            java.util.List<MotionSoundCue> motionCues = new java.util.ArrayList<>();
                             double offW = 0;
                             double transSecW = finalTransitionMs / 1000.0;
                             for (int i = 0; i < slides.size(); i++) {
@@ -16852,18 +16854,20 @@ public class GifSlideShowApp extends JFrame {
                                     for (SlideTextData st : s.slideTexts) {
                                         if (st == null || st.actions == null) continue;
                                         for (SlideTextData.Action a : st.actions) {
-                                            if (a != null && a.isMove()) {
-                                                whooshAtMs.add(slideStartMs + Math.max(0, a.atMs));
-                                            }
+                                            if (a == null) continue;
+                                            String cue = MotionSound.resolve(a);
+                                            if (cue == null) continue;
+                                            motionCues.add(new MotionSoundCue(
+                                                    slideStartMs + Math.max(0, a.atMs), cue));
                                         }
                                     }
                                 }
                                 offW += computeSlideDuration(s, duration) / 1000.0;
                                 if (scrollEnabled && i < slides.size() - 1) offW += transSecW;
                             }
-                            if (!whooshAtMs.isEmpty()) {
+                            if (!motionCues.isEmpty()) {
                                 publish("Adding motion sound...");
-                                overlayMotionWhoosh(finalOut, whooshAtMs, tempDir);
+                                overlayMotionSounds(finalOut, motionCues, tempDir);
                             }
                         } catch (Exception wex) {
                             publish("Motion sound skipped: " + wex.getMessage());
@@ -17743,19 +17747,27 @@ public class GifSlideShowApp extends JFrame {
     }
 
     /** Run an FFmpeg command and throw IOException on failure. */
+    /** One motion cue on the export timeline: when it fires, and which built-in
+     *  sound it fires. */
+    private static final class MotionSoundCue {
+        final long atMs;
+        final String sound;
+        MotionSoundCue(long atMs, String sound) { this.atMs = atMs; this.sound = sound; }
+    }
+
     /**
-     * Overlay the built-in motion "whoosh" onto a finished video at the given
-     * timeline offsets (ms). Non-destructive and best-effort: renders to a temp
-     * file and only replaces {@code videoFile} on success; on any failure it
+     * Overlay the built-in motion sounds onto a finished video, each cue at its
+     * own timeline offset (ms). Non-destructive and best-effort: renders to a
+     * temp file and only replaces {@code videoFile} on success; on any failure it
      * throws (leaving the original untouched — the caller swallows it). The video
      * stream is copied unchanged (no re-encode, no quality loss); only the audio
-     * is rebuilt, mixing the whoosh cues over any existing track at reduced gain
-     * so it never drowns out or clips narration.
+     * is rebuilt, mixing the cues over any existing track at reduced gain so they
+     * never drown out or clip narration. Each distinct sound is written once and
+     * fed in as its own input, however many times it fires.
      */
-    private static void overlayMotionWhoosh(File videoFile, java.util.List<Long> atMsList,
+    private static void overlayMotionSounds(File videoFile, java.util.List<MotionSoundCue> cues,
             File tempDir) throws IOException, InterruptedException {
-        if (videoFile == null || !videoFile.exists() || atMsList == null || atMsList.isEmpty()) return;
-        File whoosh = MotionSound.writeWhooshWav(tempDir);
+        if (videoFile == null || !videoFile.exists() || cues == null || cues.isEmpty()) return;
         boolean baseHasAudio = probeHasAudio(videoFile);
 
         java.util.List<String> cmd = new java.util.ArrayList<>();
@@ -17763,23 +17775,23 @@ public class GifSlideShowApp extends JFrame {
         cmd.add("-y");
         cmd.add("-i");
         cmd.add(videoFile.getAbsolutePath());
-        for (int k = 0; k < atMsList.size(); k++) {
+        for (MotionSoundCue c : cues) {
             cmd.add("-i");
-            cmd.add(whoosh.getAbsolutePath());
+            cmd.add(MotionSound.writeWav(tempDir, c.sound).getAbsolutePath());
         }
         StringBuilder fc = new StringBuilder();
-        for (int k = 0; k < atMsList.size(); k++) {
-            long d = Math.max(0, atMsList.get(k));
+        for (int k = 0; k < cues.size(); k++) {
+            long d = Math.max(0, cues.get(k).atMs);
             fc.append("[").append(k + 1).append(":a]volume=0.6,adelay=").append(d).append("|").append(d)
               .append("[w").append(k).append("];");
         }
         if (baseHasAudio) fc.append("[0:a]");
-        for (int k = 0; k < atMsList.size(); k++) fc.append("[w").append(k).append("]");
-        int inputs = atMsList.size() + (baseHasAudio ? 1 : 0);
+        for (int k = 0; k < cues.size(); k++) fc.append("[w").append(k).append("]");
+        int inputs = cues.size() + (baseHasAudio ? 1 : 0);
         fc.append("amix=inputs=").append(inputs)
           .append(":duration=longest:dropout_transition=0:normalize=0[outa]");
 
-        File out = new File(tempDir, "with_whoosh.mp4");
+        File out = new File(tempDir, "with_motion_sound.mp4");
         cmd.add("-filter_complex");
         cmd.add(fc.toString());
         cmd.add("-map"); cmd.add("0:v");
@@ -17814,7 +17826,7 @@ public class GifSlideShowApp extends JFrame {
 
     /**
      * Mix each slide's countdown sound onto a finished video at the moment that
-     * slide's timer starts. Built exactly like {@link #overlayMotionWhoosh}: the
+     * slide's timer starts. Built exactly like {@link #overlayMotionSounds}: the
      * video stream is copied untouched (no re-encode, no quality loss) and only
      * the audio is rebuilt, so a failure can never damage the export — the caller
      * swallows it and keeps the original file.
@@ -21866,6 +21878,11 @@ public class GifSlideShowApp extends JFrame {
             String word = "";
             int wordOccurrence = 1;
 
+            // Which built-in cue this action fires (a MotionSound name). Empty or
+            // "(Default)" means the default cue — which plays on a move and stays
+            // silent on an in-place effect, the way it behaved before the picker.
+            String sound = "";
+
             Action() {}
 
             /** True for the two relocation kinds (they use toX/toY + landing). */
@@ -21883,6 +21900,7 @@ public class GifSlideShowApp extends JFrame {
                 a.triggerTextIndex = triggerTextIndex;
                 a.triggerXPct = triggerXPct; a.triggerYPct = triggerYPct;
                 a.word = word; a.wordOccurrence = wordOccurrence;
+                a.sound = sound;
                 return a;
             }
         }
@@ -22874,13 +22892,298 @@ public class GifSlideShowApp extends JFrame {
      *  attack/decay envelope, so a moving text gets an audible cue with no
      *  external sound file. Rendered on the fly with javax.sound.sampled and
      *  played asynchronously so it never blocks the animation timer. */
+    /**
+     * The built-in motion cues — the sounds a timed text action fires when it
+     * plays. Every one is synthesized here rather than shipped as an asset (the
+     * same approach as SlideTimer's countdown sounds): one PCM buffer per cue,
+     * cached, played through a Clip for the previews and written out as a WAV
+     * that the exporter mixes onto the finished video with ffmpeg.
+     *
+     * An action stores the cue it wants by name, or the empty string / "(Default)"
+     * for "whatever the default is" — so changing the default re-voices every
+     * action that never picked its own. The default lives in
+     * ~/.gifslideshow/motion-sound.txt so it survives restarts.
+     */
     static final class MotionSound {
+        private static final float SR = 44100f;
         private static final javax.sound.sampled.AudioFormat FORMAT =
-                new javax.sound.sampled.AudioFormat(44100f, 16, 1, true, false);
-        private static byte[] cachedPcm;   // 16-bit mono PCM @ 44.1k
+                new javax.sound.sampled.AudioFormat(SR, 16, 1, true, false);
 
-        private static synchronized byte[] whooshPcm() {
-            if (cachedPcm != null) return cachedPcm;
+        /** Picker entry meaning "use the default sound", and the silent entry. */
+        static final String DEFAULT_CHOICE = "(Default)";
+        static final String NONE = "None";
+        /** The cue every action falls back to until the user sets another. */
+        static final String FALLBACK_DEFAULT = "Whoosh";
+
+        /** Every built-in cue, in picker order: the movement family first, then
+         *  the accents, the impacts and the sparkle. */
+        static final String[] NAMES = {
+                "Whoosh", "Soft Swoosh", "Air Swipe", "Fast Sweep", "Reverse Swell",
+                "Pop", "Click", "Snap", "Page Turn", "Typewriter",
+                "Impact", "Sub Drop", "Riser", "Shimmer", "Magic Chime" };
+
+        /** Choices for a per-action picker: the default placeholder, silence, then
+         *  every cue by name. */
+        static String[] actionChoices() {
+            String[] out = new String[NAMES.length + 2];
+            out[0] = DEFAULT_CHOICE;
+            out[1] = NONE;
+            System.arraycopy(NAMES, 0, out, 2, NAMES.length);
+            return out;
+        }
+
+        /** Choices for the default picker: silence, then every cue (no "(Default)"
+         *  — that would point at itself). */
+        static String[] defaultChoices() {
+            String[] out = new String[NAMES.length + 1];
+            out[0] = NONE;
+            System.arraycopy(NAMES, 0, out, 1, NAMES.length);
+            return out;
+        }
+
+        static boolean isBuiltIn(String name) {
+            if (name == null) return false;
+            for (String n : NAMES) if (n.equals(name)) return true;
+            return false;
+        }
+
+        // ---- the default cue, remembered between runs -------------------------
+
+        private static String defaultName;   // null until first read from disk
+
+        private static File defaultFile() {
+            return new File(System.getProperty("user.home"), ".gifslideshow/motion-sound.txt");
+        }
+
+        /** The cue "(Default)" resolves to — {@link #FALLBACK_DEFAULT} until the
+         *  user picks another, then whatever they last chose. */
+        static synchronized String defaultName() {
+            if (defaultName == null) {
+                String v = null;
+                try {
+                    File f = defaultFile();
+                    if (f.isFile()) {
+                        v = new String(java.nio.file.Files.readAllBytes(f.toPath()),
+                                java.nio.charset.StandardCharsets.UTF_8).trim();
+                    }
+                } catch (Exception ignored) { }
+                defaultName = (isBuiltIn(v) || NONE.equals(v)) ? v : FALLBACK_DEFAULT;
+            }
+            return defaultName;
+        }
+
+        /** Set the cue every "(Default)" action plays, and remember it on disk.
+         *  A write failure only costs the setting its persistence. */
+        static synchronized void setDefaultName(String name) {
+            if (!isBuiltIn(name) && !NONE.equals(name)) return;
+            defaultName = name;
+            try {
+                File f = defaultFile();
+                File dir = f.getParentFile();
+                if (dir != null) dir.mkdirs();
+                try (java.io.Writer w = new java.io.OutputStreamWriter(
+                        new java.io.FileOutputStream(f), java.nio.charset.StandardCharsets.UTF_8)) {
+                    w.write(name);
+                }
+            } catch (Exception ignored) { }
+        }
+
+        /**
+         * The cue an action actually plays, or null for silence.
+         *
+         * "(Default)" (and the empty string every pre-sound action carries) means
+         * the default cue on a Move / Move Copy and silence on an in-place effect
+         * — exactly what those kinds did before this picker existed, so no saved
+         * project starts making noise it never made. Pick a cue by name on a
+         * Pulse or Shake and it plays that.
+         */
+        static String resolve(String choice, boolean isMove) {
+            String s = choice == null ? "" : choice.trim();
+            if (s.isEmpty() || DEFAULT_CHOICE.equals(s)) {
+                if (!isMove) return null;
+                String d = defaultName();
+                return NONE.equals(d) ? null : d;
+            }
+            if (NONE.equals(s)) return null;
+            return isBuiltIn(s) ? s : null;
+        }
+
+        /** The cue for an action, or null when it is silent. */
+        static String resolve(SlideTextData.Action a) {
+            return a == null ? null : resolve(a.sound, a.isMove());
+        }
+
+        // ---- playback / export -------------------------------------------------
+
+        private static final java.util.Map<String, byte[]> CACHE = new java.util.HashMap<>();
+
+        private static synchronized byte[] pcm(String name) {
+            byte[] c = CACHE.get(name);
+            if (c == null) {
+                c = render(name);
+                CACHE.put(name, c);
+            }
+            return c;
+        }
+
+        /** Fire-and-forget: opens a fresh Clip, plays, and closes itself on stop.
+         *  A null / unknown name plays nothing; an audio failure (no mixer, say)
+         *  falls back to the system beep. */
+        static void play(String name) {
+            if (name == null || NONE.equals(name) || !isBuiltIn(name)) return;
+            try {
+                byte[] buf = pcm(name);
+                javax.sound.sampled.Clip clip = javax.sound.sampled.AudioSystem.getClip();
+                clip.open(FORMAT, buf, 0, buf.length);
+                clip.addLineListener(ev -> {
+                    if (ev.getType() == javax.sound.sampled.LineEvent.Type.STOP) {
+                        ev.getLine().close();
+                    }
+                });
+                clip.start();
+            } catch (Exception ignored) {
+                java.awt.Toolkit.getDefaultToolkit().beep();
+            }
+        }
+
+        /** Write a cue as a WAV file (for muxing into an exported video with
+         *  ffmpeg). One file per cue name, reused when it already exists. */
+        static File writeWav(File dir, String name) throws IOException {
+            byte[] buf = pcm(name);
+            File f = new File(dir, "motion_" + name.toLowerCase(java.util.Locale.US)
+                    .replaceAll("[^a-z0-9]+", "_") + ".wav");
+            if (f.isFile() && f.length() > 0) return f;
+            try (javax.sound.sampled.AudioInputStream ais = new javax.sound.sampled.AudioInputStream(
+                    new java.io.ByteArrayInputStream(buf), FORMAT, buf.length / FORMAT.getFrameSize())) {
+                javax.sound.sampled.AudioSystem.write(ais,
+                        javax.sound.sampled.AudioFileFormat.Type.WAVE, f);
+            }
+            return f;
+        }
+
+        // ---- synthesis ---------------------------------------------------------
+
+        /** How long each cue runs, in seconds (the buffer is cut to fit). */
+        private static double lengthOf(String name) {
+            switch (name) {
+                case "Whoosh":         return 0.32;
+                case "Soft Swoosh":    return 0.50;
+                case "Air Swipe":      return 0.26;
+                case "Fast Sweep":     return 0.38;
+                case "Reverse Swell":  return 0.70;
+                case "Pop":            return 0.22;
+                case "Click":          return 0.10;
+                case "Snap":           return 0.16;
+                case "Page Turn":      return 0.45;
+                case "Typewriter":     return 0.30;
+                case "Impact":         return 0.90;
+                case "Sub Drop":       return 1.00;
+                case "Riser":          return 0.75;
+                case "Shimmer":        return 1.10;
+                case "Magic Chime":    return 1.40;
+                default:               return 0.40;
+            }
+        }
+
+        private static byte[] render(String name) {
+            if ("Whoosh".equals(name)) return whooshPcm();   // unchanged, note for note
+            double[] buf = new double[(int) (SR * lengthOf(name))];
+            switch (name) {
+                case "Soft Swoosh":
+                    // Air moving past: a dark-to-bright-to-dark noise arc with a
+                    // breath of low tone under it. The gentlest of the movers.
+                    addSweptNoise(buf, 0, 0.50, 0.34, 0.06, 0.34, 2.0);
+                    addPartial(buf, 0, 0.50, 180, 90, 0.10, 5.0);
+                    break;
+                case "Air Swipe":
+                    // Quick and bright — a hand passing the mic. For fast moves.
+                    addSweptNoise(buf, 0, 0.26, 0.40, 0.30, 0.08, 1.4);
+                    break;
+                case "Fast Sweep":
+                    // Bright noise sweeping down with a falling tone: the classic
+                    // "flies in from off-screen" cue.
+                    addSweptNoise(buf, 0, 0.38, 0.36, 0.40, 0.07, 1.2);
+                    addPartial(buf, 0, 0.34, 1900, 380, 0.13, 7.0);
+                    break;
+                case "Reverse Swell":
+                    // Backwards: quiet to loud, landing on the beat. Best on a
+                    // move that arrives on a word.
+                    addRevSweptNoise(buf, 0, 0.70, 0.34, 0.05, 0.30);
+                    addPartial(buf, 0.34, 0.36, 240, 620, 0.12, 1.2);
+                    break;
+                case "Pop":
+                    // Small, round, friendly — a bubble surfacing.
+                    addPartial(buf, 0, 0.20, 420, 1350, 0.44, 26);
+                    addNoise(buf, 0, 0.02, 0.13, 200);
+                    break;
+                case "Click":
+                    // Tight UI click. Almost no tail, so it never muddies speech.
+                    addNoise(buf, 0, 0.03, 0.48, 200);
+                    addPartial(buf, 0, 0.05, 2600, 1700, 0.26, 90);
+                    break;
+                case "Snap":
+                    // Finger snap: a crack of noise with a woody ring behind it.
+                    addNoise(buf, 0, 0.05, 0.48, 130);
+                    addPartial(buf, 0, 0.10, 1250, 900, 0.26, 55);
+                    addPartial(buf, 0, 0.10, 2500, 1900, 0.12, 65);
+                    break;
+                case "Page Turn":
+                    // Paper: two soft brushes of dark noise, one after the other.
+                    addSweptNoise(buf, 0,     0.24, 0.26, 0.10, 0.22, 1.6);
+                    addSweptNoise(buf, 0.16,  0.28, 0.20, 0.22, 0.08, 1.6);
+                    break;
+                case "Typewriter":
+                    // Key strike then the carriage settling — mechanical, dry.
+                    addNoise(buf, 0, 0.02, 0.48, 260);
+                    addPartial(buf, 0, 0.07, 900, 520, 0.32, 70);
+                    addPartial(buf, 0.02, 0.09, 240, 180, 0.24, 45);
+                    addNoise(buf, 0.11, 0.02, 0.17, 240);
+                    break;
+                case "Impact":
+                    // Cinematic hit: a low body, a mid knock and a short tail.
+                    addPartial(buf, 0, 0.80, 95, 52, 0.42, 5.0);
+                    addPartial(buf, 0, 0.40, 190, 120, 0.18, 9.0);
+                    addNoise(buf, 0, 0.14, 0.26, 34);
+                    break;
+                case "Sub Drop":
+                    // Deep falling sub — weight under a big move. Mind the volume
+                    // on small speakers; it is felt more than heard.
+                    addPartial(buf, 0, 1.00, 150, 34, 0.46, 3.0);
+                    addPartial(buf, 0, 0.55, 300, 70, 0.12, 5.0);
+                    break;
+                case "Riser":
+                    // Tension climbing into the landing: noise opening up under a
+                    // rising tone, both cut at the top.
+                    addRevSweptNoise(buf, 0, 0.75, 0.30, 0.06, 0.40);
+                    addPartial(buf, 0, 0.72, 220, 1250, 0.16, 0.6);
+                    break;
+                case "Shimmer":
+                    // Sparkle: a spray of high partials, each a moment later, so it
+                    // glitters instead of ringing like a bell.
+                    addPartial(buf, 0.00, 0.90, 2093, 2093, 0.20, 5.0);
+                    addPartial(buf, 0.06, 0.90, 2637, 2637, 0.17, 5.4);
+                    addPartial(buf, 0.13, 0.90, 3136, 3136, 0.14, 5.8);
+                    addPartial(buf, 0.21, 0.85, 4186, 4186, 0.10, 6.4);
+                    addNoise(buf, 0, 0.04, 0.07, 90);
+                    break;
+                case "Magic Chime":
+                    // A clean major triad with a bell's decay — the "it landed and
+                    // it matters" cue.
+                    addPartial(buf, 0.00, 1.30, 1046, 1046, 0.26, 3.2);
+                    addPartial(buf, 0.08, 1.25, 1318, 1318, 0.19, 3.4);
+                    addPartial(buf, 0.16, 1.20, 1568, 1568, 0.15, 3.6);
+                    addPartial(buf, 0.16, 1.20, 3136, 3136, 0.05, 4.6);
+                    break;
+                default:
+                    addPartial(buf, 0, 0.30, 900, 500, 0.24, 12);
+                    break;
+            }
+            return quantize(buf);
+        }
+
+        /** The original whoosh, kept exactly as it was so every project made
+         *  before the sound picker still sounds the way it did. */
+        private static byte[] whooshPcm() {
             final int sr = 44100;
             final double durSec = 0.32;
             final int n = (int) (sr * durSec);
@@ -22898,39 +23201,86 @@ public class GifSlideShowApp extends JFrame {
                 buf[i * 2]     = (byte) (v & 0xFF);
                 buf[i * 2 + 1] = (byte) ((v >> 8) & 0xFF);
             }
-            cachedPcm = buf;
             return buf;
         }
 
-        /** Fire-and-forget: opens a fresh Clip, plays, and closes itself on stop.
-         *  Any audio failure (e.g. no mixer) falls back to the system beep. */
-        static void playWhoosh() {
-            try {
-                byte[] pcm = whooshPcm();
-                javax.sound.sampled.Clip clip = javax.sound.sampled.AudioSystem.getClip();
-                clip.open(FORMAT, pcm, 0, pcm.length);
-                clip.addLineListener(ev -> {
-                    if (ev.getType() == javax.sound.sampled.LineEvent.Type.STOP) {
-                        ev.getLine().close();
-                    }
-                });
-                clip.start();
-            } catch (Exception ignored) {
-                java.awt.Toolkit.getDefaultToolkit().beep();
+        /** Float buffer → 16-bit mono PCM, soft-clipped so stacked layers in a
+         *  cue never crackle. */
+        private static byte[] quantize(double[] buf) {
+            byte[] out = new byte[buf.length * 2];
+            for (int i = 0; i < buf.length; i++) {
+                int s = (int) Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE,
+                        Math.tanh(buf[i] * 1.15) * 32000));
+                out[i * 2]     = (byte) (s & 0xFF);
+                out[i * 2 + 1] = (byte) ((s >> 8) & 0xFF);
+            }
+            return out;
+        }
+
+        private static void mix(double[] buf, int at, double v) {
+            if (at >= 0 && at < buf.length) buf[at] += v;
+        }
+
+        /** Damped sine partial: amp · e^(−decay·t) · sin(2πf t), swept to {@code f2}. */
+        private static void addPartial(double[] buf, double atSec, double durSec,
+                                       double f, double f2, double amp, double decay) {
+            int start = (int) (atSec * SR);
+            int n = (int) (durSec * SR);
+            double phase = 0;
+            for (int i = 0; i < n; i++) {
+                double p = i / (double) n;
+                phase += 2 * Math.PI * (f + (f2 - f) * p) / SR;
+                double env = Math.exp(-decay * (i / SR));
+                double fin = Math.min(1, i / (SR * 0.004));   // 4 ms fade-in kills the click
+                mix(buf, start + i, Math.sin(phase) * amp * env * fin);
             }
         }
 
-        /** Write the whoosh as a WAV file (for muxing into an exported video with
-         *  ffmpeg). Returns the written file. */
-        static File writeWhooshWav(File dir) throws IOException {
-            byte[] pcm = whooshPcm();
-            File f = new File(dir, "motion_whoosh.wav");
-            try (javax.sound.sampled.AudioInputStream ais = new javax.sound.sampled.AudioInputStream(
-                    new java.io.ByteArrayInputStream(pcm), FORMAT, pcm.length / FORMAT.getFrameSize())) {
-                javax.sound.sampled.AudioSystem.write(ais,
-                        javax.sound.sampled.AudioFileFormat.Type.WAVE, f);
+        /** Short filtered-noise burst — the body of clicks, snaps and impacts. */
+        private static void addNoise(double[] buf, double atSec, double durSec,
+                                     double amp, double decay) {
+            int start = (int) (atSec * SR);
+            int n = (int) (durSec * SR);
+            double last = 0;
+            for (int i = 0; i < n; i++) {
+                last = last * 0.55 + (Math.random() * 2 - 1) * 0.45;   // gentle low-pass
+                mix(buf, start + i, last * amp * Math.exp(-decay * (i / SR)));
             }
-            return f;
+        }
+
+        /** Noise whose brightness travels over its length — the body of every
+         *  swoosh. {@code k0}/{@code k1} are one-pole coefficients (small = dark,
+         *  large = bright); {@code shape} sharpens the sin() amplitude arc. The
+         *  1/√k term keeps a dark filter from swallowing the level. */
+        private static void addSweptNoise(double[] buf, double atSec, double durSec,
+                                          double amp, double k0, double k1, double shape) {
+            int start = (int) (atSec * SR);
+            int n = (int) (durSec * SR);
+            double last = 0;
+            for (int i = 0; i < n; i++) {
+                double p = i / (double) n;
+                double k = Math.max(0.02, k0 + (k1 - k0) * p);
+                last = last * (1 - k) + (Math.random() * 2 - 1) * k;
+                double env = Math.pow(Math.sin(Math.PI * p), shape);
+                mix(buf, start + i, last * amp * env / Math.sqrt(k));
+            }
+        }
+
+        /** Swept noise that swells instead of arcing — silence to full at the very
+         *  end, for the reverse and riser cues. */
+        private static void addRevSweptNoise(double[] buf, double atSec, double durSec,
+                                             double amp, double k0, double k1) {
+            int start = (int) (atSec * SR);
+            int n = (int) (durSec * SR);
+            double last = 0;
+            for (int i = 0; i < n; i++) {
+                double p = i / (double) n;
+                double k = Math.max(0.02, k0 + (k1 - k0) * p);
+                last = last * (1 - k) + (Math.random() * 2 - 1) * k;
+                double env = p * p;                       // swells toward the landing
+                if (p > 0.94) env *= (1 - p) / 0.06;      // then stops dead
+                mix(buf, start + i, last * amp * env / Math.sqrt(k));
+            }
         }
     }
 
@@ -32972,7 +33322,10 @@ public class GifSlideShowApp extends JFrame {
                     + "another text appear when this action lands — its <b>at X%/Y%</b> fill in with "
                     + "the spot that text already has, so change them only to reveal it elsewhere.<br><b>Word</b> (optional) targets a single "
                     + "word inside the text — a formatted copy of that word animates while the paragraph "
-                    + "stays put (great for pulling one word out of a sentence).</html>");
+                    + "stays put (great for pulling one word out of a sentence).<br><b>Sound</b> picks the "
+                    + "cue this action fires — press ▶ to hear it. Leave it on <b>(Default)</b> to follow "
+                    + "the default sound set at the bottom of this window, or choose <b>None</b> for "
+                    + "silence.</html>");
             help.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             help.setBorder(BorderFactory.createEmptyBorder(2, 2, 8, 2));
 
@@ -33048,6 +33401,29 @@ public class GifSlideShowApp extends JFrame {
                 playMotionPreview(dlg, previewTexts);
             });
 
+            // The default cue every "(Default)" action plays. App-wide and
+            // remembered between runs, so it is set once and every move on every
+            // slide follows it.
+            final JComboBox<String> defSoundCombo = new JComboBox<>(MotionSound.defaultChoices());
+            defSoundCombo.setSelectedItem(MotionSound.defaultName());
+            defSoundCombo.setToolTipText("The sound a move plays unless it picks its own. "
+                    + "Applies to every slide and is remembered next time you open the app.");
+            defSoundCombo.addActionListener(e -> {
+                MotionSound.setDefaultName((String) defSoundCombo.getSelectedItem());
+                for (ActionRowUI r : rowUIs) r.refreshSoundState();
+            });
+            JButton defSoundPlay = new JButton("▶");
+            defSoundPlay.setToolTipText("Hear the default sound.");
+            defSoundPlay.setMargin(new Insets(1, 6, 1, 6));
+            defSoundPlay.addActionListener(e -> {
+                String d = (String) defSoundCombo.getSelectedItem();
+                if (!MotionSound.NONE.equals(d)) MotionSound.play(d);
+            });
+            JPanel defSoundLine = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+            defSoundLine.add(new JLabel("Default sound:"));
+            defSoundLine.add(defSoundCombo);
+            defSoundLine.add(defSoundPlay);
+
             JPanel btnLeft = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6));
             btnLeft.add(previewBtn);
             btnLeft.add(allSlidesBtn);
@@ -33055,6 +33431,7 @@ public class GifSlideShowApp extends JFrame {
             btnRight.add(cancelBtn);
             btnRight.add(okBtn);
             JPanel btns = new JPanel(new BorderLayout());
+            btns.add(defSoundLine, BorderLayout.NORTH);
             btns.add(btnLeft, BorderLayout.WEST);
             btns.add(btnRight, BorderLayout.EAST);
 
@@ -33253,8 +33630,8 @@ public class GifSlideShowApp extends JFrame {
             dlg.add(status, BorderLayout.SOUTH);
 
             final long[] tms = {0};
-            // Play the built-in "whoosh" once per pass as each move action fires;
-            // reset when the loop wraps so it re-cues each time round.
+            // Play each action's motion cue once per pass as it fires; reset when
+            // the loop wraps so every cue re-arms each time round.
             final java.util.Set<SlideTextData.Action> firedSounds = new java.util.HashSet<>();
             final javax.swing.Timer timer = new javax.swing.Timer(1000 / fps, null);
             timer.addActionListener(ev -> {
@@ -33262,10 +33639,8 @@ public class GifSlideShowApp extends JFrame {
                 for (SlideTextData st : texts) {
                     if (st == null || st.actions == null) continue;
                     for (SlideTextData.Action a : st.actions) {
-                        if (a != null && a.isMove() && elapsed >= a.atMs
-                                && firedSounds.add(a)) {
-                            MotionSound.playWhoosh();
-                        }
+                        if (a == null || elapsed < a.atMs || !firedSounds.add(a)) continue;
+                        MotionSound.play(MotionSound.resolve(a));
                     }
                 }
                 applyQuizHideMask(texts, quiz, elapsed, true);
@@ -33332,6 +33707,8 @@ public class GifSlideShowApp extends JFrame {
             private final JTextField trigYField = new JTextField(4);
             private final JTextField wordField = new JTextField(14);
             private final JSpinner occSpinner = new JSpinner(new SpinnerNumberModel(1, 1, 99, 1));
+            private final JComboBox<String> soundCombo = new JComboBox<>(MotionSound.actionChoices());
+            private final JButton soundPlayBtn = new JButton("▶");
             private Color landColor;
             private final java.util.function.BiFunction<String, Integer, Integer> pInt;
             private final java.util.function.BiFunction<String, Double, Double> pDbl;
@@ -33397,6 +33774,18 @@ public class GifSlideShowApp extends JFrame {
                 occSpinner.setValue(Math.max(1, a.wordOccurrence));
                 occSpinner.setToolTipText("Which occurrence of the word to use when it repeats (1 = first).");
 
+                // Sound cue. "(Default)" follows whatever the default at the bottom
+                // of this dialog is set to, so changing that re-voices every action
+                // that never picked its own.
+                soundCombo.setSelectedItem(soundChoiceOf(a));
+                soundCombo.setToolTipText("The sound this action plays. \"(Default)\" follows the default "
+                        + "set at the bottom of this dialog (moves only — an in-place effect like Pulse "
+                        + "stays silent until you pick a sound for it). \"None\" silences this action.");
+                soundCombo.addActionListener(ev -> syncEnabled());
+                soundPlayBtn.setToolTipText("Hear this sound.");
+                soundPlayBtn.setMargin(new Insets(1, 6, 1, 6));
+                soundPlayBtn.addActionListener(ev -> MotionSound.play(resolvedSound()));
+
                 JButton removeBtn = new JButton("✕");
                 removeBtn.setToolTipText("Remove this action.");
                 removeBtn.setMargin(new Insets(1, 6, 1, 6));
@@ -33445,6 +33834,11 @@ public class GifSlideShowApp extends JFrame {
                 g.gridx = 5; panel.add(trigXField, g);
                 g.gridx = 6; panel.add(new JLabel("Y%:"), g);
                 g.gridx = 7; panel.add(trigYField, g);
+                // Line 5 — the sound this action plays
+                g.gridy = 4;
+                g.gridx = 1; panel.add(new JLabel("Sound:"), g);
+                g.gridx = 2; g.gridwidth = 2; panel.add(soundCombo, g); g.gridwidth = 1;
+                g.gridx = 4; panel.add(soundPlayBtn, g);
 
                 syncEnabled();
             }
@@ -33473,6 +33867,28 @@ public class GifSlideShowApp extends JFrame {
                 trigYField.setText(inFrame ? String.valueOf(pos[1]) : "");
             }
 
+            /** The picker entry for an action's stored cue: an unknown or empty
+             *  name shows as "(Default)", which is what it behaves as. */
+            private static String soundChoiceOf(SlideTextData.Action a) {
+                String s = (a == null || a.sound == null) ? "" : a.sound.trim();
+                if (MotionSound.isBuiltIn(s) || MotionSound.NONE.equals(s)) return s;
+                return MotionSound.DEFAULT_CHOICE;
+            }
+
+            /** Re-evaluate the row's sound state after the default changed — the
+             *  label the "(Default)" entry stands for is different now. */
+            void refreshSoundState() { syncEnabled(); }
+
+            /** The cue this row would actually play, or null when it is silent. */
+            private String resolvedSound() {
+                return MotionSound.resolve((String) soundCombo.getSelectedItem(), isMoveKind());
+            }
+
+            private boolean isMoveKind() {
+                return "Move".equals(kindCombo.getSelectedItem())
+                        || "Move Copy".equals(kindCombo.getSelectedItem());
+            }
+
             private void syncEnabled() {
                 boolean move = "Move".equals(kindCombo.getSelectedItem())
                         || "Move Copy".equals(kindCombo.getSelectedItem());
@@ -33485,6 +33901,9 @@ public class GifSlideShowApp extends JFrame {
                 boolean trig = triggerCombo.getSelectedIndex() > 0;
                 trigXField.setEnabled(trig);
                 trigYField.setEnabled(trig);
+                // Nothing to preview when the row is silent — which is what
+                // "(Default)" means on an in-place effect.
+                soundPlayBtn.setEnabled(resolvedSound() != null);
             }
 
             void setIndexLabel(int n) { idxLbl.setText("#" + n); }
@@ -33510,6 +33929,8 @@ public class GifSlideShowApp extends JFrame {
                 }
                 a.word = wordField.getText().trim();
                 a.wordOccurrence = Math.max(1, (Integer) occSpinner.getValue());
+                String snd = (String) soundCombo.getSelectedItem();
+                a.sound = (snd == null || MotionSound.DEFAULT_CHOICE.equals(snd)) ? "" : snd;
                 return a;
             }
 
@@ -33531,7 +33952,7 @@ public class GifSlideShowApp extends JFrame {
                 };
                 JComponent[] fields = { kindCombo, atField, durField, easeCombo,
                         toXField, toYField, scaleField, wordField, occSpinner, triggerCombo,
-                        trigXField, trigYField };
+                        trigXField, trigYField, soundCombo };
                 for (JComponent c : fields) c.addFocusListener(fa);
                 panel.addMouseListener(new java.awt.event.MouseAdapter() {
                     @Override public void mousePressed(java.awt.event.MouseEvent e) {
