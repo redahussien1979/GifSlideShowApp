@@ -12658,7 +12658,13 @@ public class GifSlideShowApp extends JFrame {
      */
     static WrappedText wrapTextStatic(String text, FontMetrics fm, int maxWidth, boolean hyphenate) {
         WrappedText out = new WrappedText();
-        if (maxWidth <= 0) { out.add(text, WrappedText.BREAK_SPACE); return out; }
+        if (maxWidth <= 0) {
+            // No width to wrap to, but the paragraph breaks are still real lines —
+            // returning the text whole would hand the renderer a string with \n in
+            // it to draw as one line, which paints a tofu box rather than breaking.
+            for (String paragraph : text.split("\n")) out.add(paragraph, WrappedText.BREAK_SPACE);
+            return out;
+        }
         int ladder = 0;   // consecutive hyphenated lines, capped at HYPHEN_MAX_LADDER
         for (String paragraph : text.split("\n")) {
             if (paragraph.isEmpty()) { out.add("", WrappedText.BREAK_SPACE); ladder = 0; continue; }
