@@ -6766,7 +6766,8 @@ public class GifSlideShowApp extends JFrame {
                         if (wm == null || wm.isMove || wm.word == null || wm.word.isEmpty()) continue;
                         double[] loc = locateWordCenter(stWrapped, stFm, wm.word, wm.occ,
                                 st.alignment, stAlignLeft, stAlignWidth, stCenterX,
-                                firstBaselineH, stLineHeight);
+                                firstBaselineH, stLineHeight,
+                                st.justify, stBlockLeft, stMaxLineWidth);
                         if (loc == null) continue;
                         int pad = Math.max(2, (int) (stAscent * 0.15));
                         double rw = loc[2] + pad * 2;
@@ -6796,23 +6797,12 @@ public class GifSlideShowApp extends JFrame {
                     }
 
                     boolean isLastLine = (li == stWrappedLines.size() - 1);
-                    boolean justified = false;
-                    String[] justifyWords = null;
-                    double justifyExtraSpace = 0;
-                    if (st.justify && !isLastLine && stMaxLineWidth > 0) {
-                        justifyWords = line.split(" ");
-                        if (justifyWords.length > 1) {
-                            int totalWordsWidth = 0;
-                            for (String w : justifyWords) totalWordsWidth += stFm.stringWidth(w);
-                            double avgGap = (double) (stMaxLineWidth - totalWordsWidth) / (justifyWords.length - 1);
-                            double normalSpace = stFm.stringWidth(" ");
-                            // Only justify if gaps won't exceed 3x normal space width
-                            if (avgGap <= normalSpace * 3) {
-                                justifyExtraSpace = avgGap;
-                                justified = true;
-                            }
-                        }
-                    }
+                    // Shared with the karaoke word FX and the word-motion locator, so
+                    // the three cannot drift apart about where a word actually sits.
+                    JustifyFit stFit = justifyFit(line, stFm, st.justify, isLastLine, stMaxLineWidth);
+                    boolean justified = stFit != null;
+                    String[] justifyWords = stFit != null ? stFit.words : null;
+                    double justifyExtraSpace = stFit != null ? stFit.gap : 0;
 
                     // === Word-by-word reveal (Texts Timer order) ===
                     // st.wordRevealCount >= 0 means only the first N words of the
@@ -6860,15 +6850,11 @@ public class GifSlideShowApp extends JFrame {
                         visibleLine = line.substring(0, charsForLine);
                         if (visibleLine.isEmpty()) { lineY += stLineHeight; continue; }
                         if (justified) {
-                            // recalc justified words for partial line
-                            justifyWords = visibleLine.split(" ");
-                            if (justifyWords.length <= 1) justified = false;
-                            else {
-                                int tw = 0; for (String w : justifyWords) tw += stFm.stringWidth(w);
-                                justifyExtraSpace = (double) (stMaxLineWidth - tw) / (justifyWords.length - 1);
-                                double twNormalSpace = stFm.stringWidth(" ");
-                                if (justifyExtraSpace > twNormalSpace * 3) justified = false;
-                            }
+                            // The visible prefix is a different line, so it gets its own fit.
+                            JustifyFit twFit = justifyFit(visibleLine, stFm, true, false, stMaxLineWidth);
+                            justified = twFit != null;
+                            justifyWords = twFit != null ? twFit.words : justifyWords;
+                            justifyExtraSpace = twFit != null ? twFit.gap : justifyExtraSpace;
                         }
                     }
 
@@ -9636,8 +9622,17 @@ public class GifSlideShowApp extends JFrame {
                             if (segs.isEmpty()) continue;
                             String kline = stWrappedLines.get(li);
                             int klineW = stFm.stringWidth(kline);
+                            // A justified line is drawn from the block's left edge with
+                            // every word pushed along by the justify gap, so measuring it
+                            // with ordinary spacing puts the effect further left than the
+                            // word with each word it passes. Ask for the same fit the
+                            // drawing pass used instead.
+                            JustifyFit kFit = justifyFit(kline, stFm, st.justify,
+                                    li == stWrappedLines.size() - 1, stMaxLineWidth);
                             int klineX;
-                            if (st.alignment == SwingConstants.LEFT) {
+                            if (kFit != null) {
+                                klineX = stBlockLeft;
+                            } else if (st.alignment == SwingConstants.LEFT) {
                                 klineX = stAlignLeft;
                             } else if (st.alignment == SwingConstants.RIGHT) {
                                 klineX = stAlignLeft + stAlignWidth - klineW;
@@ -9650,7 +9645,11 @@ public class GifSlideShowApp extends JFrame {
                             for (int[] seg : segs) {
                                 int sCol = seg[0], eCol = seg[1];
                                 int wX, wW;
-                                if (kLayout != null) {
+                                double[] kSpan = justifiedSpan(kFit, stFm, sCol, eCol);
+                                if (kSpan != null) {
+                                    wX = klineX + (int) Math.floor(kSpan[0]);
+                                    wW = (int) Math.ceil(kSpan[1]);
+                                } else if (kLayout != null) {
                                     java.awt.Shape shp = kLayout.getLogicalHighlightShape(sCol, eCol);
                                     java.awt.geom.Rectangle2D b = shp.getBounds2D();
                                     wX = klineX + (int) Math.floor(b.getX());
@@ -9704,7 +9703,8 @@ public class GifSlideShowApp extends JFrame {
                         if (wm == null || wm.word == null || wm.word.isEmpty()) continue;
                         double[] loc = locateWordCenter(stWrapped, stFm, wm.word, wm.occ,
                                 st.alignment, stAlignLeft, stAlignWidth, stCenterX,
-                                firstBaseline, stLineHeight);
+                                firstBaseline, stLineHeight,
+                                st.justify, stBlockLeft, stMaxLineWidth);
                         if (loc == null) continue;
                         double wx = loc[0], wy = loc[1];
                         double wwHalf = stFm.stringWidth(wm.word) / 2.0;
@@ -12005,7 +12005,8 @@ public class GifSlideShowApp extends JFrame {
      */
     private static double[] locateWordCenter(WrappedText wrapped, FontMetrics fm, String word, int occ,
                                              int alignment, int alignLeft, int alignWidth, int centerX,
-                                             int firstBaseline, int lineHeight) {
+                                             int firstBaseline, int lineHeight,
+                                             boolean justify, int blockLeft, int blockWidth) {
         if (wrapped == null || wrapped.lines.isEmpty() || word == null) return null;
         List<String> lines = wrapped.lines;
         String needle = word.trim().toLowerCase();
@@ -12068,12 +12069,19 @@ public class GifSlideShowApp extends JFrame {
         if (inLineStart < 0) inLineStart = 0;
         if (inLineEnd < inLineStart) inLineEnd = inLineStart;
         int lineW = fm.stringWidth(line);
+        // On a justified line the words are spaced out to fill the block, so measure
+        // the word where it is actually drawn rather than at its natural offset.
+        JustifyFit fit = justifyFit(line, fm, justify, li == n - 1, blockWidth);
+        double[] span = justifiedSpan(fit, fm, inLineStart, inLineEnd);
         int lineX;
-        if (alignment == SwingConstants.LEFT) lineX = alignLeft;
+        if (fit != null) lineX = blockLeft;
+        else if (alignment == SwingConstants.LEFT) lineX = alignLeft;
         else if (alignment == SwingConstants.RIGHT) lineX = alignLeft + alignWidth - lineW;
         else lineX = centerX - lineW / 2;
-        int startOff = fm.stringWidth(line.substring(0, inLineStart));
-        int wordW = fm.stringWidth(line.substring(inLineStart, inLineEnd));
+        int startOff = span != null ? (int) Math.round(span[0])
+                                    : fm.stringWidth(line.substring(0, inLineStart));
+        int wordW = span != null ? (int) Math.round(span[1])
+                                 : fm.stringWidth(line.substring(inLineStart, inLineEnd));
         double cx = lineX + startOff + wordW / 2.0;
         int baseline = firstBaseline + li * lineHeight;
         double cy = baseline - (fm.getAscent() - fm.getDescent()) / 2.0;
@@ -12887,6 +12895,70 @@ public class GifSlideShowApp extends JFrame {
             out.append(joined);
         }
         return out.toString();
+    }
+
+    /** Widest a justified gap may grow, in normal space widths, before the line is
+     *  set ragged instead. Past this the gaps read as rivers running down the block. */
+    private static final double MAX_JUSTIFY_GAP = 3.0;
+
+    /**
+     * How one wrapped line is actually set when Justify is on: the words, and the
+     * gap that spaces them out to fill the block.
+     *
+     * <p>Anything that needs to know where a word sits on screen must go through
+     * {@link #justifyFit} and {@link #justifiedSpan} rather than measuring the line
+     * string. The drawing pass advances each word by its own width plus this gap, so
+     * a measurement taken with ordinary spacing drifts further left with every word
+     * it passes — which is exactly how the karaoke word FX ended up beside its word
+     * instead of on it.
+     */
+    static final class JustifyFit {
+        final String[] words;
+        final double gap;
+        JustifyFit(String[] words, double gap) { this.words = words; this.gap = gap; }
+    }
+
+    /**
+     * Decide how {@code line} is set, given the block it has to fill. Returns null
+     * when the line takes ordinary spacing: Justify is off, it is the block's last
+     * line, it holds a single word, or its gaps would open past
+     * {@link #MAX_JUSTIFY_GAP}.
+     */
+    static JustifyFit justifyFit(String line, FontMetrics fm, boolean justify,
+                                 boolean isLastLine, int targetWidth) {
+        if (line == null || !justify || isLastLine || targetWidth <= 0) return null;
+        String[] words = line.split(" ");
+        if (words.length < 2) return null;
+        int totalWordsWidth = 0;
+        for (String w : words) totalWordsWidth += fm.stringWidth(w);
+        double gap = (double) (targetWidth - totalWordsWidth) / (words.length - 1);
+        if (gap > fm.stringWidth(" ") * MAX_JUSTIFY_GAP) return null;
+        return new JustifyFit(words, gap);
+    }
+
+    /**
+     * Where the character range {@code [start, end)} of a justified line lands:
+     * {@code {x offset from the line's left edge, width}}, or null when the range
+     * covers nothing. Walks the words exactly as {@link #drawJustified} draws them.
+     */
+    static double[] justifiedSpan(JustifyFit fit, FontMetrics fm, int start, int end) {
+        if (fit == null || start >= end) return null;
+        double x = 0, spanStart = -1, spanEnd = 0;
+        int col = 0;
+        for (String w : fit.words) {
+            int ws = col, we = col + w.length();
+            int a = Math.max(start, ws), b = Math.min(end, we);
+            if (a < b) {
+                double pre = fm.stringWidth(w.substring(0, a - ws));
+                double wid = fm.stringWidth(w.substring(a - ws, b - ws));
+                if (spanStart < 0) spanStart = x + pre;
+                spanEnd = x + pre + wid;
+            }
+            x += fm.stringWidth(w) + fit.gap;
+            col = we + 1;   // the single space that split(" ") consumed
+        }
+        if (spanStart < 0) return null;
+        return new double[]{spanStart, spanEnd - spanStart};
     }
 
     private static void drawJustified(Graphics2D g, String[] words, int startX, int y,
