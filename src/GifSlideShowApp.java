@@ -79,6 +79,12 @@ public class GifSlideShowApp extends JFrame {
 
     private boolean isSyncingFormat = false;
     private boolean isLivePreviewActive = false;
+    // True only while a preset is being applied to rows. Motion (a text's timed
+    // actions) is normally per-slide — a format sync from slide 1 must not wipe
+    // motion built on slide 7 — but a preset carries the whole design, motion
+    // included, so applySlideTextFormats hands the preset's actions to every
+    // slide it touches while this is set.
+    private boolean isApplyingPreset = false;
 
     // Export-time slide shuffle. Off by default; when on, exports use a fresh
     // random order while the rows on screen (and therefore the master slide)
@@ -993,8 +999,13 @@ public class GifSlideShowApp extends JFrame {
             }
             // Timed Text Actions (parallel to the save block above). Missing keys
             // fall back to defaults so presets written before this feature load fine.
-            int actCount = Integer.parseInt(props.getProperty(p + "actionCount", "0"));
-            loaded.actions = new java.util.ArrayList<>();
+            // A preset written before motion was saved has no actionCount at all.
+            // Null (rather than an empty list) marks that "the preset says nothing
+            // here", so applying it leaves each slide's own motion alone instead of
+            // clearing it; an explicit count of 0 does mean "no motion".
+            String actCountStr = props.getProperty(p + "actionCount");
+            int actCount = actCountStr == null ? 0 : parseIntOr(actCountStr, 0);
+            loaded.actions = actCountStr == null ? null : new java.util.ArrayList<>();
             for (int k = 0; k < actCount; k++) {
                 String ap = p + "action." + k + ".";
                 SlideTextData.Action a = new SlideTextData.Action();
@@ -1312,6 +1323,7 @@ public class GifSlideShowApp extends JFrame {
 
         // Apply to all non-title-grid slides
         isSyncingFormat = true;
+        isApplyingPreset = true;
         try {
             for (SlideRow row : targets) {
                 if (row.isTitleGridSlide) continue;
@@ -1399,6 +1411,7 @@ public class GifSlideShowApp extends JFrame {
             }
         } finally {
             isSyncingFormat = false;
+            isApplyingPreset = false;
         }
 
         if (showMessage) {
@@ -34060,6 +34073,20 @@ public class GifSlideShowApp extends JFrame {
             return out;
         }
 
+        /** Which motion a broadcast text ends up with, deep-copied so no two
+         *  texts share an Action. A preset being applied wins (its actions are
+         *  part of the design it carries) unless it predates saved motion and so
+         *  says nothing (null); every other path keeps the slide's own. */
+        private java.util.List<SlideTextData.Action> actionsToApply(SlideTextData fmt,
+                                                                    SlideTextData existing) {
+            java.util.List<SlideTextData.Action> from =
+                    (isApplyingPreset && fmt != null && fmt.actions != null)
+                            ? fmt.actions : (existing == null ? null : existing.actions);
+            java.util.List<SlideTextData.Action> out = new java.util.ArrayList<>();
+            if (from != null) for (SlideTextData.Action a : from) if (a != null) out.add(a.copy());
+            return out;
+        }
+
         void applySlideTextFormats(List<SlideTextData> formats) {
             if (formats == null || formats.isEmpty()) return;
             // Ensure we have at least as many items as the source.
@@ -34115,12 +34142,11 @@ public class GifSlideShowApp extends JFrame {
                 applied.timerAppearEffect = existing.timerAppearEffect;
                 applied.timerAppearEasing = existing.timerAppearEasing;
                 applied.timerAppearDurMs = existing.timerAppearDurMs;
-                // Timed actions are per-slide too — keep this row's own, not the
-                // master's (copyBgStyle above copied the master's onto `applied`).
-                applied.actions = new java.util.ArrayList<>();
-                if (existing.actions != null) {
-                    for (SlideTextData.Action a : existing.actions) if (a != null) applied.actions.add(a.copy());
-                }
+                // Timed actions: a preset carries the deck's motion, so applying
+                // one hands its actions to this slide; a plain format sync from
+                // slide 1 leaves the slide's own motion alone (copyBgStyle above
+                // copied the master's onto `applied`, so either way it is set here).
+                applied.actions = actionsToApply(fmt, existing);
                 slideTextItems.set(i, applied);
             }
             // For extra items beyond what the source has, apply formatting
@@ -34157,11 +34183,8 @@ public class GifSlideShowApp extends JFrame {
                     applied.timerAppearEffect = existing.timerAppearEffect;
                     applied.timerAppearEasing = existing.timerAppearEasing;
                     applied.timerAppearDurMs = existing.timerAppearDurMs;
-                    // Keep this row's own timed actions (per-slide), as with timing.
-                    applied.actions = new java.util.ArrayList<>();
-                    if (existing.actions != null) {
-                        for (SlideTextData.Action a : existing.actions) if (a != null) applied.actions.add(a.copy());
-                    }
+                    // Same rule as the matched items above.
+                    applied.actions = actionsToApply(lastFmt, existing);
                     slideTextItems.set(i, applied);
                 }
             }
