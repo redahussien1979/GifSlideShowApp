@@ -9599,7 +9599,7 @@ public class GifSlideShowApp extends JFrame {
                 if (st.karaokeWordIndex >= 0 && st.karaokeStyle != null
                         && !"None".equals(st.karaokeStyle)) {
                     java.util.List<java.util.List<int[]>> kSeg =
-                            computeWordIndexSegment(stWrappedLines, st.karaokeWordIndex);
+                            computeWordIndexSegment(stWrapped, st.karaokeWordIndex);
                     if (kSeg != null) {
                         int kBaselineY0 = stCenterY - totalTextHeight / 2 + stAscent;
                         for (int li = 0; li < kSeg.size(); li++) {
@@ -11754,32 +11754,70 @@ public class GifSlideShowApp extends JFrame {
         return words.length - 1; // past the estimated end → keep the last word lit
     }
 
-    /** Segments for the Nth word (0-based, whitespace-separated) across wrapped
-     *  lines. Returns the same structure as {@link #computeWrapSegments} but
-     *  with at most a single segment, located by position rather than by string
-     *  matching. Used by the karaoke renderer so a repeated word doesn't all
-     *  light up — only the word actively being spoken. */
     static java.util.List<java.util.List<int[]>> computeWordIndexSegment(List<String> wrappedLines, int wordIdx) {
-        if (wrappedLines == null || wrappedLines.isEmpty() || wordIdx < 0) return null;
-        int n = wrappedLines.size();
+        return computeWordIndexSegment(WrappedText.of(wrappedLines), wordIdx);
+    }
+
+    /**
+     * Segments for the Nth word (0-based) across wrapped lines. Returns the same
+     * structure as {@link #computeWrapSegments}, located by position rather than by
+     * string matching, so the karaoke renderer lights only the word actively being
+     * spoken and not every repeat of it.
+     *
+     * <p>N counts words of the TEXT, not fragments on screen. A word the wrapper
+     * hyphenated across a line break is one word here, exactly as it is one entry in
+     * the Word Sync timings the index comes from: counting "ten-" and "dency"
+     * separately would slide the effect one word further off with every hyphen in
+     * the block. Such a word returns a segment on each line it covers, so both
+     * halves light up together.
+     */
+    static java.util.List<java.util.List<int[]>> computeWordIndexSegment(WrappedText wrapped, int wordIdx) {
+        if (wrapped == null || wrapped.lines.isEmpty() || wordIdx < 0) return null;
+        List<String> lines = wrapped.lines;
+        int n = lines.size();
         java.util.List<java.util.List<int[]>> perLine = new java.util.ArrayList<>(n);
         for (int i = 0; i < n; i++) perLine.add(new java.util.ArrayList<>());
-        int wordCount = 0;
+
+        // Every whitespace-separated fragment in reading order: {line, start, end}.
+        java.util.List<int[]> frags = new java.util.ArrayList<>();
+        int[] firstOnLine = new int[n], lastOnLine = new int[n];
+        java.util.Arrays.fill(firstOnLine, -1);
+        java.util.Arrays.fill(lastOnLine, -1);
         for (int li = 0; li < n; li++) {
-            String line = wrappedLines.get(li);
+            String line = lines.get(li);
             int cursor = 0;
             while (cursor < line.length()) {
                 while (cursor < line.length() && Character.isWhitespace(line.charAt(cursor))) cursor++;
                 if (cursor >= line.length()) break;
                 int wStart = cursor;
                 while (cursor < line.length() && !Character.isWhitespace(line.charAt(cursor))) cursor++;
-                int wEnd = cursor;
-                if (wordCount == wordIdx) {
-                    perLine.get(li).add(new int[]{wStart, wEnd, 0});
-                    return perLine;
-                }
-                wordCount++;
+                if (firstOnLine[li] < 0) firstOnLine[li] = frags.size();
+                lastOnLine[li] = frags.size();
+                frags.add(new int[]{li, wStart, cursor});
             }
+        }
+        if (frags.isEmpty()) return null;
+
+        // Mark the fragments that merely continue the previous line's word. The
+        // chain can run over more than two lines, since the wrapper may hyphenate
+        // two lines in a row.
+        boolean[] isTail = new boolean[frags.size()];
+        for (int li = 0; li + 1 < n; li++) {
+            if (wrapped.wordContinues(li) && lastOnLine[li] >= 0
+                    && firstOnLine[li + 1] == lastOnLine[li] + 1) {
+                isTail[firstOnLine[li + 1]] = true;
+            }
+        }
+
+        int wordCount = -1;
+        for (int f = 0; f < frags.size(); f++) {
+            if (!isTail[f]) wordCount++;
+            if (wordCount != wordIdx) continue;
+            for (int k = f; k == f || (k < frags.size() && isTail[k]); k++) {
+                int[] fr = frags.get(k);
+                perLine.get(fr[0]).add(new int[]{fr[1], fr[2], 0});
+            }
+            return perLine;
         }
         return null;
     }
