@@ -486,6 +486,9 @@ public class GifSlideShowApp extends JFrame {
                 props.setProperty(ap + "landFormat", String.valueOf(a.landFormat));
                 props.setProperty(ap + "landScale", String.valueOf(a.landScale));
                 props.setProperty(ap + "landColor", a.landColor == null ? "none" : colorToHex(a.landColor));
+                props.setProperty(ap + "landFont", a.landFont == null ? FN_FONT_INHERIT : a.landFont);
+                props.setProperty(ap + "landStyle", a.landStyle == null ? FN_STYLE_INHERIT : a.landStyle);
+                props.setProperty(ap + "landMatchTrigger", String.valueOf(a.landMatchTrigger));
                 props.setProperty(ap + "triggerTextIndex", String.valueOf(a.triggerTextIndex));
                 props.setProperty(ap + "triggerXPct", String.valueOf(a.triggerXPct));
                 props.setProperty(ap + "triggerYPct", String.valueOf(a.triggerYPct));
@@ -1019,6 +1022,10 @@ public class GifSlideShowApp extends JFrame {
                 a.landScale  = Double.parseDouble(props.getProperty(ap + "landScale", "1.3"));
                 String lc = props.getProperty(ap + "landColor", "none");
                 a.landColor = (lc == null || lc.equalsIgnoreCase("none")) ? null : hexToColor(lc);
+                a.landFont  = props.getProperty(ap + "landFont", FN_FONT_INHERIT);
+                a.landStyle = props.getProperty(ap + "landStyle", FN_STYLE_INHERIT);
+                a.landMatchTrigger = Boolean.parseBoolean(
+                        props.getProperty(ap + "landMatchTrigger", "false"));
                 a.triggerTextIndex = Integer.parseInt(props.getProperty(ap + "triggerTextIndex", "-1"));
                 a.triggerXPct = Integer.parseInt(props.getProperty(ap + "triggerXPct", "-1"));
                 a.triggerYPct = Integer.parseInt(props.getProperty(ap + "triggerYPct", "-1"));
@@ -6456,16 +6463,23 @@ public class GifSlideShowApp extends JFrame {
                 // forceShow lets a fired trigger reveal a text marked hidden (show=false).
                 if ((!st.show && !st.forceShow) || st.quizHidden || st.text == null || st.text.isEmpty()) continue;
                 float stScaleFactor = Math.max(targetW, targetH) / 1920.0f;
-                int scaledStSize = Math.max(8, (int) (st.fontSize * stScaleFactor));
-                Font stFont;
-                if (loadedFonts.containsKey(st.fontName)) {
-                    stFont = loadedFonts.get(st.fontName).deriveFont(st.fontStyle, (float) scaledStSize);
-                } else {
-                    stFont = new Font(st.fontName, st.fontStyle, scaledStSize);
-                }
-                if (st.letterSpacing != 0) {
+                // A landed Move can re-typeface the text (Motion → Format on landing,
+                // including "Same as trigger"). Everything left on its sentinel keeps
+                // the text's own setting, so an untouched text takes the same path it
+                // always did.
+                String stFontName = st.renderFontNameOverride != null
+                        ? st.renderFontNameOverride : st.fontName;
+                int stFontStyle = st.renderFontStyleOverride >= 0
+                        ? st.renderFontStyleOverride : st.fontStyle;
+                int stFontSizePt = st.renderFontSizeOverride > 0
+                        ? st.renderFontSizeOverride : st.fontSize;
+                int stTracking = st.renderLetterSpacingOverride != LAND_TRACK_KEEP
+                        ? st.renderLetterSpacingOverride : st.letterSpacing;
+                int scaledStSize = Math.max(8, (int) (stFontSizePt * stScaleFactor));
+                Font stFont = resolveFontByName(stFontName, stFontStyle, scaledStSize);
+                if (stTracking != 0) {
                     java.util.Map<java.awt.font.TextAttribute, Object> attrs = new java.util.HashMap<>();
-                    attrs.put(java.awt.font.TextAttribute.TRACKING, st.letterSpacing * 0.01f);
+                    attrs.put(java.awt.font.TextAttribute.TRACKING, stTracking * 0.01f);
                     stFont = stFont.deriveFont(attrs);
                 }
                 g.setFont(stFont);
@@ -9383,7 +9397,7 @@ public class GifSlideShowApp extends JFrame {
                         }
 
                         // Draw override word with modified font/color
-                        int wordStyle = st.fontStyle;
+                        int wordStyle = stFontStyle;
                         if (boldFlag == 1) wordStyle |= Font.BOLD;
                         if (italicFlag == 1) wordStyle |= Font.ITALIC;
                         Color wordColor = (colorFlag == 1) ? st.colorTextColor : stColor;
@@ -9392,7 +9406,7 @@ public class GifSlideShowApp extends JFrame {
                         // group can restyle one aspect and leave the rest to the
                         // text — including the Bold/Italic word lists above, whose
                         // flags stay folded in on top of the group's own style.
-                        String wordFontName = st.fontName;
+                        String wordFontName = stFontName;
                         if (fnFlag > 0 && st.fnGroups != null && fnFlag - 1 < st.fnGroups.size()) {
                             SlideTextData.FnGroup fnG = st.fnGroups.get(fnFlag - 1);
                             if (fnG != null) {
@@ -9410,9 +9424,9 @@ public class GifSlideShowApp extends JFrame {
                             }
                         }
                         Font wordFont = resolveFontByName(wordFontName, wordStyle, scaledStSize);
-                        if (st.letterSpacing != 0) {
+                        if (stTracking != 0) {
                             java.util.Map<java.awt.font.TextAttribute, Object> ovAttrs = new java.util.HashMap<>();
-                            ovAttrs.put(java.awt.font.TextAttribute.TRACKING, st.letterSpacing * 0.01f);
+                            ovAttrs.put(java.awt.font.TextAttribute.TRACKING, stTracking * 0.01f);
                             wordFont = wordFont.deriveFont(ovAttrs);
                         }
                         String wordText = visibleLine.substring(ovIdx, ovIdx + termLen);
@@ -9661,8 +9675,31 @@ public class GifSlideShowApp extends JFrame {
                                 firstBaseline, stLineHeight,
                                 st.justify, stBlockLeft, stMaxLineWidth);
                         if (loc == null) continue;
+                        // The copy may land in a different typeface (Format on
+                        // landing / "Same as trigger"), so every measurement below —
+                        // half-width for the destination edge, draw width, baseline —
+                        // comes from the font the copy is actually drawn in. With no
+                        // override that font IS the paragraph's, so nothing moves.
+                        Font wmFont = stFont;
+                        if (wm.fontName != null || wm.fontStyle >= 0 || wm.fontSize > 0
+                                || wm.letterSpacing != LAND_TRACK_KEEP) {
+                            int wmSizePx = wm.fontSize > 0
+                                    ? Math.max(8, (int) (wm.fontSize * stScaleFactor)) : scaledStSize;
+                            wmFont = resolveFontByName(
+                                    wm.fontName != null ? wm.fontName : stFontName,
+                                    wm.fontStyle >= 0 ? wm.fontStyle : stFontStyle, wmSizePx);
+                            int wmTrack = wm.letterSpacing != LAND_TRACK_KEEP
+                                    ? wm.letterSpacing : stTracking;
+                            if (wmTrack != 0) {
+                                java.util.Map<java.awt.font.TextAttribute, Object> wmAttrs =
+                                        new java.util.HashMap<>();
+                                wmAttrs.put(java.awt.font.TextAttribute.TRACKING, wmTrack * 0.01f);
+                                wmFont = wmFont.deriveFont(wmAttrs);
+                            }
+                        }
+                        FontMetrics wmFm = (wmFont == stFont) ? stFm : g.getFontMetrics(wmFont);
                         double wx = loc[0], wy = loc[1];
-                        double wwHalf = stFm.stringWidth(wm.word) / 2.0;
+                        double wwHalf = wmFm.stringWidth(wm.word) / 2.0;
                         double px, py;
                         if (wm.isMove) {
                             // To X% marks the word's START, not its centre. The copy is
@@ -9686,7 +9723,7 @@ public class GifSlideShowApp extends JFrame {
                                     RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
                             wg.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS,
                                     RenderingHints.VALUE_FRACTIONALMETRICS_ON);
-                            wg.setFont(stFont);
+                            wg.setFont(wmFont);
                             if (wm.alpha < 1.0) {
                                 wg.setComposite(java.awt.AlphaComposite.getInstance(
                                         java.awt.AlphaComposite.SRC_OVER,
@@ -9696,8 +9733,8 @@ public class GifSlideShowApp extends JFrame {
                             if (wm.tiltDeg != 0.0) wg.rotate(Math.toRadians(wm.tiltDeg));
                             if (wm.scale != 1.0) wg.scale(wm.scale, wm.scale);
                             wg.setColor(wm.color != null ? wm.color : stColor);
-                            int ww = stFm.stringWidth(wm.word);
-                            float baselineOff = (stFm.getAscent() - stFm.getDescent()) / 2f;
+                            int ww = wmFm.stringWidth(wm.word);
+                            float baselineOff = (wmFm.getAscent() - wmFm.getDescent()) / 2f;
                             wg.drawString(wm.word, -ww / 2f, baselineOff);
                         } finally {
                             wg.dispose();
@@ -19896,7 +19933,7 @@ public class GifSlideShowApp extends JFrame {
                 // editor live preview (applyTimer == false) so the editor shows the
                 // resting layout.
                 if (applyTimer && !hidden) {
-                    applyTextActions(st, elapsedMs);
+                    applyTextActions(st, elapsedMs, texts);
                 }
                 // Alternating text: swap this text with its alternate string(s) on a
                 // repeating timer. Runs after the entrance window so the fly-in isn't
@@ -20031,6 +20068,54 @@ public class GifSlideShowApp extends JFrame {
         return out;
     }
 
+    /** What a landed action actually draws with: a typeface (family / style bits /
+     *  point size / tracking), a colour and a scale. Each carries its own "keep the
+     *  text's own" sentinel — null, -1, 0, {@link #LAND_TRACK_KEEP}, null — so an
+     *  action that only recolours leaves everything else alone. Resolved once per
+     *  fired action so the block, the "Move Copy" ghost and the flying word copy
+     *  can never disagree about the landing. */
+    private static final class LandingFormat {
+        String fontName = null;
+        int    fontStyle = -1;
+        int    fontSize = 0;
+        int    letterSpacing = LAND_TRACK_KEEP;
+        Color  color = null;
+        double scale = 1.0;
+    }
+
+    /** Sentinel for "keep the text's own letter spacing" (the real range is -10..40). */
+    static final int LAND_TRACK_KEEP = Integer.MIN_VALUE;
+
+    /**
+     * Resolve an action's landing format. "Same as trigger" wins outright: the
+     * landing takes the triggered text's family, point size, style, tracking and
+     * colour at 1:1 scale, so the text that lands and the text it reveals read as
+     * one matched pair. With it off — or with no trigger to copy — the action's own
+     * font / style / colour apply and landScale still sizes the arrival.
+     */
+    private static LandingFormat resolveLandingFormat(SlideTextData.Action a, List<SlideTextData> texts) {
+        LandingFormat f = new LandingFormat();
+        SlideTextData trig = (a.landMatchTrigger && texts != null && a.triggerTextIndex >= 0
+                && a.triggerTextIndex < texts.size()) ? texts.get(a.triggerTextIndex) : null;
+        if (trig != null) {
+            f.fontName      = trig.fontName;
+            f.fontStyle     = trig.fontStyle;
+            f.fontSize      = trig.fontSize;
+            f.letterSpacing = trig.letterSpacing;
+            f.color         = trig.color;
+            f.scale         = 1.0;      // an exact match, not a multiple of one
+            return f;
+        }
+        if (a.landFont != null && !a.landFont.isEmpty() && !FN_FONT_INHERIT.equals(a.landFont)) {
+            f.fontName = a.landFont;
+        }
+        Integer bits = fnStyleBits(a.landStyle);
+        if (bits != null) f.fontStyle = bits;
+        f.color = a.landColor;
+        f.scale = a.landScale;
+        return f;
+    }
+
     /**
      * Drive the transient render hooks for this text's timed actions at the given
      * elapsed time. Reuses the same per-frame fields as the audio-highlight and
@@ -20045,7 +20130,7 @@ public class GifSlideShowApp extends JFrame {
      *                (rendered by expandActionGhosts) on the same path.
      *   Pulse / Shake / Bounce / Spin / Flash — in-place emphasis over the window.
      */
-    private static void applyTextActions(SlideTextData st, long elapsedMs) {
+    private static void applyTextActions(SlideTextData st, long elapsedMs, List<SlideTextData> texts) {
         if (st == null || st.actions == null || st.actions.isEmpty()) return;
         for (SlideTextData.Action a : st.actions) {
             if (a == null || elapsedMs < a.atMs) continue;   // not fired yet
@@ -20070,8 +20155,13 @@ public class GifSlideShowApp extends JFrame {
                     wm.destYFrac = a.toYPct / 100.0;
                     wm.eased = eased;
                     if (landed && a.landFormat) {
-                        wm.scale = a.landScale * (1.0 + landingPop(since - dur));
-                        wm.color = a.landColor;
+                        LandingFormat lf = resolveLandingFormat(a, texts);
+                        wm.scale = lf.scale * (1.0 + landingPop(since - dur));
+                        wm.color = lf.color;
+                        wm.fontName  = lf.fontName;
+                        wm.fontStyle = lf.fontStyle;
+                        wm.fontSize  = lf.fontSize;
+                        wm.letterSpacing = lf.letterSpacing;
                     }
                 } else {
                     if (landed) continue;   // in-place effect only during its window
@@ -20114,10 +20204,12 @@ public class GifSlideShowApp extends JFrame {
                 // brief overshoot pop centred just after touchdown.
                 double landScale = 1.0;
                 Color  landCol   = null;
+                LandingFormat lf = null;
                 if (landed && a.landFormat) {
                     long sinceLanded = since - dur;
-                    landScale = a.landScale * (1.0 + landingPop(sinceLanded));
-                    landCol   = a.landColor;
+                    lf = resolveLandingFormat(a, texts);
+                    landScale = lf.scale * (1.0 + landingPop(sinceLanded));
+                    landCol   = lf.color;
                 }
                 if ("Move Copy".equals(a.kind)) {
                     st.ghostActive = true;
@@ -20125,12 +20217,22 @@ public class GifSlideShowApp extends JFrame {
                     st.ghostDyFrac = dy;
                     st.ghostScale  = landScale;
                     if (landCol != null) st.ghostColor = landCol;
+                    if (lf != null) {
+                        st.ghostFontName      = lf.fontName;
+                        st.ghostFontStyle     = lf.fontStyle;
+                        st.ghostFontSize      = lf.fontSize;
+                        st.ghostLetterSpacing = lf.letterSpacing;
+                    }
                 } else {
                     st.audioOtherDxFrac  += dx;
                     st.shakeRenderDyFrac += dy;
-                    if (landed && a.landFormat) {
+                    if (lf != null) {
                         st.pulseRenderScale *= landScale;
                         if (landCol != null) st.renderColorOverride = landCol;
+                        st.renderFontNameOverride  = lf.fontName;
+                        st.renderFontStyleOverride = lf.fontStyle;
+                        st.renderFontSizeOverride  = lf.fontSize;
+                        st.renderLetterSpacingOverride = lf.letterSpacing;
                     }
                 }
                 continue;
@@ -20201,6 +20303,13 @@ public class GifSlideShowApp extends JFrame {
             ghost.pulseRenderScale   = st.ghostScale;
             ghost.audioOtherAlpha    = st.ghostAlpha;
             ghost.renderColorOverride = st.ghostColor;
+            // The clone's own font fields are final (constructor-set), so a landing
+            // typeface rides in through the same override hooks the renderer already
+            // reads for a plain Move.
+            ghost.renderFontNameOverride  = st.ghostFontName;
+            ghost.renderFontStyleOverride = st.ghostFontStyle;
+            ghost.renderFontSizeOverride  = st.ghostFontSize;
+            ghost.renderLetterSpacingOverride = st.ghostLetterSpacing;
             out.add(ghost);
         }
         return out;
@@ -20311,12 +20420,20 @@ public class GifSlideShowApp extends JFrame {
         st.audioOtherTiltDeg = 0.0;
         // Timed-action render hooks are re-derived each frame too.
         st.renderColorOverride = null;
+        st.renderFontNameOverride  = null;
+        st.renderFontStyleOverride = -1;
+        st.renderFontSizeOverride  = 0;
+        st.renderLetterSpacingOverride = LAND_TRACK_KEEP;
         st.ghostActive = false;
         st.ghostDxFrac = 0.0;
         st.ghostDyFrac = 0.0;
         st.ghostScale  = 1.0;
         st.ghostAlpha  = 1.0;
         st.ghostColor  = null;
+        st.ghostFontName  = null;
+        st.ghostFontStyle = -1;
+        st.ghostFontSize  = 0;
+        st.ghostLetterSpacing = LAND_TRACK_KEEP;
         st.altRendersThisFrame = null;
         if (st.wordMotionsRender != null) st.wordMotionsRender.clear();
     }
@@ -21031,12 +21148,20 @@ public class GifSlideShowApp extends JFrame {
                 // ghosts, landing recolour and word-targeted motion still play on
                 // the audio-active text — otherwise this clone silently drops them.
                 hl.renderColorOverride = st.renderColorOverride;
+                hl.renderFontNameOverride  = st.renderFontNameOverride;
+                hl.renderFontStyleOverride = st.renderFontStyleOverride;
+                hl.renderFontSizeOverride  = st.renderFontSizeOverride;
+                hl.renderLetterSpacingOverride = st.renderLetterSpacingOverride;
                 hl.ghostActive = st.ghostActive;
                 hl.ghostDxFrac = st.ghostDxFrac;
                 hl.ghostDyFrac = st.ghostDyFrac;
                 hl.ghostScale  = st.ghostScale;
                 hl.ghostAlpha  = st.ghostAlpha;
                 hl.ghostColor  = st.ghostColor;
+                hl.ghostFontName  = st.ghostFontName;
+                hl.ghostFontStyle = st.ghostFontStyle;
+                hl.ghostFontSize  = st.ghostFontSize;
+                hl.ghostLetterSpacing = st.ghostLetterSpacing;
                 hl.wordMotionsRender = st.wordMotionsRender;
                 hl.altRendersThisFrame = st.altRendersThisFrame;
                 hl.forceShow = st.forceShow;
@@ -21771,6 +21896,13 @@ public class GifSlideShowApp extends JFrame {
         // (null = use the text's own colour). Re-derived every frame: cleared by
         // resetQuizRevealAnim, then set by applyTextActions.
         Color renderColorOverride = null;
+        // Typeface override from the same landing format: family / style bits /
+        // point size to draw this text with once it has landed. null / -1 / 0 mean
+        // "keep the text's own". Re-derived every frame alongside the colour above.
+        String renderFontNameOverride  = null;
+        int    renderFontStyleOverride = -1;
+        int    renderFontSizeOverride  = 0;
+        int    renderLetterSpacingOverride = LAND_TRACK_KEEP;
         // "Move Copy": when true, the renderer draws an extra ghost instance of
         // this text at the offset / scale / colour below, leaving the original in
         // place. Set each frame by applyTextActions; cleared by resetQuizRevealAnim.
@@ -21780,6 +21912,12 @@ public class GifSlideShowApp extends JFrame {
         double ghostScale  = 1.0;   // ghost scale around its own centre
         double ghostAlpha  = 1.0;   // ghost alpha multiplier (0..1)
         Color  ghostColor  = null;  // ghost draw-colour override (null = text's own colour)
+        // Ghost typeface override (landing format on a "Move Copy"), same
+        // null / -1 / 0 = "keep the text's own" contract as the three above.
+        String ghostFontName  = null;
+        int    ghostFontStyle = -1;
+        int    ghostFontSize  = 0;
+        int    ghostLetterSpacing = LAND_TRACK_KEEP;
 
         // Per-frame word-motion overlays (Texts Timer → Motion, with a Word target).
         // Each entry describes a formatted copy of one word to draw this frame — its
@@ -21795,6 +21933,13 @@ public class GifSlideShowApp extends JFrame {
             double dxFrac, dyFrac;               // in-place translate (fraction of frame)
             double scale = 1.0, alpha = 1.0, tiltDeg = 0.0;
             Color color;         // null = keep the text's colour
+            // Landing typeface for the flying copy: family / style bits / point
+            // size. null / -1 / 0 keep the paragraph's own, so a word that only
+            // recolours still renders in the text's font.
+            String fontName;
+            int    fontStyle = -1;
+            int    fontSize  = 0;
+            int    letterSpacing = LAND_TRACK_KEEP;
         }
         // Comma-separated light-overlay effects (Shimmer, Reveal, Wipe, Glow Trail, Scan).
         // These are post-text overlays clipped to the text glyph shape so they appear
@@ -21965,6 +22110,16 @@ public class GifSlideShowApp extends JFrame {
             boolean landFormat = false;
             double  landScale = 1.3;    // size multiplier on landing (1.0 = same)
             Color   landColor = null;   // recolour on landing (null = keep colour)
+            // Landing typeface. Both pickers carry an explicit "inherit" row, which
+            // is also their default, so an action can change the family, the style,
+            // both or neither — whatever stays on inherit keeps the text's own look.
+            String  landFont  = FN_FONT_INHERIT;   // family on landing
+            String  landStyle = FN_STYLE_INHERIT;  // Regular / Bold / Italic / Bold Italic
+            // Take the TRIGGER text's exact format instead of the fields above: its
+            // family, point size, style and colour, so the word that lands and the
+            // text it reveals read as one matched pair. Needs a trigger to mean
+            // anything; without one the fields above still decide the landing.
+            boolean landMatchTrigger = false;
 
             // Trigger another text to appear when this action lands: index into
             // the slide's text list, or -1 for none. Implemented as an effective
@@ -22002,6 +22157,8 @@ public class GifSlideShowApp extends JFrame {
                 a.kind = kind; a.atMs = atMs; a.durMs = durMs; a.easing = easing;
                 a.toXPct = toXPct; a.toYPct = toYPct;
                 a.landFormat = landFormat; a.landScale = landScale; a.landColor = landColor;
+                a.landFont = landFont; a.landStyle = landStyle;
+                a.landMatchTrigger = landMatchTrigger;
                 a.triggerTextIndex = triggerTextIndex;
                 a.triggerXPct = triggerXPct; a.triggerYPct = triggerYPct;
                 a.word = word; a.wordOccurrence = wordOccurrence;
@@ -33423,7 +33580,10 @@ public class GifSlideShowApp extends JFrame {
                     + "slide).<br><b>Move</b> sends this text to a new spot; <b>Move Copy</b> leaves the "
                     + "original in place and sends a duplicate; <b>Pulse / Shake / Bounce / Spin / Flash</b> "
                     + "play in place. <b>To X% / Y%</b> is the destination as a percentage of the frame. "
-                    + "<b>Format on landing</b> scales &amp; recolours the arrival; <b>Trigger</b> makes "
+                    + "<b>Format on landing</b> re-formats the arrival — scale, colour, and the "
+                    + "<b>Land font</b> / <b>Style</b> on the next line; tick <b>Same as trigger</b> "
+                    + "to land in the triggered text's exact format instead, so the two match. "
+                    + "<b>Trigger</b> makes "
                     + "another text appear when this action lands — its <b>at X%/Y%</b> fill in with "
                     + "the spot that text already has, so change them only to reveal it elsewhere.<br><b>Word</b> (optional) targets a single "
                     + "word inside the text — a formatted copy of that word animates while the paragraph "
@@ -33803,6 +33963,9 @@ public class GifSlideShowApp extends JFrame {
             private final JCheckBox landCheck = new JCheckBox("Format on landing");
             private final JTextField scaleField = new JTextField(4);
             private final JButton colorBtn = new JButton("Colour…");
+            private final JComboBox<String> landFontCombo;
+            private final JComboBox<String> landStyleCombo = new JComboBox<>(FN_WORD_STYLES);
+            private final JCheckBox matchTrigCheck = new JCheckBox("Same as trigger");
             private final JComboBox<String> triggerCombo;
             /** {X%,Y%} of every text on the slide, index-aligned to the trigger
              *  choices minus the leading "(none)". Lets a picked trigger fill its
@@ -33850,6 +34013,28 @@ public class GifSlideShowApp extends JFrame {
                 scaleField.setToolTipText("Size multiplier applied when it lands (1.0 = unchanged, 1.4 = 40% bigger).");
                 colorBtn.setToolTipText("Colour to switch to on landing. Leave unset to keep the text's own colour.");
                 refreshColorBtn();
+                // Landing typeface. Both pickers open on their "inherit" row, so a
+                // landing that only scales or recolours keeps the text's own font.
+                java.util.List<String> landFonts = new java.util.ArrayList<>();
+                landFonts.add(FN_FONT_INHERIT);
+                for (String fn : allFontNames()) landFonts.add(fn);
+                landFontCombo = new JComboBox<>(landFonts.toArray(new String[0]));
+                landFontCombo.setSelectedItem(a.landFont == null || a.landFont.isEmpty()
+                        ? FN_FONT_INHERIT : a.landFont);
+                landFontCombo.setPreferredSize(new Dimension(150, 24));
+                landFontCombo.setToolTipText("Font family the text switches to when it lands. \""
+                        + FN_FONT_INHERIT + "\" keeps the text's own font.");
+                landStyleCombo.setSelectedItem(a.landStyle == null || a.landStyle.isEmpty()
+                        ? FN_STYLE_INHERIT : a.landStyle);
+                landStyleCombo.setToolTipText("Bold / Italic the text takes on landing. \""
+                        + FN_STYLE_INHERIT + "\" keeps whatever the text itself is set to.");
+                matchTrigCheck.setSelected(a.landMatchTrigger);
+                matchTrigCheck.setBackground(panel.getBackground());
+                matchTrigCheck.setToolTipText("Land in the TRIGGER text's exact format — its font, "
+                        + "size, Bold/Italic, letter spacing and colour — so the text that lands and "
+                        + "the text it reveals look identical. Needs a Trigger; it takes over from "
+                        + "the scale, colour and font boxes on this row.");
+                matchTrigCheck.addActionListener(ev -> syncEnabled());
                 colorBtn.addActionListener(ev -> {
                     Color c = JColorChooser.showDialog(panel,
                             "Landing colour", landColor != null ? landColor : Color.WHITE);
@@ -33925,22 +34110,30 @@ public class GifSlideShowApp extends JFrame {
                 g.gridx = 5; panel.add(landCheck, g);
                 g.gridx = 6; panel.add(scaleField, g);
                 g.gridx = 7; panel.add(colorBtn, g);
-                // Line 3 — word target (optional)
+                // Line 3 — the rest of the landing format: its typeface, or the
+                // one-click "wear the trigger text's format" instead.
                 g.gridy = 2;
+                g.gridx = 1; panel.add(new JLabel("Land font:"), g);
+                g.gridx = 2; g.gridwidth = 2; panel.add(landFontCombo, g); g.gridwidth = 1;
+                g.gridx = 4; panel.add(new JLabel("Style:"), g);
+                g.gridx = 5; g.gridwidth = 2; panel.add(landStyleCombo, g); g.gridwidth = 1;
+                g.gridx = 7; panel.add(matchTrigCheck, g);
+                // Line 4 — word target (optional)
+                g.gridy = 3;
                 g.gridx = 1; panel.add(new JLabel("Word:"), g);
                 g.gridx = 2; g.gridwidth = 3; panel.add(wordField, g); g.gridwidth = 1;
                 g.gridx = 5; panel.add(new JLabel("Occurrence:"), g);
                 g.gridx = 6; panel.add(occSpinner, g);
-                // Line 4 — trigger (+ optional position for the triggered text)
-                g.gridy = 3;
+                // Line 5 — trigger (+ optional position for the triggered text)
+                g.gridy = 4;
                 g.gridx = 1; panel.add(new JLabel("Trigger:"), g);
                 g.gridx = 2; g.gridwidth = 2; panel.add(triggerCombo, g); g.gridwidth = 1;
                 g.gridx = 4; panel.add(new JLabel("at X%:"), g);
                 g.gridx = 5; panel.add(trigXField, g);
                 g.gridx = 6; panel.add(new JLabel("Y%:"), g);
                 g.gridx = 7; panel.add(trigYField, g);
-                // Line 5 — the sound this action plays
-                g.gridy = 4;
+                // Line 6 — the sound this action plays
+                g.gridy = 5;
                 g.gridx = 1; panel.add(new JLabel("Sound:"), g);
                 g.gridx = 2; g.gridwidth = 2; panel.add(soundCombo, g); g.gridwidth = 1;
                 g.gridx = 4; panel.add(soundPlayBtn, g);
@@ -34001,9 +34194,16 @@ public class GifSlideShowApp extends JFrame {
                 toYField.setEnabled(move);
                 landCheck.setEnabled(move);
                 boolean fmt = move && landCheck.isSelected();
-                scaleField.setEnabled(fmt);
-                colorBtn.setEnabled(fmt);
                 boolean trig = triggerCombo.getSelectedIndex() > 0;
+                // "Same as trigger" only means something with a trigger to copy, and
+                // when it is on it supplies the whole format — so the boxes it
+                // replaces grey out rather than pretending to still have a say.
+                matchTrigCheck.setEnabled(fmt && trig);
+                boolean matched = fmt && trig && matchTrigCheck.isSelected();
+                scaleField.setEnabled(fmt && !matched);
+                colorBtn.setEnabled(fmt && !matched);
+                landFontCombo.setEnabled(fmt && !matched);
+                landStyleCombo.setEnabled(fmt && !matched);
                 trigXField.setEnabled(trig);
                 trigYField.setEnabled(trig);
                 // Nothing to preview when the row is silent — which is what
@@ -34024,8 +34224,13 @@ public class GifSlideShowApp extends JFrame {
                 a.landFormat = landCheck.isSelected();
                 a.landScale = Math.max(0.2, Math.min(5.0, pDbl.apply(scaleField.getText(), 1.3)));
                 a.landColor = landColor;
+                a.landFont = (String) landFontCombo.getSelectedItem();
+                a.landStyle = (String) landStyleCombo.getSelectedItem();
                 int ti = triggerCombo.getSelectedIndex();
                 a.triggerTextIndex = ti <= 0 ? -1 : ti - 1;
+                // Without a trigger there is nothing to match, so the flag is not
+                // stored — the row's own font / scale / colour decide the landing.
+                a.landMatchTrigger = matchTrigCheck.isSelected() && a.triggerTextIndex >= 0;
                 if (a.triggerTextIndex < 0) {
                     a.triggerXPct = -1; a.triggerYPct = -1;
                 } else {
