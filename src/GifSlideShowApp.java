@@ -6852,6 +6852,7 @@ public class GifSlideShowApp extends JFrame {
                         if (justified) {
                             // The visible prefix is a different line, so it gets its own fit.
                             JustifyFit twFit = justifyFit(visibleLine, stFm, true, false, stMaxLineWidth);
+                            stFit = twFit;          // marks must follow the same fit the glyphs do
                             justified = twFit != null;
                             justifyWords = twFit != null ? twFit.words : justifyWords;
                             justifyExtraSpace = twFit != null ? twFit.gap : justifyExtraSpace;
@@ -7250,18 +7251,9 @@ public class GifSlideShowApp extends JFrame {
                                 }
 
                                 // Use TextLayout for correct visual position (handles RTL/bidi text)
-                                int hlX, hlW;
-                                if (stTextLayout != null) {
-                                    java.awt.Shape hlVisShape = stTextLayout.getLogicalHighlightShape(hlIdx, hlIdx + segLen);
-                                    java.awt.geom.Rectangle2D hlVisBounds = hlVisShape.getBounds2D();
-                                    hlX = lineX + (int) hlVisBounds.getX();
-                                    hlW = (int) Math.ceil(hlVisBounds.getWidth());
-                                } else {
-                                    String before = line.substring(0, hlIdx);
-                                    String match = line.substring(hlIdx, hlIdx + segLen);
-                                    hlX = lineX + stFm.stringWidth(before);
-                                    hlW = stFm.stringWidth(match);
-                                }
+                                int[] hlSpan = markSpan(stFit, stTextLayout, line, stFm,
+                                        lineX, stBlockLeft, hlIdx, hlIdx + segLen);
+                                int hlX = hlSpan[0], hlW = hlSpan[1];
                                 Color hlC = gHlColor != null ? gHlColor : new Color(255, 100, 150, 180);
                                 Graphics2D gHL = (Graphics2D) g.create();
                                 gHL.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -7960,18 +7952,9 @@ public class GifSlideShowApp extends JFrame {
                                 Color hlC = st.highlightColor != null ? st.highlightColor : new Color(255, 100, 150, 180);
                                 {
                                     // Use TextLayout for correct visual position (handles RTL/bidi text)
-                                    int ulMatchX, ulMatchW;
-                                    if (stTextLayout != null) {
-                                        java.awt.Shape ulVisShape = stTextLayout.getLogicalHighlightShape(ulIdx, ulIdx + ulSegLen);
-                                        java.awt.geom.Rectangle2D ulVisBounds = ulVisShape.getBounds2D();
-                                        ulMatchX = lineX + (int) ulVisBounds.getX();
-                                        ulMatchW = (int) Math.ceil(ulVisBounds.getWidth());
-                                    } else {
-                                        String ulBefore = line.substring(0, ulIdx);
-                                        String ulMatch = line.substring(ulIdx, ulIdx + ulSegLen);
-                                        ulMatchX = lineX + stFm.stringWidth(ulBefore);
-                                        ulMatchW = stFm.stringWidth(ulMatch);
-                                    }
+                                    int[] ulSpan = markSpan(stFit, stTextLayout, line, stFm,
+                                            lineX, stBlockLeft, ulIdx, ulIdx + ulSegLen);
+                                    int ulMatchX = ulSpan[0], ulMatchW = ulSpan[1];
                                     Graphics2D gUL = (Graphics2D) g.create();
                                     gUL.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                                     // Tight controls underline distance below the text:
@@ -8210,17 +8193,9 @@ public class GifSlideShowApp extends JFrame {
                         if (ovEnd <= ovIdx) continue;
                         int termLen = ovEnd - ovIdx;
 
-                        int ovX, ovW;
-                        if (stTextLayout != null && ovEnd <= line.length()) {
-                            java.awt.Shape ovShape = stTextLayout.getLogicalHighlightShape(ovIdx, ovEnd);
-                            java.awt.geom.Rectangle2D ovBounds = ovShape.getBounds2D();
-                            ovX = lineX + (int) ovBounds.getX();
-                            ovW = (int) Math.ceil(ovBounds.getWidth());
-                        } else {
-                            String ovBefore = visibleLine.substring(0, ovIdx);
-                            ovX = lineX + stFm.stringWidth(ovBefore);
-                            ovW = stFm.stringWidth(visibleLine.substring(ovIdx, ovEnd));
-                        }
+                        int[] ovSpan = markSpan(stFit, stTextLayout, visibleLine, stFm,
+                                lineX, stBlockLeft, ovIdx, ovEnd);
+                        int ovX = ovSpan[0], ovW = ovSpan[1];
                         // Save background pixels before text is drawn.
                         // The box is the term's LOGICAL advance, but glyph
                         // ink overhangs it (antialiased edges, italic
@@ -9494,18 +9469,9 @@ public class GifSlideShowApp extends JFrame {
                                 Color hlCFG = gFgColor != null ? gFgColor : new Color(255, 100, 150, 180);
                                 int hlIdxFG = seg[0];
                                 int segLenFG = seg[1] - seg[0];
-                                int hlXFG, hlWFG;
-                                if (stTextLayout != null) {
-                                    java.awt.Shape hlVisShapeFG = stTextLayout.getLogicalHighlightShape(hlIdxFG, hlIdxFG + segLenFG);
-                                    java.awt.geom.Rectangle2D hlVisBoundsFG = hlVisShapeFG.getBounds2D();
-                                    hlXFG = lineX + (int) hlVisBoundsFG.getX();
-                                    hlWFG = (int) Math.ceil(hlVisBoundsFG.getWidth());
-                                } else {
-                                    String beforeFG = line.substring(0, hlIdxFG);
-                                    String matchFG = line.substring(hlIdxFG, hlIdxFG + segLenFG);
-                                    hlXFG = lineX + stFm.stringWidth(beforeFG);
-                                    hlWFG = stFm.stringWidth(matchFG);
-                                }
+                                int[] fgSpan = markSpan(stFit, stTextLayout, line, stFm,
+                                        lineX, stBlockLeft, hlIdxFG, hlIdxFG + segLenFG);
+                                int hlXFG = fgSpan[0], hlWFG = fgSpan[1];
                                 Graphics2D gFG = (Graphics2D) g.create();
                                 gFG.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
@@ -9644,20 +9610,9 @@ public class GifSlideShowApp extends JFrame {
                                     : new java.awt.font.TextLayout(kline, stFont, g.getFontRenderContext());
                             for (int[] seg : segs) {
                                 int sCol = seg[0], eCol = seg[1];
-                                int wX, wW;
-                                double[] kSpan = justifiedSpan(kFit, stFm, sCol, eCol);
-                                if (kSpan != null) {
-                                    wX = klineX + (int) Math.floor(kSpan[0]);
-                                    wW = (int) Math.ceil(kSpan[1]);
-                                } else if (kLayout != null) {
-                                    java.awt.Shape shp = kLayout.getLogicalHighlightShape(sCol, eCol);
-                                    java.awt.geom.Rectangle2D b = shp.getBounds2D();
-                                    wX = klineX + (int) Math.floor(b.getX());
-                                    wW = (int) Math.ceil(b.getWidth());
-                                } else {
-                                    wX = klineX + stFm.stringWidth(kline.substring(0, sCol));
-                                    wW = stFm.stringWidth(kline.substring(sCol, eCol));
-                                }
+                                int[] kSpan = markSpan(kFit, kLayout, kline, stFm,
+                                        klineX, klineX, sCol, eCol);
+                                int wX = kSpan[0], wW = kSpan[1];
                                 drawKaraokeWordEffect(g, st.karaokeStyle,
                                         st.karaokeColor != null ? st.karaokeColor : DEFAULT_KARAOKE_COLOR,
                                         wX, kBaselineY, wW, stAscent, stFm.getDescent(),
@@ -12997,6 +12952,33 @@ public class GifSlideShowApp extends JFrame {
         }
         if (spanStart < 0) return null;
         return new double[]{spanStart, spanEnd - spanStart};
+    }
+
+    /**
+     * Where the character range {@code [start, end)} of a wrapped line is painted:
+     * {@code {x, width}} in frame pixels.
+     *
+     * <p>Every mark that has to sit on a word goes through here — the HL box, the
+     * underline, the strikethrough, the per-word bold / italic / colour / font-group
+     * redraw, and the karaoke effect. A justified line is drawn from the block's left
+     * edge with each word pushed along by the justify gap, so a mark measured off the
+     * line string alone lands progressively further left the deeper into the line it
+     * sits. {@code fit} is null on an ordinary line, and then the TextLayout keeps
+     * bidi / RTL text positioned as it always was.
+     */
+    private static int[] markSpan(JustifyFit fit, java.awt.font.TextLayout layout,
+                                  String measured, FontMetrics fm,
+                                  int lineX, int blockLeft, int start, int end) {
+        double[] span = justifiedSpan(fit, fm, start, end);
+        if (span != null) {
+            return new int[]{ blockLeft + (int) Math.floor(span[0]), (int) Math.ceil(span[1]) };
+        }
+        if (layout != null && end <= measured.length()) {
+            java.awt.geom.Rectangle2D b = layout.getLogicalHighlightShape(start, end).getBounds2D();
+            return new int[]{ lineX + (int) b.getX(), (int) Math.ceil(b.getWidth()) };
+        }
+        return new int[]{ lineX + fm.stringWidth(measured.substring(0, start)),
+                          fm.stringWidth(measured.substring(start, end)) };
     }
 
     private static void drawJustified(Graphics2D g, String[] words, int startX, int y,
