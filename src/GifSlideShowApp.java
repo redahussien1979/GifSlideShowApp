@@ -33773,10 +33773,27 @@ public class GifSlideShowApp extends JFrame {
             JButton allSlidesBtn = new JButton("→ Apply to all slides");
             allSlidesBtn.setToolTipText("Copy this motion to Text " + textNumber
                     + " on every slide (slides without a Text " + textNumber
-                    + ", and locked slides, are skipped).");
+                    + ", and locked slides, are skipped). Word-targeted actions can "
+                    + "re-aim at each slide's OWN highlighted words instead of "
+                    + "carrying this slide's words across.");
             allSlidesBtn.addActionListener(e -> {
                 java.util.List<SlideTextData.Action> current = new java.util.ArrayList<>();
                 for (ActionRowUI r : rowUIs) current.add(r.toAction());
+                // How many actions aim at a single word. Their Word is the one thing
+                // that CANNOT travel verbatim: every slide's Text N holds different
+                // words, so a copied "Expertise" simply is not there and the action
+                // dies silently (locateWordCenter returns null and the render skips
+                // it). Offer to re-aim them at each slide's own HL list instead.
+                int wordTargeted = 0;
+                for (SlideTextData.Action a : current) {
+                    if (a != null && a.word != null && !a.word.trim().isEmpty()) wordTargeted++;
+                }
+                final JCheckBox ownWords = new JCheckBox(
+                        "Re-aim Word at each slide's own highlighted words (HL)", true);
+                ownWords.setToolTipText("On: every slide's word-targeted actions take their Word "
+                        + "from that slide's own HL list, in order \u2014 the timing, destination, "
+                        + "landing format and trigger still come from here. "
+                        + "Off: every slide gets this slide's words verbatim.");
                 // This overwrites every other slide's motion for this text and
                 // cannot be undone, so confirm first — same contract as the
                 // shapes and countdown-timer broadcasts.
@@ -33784,22 +33801,57 @@ public class GifSlideShowApp extends JFrame {
                         ? "clear Text " + textNumber + "'s motion on"
                         : "give Text " + textNumber + "'s " + current.size() + " motion action"
                                 + (current.size() == 1 ? "" : "s") + " to";
-                int ok = JOptionPane.showConfirmDialog(dlg,
-                        "<html><body style='width:330px'>Copy this motion to Text " + textNumber
-                                + " on every slide?<br><br>This will " + what
-                                + " every other slide, replacing whatever motion that text "
-                                + "already has there. Locked slides are left alone."
-                                + "</body></html>",
+                JPanel ask = new JPanel(new BorderLayout(0, 8));
+                ask.add(new JLabel("<html><body style='width:360px'>Copy this motion to Text "
+                        + textNumber + " on every slide?<br><br>This will " + what
+                        + " every other slide, replacing whatever motion that text "
+                        + "already has there. Locked slides are left alone."
+                        + (wordTargeted > 0
+                            ? "<br><br>" + wordTargeted + " of them target a single <b>word</b>. "
+                              + "Each slide's Text " + textNumber + " holds different words, so "
+                              + "copying this slide's words across would leave those actions "
+                              + "pointing at words that are not there \u2014 and an action whose "
+                              + "word is missing never fires."
+                            : "")
+                        + "</body></html>"), BorderLayout.NORTH);
+                if (wordTargeted > 0) ask.add(ownWords, BorderLayout.CENTER);
+                int ok = JOptionPane.showConfirmDialog(dlg, ask,
                         "Apply to all slides", JOptionPane.OK_CANCEL_OPTION,
                         JOptionPane.QUESTION_MESSAGE);
                 if (ok != JOptionPane.OK_OPTION) return;
-                int applied = 0, skipped = 0, locked = 0;
+                final boolean reAim = wordTargeted > 0 && ownWords.isSelected();
+                int applied = 0, skipped = 0, locked = 0, noHl = 0, trimmed = 0;
                 for (SlideRow row : slideRows) {
                     if (row.isTitleGridSlide) continue;
                     if (row != SlideRow.this && row.isLocked()) { locked++; continue; }
                     if (textIndex >= row.slideTextItems.size()) { skipped++; continue; }
                     java.util.List<SlideTextData.Action> copy = new java.util.ArrayList<>();
-                    for (SlideTextData.Action a : current) copy.add(a.copy());
+                    // The slide being edited already carries the words the user just
+                    // set, so it is copied verbatim; every OTHER slide re-aims.
+                    if (reAim && row != SlideRow.this) {
+                        java.util.List<String> hw = row.highlightWordsForText(textIndex);
+                        if (hw.isEmpty()) { noHl++; continue; }
+                        String rFull = row.getSlideTextItemText(textIndex);
+                        String[] rTokens = (rFull == null ? "" : rFull.trim()).split("\\s+");
+                        int wi = 0;
+                        boolean lost = false;
+                        for (SlideTextData.Action a : current) {
+                            SlideTextData.Action c = a.copy();
+                            if (c.word != null && !c.word.trim().isEmpty()) {
+                                // Out of HL words on this slide: DROP the surplus action.
+                                // Blanking its word would silently turn a one-word move
+                                // into a whole-paragraph move, which is far worse.
+                                if (wi >= hw.size()) { lost = true; continue; }
+                                String w = hw.get(wi++);
+                                c.word = w;
+                                c.wordOccurrence = Math.max(1, hlWordOccurrence(rTokens, rFull, w));
+                            }
+                            copy.add(c);
+                        }
+                        if (lost) trimmed++;
+                    } else {
+                        for (SlideTextData.Action a : current) copy.add(a.copy());
+                    }
                     row.slideTextItems.get(textIndex).actions = copy;
                     // Each row owns its preview timer, so repaint the ones that
                     // actually changed — otherwise the new motion stays invisible
@@ -33812,10 +33864,23 @@ public class GifSlideShowApp extends JFrame {
                 actions.clear();
                 actions.addAll(current);
                 String msg = "Applied this motion to Text " + textNumber + " on " + applied + " slide(s).";
+                if (reAim) {
+                    msg += "\nEach slide's word-targeted actions took that slide's own HL words.";
+                }
                 if (skipped > 0) {
                     msg += "\n" + skipped + " slide(s) have no Text " + textNumber + " and were skipped.";
                 }
                 if (locked > 0) msg += "\n" + locked + " locked slide(s) were left alone.";
+                if (noHl > 0) {
+                    msg += "\n\n" + noHl + " slide(s) were left alone because their Text " + textNumber
+                            + " has no highlighted words to aim at."
+                            + "\nFill in those slides' HL boxes, then run this again.";
+                }
+                if (trimmed > 0) {
+                    msg += "\n\n" + trimmed + " slide(s) have fewer highlighted words than there are "
+                            + "word-targeted actions,\nso their surplus actions were left off rather "
+                            + "than aimed at nothing.";
+                }
                 JOptionPane.showMessageDialog(dlg, msg, "Apply to all slides",
                         JOptionPane.INFORMATION_MESSAGE);
             });
