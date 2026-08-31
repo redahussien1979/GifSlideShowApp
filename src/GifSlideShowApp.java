@@ -33652,6 +33652,86 @@ public class GifSlideShowApp extends JFrame {
             timingBtn.addActionListener(e -> showWordTimingPicker(dlg, textNumber, activeRow,
                     rowUIs, rebuild, triggerChoices, textPositions, pInt, pDbl));
 
+            // One-press fill: the words already listed in this text's HL boxes are
+            // the words worth animating, in the order they are written, so they map
+            // straight onto the action list. Only Word / Occurrence are claimed --
+            // times, destinations and triggers are the user's and stay put.
+            JButton hlFillBtn = new JButton("\u2913 Fill words from HL");
+            hlFillBtn.setToolTipText("Fill every action's Word from Text " + textNumber
+                    + "'s highlighted words (HL, HL2, ...), in order. "
+                    + "Only Word and Occurrence change.");
+            hlFillBtn.addActionListener(e -> {
+                java.util.List<String> hlWords = highlightWordsForText(textNumber - 1);
+                if (hlWords.isEmpty()) {
+                    JOptionPane.showMessageDialog(dlg,
+                            "Text " + textNumber + " has no highlighted words yet.\n\n"
+                            + "Put the words you want to animate in that text's HL box on the "
+                            + "toolbar (comma-separated), then press this again -- each one "
+                            + "becomes an action's Word, in the order you wrote them.",
+                            "Fill words from HL", JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+                String full = getSlideTextItemText(textNumber - 1);
+                String[] tokens = (full == null ? "" : full.trim()).split("\\s+");
+                java.util.List<String> missing = new java.util.ArrayList<>();
+                for (String w : hlWords) {
+                    if (hlWordOccurrence(tokens, full, w) == 0) missing.add(w);
+                }
+                int fills = Math.min(hlWords.size(), rowUIs.size());
+                int adds  = Math.max(0, hlWords.size() - rowUIs.size());
+                StringBuilder ask = new StringBuilder("<html><body style='width:340px'>");
+                ask.append("Fill the <b>Word</b> boxes from Text ").append(textNumber)
+                   .append("'s ").append(hlWords.size()).append(" highlighted word")
+                   .append(hlWords.size() == 1 ? "" : "s").append("?<br><br>");
+                if (fills > 0) {
+                    ask.append("Action #1").append(fills > 1 ? "-#" + fills : "")
+                       .append(" will have their Word and Occurrence replaced.<br>");
+                }
+                if (adds > 0) {
+                    ask.append(adds).append(" new action").append(adds == 1 ? "" : "s")
+                       .append(" will be added for the remaining word")
+                       .append(adds == 1 ? "" : "s").append(".<br>");
+                }
+                ask.append("<br>Times, destinations, landing format and triggers are "
+                         + "left exactly as they are.");
+                if (!missing.isEmpty()) {
+                    ask.append("<br><br><b>Note:</b> ").append(missing.size())
+                       .append(" highlighted word").append(missing.size() == 1 ? " is" : "s are")
+                       .append(" not in Text ").append(textNumber)
+                       .append(", so ").append(missing.size() == 1 ? "its" : "their")
+                       .append(" action will not fire: ")
+                       .append(String.join(", ", missing));
+                }
+                ask.append("</body></html>");
+                int ok = JOptionPane.showConfirmDialog(dlg, ask.toString(),
+                        "Fill words from HL", JOptionPane.OK_CANCEL_OPTION,
+                        JOptionPane.QUESTION_MESSAGE);
+                if (ok != JOptionPane.OK_OPTION) return;
+                for (int i = 0; i < hlWords.size(); i++) {
+                    String w = hlWords.get(i);
+                    int occ = Math.max(1, hlWordOccurrence(tokens, full, w));
+                    ActionRowUI r;
+                    if (i < rowUIs.size()) {
+                        r = rowUIs.get(i);
+                    } else {
+                        r = new ActionRowUI(new SlideTextData.Action(),
+                                triggerChoices, textPositions, rowUIs, rebuild, pInt, pDbl);
+                        r.markActiveOn(x -> activeRow[0] = x);
+                        rowUIs.add(r);
+                    }
+                    r.applyWordOnly(w, occ);
+                }
+                rebuild.run();
+                String msg = "Filled the Word box on " + hlWords.size() + " action(s).";
+                if (adds > 0) msg += "\n" + adds + " new action(s) were added.";
+                if (!missing.isEmpty()) {
+                    msg += "\n\nNot found in Text " + textNumber + " (these will not fire): "
+                            + String.join(", ", missing);
+                }
+                JOptionPane.showMessageDialog(dlg, msg, "Fill words from HL",
+                        JOptionPane.INFORMATION_MESSAGE);
+            });
+
             JLabel help = new JLabel("<html>Each action fires at its own time (seconds from the start of this "
                     + "slide).<br><b>Move</b> sends this text to a new spot; <b>Move Copy</b> leaves the "
                     + "original in place and sends a duplicate; <b>Pulse / Shake / Bounce / Spin / Flash</b> "
@@ -33693,10 +33773,27 @@ public class GifSlideShowApp extends JFrame {
             JButton allSlidesBtn = new JButton("→ Apply to all slides");
             allSlidesBtn.setToolTipText("Copy this motion to Text " + textNumber
                     + " on every slide (slides without a Text " + textNumber
-                    + ", and locked slides, are skipped).");
+                    + ", and locked slides, are skipped). Word-targeted actions can "
+                    + "re-aim at each slide's OWN highlighted words instead of "
+                    + "carrying this slide's words across.");
             allSlidesBtn.addActionListener(e -> {
                 java.util.List<SlideTextData.Action> current = new java.util.ArrayList<>();
                 for (ActionRowUI r : rowUIs) current.add(r.toAction());
+                // How many actions aim at a single word. Their Word is the one thing
+                // that CANNOT travel verbatim: every slide's Text N holds different
+                // words, so a copied "Expertise" simply is not there and the action
+                // dies silently (locateWordCenter returns null and the render skips
+                // it). Offer to re-aim them at each slide's own HL list instead.
+                int wordTargeted = 0;
+                for (SlideTextData.Action a : current) {
+                    if (a != null && a.word != null && !a.word.trim().isEmpty()) wordTargeted++;
+                }
+                final JCheckBox ownWords = new JCheckBox(
+                        "Re-aim Word at each slide's own highlighted words (HL)", true);
+                ownWords.setToolTipText("On: every slide's word-targeted actions take their Word "
+                        + "from that slide's own HL list, in order \u2014 the timing, destination, "
+                        + "landing format and trigger still come from here. "
+                        + "Off: every slide gets this slide's words verbatim.");
                 // This overwrites every other slide's motion for this text and
                 // cannot be undone, so confirm first — same contract as the
                 // shapes and countdown-timer broadcasts.
@@ -33704,22 +33801,57 @@ public class GifSlideShowApp extends JFrame {
                         ? "clear Text " + textNumber + "'s motion on"
                         : "give Text " + textNumber + "'s " + current.size() + " motion action"
                                 + (current.size() == 1 ? "" : "s") + " to";
-                int ok = JOptionPane.showConfirmDialog(dlg,
-                        "<html><body style='width:330px'>Copy this motion to Text " + textNumber
-                                + " on every slide?<br><br>This will " + what
-                                + " every other slide, replacing whatever motion that text "
-                                + "already has there. Locked slides are left alone."
-                                + "</body></html>",
+                JPanel ask = new JPanel(new BorderLayout(0, 8));
+                ask.add(new JLabel("<html><body style='width:360px'>Copy this motion to Text "
+                        + textNumber + " on every slide?<br><br>This will " + what
+                        + " every other slide, replacing whatever motion that text "
+                        + "already has there. Locked slides are left alone."
+                        + (wordTargeted > 0
+                            ? "<br><br>" + wordTargeted + " of them target a single <b>word</b>. "
+                              + "Each slide's Text " + textNumber + " holds different words, so "
+                              + "copying this slide's words across would leave those actions "
+                              + "pointing at words that are not there \u2014 and an action whose "
+                              + "word is missing never fires."
+                            : "")
+                        + "</body></html>"), BorderLayout.NORTH);
+                if (wordTargeted > 0) ask.add(ownWords, BorderLayout.CENTER);
+                int ok = JOptionPane.showConfirmDialog(dlg, ask,
                         "Apply to all slides", JOptionPane.OK_CANCEL_OPTION,
                         JOptionPane.QUESTION_MESSAGE);
                 if (ok != JOptionPane.OK_OPTION) return;
-                int applied = 0, skipped = 0, locked = 0;
+                final boolean reAim = wordTargeted > 0 && ownWords.isSelected();
+                int applied = 0, skipped = 0, locked = 0, noHl = 0, trimmed = 0;
                 for (SlideRow row : slideRows) {
                     if (row.isTitleGridSlide) continue;
                     if (row != SlideRow.this && row.isLocked()) { locked++; continue; }
                     if (textIndex >= row.slideTextItems.size()) { skipped++; continue; }
                     java.util.List<SlideTextData.Action> copy = new java.util.ArrayList<>();
-                    for (SlideTextData.Action a : current) copy.add(a.copy());
+                    // The slide being edited already carries the words the user just
+                    // set, so it is copied verbatim; every OTHER slide re-aims.
+                    if (reAim && row != SlideRow.this) {
+                        java.util.List<String> hw = row.highlightWordsForText(textIndex);
+                        if (hw.isEmpty()) { noHl++; continue; }
+                        String rFull = row.getSlideTextItemText(textIndex);
+                        String[] rTokens = (rFull == null ? "" : rFull.trim()).split("\\s+");
+                        int wi = 0;
+                        boolean lost = false;
+                        for (SlideTextData.Action a : current) {
+                            SlideTextData.Action c = a.copy();
+                            if (c.word != null && !c.word.trim().isEmpty()) {
+                                // Out of HL words on this slide: DROP the surplus action.
+                                // Blanking its word would silently turn a one-word move
+                                // into a whole-paragraph move, which is far worse.
+                                if (wi >= hw.size()) { lost = true; continue; }
+                                String w = hw.get(wi++);
+                                c.word = w;
+                                c.wordOccurrence = Math.max(1, hlWordOccurrence(rTokens, rFull, w));
+                            }
+                            copy.add(c);
+                        }
+                        if (lost) trimmed++;
+                    } else {
+                        for (SlideTextData.Action a : current) copy.add(a.copy());
+                    }
                     row.slideTextItems.get(textIndex).actions = copy;
                     // Each row owns its preview timer, so repaint the ones that
                     // actually changed — otherwise the new motion stays invisible
@@ -33732,10 +33864,23 @@ public class GifSlideShowApp extends JFrame {
                 actions.clear();
                 actions.addAll(current);
                 String msg = "Applied this motion to Text " + textNumber + " on " + applied + " slide(s).";
+                if (reAim) {
+                    msg += "\nEach slide's word-targeted actions took that slide's own HL words.";
+                }
                 if (skipped > 0) {
                     msg += "\n" + skipped + " slide(s) have no Text " + textNumber + " and were skipped.";
                 }
                 if (locked > 0) msg += "\n" + locked + " locked slide(s) were left alone.";
+                if (noHl > 0) {
+                    msg += "\n\n" + noHl + " slide(s) were left alone because their Text " + textNumber
+                            + " has no highlighted words to aim at."
+                            + "\nFill in those slides' HL boxes, then run this again.";
+                }
+                if (trimmed > 0) {
+                    msg += "\n\n" + trimmed + " slide(s) have fewer highlighted words than there are "
+                            + "word-targeted actions,\nso their surplus actions were left off rather "
+                            + "than aimed at nothing.";
+                }
                 JOptionPane.showMessageDialog(dlg, msg, "Apply to all slides",
                         JOptionPane.INFORMATION_MESSAGE);
             });
@@ -33747,6 +33892,7 @@ public class GifSlideShowApp extends JFrame {
             JPanel addLine = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
             addLine.add(addBtn);
             addLine.add(timingBtn);
+            addLine.add(hlFillBtn);
             top.add(addLine, BorderLayout.SOUTH);
 
             // Play the timeline so the motion is actually visible (the editor's
@@ -33823,6 +33969,57 @@ public class GifSlideShowApp extends JFrame {
          * words (whichever is longer) are ignored. Returns null when there are no
          * ranges or no words to pair.
          */
+        /**
+         * Every highlighted word of one text, in the order they are written: the
+         * primary HL box first, then each extra HL group (HL2, HL3, ...). Parsed
+         * with {@link #splitTerms} so it reads the boxes exactly as the renderer
+         * does. Case-insensitive duplicates are dropped, so a word listed in two
+         * groups still produces just one action.
+         */
+        private java.util.List<String> highlightWordsForText(int textIndex) {
+            java.util.List<String> out = new java.util.ArrayList<>();
+            if (textIndex < 0 || textIndex >= slideTextItems.size()) return out;
+            SlideTextData st = slideTextItems.get(textIndex);
+            if (st == null) return out;
+            java.util.List<String> sources = new java.util.ArrayList<>();
+            sources.add(st.highlightText);
+            if (st.hlGroups != null) {
+                for (SlideTextData.HlGroup g : st.hlGroups) if (g != null) sources.add(g.words);
+            }
+            for (String csv : sources) {
+                String[] terms = splitTerms(csv);
+                if (terms == null) continue;
+                for (String t : terms) {
+                    String w = t == null ? "" : t.trim();
+                    if (w.isEmpty()) continue;
+                    boolean dup = false;
+                    for (String had : out) if (had.equalsIgnoreCase(w)) { dup = true; break; }
+                    if (!dup) out.add(w);
+                }
+            }
+            return out;
+        }
+
+        /**
+         * Which occurrence of an HL word a Motion action should target, or 0 when
+         * that word is nowhere in the text. Whole-word token matches win and are
+         * resolved through {@link #occurrenceForToken}, so the answer is the same
+         * instance {@code locateWordCenter} will find at render time; a multi-word
+         * HL phrase falls back to the substring test the renderer also uses. A 0
+         * is what lets the caller warn about a word that would silently never fire.
+         */
+        private static int hlWordOccurrence(String[] tokens, String fullText, String word) {
+            String needle = cleanPickWord(word).toLowerCase();
+            if (needle.isEmpty()) return 0;
+            for (int i = 0; i < tokens.length; i++) {
+                if (cleanPickWord(tokens[i]).toLowerCase().equals(needle)) {
+                    return occurrenceForToken(tokens, i);
+                }
+            }
+            String hay = fullText == null ? "" : fullText.toLowerCase();
+            return hay.contains(needle) ? 1 : 0;
+        }
+
         private java.util.List<WordTiming> wordTimingsFromVideoRanges(int textNumber) {
             if (videoRepeats == null || videoRepeats.isEmpty()) return null;
             String text = getSlideTextItemText(textNumber - 1);
@@ -34374,6 +34571,14 @@ public class GifSlideShowApp extends JFrame {
                         setter.accept(ActionRowUI.this);
                     }
                 });
+            }
+
+            /** Fill just the Word and Occurrence, leaving the timing, the
+             *  destination and the trigger this row already carries untouched.
+             *  Used by "Fill words from HL", which only claims those two fields. */
+            void applyWordOnly(String word, int occ) {
+                wordField.setText(word == null ? "" : word);
+                occSpinner.setValue(Math.max(1, occ));
             }
 
             /** Fill this row from a picked word timing: its Word, the matching
