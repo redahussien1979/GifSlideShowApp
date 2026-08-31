@@ -33692,8 +33692,27 @@ public class GifSlideShowApp extends JFrame {
                        .append(" will be added for the remaining word")
                        .append(adds == 1 ? "" : "s").append(".<br>");
                 }
-                ask.append("<br>Times, destinations, landing format and triggers are "
+                // If this text has been Word Synced, the moment each word is spoken
+                // is already known — that is exactly what At(s) wants, so offer to
+                // fill it in the same press instead of leaving it to be typed.
+                int timeable = 0;
+                for (String w : hlWords) {
+                    if (hlWordOccurrence(tokens, full, w) != 0
+                            && wordStartMsFor(textNumber, w, 1) >= 0) timeable++;
+                }
+                final JCheckBox alsoTimes = new JCheckBox(
+                        "Also set At(s) to when each word is spoken (Word Sync)", timeable > 0);
+                alsoTimes.setEnabled(timeable > 0);
+                alsoTimes.setToolTipText(timeable > 0
+                        ? "Fills At(s) from this text's word timings, so each action fires on its word."
+                        : "This text has no Word Sync timings yet, so At(s) cannot be filled.");
+                ask.append("<br>Destinations, landing format and triggers are "
                          + "left exactly as they are.");
+                if (timeable > 0) {
+                    ask.append("<br><br>").append(timeable).append(" of these word")
+                       .append(timeable == 1 ? " has" : "s have")
+                       .append(" a spoken time from Word Sync.");
+                }
                 if (!missing.isEmpty()) {
                     ask.append("<br><br><b>Note:</b> ").append(missing.size())
                        .append(" highlighted word").append(missing.size() == 1 ? " is" : "s are")
@@ -33703,10 +33722,15 @@ public class GifSlideShowApp extends JFrame {
                        .append(String.join(", ", missing));
                 }
                 ask.append("</body></html>");
-                int ok = JOptionPane.showConfirmDialog(dlg, ask.toString(),
+                JPanel askPanel = new JPanel(new BorderLayout(0, 8));
+                askPanel.add(new JLabel(ask.toString()), BorderLayout.NORTH);
+                askPanel.add(alsoTimes, BorderLayout.CENTER);
+                int ok = JOptionPane.showConfirmDialog(dlg, askPanel,
                         "Fill words from HL", JOptionPane.OK_CANCEL_OPTION,
                         JOptionPane.QUESTION_MESSAGE);
                 if (ok != JOptionPane.OK_OPTION) return;
+                final boolean setTimes = alsoTimes.isSelected() && alsoTimes.isEnabled();
+                int timed = 0;
                 for (int i = 0; i < hlWords.size(); i++) {
                     String w = hlWords.get(i);
                     int occ = Math.max(1, hlWordOccurrence(tokens, full, w));
@@ -33719,10 +33743,15 @@ public class GifSlideShowApp extends JFrame {
                         r.markActiveOn(x -> activeRow[0] = x);
                         rowUIs.add(r);
                     }
-                    r.applyWordOnly(w, occ);
+                    int atMs = setTimes ? wordStartMsFor(textNumber, w, occ) : -1;
+                    if (atMs >= 0) { r.applyWordPick(w, occ, atMs / 1000.0); timed++; }
+                    else           { r.applyWordOnly(w, occ); }
                 }
                 rebuild.run();
                 String msg = "Filled the Word box on " + hlWords.size() + " action(s).";
+                if (setTimes) {
+                    msg += "\n" + timed + " of them also got At(s) from the word timings.";
+                }
                 if (adds > 0) msg += "\n" + adds + " new action(s) were added.";
                 if (!missing.isEmpty()) {
                     msg += "\n\nNot found in Text " + textNumber + " (these will not fire): "
@@ -33791,9 +33820,23 @@ public class GifSlideShowApp extends JFrame {
                 final JCheckBox ownWords = new JCheckBox(
                         "Re-aim Word at each slide's own highlighted words (HL)", true);
                 ownWords.setToolTipText("On: every slide's word-targeted actions take their Word "
-                        + "from that slide's own HL list, in order \u2014 the timing, destination, "
+                        + "from that slide's own HL list, in order \u2014 the destination, "
                         + "landing format and trigger still come from here. "
                         + "Off: every slide gets this slide's words verbatim.");
+                // At(s) is the second thing that cannot travel: it is the moment the
+                // word is SPOKEN, which belongs to this slide's narration. Every slide
+                // says its words at its own times, so a copied At(s) fires the motion
+                // against the wrong audio. Re-time from each slide's own Word Sync.
+                final JCheckBox ownTimes = new JCheckBox(
+                        "Re-time At(s) from each slide's own word timings (Word Sync)", true);
+                ownTimes.setToolTipText("On: each action fires when THAT slide actually speaks its "
+                        + "word. Off: every slide reuses this slide's At(s) values. "
+                        + "Dur, easing, destination, landing format and trigger travel either way.");
+                ownTimes.setEnabled(ownWords.isSelected());
+                ownWords.addActionListener(ev -> {
+                    ownTimes.setEnabled(ownWords.isSelected());
+                    if (!ownWords.isSelected()) ownTimes.setSelected(false);
+                });
                 // This overwrites every other slide's motion for this text and
                 // cannot be undone, so confirm first — same contract as the
                 // shapes and countdown-timer broadcasts.
@@ -33807,20 +33850,30 @@ public class GifSlideShowApp extends JFrame {
                         + " every other slide, replacing whatever motion that text "
                         + "already has there. Locked slides are left alone."
                         + (wordTargeted > 0
-                            ? "<br><br>" + wordTargeted + " of them target a single <b>word</b>. "
-                              + "Each slide's Text " + textNumber + " holds different words, so "
-                              + "copying this slide's words across would leave those actions "
-                              + "pointing at words that are not there \u2014 and an action whose "
-                              + "word is missing never fires."
+                            ? "<br><br>" + wordTargeted + " of them target a single <b>word</b> "
+                              + "at a spoken <b>time</b>. Both belong to this slide: another slide's "
+                              + "Text " + textNumber + " holds different words, and says them at "
+                              + "different moments. Copied across as-is, those actions point at "
+                              + "words that are not there (a missing word never fires) and fire "
+                              + "against the wrong audio."
                             : "")
                         + "</body></html>"), BorderLayout.NORTH);
-                if (wordTargeted > 0) ask.add(ownWords, BorderLayout.CENTER);
+                if (wordTargeted > 0) {
+                    JPanel opts = new JPanel();
+                    opts.setLayout(new BoxLayout(opts, BoxLayout.Y_AXIS));
+                    ownWords.setAlignmentX(Component.LEFT_ALIGNMENT);
+                    ownTimes.setAlignmentX(Component.LEFT_ALIGNMENT);
+                    opts.add(ownWords);
+                    opts.add(ownTimes);
+                    ask.add(opts, BorderLayout.CENTER);
+                }
                 int ok = JOptionPane.showConfirmDialog(dlg, ask,
                         "Apply to all slides", JOptionPane.OK_CANCEL_OPTION,
                         JOptionPane.QUESTION_MESSAGE);
                 if (ok != JOptionPane.OK_OPTION) return;
-                final boolean reAim = wordTargeted > 0 && ownWords.isSelected();
-                int applied = 0, skipped = 0, locked = 0, noHl = 0, trimmed = 0;
+                final boolean reAim  = wordTargeted > 0 && ownWords.isSelected();
+                final boolean reTime = reAim && ownTimes.isSelected();
+                int applied = 0, skipped = 0, locked = 0, noHl = 0, trimmed = 0, noTimes = 0;
                 for (SlideRow row : slideRows) {
                     if (row.isTitleGridSlide) continue;
                     if (row != SlideRow.this && row.isLocked()) { locked++; continue; }
@@ -33834,7 +33887,7 @@ public class GifSlideShowApp extends JFrame {
                         String rFull = row.getSlideTextItemText(textIndex);
                         String[] rTokens = (rFull == null ? "" : rFull.trim()).split("\\s+");
                         int wi = 0;
-                        boolean lost = false;
+                        boolean lost = false, untimed = false;
                         for (SlideTextData.Action a : current) {
                             SlideTextData.Action c = a.copy();
                             if (c.word != null && !c.word.trim().isEmpty()) {
@@ -33845,10 +33898,19 @@ public class GifSlideShowApp extends JFrame {
                                 String w = hw.get(wi++);
                                 c.word = w;
                                 c.wordOccurrence = Math.max(1, hlWordOccurrence(rTokens, rFull, w));
+                                if (reTime) {
+                                    // Fire when THIS slide speaks the word. No timings for
+                                    // it (no Word Sync yet, or the word is not in the
+                                    // transcript) leaves the master's At(s) rather than
+                                    // guessing a time — and the slide is reported.
+                                    int at = row.wordStartMsFor(textNumber, w, c.wordOccurrence);
+                                    if (at >= 0) c.atMs = at; else untimed = true;
+                                }
                             }
                             copy.add(c);
                         }
                         if (lost) trimmed++;
+                        if (untimed) noTimes++;
                     } else {
                         for (SlideTextData.Action a : current) copy.add(a.copy());
                     }
@@ -33865,7 +33927,8 @@ public class GifSlideShowApp extends JFrame {
                 actions.addAll(current);
                 String msg = "Applied this motion to Text " + textNumber + " on " + applied + " slide(s).";
                 if (reAim) {
-                    msg += "\nEach slide's word-targeted actions took that slide's own HL words.";
+                    msg += "\nEach slide's word-targeted actions took that slide's own HL words";
+                    msg += reTime ? " and its own spoken times." : ".";
                 }
                 if (skipped > 0) {
                     msg += "\n" + skipped + " slide(s) have no Text " + textNumber + " and were skipped.";
@@ -33880,6 +33943,12 @@ public class GifSlideShowApp extends JFrame {
                     msg += "\n\n" + trimmed + " slide(s) have fewer highlighted words than there are "
                             + "word-targeted actions,\nso their surplus actions were left off rather "
                             + "than aimed at nothing.";
+                }
+                if (noTimes > 0) {
+                    msg += "\n\n" + noTimes + " slide(s) could not be re-timed \u2014 no Word Sync "
+                            + "timings for their Text " + textNumber + ",\nor the word is not in the "
+                            + "transcript. Those actions kept this slide's At(s)."
+                            + "\nRun Word Sync on those slides, then run this again.";
                 }
                 JOptionPane.showMessageDialog(dlg, msg, "Apply to all slides",
                         JOptionPane.INFORMATION_MESSAGE);
@@ -34018,6 +34087,34 @@ public class GifSlideShowApp extends JFrame {
             }
             String hay = fullText == null ? "" : fullText.toLowerCase();
             return hay.contains(needle) ? 1 : 0;
+        }
+
+        /**
+         * When one word of a text is actually spoken, in ms from the start of the
+         * slide, or -1 when this slide cannot say. Reads the same two sources, in
+         * the same priority order, as the Word-timings picker: the text's own audio
+         * Word Sync first, then a video slide's imported "Repeat parts" ranges.
+         *
+         * <p>This is what makes a broadcast motion land in time on every slide. The
+         * spoken moment is a property of THIS slide's narration, so it can never
+         * travel with the action the way a duration or a destination can.
+         */
+        private int wordStartMsFor(int textNumber, String word, int occurrence) {
+            java.util.List<WordTiming> ts = slideAudioWordTimingsMap.get(textNumber - 1);
+            if ((ts == null || ts.isEmpty()) && sourceVideoFile != null) {
+                ts = wordTimingsFromVideoRanges(textNumber);
+            }
+            if (ts == null || ts.isEmpty()) return -1;
+            String needle = cleanPickWord(word).toLowerCase();
+            if (needle.isEmpty()) return -1;
+            int want = Math.max(1, occurrence), seen = 0;
+            for (WordTiming t : ts) {
+                if (t == null) continue;
+                if (cleanPickWord(t.word).toLowerCase().equals(needle) && ++seen == want) {
+                    return (int) Math.round(t.startSec * 1000.0);
+                }
+            }
+            return -1;
         }
 
         private java.util.List<WordTiming> wordTimingsFromVideoRanges(int textNumber) {
