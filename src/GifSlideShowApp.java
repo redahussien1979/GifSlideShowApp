@@ -20842,18 +20842,25 @@ public class GifSlideShowApp extends JFrame {
                     // the previously-spoken word until the next one actually
                     // begins, instead of vanishing during the gap (which read
                     // as the highlight "jumping" over words).
+                    // Words past the end of the narration — the "~ Author, Title"
+                    // line under a quote, say — are not candidates: the box holds
+                    // the last word actually spoken instead of running on to the
+                    // end of the text. Among entries sharing one start time take
+                    // the FIRST, so a tie can never skip the box forward over
+                    // several words at once.
+                    int lastSpoken = lastSpokenTimingIndex(wordTimings);
                     int candidate = -1;
-                    for (int wi = 0; wi < wordTimings.size(); wi++) {
+                    for (int wi = 0; wi <= lastSpoken; wi++) {
                         WordTiming wt = wordTimings.get(wi);
-                        if (wt == null) continue;
-                        if (t >= wt.startSec) candidate = wi;
-                        else break;
+                        if (wt == null || wt.endSec <= wt.startSec) continue;
+                        if (t < wt.startSec) break;
+                        if (candidate < 0 || wt.startSec > wordTimings.get(candidate).startSec) candidate = wi;
                     }
                     if (candidate >= 0) {
                         WordTiming wt = wordTimings.get(candidate);
-                        // For the very last word, drop the highlight ~300ms
+                        // For the last spoken word, drop the highlight ~300ms
                         // after its endSec so we don't keep it lit forever.
-                        boolean isLast = (candidate == wordTimings.size() - 1);
+                        boolean isLast = (candidate == lastSpoken);
                         if (isLast && wt.endSec > 0 && t > wt.endSec + 0.3) {
                             karaokeIdx = -1;
                         } else {
@@ -23689,25 +23696,79 @@ public class GifSlideShowApp extends JFrame {
 
         if (matchedChars < Math.max(1, hintNorm.length() / 4)) return scribe;
 
-        List<WordTiming> out = new ArrayList<>(tokens.length);
+        // Fill in the tokens Scribe matched nothing against. They arrive in runs,
+        // and where a run sits decides what it means:
+        //   • between two spoken tokens — words Scribe misheard or skipped. Share
+        //     the gap out evenly so the highlight walks through them instead of
+        //     jumping the whole run in one instant.
+        //   • before the first or after the last spoken token — text the narration
+        //     never says at all: a heading above the quote, the "~ Author, Title"
+        //     attribution below it. These get an EMPTY window (end == start), which
+        //     is how a token says "never spoken"; the karaoke pass skips them, so
+        //     the box stops on the last word actually read out. Handing them a real
+        //     window is what used to fling the box onto the very last word of the
+        //     text the moment the narration ended.
+        double[] outS = new double[tokens.length];
+        double[] outE = new double[tokens.length];
         for (int i = 0; i < tokens.length; i++) {
-            double s = minStart[i], e = maxEnd[i];
-            if (s == Double.POSITIVE_INFINITY) {
-                double prev = Double.NEGATIVE_INFINITY;
-                for (int j = i - 1; j >= 0; j--)
-                    if (maxEnd[j] != Double.NEGATIVE_INFINITY) { prev = maxEnd[j]; break; }
-                double next = Double.POSITIVE_INFINITY;
-                for (int j = i + 1; j < tokens.length; j++)
-                    if (minStart[j] != Double.POSITIVE_INFINITY) { next = minStart[j]; break; }
-                if (prev != Double.NEGATIVE_INFINITY && next != Double.POSITIVE_INFINITY) { s = prev; e = next; }
-                else if (prev != Double.NEGATIVE_INFINITY) { s = prev; e = prev + 0.15; }
-                else if (next != Double.POSITIVE_INFINITY) { s = Math.max(0, next - 0.15); e = next; }
-                else { s = 0; e = 0.05; }
+            if (minStart[i] != Double.POSITIVE_INFINITY) {
+                outS[i] = minStart[i];
+                outE[i] = Math.max(maxEnd[i], minStart[i] + 0.05);
+                continue;
             }
-            if (e <= s) e = s + 0.05;
-            out.add(new WordTiming(tokens[i], s, e));
+            int runEnd = i;
+            while (runEnd + 1 < tokens.length && minStart[runEnd + 1] == Double.POSITIVE_INFINITY) runEnd++;
+            // The token before a maximal run is always a matched one, so it is filled.
+            double prev = i > 0 ? outE[i - 1] : Double.NEGATIVE_INFINITY;
+            double next = Double.POSITIVE_INFINITY;
+            for (int j = runEnd + 1; j < tokens.length; j++)
+                if (minStart[j] != Double.POSITIVE_INFINITY) { next = minStart[j]; break; }
+            int len = runEnd - i + 1;
+            if (prev != Double.NEGATIVE_INFINITY && next != Double.POSITIVE_INFINITY && next > prev) {
+                double step = (next - prev) / len;
+                for (int k = 0; k < len; k++) {
+                    outS[i + k] = prev + step * k;
+                    outE[i + k] = prev + step * (k + 1);
+                }
+            } else {
+                double at = prev != Double.NEGATIVE_INFINITY ? prev
+                        : (next != Double.POSITIVE_INFINITY ? Math.max(0, next) : 0);
+                for (int k = 0; k < len; k++) { outS[i + k] = at; outE[i + k] = at; }
+            }
+            i = runEnd;
         }
+
+        List<WordTiming> out = new ArrayList<>(tokens.length);
+        for (int i = 0; i < tokens.length; i++) out.add(new WordTiming(tokens[i], outS[i], outE[i]));
         return out;
+    }
+
+    /**
+     * Index of the last word the narration actually speaks, or -1 when none does.
+     *
+     * <p>Two things mark a token as never spoken. An EMPTY window (end &lt;= start)
+     * is what {@link #alignTimingsToText} writes for text outside the narration.
+     * And in sidecars captured before it did that, such text instead carries a run
+     * of trailing entries that all share ONE start time — the old fallback stamped
+     * the end of the last spoken word onto every one of them. No real transcript
+     * starts several consecutive words at the same instant, so that run reads the
+     * same way here and old .timings files need no re-sync.
+     */
+    static int lastSpokenTimingIndex(List<WordTiming> timings) {
+        if (timings == null || timings.isEmpty()) return -1;
+        int last = -1;
+        for (int i = 0; i < timings.size(); i++) {
+            WordTiming wt = timings.get(i);
+            if (wt != null && wt.endSec > wt.startSec) last = i;
+        }
+        if (last <= 0) return last;
+        int runStart = last;
+        while (runStart > 0) {
+            WordTiming a = timings.get(runStart - 1), b = timings.get(runStart);
+            if (a == null || b == null || a.startSec != b.startSec) break;
+            runStart--;
+        }
+        return runStart == last ? last : runStart - 1;
     }
 
     private static String normalizeWordForAlign(String s) {
