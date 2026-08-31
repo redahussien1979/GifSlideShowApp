@@ -33683,20 +33683,48 @@ public class GifSlideShowApp extends JFrame {
 
             // Propagate this text's motion to the SAME text position on every
             // slide — so a "move this word" set up once repeats across the deck.
+            // Locked slides are left alone, exactly like the shapes / countdown
+            // timer / Image FX broadcasts: 🔒 means "the deck does not reach me".
+            // The slide being edited is the one exception — the user is standing
+            // on it, so its own lock never blocks its own edit, and writing it
+            // here keeps every slide identical even if the Texts Timer is then
+            // closed with Cancel.
             final int textIndex = textNumber - 1;
             JButton allSlidesBtn = new JButton("→ Apply to all slides");
             allSlidesBtn.setToolTipText("Copy this motion to Text " + textNumber
-                    + " on every slide (slides without a Text " + textNumber + " are skipped).");
+                    + " on every slide (slides without a Text " + textNumber
+                    + ", and locked slides, are skipped).");
             allSlidesBtn.addActionListener(e -> {
                 java.util.List<SlideTextData.Action> current = new java.util.ArrayList<>();
                 for (ActionRowUI r : rowUIs) current.add(r.toAction());
-                int applied = 0, skipped = 0;
+                // This overwrites every other slide's motion for this text and
+                // cannot be undone, so confirm first — same contract as the
+                // shapes and countdown-timer broadcasts.
+                String what = current.isEmpty()
+                        ? "clear Text " + textNumber + "'s motion on"
+                        : "give Text " + textNumber + "'s " + current.size() + " motion action"
+                                + (current.size() == 1 ? "" : "s") + " to";
+                int ok = JOptionPane.showConfirmDialog(dlg,
+                        "<html><body style='width:330px'>Copy this motion to Text " + textNumber
+                                + " on every slide?<br><br>This will " + what
+                                + " every other slide, replacing whatever motion that text "
+                                + "already has there. Locked slides are left alone."
+                                + "</body></html>",
+                        "Apply to all slides", JOptionPane.OK_CANCEL_OPTION,
+                        JOptionPane.QUESTION_MESSAGE);
+                if (ok != JOptionPane.OK_OPTION) return;
+                int applied = 0, skipped = 0, locked = 0;
                 for (SlideRow row : slideRows) {
                     if (row.isTitleGridSlide) continue;
+                    if (row != SlideRow.this && row.isLocked()) { locked++; continue; }
                     if (textIndex >= row.slideTextItems.size()) { skipped++; continue; }
                     java.util.List<SlideTextData.Action> copy = new java.util.ArrayList<>();
                     for (SlideTextData.Action a : current) copy.add(a.copy());
                     row.slideTextItems.get(textIndex).actions = copy;
+                    // Each row owns its preview timer, so repaint the ones that
+                    // actually changed — otherwise the new motion stays invisible
+                    // until something unrelated triggers a redraw.
+                    row.schedulePreview();
                     applied++;
                 }
                 // Keep this dialog's working copy in sync so OK / the row label stay
@@ -33707,6 +33735,7 @@ public class GifSlideShowApp extends JFrame {
                 if (skipped > 0) {
                     msg += "\n" + skipped + " slide(s) have no Text " + textNumber + " and were skipped.";
                 }
+                if (locked > 0) msg += "\n" + locked + " locked slide(s) were left alone.";
                 JOptionPane.showMessageDialog(dlg, msg, "Apply to all slides",
                         JOptionPane.INFORMATION_MESSAGE);
             });
