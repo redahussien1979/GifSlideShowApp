@@ -8191,8 +8191,12 @@ public class GifSlideShowApp extends JFrame {
                         addOverrideRanges(ovFlagsByRange, stFnSegments.get(fgi), li, 3, fgi + 1);
                     }
 
-                    // List of: [ovIdx, termLen, ovX, ovW, boldFlag, italicFlag, colorFlag, savedPixels[], sx, sy, sw, sh, fnGroup]
+                    // List of: [ovIdx, termLen, ovX, ovW, boldFlag, italicFlag, colorFlag, fnGroup]
+                    // plus ovHoles: the union of those words' boxes, punched out of the
+                    // clip for the main line draw below so the paragraph renders WITHOUT
+                    // them and each is drawn once, in its own font/colour, after it.
                     java.util.List<Object[]> overrideRegions = new java.util.ArrayList<>();
+                    java.awt.geom.Area ovHoles = null;
                     for (java.util.Map.Entry<Long, int[]> entry : ovFlagsByRange.entrySet()) {
                         long ovKey = entry.getKey();
                         int[] flags = entry.getValue();
@@ -8210,30 +8214,23 @@ public class GifSlideShowApp extends JFrame {
                         int[] ovSpan = markSpan(stFit, stTextLayout, visibleLine, stFm,
                                 lineX, stBlockLeft, ovIdx, ovEnd);
                         int ovX = ovSpan[0], ovW = ovSpan[1];
-                        // Save background pixels before text is drawn.
-                        // The box is the term's LOGICAL advance, but glyph
-                        // ink overhangs it (antialiased edges, italic
-                        // slant, script tails), and whatever is left
-                        // outside the box survives the restore below as a
-                        // ghost fringe of the original word beside the
-                        // replacement. A small margin, scaled with the
-                        // font so it holds at any size, takes that fringe
-                        // with it; words are space-separated, so it stays
+                        // The hole is the term's LOGICAL advance, but glyph ink
+                        // overhangs it (antialiased edges, italic slant, script
+                        // tails), and anything left outside it would be painted
+                        // by the main draw in the text's own font beside the
+                        // replacement, as a ghost fringe. A small margin, scaled
+                        // with the font so it holds at any size, takes that
+                        // fringe with it; words are space-separated, so it stays
                         // clear of the neighbours' ink.
                         int ovPad = Math.max(1, (int) Math.ceil(scaledStSize * 0.08));
-                        int saveY = lineY - stFm.getAscent() - 2 - ovPad;
-                        int saveH = stFm.getHeight() + 4 + ovPad * 2;
-                        int sx = Math.max(0, ovX - ovPad);
-                        int sy = Math.max(0, saveY);
-                        int sw = Math.min(ovW + (ovX - sx) + ovPad, frame.getWidth() - sx);
-                        int sh = Math.min(saveH, frame.getHeight() - sy);
-                        int[] savedPixels = null;
-                        if (sw > 0 && sh > 0) {
-                            savedPixels = frame.getRGB(sx, sy, sw, sh, null, 0, sw);
-                        }
+                        double holeY = lineY - stFm.getAscent() - 2 - ovPad;
+                        double holeH = stFm.getHeight() + 4 + ovPad * 2;
+                        java.awt.geom.Rectangle2D.Double hole = new java.awt.geom.Rectangle2D.Double(
+                                ovX - ovPad, holeY, ovW + ovPad * 2.0, holeH);
+                        if (ovHoles == null) ovHoles = new java.awt.geom.Area();
+                        ovHoles.add(new java.awt.geom.Area(hole));
                         overrideRegions.add(new Object[]{
-                                ovIdx, termLen, ovX, ovW, flags[0], flags[1], flags[2],
-                                savedPixels, sx, sy, sw, sh, flags[3]
+                                ovIdx, termLen, ovX, ovW, flags[0], flags[1], flags[2], flags[3]
                         });
                     }
 
@@ -8241,6 +8238,28 @@ public class GifSlideShowApp extends JFrame {
                     g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
                     g2.setFont(stFont);
+
+                    // Keep the restyled words out of the main draw. This used to be
+                    // done afterwards, by snapshotting each word's background with
+                    // frame.getRGB and painting it back over the drawn line — but
+                    // those coordinates address the raw pixel grid, while the text
+                    // is painted through `g`, which by here may carry a translate,
+                    // scale or rotation (entry animation, tilt, Pulse, Shake,
+                    // Slide In, Tilt Sway, a timer/quiz reveal). The rectangle then
+                    // landed beside the glyphs and the "restore" wiped part of the
+                    // line that was already painted — in RTL text, the tail end of
+                    // each word, i.e. its last letter. A clip is in user space, so
+                    // it follows whatever transform is in force and nothing that
+                    // has been painted is ever destroyed.
+                    Shape savedOvClip = g2.getClip();
+                    if (ovHoles != null && !ovHoles.isEmpty()) {
+                        java.awt.geom.Area drawArea = new java.awt.geom.Area(
+                                savedOvClip != null ? savedOvClip
+                                        : new java.awt.geom.Rectangle2D.Double(
+                                                -targetW, -targetH, targetW * 3.0, targetH * 3.0));
+                        drawArea.subtract(ovHoles);
+                        g2.setClip(drawArea);
+                    }
 
                     // Effectively-final aliases for capture in lambdas used by some effect cases.
                     final Font fxFont = stFont;
@@ -9374,8 +9393,14 @@ public class GifSlideShowApp extends JFrame {
                         }
                     }
 
+                    // The line has been drawn around the restyled words; every mark
+                    // that follows (strikethrough, sparkle burst) belongs over the
+                    // whole line again.
+                    g2.setClip(savedOvClip);
+
                     // === Per-word bold, italic, colour and font overrides ===
-                    // Restore saved background pixels, then draw override word on clean background
+                    // The main draw skipped these words' boxes, so each is drawn
+                    // here, once, in its own font/colour — nothing to erase first.
                     for (Object[] region : overrideRegions) {
                         int ovIdx = (int) region[0];
                         int termLen = (int) region[1];
@@ -9384,17 +9409,7 @@ public class GifSlideShowApp extends JFrame {
                         int boldFlag = (int) region[4];
                         int italicFlag = (int) region[5];
                         int colorFlag = (int) region[6];
-                        int[] savedPixels = (int[]) region[7];
-                        int sx = (int) region[8];
-                        int sy = (int) region[9];
-                        int sw = (int) region[10];
-                        int sh = (int) region[11];
-                        int fnFlag = (int) region[12];
-
-                        // Restore the background pixels (erases the original text in this region)
-                        if (savedPixels != null && sw > 0 && sh > 0) {
-                            frame.setRGB(sx, sy, sw, sh, savedPixels, 0, sw);
-                        }
+                        int fnFlag = (int) region[7];
 
                         // Draw override word with modified font/color
                         int wordStyle = stFontStyle;
