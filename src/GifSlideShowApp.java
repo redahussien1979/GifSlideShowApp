@@ -23631,7 +23631,14 @@ public class GifSlideShowApp extends JFrame {
      *  hear. Either way the bare Scribe index points at the wrong visible word
      *  and the highlight appears to skip. We walk both streams of letter/digit
      *  characters in parallel, attributing each Scribe entry's [start, end] to
-     *  the visible token its chars land on. Visible tokens with no matched
+     *  the visible token its chars land on. A resync over chars Scribe didn't
+     *  transcribe may only stop at the START of a later token (or back inside a
+     *  token this entry has already matched), so an entry can never be credited
+     *  to a word on the strength of one shared letter; and an entry that really
+     *  does span two tokens is split between them by matched-character count.
+     *  Both rules exist so that no two tokens can come out with the SAME window
+     *  — a tie the karaoke pass breaks in favour of the earlier word, leaving
+     *  the later one unreachable and its highlight never drawn. Visible tokens with no matched
      *  Scribe chars (e.g., a word Scribe missed, or punctuation-only tokens)
      *  inherit a window interpolated from their neighbours so the highlight
      *  still passes through. If the hint and Scribe diverge too far for the
@@ -23652,9 +23659,11 @@ public class GifSlideShowApp extends JFrame {
         if (totalChars == 0) return scribe;
 
         int[] charToToken = new int[totalChars];
+        int[] tokStart = new int[tokens.length];
         StringBuilder hintNormBuf = new StringBuilder(totalChars);
         int p = 0;
         for (int i = 0; i < tokens.length; i++) {
+            tokStart[i] = p;
             for (int k = 0; k < tnorm[i].length(); k++) charToToken[p + k] = i;
             hintNormBuf.append(tnorm[i]);
             p += tnorm[i].length();
@@ -23674,11 +23683,19 @@ public class GifSlideShowApp extends JFrame {
             String w = normalizeWordForAlign(sw.word);
             if (w.isEmpty()) continue;
             int wi = 0;
+            int openTok = -1;                 // token this entry is already inside
+            // Chars this entry matched, per visible token, in stream order. An entry
+            // that legitimately spans two tokens shares its window out between them
+            // (below) rather than stamping the whole span onto each.
+            java.util.List<int[]> hits = new java.util.ArrayList<>();
             while (wi < w.length() && hintPos < hintNorm.length()) {
                 if (hintNorm.charAt(hintPos) == w.charAt(wi)) {
                     int tok = charToToken[hintPos];
-                    if (sw.startSec < minStart[tok]) minStart[tok] = sw.startSec;
-                    if (sw.endSec   > maxEnd[tok])   maxEnd[tok]   = sw.endSec;
+                    if (hits.isEmpty() || hits.get(hits.size() - 1)[0] != tok) {
+                        hits.add(new int[] { tok, 0 });
+                    }
+                    hits.get(hits.size() - 1)[1]++;
+                    openTok = tok;
                     hintPos++; wi++;
                     matchedChars++;
                 } else {
@@ -23686,10 +23703,36 @@ public class GifSlideShowApp extends JFrame {
                     int look = 1;
                     boolean found = false;
                     for (; look < max; look++) {
-                        if (hintNorm.charAt(hintPos + look) == w.charAt(wi)) { found = true; break; }
+                        int at = hintPos + look;
+                        if (hintNorm.charAt(at) != w.charAt(wi)) continue;
+                        // Resync only onto the START of a later word, or back into a
+                        // word this entry is already inside. Landing part-way into a
+                        // word this entry has matched nothing of would hand that word
+                        // the entry's timing on the strength of one shared letter —
+                        // the trailing "y" of "eighty" catching the "y" of "years",
+                        // which gave both words one identical window.
+                        int tok = charToToken[at];
+                        if (at == tokStart[tok] || tok == openTok) { found = true; break; }
                     }
                     if (found) hintPos += look;   // skip hint chars Scribe didn't transcribe
                     else wi++;                    // skip Scribe char hint doesn't have
+                }
+            }
+            // Attribute the entry. One token takes the whole [start, end]; a genuine
+            // multi-token entry (Scribe returning "eighty-years" as one word) is split
+            // across its tokens in proportion to the characters each one matched, so
+            // no two tokens can come out of a single entry with the same window.
+            int totalHit = 0;
+            for (int[] h : hits) totalHit += h[1];
+            if (totalHit > 0) {
+                double span = Math.max(0, sw.endSec - sw.startSec);
+                double acc = 0;
+                for (int[] h : hits) {
+                    double hs = sw.startSec + span * (acc / totalHit);
+                    acc += h[1];
+                    double he = sw.startSec + span * (acc / totalHit);
+                    if (hs < minStart[h[0]]) minStart[h[0]] = hs;
+                    if (he > maxEnd[h[0]])   maxEnd[h[0]]   = he;
                 }
             }
         }
