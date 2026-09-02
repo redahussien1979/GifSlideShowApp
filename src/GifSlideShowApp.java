@@ -11872,22 +11872,61 @@ public class GifSlideShowApp extends JFrame {
         return s.substring(a, b);
     }
 
+    /** Clean a picked EXPRESSION the way {@link #cleanPickWord} cleans one token:
+     *  outer punctuation stripped, and every run of whitespace collapsed to the
+     *  single space {@link #locateWordCenter} flattens wrapped lines with -- so a
+     *  multi-word target ("clash with") is matched exactly the way a one-word
+     *  target is. A single word comes back unchanged. */
+    static String cleanPickPhrase(String s) {
+        if (s == null) return "";
+        return cleanPickWord(s.trim().replaceAll("\\s+", " "));
+    }
+
+    /** The cleaned, lower-cased words of a picked target, in order: one entry for a
+     *  single word, several for an expression, none when nothing is targeted. This
+     *  is the unit every phrase-aware lookup (word timings, occurrence counting)
+     *  compares against, so none of them can split a target differently. */
+    static java.util.List<String> pickPhraseTokens(String s) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        String p = cleanPickPhrase(s);
+        if (p.isEmpty()) return out;
+        for (String part : p.split("\\s+")) {
+            String w = cleanPickWord(part).toLowerCase();
+            if (!w.isEmpty()) out.add(w);
+        }
+        return out;
+    }
+
     /** Occurrence (1-based) that {@link #locateWordCenter} will resolve for the
      *  token at {@code tokenIdx}, when the action targets that token's own
-     *  cleaned word. Counts matches with the SAME whole-word boundary rule as
-     *  locateWordCenter (with its substring fallback) whose start falls within
-     *  or before that token — so a repeated word maps to the exact instance the
-     *  user picked in the timings list. */
+     *  cleaned word. */
     static int occurrenceForToken(String[] tokens, int tokenIdx) {
-        if (tokens == null || tokenIdx < 0 || tokenIdx >= tokens.length) return 1;
-        String needle = cleanPickWord(tokens[tokenIdx]).toLowerCase();
+        return occurrenceForSpan(tokens, tokenIdx, tokenIdx + 1);
+    }
+
+    /** Occurrence (1-based) that {@link #locateWordCenter} will resolve for the RUN
+     *  of tokens {@code [fromIdx, toIdxExcl)} — one token when the action targets a
+     *  single word, several when it targets an expression ("clash with"). Counts
+     *  matches of that run's own cleaned text with the SAME whole-word boundary
+     *  rule as locateWordCenter (with its substring fallback) whose start falls
+     *  within or before the run, so a repeated word or phrase maps to the exact
+     *  instance the user picked in the timings list. */
+    static int occurrenceForSpan(String[] tokens, int fromIdx, int toIdxExcl) {
+        if (tokens == null || fromIdx < 0 || fromIdx >= tokens.length) return 1;
+        int last = Math.min(tokens.length, Math.max(toIdxExcl, fromIdx + 1)) - 1;
+        StringBuilder pick = new StringBuilder();
+        for (int k = fromIdx; k <= last; k++) {
+            if (pick.length() > 0) pick.append(' ');
+            pick.append(tokens[k] == null ? "" : tokens[k]);
+        }
+        String needle = cleanPickPhrase(pick.toString()).toLowerCase();
         if (needle.isEmpty()) return 1;
         StringBuilder sb = new StringBuilder();
-        int tokenEnd = 0;
+        int spanEnd = 0;
         for (int k = 0; k < tokens.length; k++) {
             if (k > 0) sb.append(' ');
             sb.append(tokens[k] == null ? "" : tokens[k]);
-            if (k == tokenIdx) tokenEnd = sb.length();   // char index just past this token
+            if (k == last) spanEnd = sb.length();   // char index just past the run
         }
         String hay = sb.toString();
         String hayLower = hay.toLowerCase();
@@ -11900,8 +11939,8 @@ public class GifSlideShowApp extends JFrame {
             int end = idx + needle.length();
             boolean lb = idx == 0 || !Character.isLetterOrDigit(hay.charAt(idx - 1));
             boolean rb = end >= hay.length() || !Character.isLetterOrDigit(hay.charAt(end));
-            if (lb && rb) { anyWhole = true; if (idx < tokenEnd) whole++; }
-            if (idx < tokenEnd) sub++;
+            if (lb && rb) { anyWhole = true; if (idx < spanEnd) whole++; }
+            if (idx < spanEnd) sub++;
             from = idx + Math.max(1, needle.length());
         }
         return Math.max(1, anyWhole ? whole : sub);
@@ -12054,7 +12093,10 @@ public class GifSlideShowApp extends JFrame {
                                              boolean justify, int blockLeft, int blockWidth) {
         if (wrapped == null || wrapped.lines.isEmpty() || word == null) return null;
         List<String> lines = wrapped.lines;
-        String needle = word.trim().toLowerCase();
+        // Collapse the target's own inner whitespace: the lines below are flattened
+        // with exactly one space between them, so an expression typed with a double
+        // space ("clash  with") still has to match as "clash with".
+        String needle = word.trim().replaceAll("\\s+", " ").toLowerCase();
         if (needle.isEmpty()) return null;
         int n = lines.size();
         int[] lineStart = new int[n];
@@ -33626,6 +33668,16 @@ public class GifSlideShowApp extends JFrame {
                     Dialog.ModalityType.APPLICATION_MODAL);
             dlg.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
 
+            // Re-read where every text sits each time this editor opens, so a text
+            // moved since the Texts Timer was opened still fills in — and, with
+            // "Follow text", still keeps — the right spot for its reveal.
+            if (textPositions != null) {
+                for (int li = 0; li < textPositions.length && li < slideTextItems.size(); li++) {
+                    SlideTextData sx = slideTextItems.get(li);
+                    if (sx != null) textPositions[li] = new int[]{ sx.x, sx.y };
+                }
+            }
+
             // Lenient number parsers: a stray value falls back to a sane default so
             // Apply never fails mid-edit (ranges are clamped where it matters).
             final java.util.function.BiFunction<String, Integer, Integer> pInt = (s, d) -> {
@@ -33643,7 +33695,9 @@ public class GifSlideShowApp extends JFrame {
             rowsPanel.setLayout(new BoxLayout(rowsPanel, BoxLayout.Y_AXIS));
             rowsPanel.setBackground(Color.WHITE);
             final JScrollPane scroll = new JScrollPane(rowsPanel);
-            scroll.setPreferredSize(new Dimension(780, 340));
+            // Wide enough for the whole trigger line — combo, at X%/Y% and the
+            // "Follow text" tick — so a row never needs sideways scrolling.
+            scroll.setPreferredSize(new Dimension(880, 340));
             scroll.getVerticalScrollBar().setUnitIncrement(18);
 
             final java.util.List<ActionRowUI> rowUIs = new java.util.ArrayList<>();
@@ -33691,7 +33745,9 @@ public class GifSlideShowApp extends JFrame {
 
             JButton timingBtn = new JButton("⏱ Word timings…");
             timingBtn.setToolTipText("Show every word of Text " + textNumber + " with its spoken time; "
-                    + "double-click a word to set the active action's Word and At(s).");
+                    + "double-click a word to set the active action's Word and At(s). "
+                    + "Shift-click a run of words to target a whole expression, timed "
+                    + "from the first word of it.");
             timingBtn.addActionListener(e -> showWordTimingPicker(dlg, textNumber, activeRow,
                     rowUIs, rebuild, triggerChoices, textPositions, pInt, pDbl));
 
@@ -33774,6 +33830,11 @@ public class GifSlideShowApp extends JFrame {
                 if (ok != JOptionPane.OK_OPTION) return;
                 final boolean setTimes = alsoTimes.isSelected() && alsoTimes.isEnabled();
                 int timed = 0;
+                // Targets this slide cannot time are named back, because their At(s)
+                // is left exactly as it was -- an old value from a previous pick,
+                // which would otherwise fire the action at the wrong moment without
+                // ever saying so.
+                java.util.List<String> untimed = new java.util.ArrayList<>();
                 for (int i = 0; i < hlWords.size(); i++) {
                     String w = hlWords.get(i);
                     int occ = Math.max(1, hlWordOccurrence(tokens, full, w));
@@ -33788,12 +33849,23 @@ public class GifSlideShowApp extends JFrame {
                     }
                     int atMs = setTimes ? wordStartMsFor(textNumber, w, occ) : -1;
                     if (atMs >= 0) { r.applyWordPick(w, occ, atMs / 1000.0); timed++; }
-                    else           { r.applyWordOnly(w, occ); }
+                    else {
+                        r.applyWordOnly(w, occ);
+                        if (setTimes) untimed.add(w);
+                    }
                 }
                 rebuild.run();
                 String msg = "Filled the Word box on " + hlWords.size() + " action(s).";
                 if (setTimes) {
                     msg += "\n" + timed + " of them also got At(s) from the word timings.";
+                    if (!untimed.isEmpty()) {
+                        msg += "\n\n" + untimed.size() + " could not be timed, so "
+                                + (untimed.size() == 1 ? "its At(s) is" : "their At(s) are")
+                                + " still whatever "
+                                + (untimed.size() == 1 ? "it" : "they") + " held before -- "
+                                + "check " + (untimed.size() == 1 ? "it" : "them")
+                                + " by hand: " + String.join(", ", untimed);
+                    }
                 }
                 if (adds > 0) msg += "\n" + adds + " new action(s) were added.";
                 if (!missing.isEmpty()) {
@@ -33812,10 +33884,14 @@ public class GifSlideShowApp extends JFrame {
                     + "<b>Land font</b> / <b>Style</b> on the next line; tick <b>Same as trigger</b> "
                     + "to land in the triggered text's exact format instead, so the two match. "
                     + "<b>Trigger</b> makes "
-                    + "another text appear when this action lands — its <b>at X%/Y%</b> fill in with "
-                    + "the spot that text already has, so change them only to reveal it elsewhere.<br><b>Word</b> (optional) targets a single "
-                    + "word inside the text — a formatted copy of that word animates while the paragraph "
-                    + "stays put (great for pulling one word out of a sentence).<br><b>Sound</b> picks the "
+                    + "another text appear when this action lands — with <b>Follow text</b> ticked its "
+                    + "<b>at X%/Y%</b> stay locked to the spot that text already has (move the text later "
+                    + "and the reveal moves with it); untick to reveal it somewhere else.<br><b>Word</b> "
+                    + "(optional) targets a single word inside the text — a formatted copy of that word "
+                    + "animates while the paragraph stays put (great for pulling one word out of a "
+                    + "sentence). Type <i>several</i> words there and the whole <b>expression</b> is "
+                    + "targeted and timed as one — \"Word timings…\" fills it in if you shift-click the "
+                    + "run of words it covers.<br><b>Sound</b> picks the "
                     + "cue this action fires — press ▶ to hear it. Leave it on <b>(Default)</b> to follow "
                     + "the default sound set at the bottom of this window, or choose <b>None</b> for "
                     + "silence.</html>");
@@ -34113,23 +34189,31 @@ public class GifSlideShowApp extends JFrame {
         }
 
         /**
-         * Which occurrence of an HL word a Motion action should target, or 0 when
-         * that word is nowhere in the text. Whole-word token matches win and are
-         * resolved through {@link #occurrenceForToken}, so the answer is the same
-         * instance {@code locateWordCenter} will find at render time; a multi-word
-         * HL phrase falls back to the substring test the renderer also uses. A 0
-         * is what lets the caller warn about a word that would silently never fire.
+         * Which occurrence of an HL target a Motion action should aim at, or 0 when
+         * that target is nowhere in the text. A single word is resolved from the
+         * first token that IS that word; an EXPRESSION is resolved from the first
+         * consecutive run of tokens that spells it — either way through
+         * {@link #occurrenceForSpan}, so the answer is the same instance
+         * {@code locateWordCenter} will find at render time. Anything the whole-word
+         * pass cannot see falls back to the substring test the renderer also falls
+         * back to, on whitespace-collapsed text so a phrase that wraps across a line
+         * still counts as present. A 0 is what lets the caller warn about a target
+         * that would silently never fire.
          */
         private static int hlWordOccurrence(String[] tokens, String fullText, String word) {
-            String needle = cleanPickWord(word).toLowerCase();
-            if (needle.isEmpty()) return 0;
-            for (int i = 0; i < tokens.length; i++) {
-                if (cleanPickWord(tokens[i]).toLowerCase().equals(needle)) {
-                    return occurrenceForToken(tokens, i);
+            java.util.List<String> needle = pickPhraseTokens(word);
+            if (needle.isEmpty() || tokens == null) return 0;
+            for (int i = 0; i + needle.size() <= tokens.length; i++) {
+                boolean all = true;
+                for (int k = 0; k < needle.size(); k++) {
+                    if (!cleanPickWord(tokens[i + k]).toLowerCase().equals(needle.get(k))) {
+                        all = false; break;
+                    }
                 }
+                if (all) return occurrenceForSpan(tokens, i, i + needle.size());
             }
-            String hay = fullText == null ? "" : fullText.toLowerCase();
-            return hay.contains(needle) ? 1 : 0;
+            String hay = (fullText == null ? "" : fullText).replaceAll("\\s+", " ").toLowerCase();
+            return hay.contains(String.join(" ", needle)) ? 1 : 0;
         }
 
         /**
@@ -34147,17 +34231,54 @@ public class GifSlideShowApp extends JFrame {
             if ((ts == null || ts.isEmpty()) && sourceVideoFile != null) {
                 ts = wordTimingsFromVideoRanges(textNumber);
             }
+            return timingStartMs(ts, word, occurrence);
+        }
+
+        /**
+         * When a target is spoken inside one timing list, in ms, or -1 when that
+         * list cannot say. Handles a single word AND an expression: the list is
+         * flattened to one word per entry first, so a phrase spread over several
+         * timing rows ("clash with") is found as the consecutive run of words it
+         * actually is, and its time is the start of its FIRST word — the moment the
+         * phrase begins to be spoken. A row that itself holds several words (an
+         * imported timing sheet may) has its span shared out evenly across them, so
+         * a run starting mid-row still gets a sane time.
+         *
+         * <p>A too-high occurrence clamps to the last match, exactly as
+         * {@link #locateWordCenter} clamps at render time, so an action fires on the
+         * same instance it animates instead of falling back to "no time at all".
+         */
+        static int timingStartMs(java.util.List<WordTiming> ts, String word, int occurrence) {
             if (ts == null || ts.isEmpty()) return -1;
-            String needle = cleanPickWord(word).toLowerCase();
+            java.util.List<String> needle = pickPhraseTokens(word);
             if (needle.isEmpty()) return -1;
-            int want = Math.max(1, occurrence), seen = 0;
+            java.util.List<String> words = new java.util.ArrayList<>();
+            java.util.List<Double> starts = new java.util.ArrayList<>();
             for (WordTiming t : ts) {
                 if (t == null) continue;
-                if (cleanPickWord(t.word).toLowerCase().equals(needle) && ++seen == want) {
-                    return (int) Math.round(t.startSec * 1000.0);
+                java.util.List<String> parts = new java.util.ArrayList<>();
+                for (String raw : (t.word == null ? "" : t.word.trim()).split("\\s+")) {
+                    String c = cleanPickWord(raw).toLowerCase();
+                    if (!c.isEmpty()) parts.add(c);
+                }
+                if (parts.isEmpty()) continue;
+                double span = Math.max(0.0, t.endSec - t.startSec);
+                for (int i = 0; i < parts.size(); i++) {
+                    words.add(parts.get(i));
+                    starts.add(t.startSec + span * i / parts.size());
                 }
             }
-            return -1;
+            java.util.List<Double> hits = new java.util.ArrayList<>();
+            for (int i = 0; i + needle.size() <= words.size(); i++) {
+                boolean all = true;
+                for (int k = 0; k < needle.size(); k++) {
+                    if (!words.get(i + k).equals(needle.get(k))) { all = false; break; }
+                }
+                if (all) hits.add(starts.get(i));
+            }
+            if (hits.isEmpty()) return -1;
+            int want = Math.min(Math.max(1, occurrence), hits.size());
+            return (int) Math.round(hits.get(want - 1) * 1000.0);
         }
 
         private java.util.List<WordTiming> wordTimingsFromVideoRanges(int textNumber) {
@@ -34215,7 +34336,10 @@ public class GifSlideShowApp extends JFrame {
                         t.startSec, t.endSec, t.word == null ? "" : t.word));
             }
             final JList<String> list = new JList<>(model);
-            list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+            // A run of rows is how an EXPRESSION is picked: shift-click (or drag)
+            // "clash" .. "with" and the action targets the whole phrase, timed from
+            // the first word of it. Interval-only, so the run is always contiguous.
+            list.setSelectionMode(ListSelectionModel.SINGLE_INTERVAL_SELECTION);
             list.setFont(new Font("Consolas", Font.PLAIN, 13));
             list.setSelectedIndex(0);
             JScrollPane sp = new JScrollPane(list);
@@ -34234,16 +34358,30 @@ public class GifSlideShowApp extends JFrame {
                 tgt = "a new action";
             }
             JLabel hdr = new JLabel("<html>Double-click a word (or select it and press <b>Use</b>) "
-                    + "to fill <b>" + tgt + "</b>'s Word and At(s).</html>");
+                    + "to fill <b>" + tgt + "</b>'s Word and At(s).<br>"
+                    + "For an <b>expression</b>, shift-click the first and last word of it — "
+                    + "they are filled in as one phrase, timed from its first word.</html>");
             hdr.setBorder(BorderFactory.createEmptyBorder(8, 10, 6, 10));
 
             final Runnable apply = () -> {
-                int i = list.getSelectedIndex();
-                if (i < 0) return;
-                WordTiming t = timings.get(i);
-                String word = cleanPickWord(tokens[i]);
-                if (word.isEmpty()) word = tokens[i] == null ? "" : tokens[i].trim();
-                int occ = occurrenceForToken(tokens, i);
+                int[] sel = list.getSelectedIndices();
+                if (sel.length == 0) return;
+                // One row targets its own word; a run of rows targets the expression
+                // they spell. Either way At(s) is the START of the first row picked,
+                // which is the moment the target begins to be spoken.
+                final int i0 = sel[0], i1 = sel[sel.length - 1];
+                StringBuilder phrase = new StringBuilder();
+                for (int k = i0; k <= i1; k++) {
+                    String w = cleanPickWord(tokens[k]);
+                    if (w.isEmpty()) w = tokens[k] == null ? "" : tokens[k].trim();
+                    if (w.isEmpty()) continue;
+                    if (phrase.length() > 0) phrase.append(' ');
+                    phrase.append(w);
+                }
+                String word = phrase.toString();
+                if (word.isEmpty()) return;
+                WordTiming t = timings.get(i0);
+                int occ = occurrenceForSpan(tokens, i0, i1 + 1);
                 ActionRowUI target = (activeRow[0] != null && rowUIs.contains(activeRow[0]))
                         ? activeRow[0]
                         : (!rowUIs.isEmpty() ? rowUIs.get(rowUIs.size() - 1) : null);
@@ -34415,6 +34553,11 @@ public class GifSlideShowApp extends JFrame {
             private final int[][] textPositions;
             private final JTextField trigXField = new JTextField(4);
             private final JTextField trigYField = new JTextField(4);
+            /** On: the reveal keeps the triggered text's OWN place, so the boxes
+             *  mirror wherever that text sits now and are stored as the "no
+             *  override" sentinel (-1). Off: the two numbers are the user's and are
+             *  stored verbatim. */
+            private final JCheckBox trigFollowCheck = new JCheckBox("Follow text");
             private final JTextField wordField = new JTextField(14);
             private final JSpinner occSpinner = new JSpinner(new SpinnerNumberModel(1, 1, 99, 1));
             private final JComboBox<String> soundCombo = new JComboBox<>(MotionSound.actionChoices());
@@ -34493,18 +34636,63 @@ public class GifSlideShowApp extends JFrame {
                 trigXField.setText(a.triggerXPct >= 0 ? String.valueOf(a.triggerXPct) : "");
                 trigYField.setText(a.triggerYPct >= 0 ? String.valueOf(a.triggerYPct) : "");
                 trigXField.setToolTipText("Where the triggered text appears — X% of the frame (0–100). "
-                        + "Filled in from that text's own place when you pick it; change it to land elsewhere.");
+                        + "Untick \"Follow text\" to send the reveal somewhere other than "
+                        + "where that text already sits.");
                 trigYField.setToolTipText("Where the triggered text appears — Y% of the frame (0–100). "
-                        + "Filled in from that text's own place when you pick it; change it to land elsewhere.");
-                // An action saved before this (or one that never set a position)
-                // shows the triggered text's current place rather than two blanks.
-                if (a.triggerXPct < 0 || a.triggerYPct < 0) fillTriggerPosFromChoice();
+                        + "Untick \"Follow text\" to send the reveal somewhere other than "
+                        + "where that text already sits.");
+                // These two boxes used to be filled in ONCE, when the trigger was
+                // picked, and then frozen: move the triggered text afterwards and the
+                // reveal kept firing at the old spot until the trigger was re-picked
+                // from the list. "Follow text" is that fill made permanent — the boxes
+                // re-read the text's place every time this editor opens, and the action
+                // stores -1/-1 ("no override"), which is what makes the reveal follow
+                // the text everywhere: on this slide, and on every slide the motion is
+                // broadcast to. An action that carries a position of its own — one the
+                // user really did type — opens with the box ticked off, so nothing
+                // hand-placed is ever overwritten.
+                trigFollowCheck.setBackground(panel.getBackground());
+                trigFollowCheck.setToolTipText("Reveal the triggered text where it already sits, and "
+                        + "keep it there: move that text later and this reveal moves with it. "
+                        + "Untick to place the reveal yourself with the two boxes on the left.");
+                final Color trigFollowFg = trigFollowCheck.getForeground();
+                boolean followPos = a.triggerXPct < 0 || a.triggerYPct < 0
+                        || matchesTriggerChoicePos(a.triggerXPct, a.triggerYPct);
+                trigFollowCheck.setSelected(followPos);
+                trigFollowCheck.addActionListener(ev -> {
+                    if (trigFollowCheck.isSelected()) {
+                        fillTriggerPosFromChoice();
+                        trigFollowCheck.setForeground(trigFollowFg);
+                    }
+                    syncEnabled();
+                });
+                if (followPos) {
+                    fillTriggerPosFromChoice();
+                } else {
+                    // Held-back numbers that no longer agree with where the text sits
+                    // are called out rather than left to be discovered mid-render:
+                    // the tick is one click away from snapping the reveal back on.
+                    int ci = triggerCombo.getSelectedIndex() - 1;
+                    int[] live = (ci >= 0 && textPositions != null && ci < textPositions.length)
+                            ? textPositions[ci] : null;
+                    if (live != null) {
+                        trigFollowCheck.setForeground(new Color(155, 70, 0));
+                        trigFollowCheck.setToolTipText("This action reveals Text " + (ci + 1) + " at "
+                                + a.triggerXPct + "%/" + a.triggerYPct + "%, but that text itself now "
+                                + "sits at " + live[0] + "%/" + live[1] + "%. Tick this to snap the "
+                                + "reveal back onto the text — and to keep it there whenever the "
+                                + "text is moved again.");
+                    }
+                }
 
                 wordField.setText(a.word == null ? "" : a.word);
                 wordField.setToolTipText("Optional: act on just this word inside the text — a formatted copy of "
-                        + "the word animates while the paragraph stays intact. Leave empty for the whole text.");
+                        + "the word animates while the paragraph stays intact. Several words are treated "
+                        + "as one expression (\"clash with\"), which moves and is timed together. "
+                        + "Leave empty for the whole text.");
                 occSpinner.setValue(Math.max(1, a.wordOccurrence));
-                occSpinner.setToolTipText("Which occurrence of the word to use when it repeats (1 = first).");
+                occSpinner.setToolTipText("Which occurrence of the word (or expression) to use when it "
+                        + "repeats in the text (1 = first).");
 
                 // Sound cue. "(Default)" follows whatever the default at the bottom
                 // of this dialog is set to, so changing that re-voices every action
@@ -34574,6 +34762,7 @@ public class GifSlideShowApp extends JFrame {
                 g.gridx = 5; panel.add(trigXField, g);
                 g.gridx = 6; panel.add(new JLabel("Y%:"), g);
                 g.gridx = 7; panel.add(trigYField, g);
+                g.gridx = 8; panel.add(trigFollowCheck, g);
                 // Line 6 — the sound this action plays
                 g.gridy = 5;
                 g.gridx = 1; panel.add(new JLabel("Sound:"), g);
@@ -34605,6 +34794,16 @@ public class GifSlideShowApp extends JFrame {
                         && pos[0] >= 0 && pos[0] <= 100 && pos[1] >= 0 && pos[1] <= 100;
                 trigXField.setText(inFrame ? String.valueOf(pos[0]) : "");
                 trigYField.setText(inFrame ? String.valueOf(pos[1]) : "");
+            }
+
+            /** True when a stored position is simply where the selected trigger text
+             *  already sits — i.e. it was auto-filled rather than typed, so it can be
+             *  turned back into a live "Follow text" without changing a thing. */
+            private boolean matchesTriggerChoicePos(int xPct, int yPct) {
+                int i = triggerCombo.getSelectedIndex() - 1;
+                int[] pos = (i >= 0 && textPositions != null && i < textPositions.length)
+                        ? textPositions[i] : null;
+                return pos != null && pos[0] == xPct && pos[1] == yPct;
             }
 
             /** The picker entry for an action's stored cue: an unknown or empty
@@ -34646,8 +34845,13 @@ public class GifSlideShowApp extends JFrame {
                 colorBtn.setEnabled(fmt && !matched);
                 landFontCombo.setEnabled(fmt && !matched);
                 landStyleCombo.setEnabled(fmt && !matched);
-                trigXField.setEnabled(trig);
-                trigYField.setEnabled(trig);
+                // Following the text means the numbers are read-only mirrors of where
+                // it sits, so they show through greyed rather than inviting an edit
+                // that the follow would immediately undo.
+                boolean followPos = trigFollowCheck.isSelected();
+                trigFollowCheck.setEnabled(trig);
+                trigXField.setEnabled(trig && !followPos);
+                trigYField.setEnabled(trig && !followPos);
                 // Nothing to preview when the row is silent — which is what
                 // "(Default)" means on an in-place effect.
                 soundPlayBtn.setEnabled(resolvedSound() != null);
@@ -34673,7 +34877,10 @@ public class GifSlideShowApp extends JFrame {
                 // Without a trigger there is nothing to match, so the flag is not
                 // stored — the row's own font / scale / colour decide the landing.
                 a.landMatchTrigger = matchTrigCheck.isSelected() && a.triggerTextIndex >= 0;
-                if (a.triggerTextIndex < 0) {
+                if (a.triggerTextIndex < 0 || trigFollowCheck.isSelected()) {
+                    // No trigger, or the reveal follows the text: -1/-1 is the model's
+                    // "no override", so the triggered text is revealed wherever it
+                    // itself is at render time and can never go stale.
                     a.triggerXPct = -1; a.triggerYPct = -1;
                 } else {
                     a.triggerXPct = parseOptPct(trigXField.getText());
@@ -34704,7 +34911,7 @@ public class GifSlideShowApp extends JFrame {
                 };
                 JComponent[] fields = { kindCombo, atField, durField, easeCombo,
                         toXField, toYField, scaleField, wordField, occSpinner, triggerCombo,
-                        trigXField, trigYField, soundCombo };
+                        trigXField, trigYField, trigFollowCheck, soundCombo };
                 for (JComponent c : fields) c.addFocusListener(fa);
                 panel.addMouseListener(new java.awt.event.MouseAdapter() {
                     @Override public void mousePressed(java.awt.event.MouseEvent e) {
