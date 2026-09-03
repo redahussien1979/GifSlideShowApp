@@ -34282,11 +34282,27 @@ public class GifSlideShowApp extends JFrame {
                 rowsPanel.repaint();
             };
 
+            // One set of effects across every action, or one set per action. A list
+            // whose rows already agree — a fresh list, or one filled in a single
+            // pass from "Fill words from HL" — opens LINKED, so ticking an effect
+            // on the first row reaches every action, which is what such a list
+            // always wants. A list whose rows were deliberately given different
+            // effects opens unlinked, so nothing hand-made is overwritten by an
+            // edit somewhere else.
+            final boolean[] linkFx = { true };
+
             for (SlideTextData.Action a : actions) {
                 if (a != null) {
-                    ActionRowUI r = new ActionRowUI(a, triggerChoices, textPositions, rowUIs, rebuild, pInt, pDbl);
+                    ActionRowUI r = new ActionRowUI(a, triggerChoices, textPositions, rowUIs,
+                            rebuild, pInt, pDbl, linkFx);
                     r.markActiveOn(x -> activeRow[0] = x);
                     rowUIs.add(r);
+                }
+            }
+            for (int i = 1; i < rowUIs.size(); i++) {
+                if (!rowUIs.get(0).effectNames().equals(rowUIs.get(i).effectNames())) {
+                    linkFx[0] = false;
+                    break;
                 }
             }
             rebuild.run();
@@ -34294,10 +34310,13 @@ public class GifSlideShowApp extends JFrame {
             JButton addBtn = new JButton("＋ Add action");
             addBtn.addActionListener(e -> {
                 ActionRowUI r = new ActionRowUI(new SlideTextData.Action(),
-                        triggerChoices, textPositions, rowUIs, rebuild, pInt, pDbl);
+                        triggerChoices, textPositions, rowUIs, rebuild, pInt, pDbl, linkFx);
                 r.markActiveOn(x -> activeRow[0] = x);
                 rowUIs.add(r);
                 activeRow[0] = r;
+                // A new action joins the shared set rather than starting bare, so
+                // adding a row to a linked list does not quietly break the link.
+                if (linkFx[0] && rowUIs.size() > 1) rowUIs.get(0).pushEffectsToOtherRows();
                 rebuild.run();
             });
 
@@ -34307,7 +34326,7 @@ public class GifSlideShowApp extends JFrame {
                     + "Shift-click a run of words to target a whole expression, timed "
                     + "from the first word of it.");
             timingBtn.addActionListener(e -> showWordTimingPicker(dlg, textNumber, activeRow,
-                    rowUIs, rebuild, triggerChoices, textPositions, pInt, pDbl));
+                    rowUIs, rebuild, triggerChoices, textPositions, pInt, pDbl, linkFx));
 
             // One-press fill: the words already listed in this text's HL boxes are
             // the words worth animating, in the order they are written, so they map
@@ -34401,7 +34420,7 @@ public class GifSlideShowApp extends JFrame {
                         r = rowUIs.get(i);
                     } else {
                         r = new ActionRowUI(new SlideTextData.Action(),
-                                triggerChoices, textPositions, rowUIs, rebuild, pInt, pDbl);
+                                triggerChoices, textPositions, rowUIs, rebuild, pInt, pDbl, linkFx);
                         r.markActiveOn(x -> activeRow[0] = x);
                         rowUIs.add(r);
                     }
@@ -34412,6 +34431,8 @@ public class GifSlideShowApp extends JFrame {
                         if (setTimes) untimed.add(w);
                     }
                 }
+                // Rows this fill had to add start on the shared effects too.
+                if (linkFx[0] && rowUIs.size() > 1) rowUIs.get(0).pushEffectsToOtherRows();
                 rebuild.run();
                 String msg = "Filled the Word box on " + hlWords.size() + " action(s).";
                 if (setTimes) {
@@ -34442,6 +34463,10 @@ public class GifSlideShowApp extends JFrame {
                     + "<i>together</i> — Rise + Fade In for an entrance, Pulse + Glow Pulse for a beat, "
                     + "Move + Spin to send the text off spinning — and the sample under the list shows "
                     + "the exact combination at this row's speed before you commit to it. "
+                    + "With <b>Same effects on every action</b> ticked (below the list) the effects you "
+                    + "pick on one row are played by <i>every</i> row, so a list of words is styled once "
+                    + "rather than word by word; each row still keeps its own motion, time, destination, "
+                    + "word, trigger and sound. "
                     + "<b>To X% / Y%</b> is the destination as a percentage of the frame. "
                     + "<b>Format on landing</b> re-formats the arrival — scale, colour, and the "
                     + "<b>Land font</b> / <b>Style</b> on the next line; tick <b>Same as trigger</b> "
@@ -34640,10 +34665,25 @@ public class GifSlideShowApp extends JFrame {
             top.setBorder(BorderFactory.createEmptyBorder(10, 12, 4, 12));
             top.add(help, BorderLayout.NORTH);
             top.add(scroll, BorderLayout.CENTER);
+            final JCheckBox linkFxCheck = new JCheckBox("\u21CA Same effects on every action", linkFx[0]);
+            linkFxCheck.setToolTipText("<html>Keep <b>one set of effects</b> across every action on this "
+                    + "text: tick an effect on any row and every row plays it — so a list of ten "
+                    + "words is styled once, not ten times.<br>Each row still keeps its own "
+                    + "<b>motion</b>, time, duration, destination, word, trigger and sound, which are "
+                    + "what make them different actions.<br>Untick to give a row effects of its "
+                    + "own.</html>");
+            linkFxCheck.addActionListener(e -> {
+                linkFx[0] = linkFxCheck.isSelected();
+                // Ticking it back on adopts the FIRST row's effects for the list —
+                // the row the user has been setting up, and the one they mean.
+                if (linkFx[0] && rowUIs.size() > 1) rowUIs.get(0).pushEffectsToOtherRows();
+            });
+
             JPanel addLine = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
             addLine.add(addBtn);
             addLine.add(timingBtn);
             addLine.add(hlFillBtn);
+            addLine.add(linkFxCheck);
             top.add(addLine, BorderLayout.SOUTH);
 
             // Play the timeline so the motion is actually visible (the editor's
@@ -34871,7 +34911,8 @@ public class GifSlideShowApp extends JFrame {
                 ActionRowUI[] activeRow, java.util.List<ActionRowUI> rowUIs, Runnable rebuild,
                 String[] triggerChoices, int[][] textPositions,
                 java.util.function.BiFunction<String, Integer, Integer> pInt,
-                java.util.function.BiFunction<String, Double, Double> pDbl) {
+                java.util.function.BiFunction<String, Double, Double> pDbl,
+                boolean[] linkFx) {
             // Two timing sources, in priority order:
             //  1) per-text audio Word Sync (has word text + start/end), and
             //  2) a video slide's imported "Repeat parts" ranges — start/end per
@@ -34950,9 +34991,10 @@ public class GifSlideShowApp extends JFrame {
                         : (!rowUIs.isEmpty() ? rowUIs.get(rowUIs.size() - 1) : null);
                 if (target == null) {
                     target = new ActionRowUI(new SlideTextData.Action(),
-                            triggerChoices, textPositions, rowUIs, rebuild, pInt, pDbl);
+                            triggerChoices, textPositions, rowUIs, rebuild, pInt, pDbl, linkFx);
                     target.markActiveOn(x -> activeRow[0] = x);
                     rowUIs.add(target);
+                    if (linkFx[0] && rowUIs.size() > 1) rowUIs.get(0).pushEffectsToOtherRows();
                     rebuild.run();
                 }
                 activeRow[0] = target;
@@ -35411,6 +35453,28 @@ public class GifSlideShowApp extends JFrame {
                 }
             }
 
+            /**
+             * Replace the ticked effects from outside the popup, leaving the motion
+             * alone. Used when the rows are linked: one row's edit is handed to
+             * every other row WITHOUT firing their change hooks, so a single tick
+             * reaches the whole list instead of ricocheting round it.
+             */
+            void setEffects(java.util.Collection<String> fx) {
+                selected.clear();
+                if (fx != null) {
+                    for (String name : SlideTextData.Action.EFFECTS) {
+                        if (fx.contains(name)) selected.add(name);
+                    }
+                }
+                syncing = true;
+                for (java.util.Map.Entry<String, JCheckBox> e : boxes.entrySet()) {
+                    e.getValue().setSelected(selected.contains(e.getKey()));
+                }
+                syncing = false;
+                refreshLabel();
+                syncPreview();
+            }
+
             /** Re-read the widgets from the model — used when a row is seeded again. */
             void refreshWidgets() {
                 syncing = true;
@@ -35525,13 +35589,21 @@ public class GifSlideShowApp extends JFrame {
             private Color landColor;
             private final java.util.function.BiFunction<String, Integer, Integer> pInt;
             private final java.util.function.BiFunction<String, Double, Double> pDbl;
+            /** Every row in this editor, so a linked edit can reach the others. */
+            private final java.util.List<ActionRowUI> siblings;
+            /** Shared with the whole dialog: while set, all rows play one set of
+             *  effects, and ticking an effect on any row hands it to the rest. */
+            private final boolean[] linkFx;
 
             ActionRowUI(SlideTextData.Action a, String[] triggerChoices, int[][] textPositions,
                         java.util.List<ActionRowUI> owner, Runnable rebuild,
                         java.util.function.BiFunction<String, Integer, Integer> pInt,
-                        java.util.function.BiFunction<String, Double, Double> pDbl) {
+                        java.util.function.BiFunction<String, Double, Double> pDbl,
+                        boolean[] linkFx) {
                 this.pInt = pInt;
                 this.pDbl = pDbl;
+                this.siblings = owner;
+                this.linkFx = linkFx;
                 this.textPositions = textPositions;
                 this.triggerCombo = new JComboBox<>(triggerChoices);
                 this.landColor = a.landColor;
@@ -35546,7 +35618,7 @@ public class GifSlideShowApp extends JFrame {
                 // the Dur box live rather than a copy taken when the row was built.
                 kindPicker = new MotionEffectPicker(a,
                         () -> Math.max(1, pInt.apply(durField.getText(), 800)),
-                        this::syncEnabled);
+                        this::onBehaviourChanged);
                 atField.setText(timerMsToSecStr(a.atMs));
                 atField.setToolTipText("When this action fires — seconds from the start of the slide.");
                 durField.setText(String.valueOf(a.durMs));
@@ -35788,6 +35860,32 @@ public class GifSlideShowApp extends JFrame {
             }
 
             private boolean isMoveKind() { return kindPicker.isMove(); }
+
+            /** The behaviour picker changed on this row: re-sync the fields that
+             *  depend on it and, while the rows are linked, hand this row's effects
+             *  to all the others. */
+            private void onBehaviourChanged() {
+                syncEnabled();
+                if (linkFx != null && linkFx[0]) pushEffectsToOtherRows();
+            }
+
+            /** Copy this row's ticked effects onto every other row in the editor.
+             *  Only the effects travel — each row keeps its own motion, time,
+             *  destination, word, trigger and sound, which are what make the rows
+             *  different actions in the first place. */
+            void pushEffectsToOtherRows() {
+                if (siblings == null) return;
+                java.util.List<String> fx = kindPicker.effects();
+                for (ActionRowUI r : siblings) {
+                    if (r == this) continue;
+                    r.kindPicker.setEffects(fx);
+                    r.syncEnabled();
+                }
+            }
+
+            /** The effects this row currently plays — the editor compares them
+             *  across rows to decide whether to open linked. */
+            java.util.List<String> effectNames() { return kindPicker.effects(); }
 
             private void syncEnabled() {
                 boolean move = kindPicker.isMove();
