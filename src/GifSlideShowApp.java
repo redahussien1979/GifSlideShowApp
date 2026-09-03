@@ -478,6 +478,11 @@ public class GifSlideShowApp extends JFrame {
                 if (a == null) continue;
                 String ap = p + "action." + k + ".";
                 props.setProperty(ap + "kind", a.kind == null ? "Move" : a.kind);
+                // The layered emphasis effects, comma-separated. "kind" above still
+                // names the motion — or, on a row with none, the leading effect — so
+                // a preset written here stays readable by a build that only knows
+                // about one effect per action.
+                props.setProperty(ap + "effects", a.effects == null ? "" : a.effects);
                 props.setProperty(ap + "atMs", String.valueOf(a.atMs));
                 props.setProperty(ap + "durMs", String.valueOf(a.durMs));
                 props.setProperty(ap + "easing", a.easing == null ? "Ease Out" : a.easing);
@@ -1013,6 +1018,10 @@ public class GifSlideShowApp extends JFrame {
                 String ap = p + "action." + k + ".";
                 SlideTextData.Action a = new SlideTextData.Action();
                 a.kind   = props.getProperty(ap + "kind", "Move");
+                // Absent on a preset written before effects could be layered — then
+                // an empty list means "whatever kind names", which is that preset's
+                // single effect. See Action.effectList().
+                a.effects = props.getProperty(ap + "effects", "");
                 a.atMs   = Integer.parseInt(props.getProperty(ap + "atMs", "0"));
                 a.durMs  = Integer.parseInt(props.getProperty(ap + "durMs", "800"));
                 a.easing = props.getProperty(ap + "easing", "Ease Out");
@@ -6664,6 +6673,23 @@ public class GifSlideShowApp extends JFrame {
                     g.translate(st.audioOtherDxFrac * targetW, 0.0);
                     transformWrapApplied = true;
                 }
+                // Motion-effect non-uniform scale (Rubber Band / Squash / the two
+                // Flips). Kept separate from pulseRenderScale above so the uniform
+                // and per-axis scales compose instead of overwriting one another.
+                if (st.fxScaleX != 1.0 || st.fxScaleY != 1.0) {
+                    g.translate(stCenterX, stCenterY);
+                    g.scale(st.fxScaleX, st.fxScaleY);
+                    g.translate(-stCenterX, -stCenterY);
+                    transformWrapApplied = true;
+                }
+                // Motion-effect shear (Jello), about the same centre so the block
+                // leans without drifting off its position.
+                if (st.fxSkewX != 0.0) {
+                    g.translate(stCenterX, stCenterY);
+                    g.shear(st.fxSkewX, 0.0);
+                    g.translate(-stCenterX, -stCenterY);
+                    transformWrapApplied = true;
+                }
                 if (st.audioOtherTiltDeg != 0.0) {
                     g.rotate(Math.toRadians(st.audioOtherTiltDeg), stCenterX, stCenterY);
                     transformWrapApplied = true;
@@ -7173,11 +7199,16 @@ public class GifSlideShowApp extends JFrame {
                     // Spread scales linearly with the Sz spinner (1..20, default 7) plus a
                     // small base, so every step of the spinner changes what you see and
                     // Sz 1 is still a real glow rather than a flat outline.
-                    if (st.audioGlowSize > 0) {
-                        Color agC = st.audioGlowColor != null ? st.audioGlowColor : stColor;
+                    // The halo is whichever is larger — the text's own audio-FX glow
+                    // or the one a motion effect (Glow Pulse / Neon Flicker) is
+                    // asking for this frame — so neither can switch the other off.
+                    int agSize = st.effectiveGlowSize();
+                    if (agSize > 0) {
+                        Color agGlowColor = st.effectiveGlowColor();
+                        Color agC = agGlowColor != null ? agGlowColor : stColor;
                         int agLayers = 8;
                         float agMax = Math.max(2f,
-                                scaledStSize * (0.02f + 0.035f * Math.min(20, st.audioGlowSize)));
+                                scaledStSize * (0.02f + 0.035f * Math.min(20, agSize)));
                         Graphics2D ag = (Graphics2D) g.create();
                         ag.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                         ag.setFont(stFont);
@@ -9746,10 +9777,45 @@ public class GifSlideShowApp extends JFrame {
                             }
                             wg.translate(px, py);
                             if (wm.tiltDeg != 0.0) wg.rotate(Math.toRadians(wm.tiltDeg));
-                            if (wm.scale != 1.0) wg.scale(wm.scale, wm.scale);
-                            wg.setColor(wm.color != null ? wm.color : stColor);
+                            if (wm.skewX != 0.0) wg.shear(wm.skewX, 0.0);
+                            // The landing scale and the effects' per-axis scale
+                            // multiply, so a word that lands bigger can still
+                            // squash, stretch or flip on top of that.
+                            double wsx = wm.scale * wm.scaleX, wsy = wm.scale * wm.scaleY;
+                            if (wsx != 1.0 || wsy != 1.0) wg.scale(wsx, wsy);
+                            Color wmDraw = wm.color != null ? wm.color : stColor;
                             int ww = wmFm.stringWidth(wm.word);
                             float baselineOff = (wmFm.getAscent() - wmFm.getDescent()) / 2f;
+                            // Halo (Glow Pulse / Neon Flicker) under the glyphs, built
+                            // from the word's own outline so it hugs the letters the
+                            // same way the whole-text glow does.
+                            if (wm.glowSize > 0) {
+                                Color wgC = wm.glowColor != null ? wm.glowColor : wmDraw;
+                                float wgMax = Math.max(2f, wmFont.getSize2D()
+                                        * (0.02f + 0.035f * Math.min(20, wm.glowSize)));
+                                Shape wgOutline = wmFont.createGlyphVector(
+                                        wg.getFontRenderContext(), wm.word)
+                                        .getOutline(-ww / 2f, baselineOff);
+                                Object savedWgAA = wg.getRenderingHint(RenderingHints.KEY_ANTIALIASING);
+                                wg.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                                        RenderingHints.VALUE_ANTIALIAS_ON);
+                                wg.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL,
+                                        RenderingHints.VALUE_STROKE_PURE);
+                                for (int wgL = 8; wgL >= 1; wgL--) {
+                                    double wgT = wgL / 8.0;
+                                    float wgStroke = (float) (wgMax * 2.0 * wgT);
+                                    int wgA = (int) Math.round(70 * (1.0 - wgT) * (1.0 - wgT) + 12);
+                                    wg.setColor(new Color(wgC.getRed(), wgC.getGreen(),
+                                            wgC.getBlue(), Math.max(0, Math.min(255, wgA))));
+                                    wg.setStroke(new BasicStroke(wgStroke, BasicStroke.CAP_ROUND,
+                                            BasicStroke.JOIN_ROUND));
+                                    wg.draw(wgOutline);
+                                }
+                                if (savedWgAA != null) {
+                                    wg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, savedWgAA);
+                                }
+                            }
+                            wg.setColor(wmDraw);
                             wg.drawString(wm.word, -ww / 2f, baselineOff);
                         } finally {
                             wg.dispose();
@@ -20174,18 +20240,336 @@ public class GifSlideShowApp extends JFrame {
     }
 
     /**
+     * One frame's worth of layered emphasis effects, accumulated before anything is
+     * written to the render hooks. Keeping them here rather than adding straight
+     * into the text means a whole-text row, a "Move Copy" ghost and a word-targeted
+     * copy all consume the SAME numbers — so an effect looks identical whichever of
+     * the three it is played on. Every channel starts at its identity value.
+     */
+    private static final class FxAccum {
+        double scaleX = 1.0;     // horizontal scale about the centre
+        double scaleY = 1.0;     // vertical scale about the centre
+        double dxFrac = 0.0;     // translate, fraction of frame width
+        double dyFrac = 0.0;     // translate, fraction of frame height
+        double tiltDeg = 0.0;    // rotation about the centre, degrees
+        double alpha = 1.0;      // opacity multiplier
+        double skewX = 0.0;      // horizontal shear factor
+        int    glow = 0;         // halo spread, 0 = none
+        Color  glowColor = null; // halo colour, null = the text's own
+
+        /** Scale both axes together (the uniform effects). */
+        void scale(double s) { scaleX *= s; scaleY *= s; }
+
+        /** True when nothing would change on screen — the state every effect
+         *  returns to at the end of its window. Lets a finished in-place row be
+         *  dropped outright instead of drawing an identical copy of itself. */
+        boolean isIdentity() {
+            return scaleX == 1.0 && scaleY == 1.0 && dxFrac == 0.0 && dyFrac == 0.0
+                    && tiltDeg == 0.0 && alpha == 1.0 && skewX == 0.0 && glow == 0;
+        }
+    }
+
+    /** Smoothstep — eases both ends of a 0..1 ramp so keyframes meet without a
+     *  visible corner. */
+    private static double smoothStep(double x) {
+        if (x <= 0) return 0;
+        if (x >= 1) return 1;
+        return x * x * (3.0 - 2.0 * x);
+    }
+
+    /**
+     * Keyframe lookup: {@code stops} are ascending progress values (0..1) and
+     * {@code vals} what the channel reads at each of them, smoothstepped between
+     * neighbours. This is how the choreographed effects (Tada, Wobble, Swing,
+     * Rubber Band, Squash, Jello) are written — as the keyframes a motion designer
+     * would draw, rather than as a sine that only approximates them.
+     */
+    private static double keyframe(double p, double[] stops, double[] vals) {
+        if (stops.length == 0) return 0;
+        if (p <= stops[0]) return vals[0];
+        for (int i = 1; i < stops.length; i++) {
+            if (p <= stops[i]) {
+                double span = stops[i] - stops[i - 1];
+                double q = span <= 1e-9 ? 1.0 : (p - stops[i - 1]) / span;
+                return vals[i - 1] + (vals[i] - vals[i - 1]) * smoothStep(q);
+            }
+        }
+        return vals[vals.length - 1];
+    }
+
+    /** Keep a scale factor off zero while preserving its sign, so a flip can pass
+     *  through edge-on without ever handing Java2D a singular transform. */
+    private static double nonZeroScale(double v) {
+        if (v >= 0) return Math.max(0.04, v);
+        return Math.min(-0.04, v);
+    }
+
+    /**
+     * Layer one emphasis effect into {@code f} at the given point in its window.
+     *
+     * @param p      linear progress through the action's duration, 0..1
+     * @param t      seconds since the action fired (for continuous, time-based cycles)
+     * @param durMs  the action's duration, so cyclic effects pick a sensible beat count
+     * @param landed true once the window has elapsed
+     * @param eased  {@code p} through the action's own easing curve
+     * @param accent the action's landing colour, used to tint the light effects
+     *
+     * Every effect is written so that it reads its identity at p = 1 — the one
+     * deliberate exception being "Fade Out", which has to stay faded — which is
+     * what lets any number of them be layered on one row without fighting, and
+     * lets a finished row leave the text exactly as it found it.
+     */
+    private static void applyMotionEffect(FxAccum f, String fx, double p, double t,
+                                          int durMs, boolean landed, double eased, Color accent) {
+        if (fx == null) return;
+        // Everything but the exit fade stops at the end of its window.
+        if (landed && !"Fade Out".equals(fx)) return;
+        switch (fx) {
+            // ---------------- Attention ----------------
+            case "Pulse": {
+                // Rhythmic breathing scale, one beat per ~550 ms of the window.
+                int cycles = Math.max(1, (int) Math.round(durMs / 550.0));
+                f.scale(1.0 + 0.18 * Math.sin(p * Math.PI * 2 * cycles));
+                break;
+            }
+            case "Pop": {
+                // A snap up to +34% then an elastic settle — the classic accent hit.
+                double s;
+                if (p < 0.18) {
+                    s = 1.0 + 0.34 * smoothStep(p / 0.18);
+                } else {
+                    double q = (p - 0.18) / 0.82;
+                    s = 1.0 + 0.34 * Math.exp(-5.0 * q) * Math.cos(2 * Math.PI * 1.35 * q);
+                }
+                f.scale(s);
+                break;
+            }
+            case "Heartbeat": {
+                // Lub-dub: a strong beat, a beat of rest, then a softer echo.
+                double beats = Math.max(1, Math.round(durMs / 900.0));
+                double u = (p * beats) % 1.0;
+                double amp = 0.0;
+                if (u < 0.14) amp = 0.16 * Math.sin(u / 0.14 * Math.PI);
+                else if (u >= 0.20 && u < 0.34) amp = 0.10 * Math.sin((u - 0.20) / 0.14 * Math.PI);
+                f.scale(1.0 + amp);
+                break;
+            }
+            case "Tada": {
+                // Coil in, then swell and shimmy — an arrival worth applauding.
+                double[] k = { 0, .1, .2, .3, .4, .5, .6, .7, .8, .9, 1 };
+                f.scale(keyframe(p, k, new double[]{ 1, .9, .9, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1, 1 }));
+                f.tiltDeg += keyframe(p, k, new double[]{ 0, 0, -3, 3, -3, 3, -3, 3, -3, 3, 0 });
+                break;
+            }
+            case "Zoom Punch": {
+                // One hard zoom that recoils almost immediately. Reads as an impact.
+                f.scale(keyframe(p, new double[]{ 0, .10, .40, 1 },
+                        new double[]{ 1, 1.45, 1.02, 1 }));
+                break;
+            }
+            case "Flash": {
+                f.alpha *= 0.35 + 0.65 * Math.abs(Math.sin(p * Math.PI * 6));
+                break;
+            }
+            case "Blink": {
+                // Hard on/off, unlike Flash's smooth dip — for a caution / alert read.
+                int blinks = Math.max(1, (int) Math.round(durMs / 400.0));
+                if (((int) (p * blinks * 2)) % 2 != 0) f.alpha = 0.0;
+                break;
+            }
+
+            // ---------------- Movement ----------------
+            case "Shake": {
+                f.dxFrac += 0.012 * Math.sin(t * 42.0);
+                f.dyFrac += 0.006 * Math.sin(t * 55.0);
+                break;
+            }
+            case "Vibrate": {
+                // A third the throw of Shake at twice the rate: tension, not alarm.
+                f.dxFrac += 0.0035 * Math.sin(t * 96.0);
+                f.dyFrac += 0.0025 * Math.sin(t * 118.0);
+                break;
+            }
+            case "Bounce": {
+                double u = (p * 2.0) % 1.0;                // two hops over the window
+                f.dyFrac += -0.06 * (4.0 * u * (1.0 - u));
+                break;
+            }
+            case "Float": {
+                // One slow, weightless rise and fall per ~1.6 s — the idle-state effect.
+                double cycles = Math.max(1, Math.round(durMs / 1600.0));
+                f.dyFrac += -0.020 * (0.5 - 0.5 * Math.cos(2 * Math.PI * p * cycles));
+                break;
+            }
+            case "Drift": {
+                f.dxFrac += 0.045 * Math.sin(Math.PI * p);  // out and back, once
+                break;
+            }
+            case "Nudge": {
+                // A single decisive shove with an elastic recovery.
+                double d;
+                if (p < 0.12) {
+                    d = 0.030 * smoothStep(p / 0.12);
+                } else {
+                    double q = (p - 0.12) / 0.88;
+                    d = 0.030 * Math.exp(-4.5 * q) * Math.cos(2 * Math.PI * 1.2 * q);
+                }
+                f.dxFrac += d;
+                break;
+            }
+            case "Orbit": {
+                // A small circle traced around wherever the text sits, back to zero.
+                double turns = Math.max(1, Math.round(durMs / 1400.0));
+                double th = 2 * Math.PI * p * turns;
+                f.dxFrac += 0.020 * Math.sin(th);
+                f.dyFrac += 0.020 * (Math.cos(th) - 1.0);
+                break;
+            }
+            case "Wobble": {
+                // Swings sideways while counter-rotating, each pass smaller.
+                double[] k = { 0, .15, .3, .45, .6, .75, 1 };
+                f.dxFrac  += keyframe(p, k, new double[]{ 0, -.025, .020, -.015, .010, -.005, 0 });
+                f.tiltDeg += keyframe(p, k, new double[]{ 0, -5, 3, -3, 2, -1, 0 });
+                break;
+            }
+
+            // ---------------- Rotation ----------------
+            case "Spin": {
+                f.tiltDeg += 360.0 * eased;               // one full turn, on the row's easing
+                break;
+            }
+            case "Sway": {
+                // A pendulum losing energy — ends exactly upright, never mid-lean.
+                double cycles = Math.max(1, Math.round(durMs / 900.0));
+                f.tiltDeg += 8.0 * (1.0 - p) * Math.sin(2 * Math.PI * p * cycles);
+                break;
+            }
+            case "Swing": {
+                f.tiltDeg += keyframe(p, new double[]{ 0, .2, .4, .6, .8, 1 },
+                        new double[]{ 0, 15, -10, 5, -5, 0 });
+                break;
+            }
+            case "Flip X": {
+                // Mirroring the horizontal scale through zero reads as a card turning
+                // on its vertical axis; the slight vertical squeeze sells the depth.
+                double c = Math.cos(2 * Math.PI * p);
+                f.scaleX *= nonZeroScale(c);
+                f.scaleY *= 0.94 + 0.06 * Math.abs(c);
+                break;
+            }
+            case "Flip Y": {
+                double c = Math.cos(2 * Math.PI * p);
+                f.scaleY *= nonZeroScale(c);
+                f.scaleX *= 0.94 + 0.06 * Math.abs(c);
+                break;
+            }
+
+            // ---------------- Elastic ----------------
+            case "Rubber Band": {
+                // Stretches wide as it squashes flat, then rings out — volume is
+                // roughly preserved throughout, which is what makes it read as elastic.
+                double[] k = { 0, .30, .40, .50, .65, .75, 1 };
+                f.scaleX *= keyframe(p, k, new double[]{ 1, 1.25, 0.75, 1.15, 0.95, 1.05, 1 });
+                f.scaleY *= keyframe(p, k, new double[]{ 1, 0.75, 1.25, 0.85, 1.05, 0.95, 1 });
+                break;
+            }
+            case "Squash": {
+                double[] k = { 0, .25, .50, .75, 1 };
+                f.scaleX *= keyframe(p, k, new double[]{ 1, 1.18, 0.88, 1.06, 1 });
+                f.scaleY *= keyframe(p, k, new double[]{ 1, 0.82, 1.14, 0.95, 1 });
+                break;
+            }
+            case "Jello": {
+                // Pure shear, halving each pass: the text wobbles without changing
+                // size. The keys are the lean in DEGREES — 12.5° and halving — so
+                // the amplitude reads the same at any font size; tan turns each into
+                // the shear factor Java2D wants.
+                double leanDeg = keyframe(p,
+                        new double[]{ 0, .111, .222, .333, .444, .555, .666, .777, .888, 1 },
+                        new double[]{ 0, 0, -12.5, 6.25, -3.125, 1.5625,
+                                      -0.78125, 0.390625, -0.1953, 0 });
+                f.skewX += Math.tan(Math.toRadians(leanDeg));
+                break;
+            }
+
+            // ---------------- Entrance / Exit ----------------
+            case "Rise": {
+                // Comes up into place and settles — pair it with Fade In for the
+                // standard editorial entrance.
+                double q = Math.min(1.0, p / 0.65);
+                f.dyFrac += 0.10 * (1.0 - easeOutCubic(q));
+                break;
+            }
+            case "Drop": {
+                // Falls in from above and lands on a real bounce curve.
+                double q = Math.min(1.0, p / 0.80);
+                f.dyFrac += -0.14 * (1.0 - QuizSlide.easeNamed("Bounce", q));
+                break;
+            }
+            case "Zoom In": {
+                double q = Math.min(1.0, p / 0.65);
+                f.scale(0.55 + 0.45 * easeOutCubic(q));
+                break;
+            }
+            case "Zoom Out": {
+                double q = Math.min(1.0, p / 0.65);
+                f.scale(1.55 - 0.55 * easeOutCubic(q));
+                break;
+            }
+            case "Fade In": {
+                f.alpha *= easeOutCubic(Math.min(1.0, p / 0.55));
+                break;
+            }
+            case "Fade Out": {
+                // The one effect that outlives its window: once it has run the text
+                // stays gone, which is the only thing "fade out" can mean.
+                f.alpha *= landed ? 0.0 : (1.0 - smoothStep(Math.min(1.0, p / 0.85)));
+                break;
+            }
+
+            // ---------------- Light ----------------
+            case "Glow Pulse": {
+                // A halo breathing in and out, starting and ending at nothing.
+                double cycles = Math.max(1, Math.round(durMs / 1200.0));
+                double breathe = 0.5 - 0.5 * Math.cos(2 * Math.PI * p * cycles);
+                // Peaks a little above the audio-FX glow's own default of 7, so it
+                // reads as a swell rather than as a slab of light around the words.
+                f.glow = Math.max(f.glow, (int) Math.round(10.0 * breathe));
+                if (accent != null) f.glowColor = accent;
+                break;
+            }
+            case "Neon Flicker": {
+                // Three detuned oscillators gate the tube on and off, so the stutter
+                // never falls into an obvious rhythm the way one sine would.
+                double n = 0.60 * Math.sin(t * 21.7) + 0.30 * Math.sin(t * 9.3)
+                         + 0.10 * Math.sin(t * 47.1);
+                boolean lit = n > -0.45;
+                f.alpha *= lit ? (0.90 + 0.10 * Math.sin(t * 33.0)) : 0.30;
+                f.glow = Math.max(f.glow, lit ? 8 : 2);
+                if (accent != null) f.glowColor = accent;
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    /**
      * Drive the transient render hooks for this text's timed actions at the given
      * elapsed time. Reuses the same per-frame fields as the audio-highlight and
      * entrance systems (pulseRenderScale / shakeRenderDyFrac / audioOtherDxFrac /
-     * audioOtherAlpha / audioOtherTiltDeg + the ghost hooks), so no new draw code
-     * is needed. Fields were reset to identity earlier this frame; effects compose
-     * additively/multiplicatively so several active actions can stack.
+     * audioOtherAlpha / audioOtherTiltDeg + the ghost hooks), plus the non-uniform
+     * scale / shear / glow hooks the layered effects need. Fields were reset to
+     * identity earlier this frame; effects compose additively / multiplicatively so
+     * several active actions — and several effects within one action — stack.
      *
-     *   Move       — translates the text itself to (toX%,toY%) then holds there,
-     *                applying the landing format + a polish pop on arrival.
-     *   Move Copy  — leaves the original in place and sends a ghost duplicate
-     *                (rendered by expandActionGhosts) on the same path.
-     *   Pulse / Shake / Bounce / Spin / Flash — in-place emphasis over the window.
+     * Each action has TWO independent parts, either of which may be absent:
+     *   a motion  — Move relocates the text itself, Move Copy leaves the original in
+     *               place and sends a ghost duplicate (rendered by expandActionGhosts)
+     *               on the same path, None stays put; and
+     *   effects   — any number of the emphasis effects, layered into one transform
+     *               and played on whichever instance is the moving one, so a copy
+     *               that flies away pulses while the original stays untouched.
      */
     private static void applyTextActions(SlideTextData st, long elapsedMs, List<SlideTextData> texts) {
         if (st == null || st.actions == null || st.actions.isEmpty()) return;
@@ -20197,16 +20581,28 @@ public class GifSlideShowApp extends JFrame {
             boolean landed = since >= dur;
             double eased = QuizSlide.easeNamed(a.easing, p);
 
+            // Every emphasis effect on the row, layered into one transform. Resolved
+            // once and shared by the block / ghost / word paths below.
+            FxAccum fx = new FxAccum();
+            double secs = since / 1000.0;
+            for (String name : a.effectList()) {
+                applyMotionEffect(fx, name, p, secs, dur, landed, eased, a.landColor);
+            }
+            boolean moving = a.isMove();
+
             // ----- Word-targeted actions -----
             // Instead of transforming the whole block, describe a formatted copy
             // of one word for renderFrame to locate and draw. The paragraph is
             // left untouched (the copy is additive).
             if (a.isWordTargeted()) {
-                double ph2 = since / 1000.0;
+                // An in-place row whose effects have all finished has nothing left to
+                // draw, and drawing it anyway would keep punching the word out of the
+                // paragraph to replace it with an identical copy.
+                if (!moving && fx.isIdentity()) continue;
                 SlideTextData.WordMotionRender wm = new SlideTextData.WordMotionRender();
                 wm.word = a.word.trim();
                 wm.occ = Math.max(1, a.wordOccurrence);
-                if (a.isMove()) {
+                if (moving) {
                     wm.isMove = true;
                     wm.destXFrac = a.toXPct / 100.0;
                     wm.destYFrac = a.toYPct / 100.0;
@@ -20220,108 +20616,87 @@ public class GifSlideShowApp extends JFrame {
                         wm.fontSize  = lf.fontSize;
                         wm.letterSpacing = lf.letterSpacing;
                     }
-                } else {
-                    if (landed) continue;   // in-place effect only during its window
-                    switch (a.kind) {
-                        case "Pulse": {
-                            int cycles = Math.max(1, (int) Math.round(dur / 550.0));
-                            wm.scale = 1.0 + 0.18 * Math.sin(p * Math.PI * 2 * cycles);
-                            break;
-                        }
-                        case "Shake":
-                            wm.dxFrac = 0.012 * Math.sin(ph2 * 42.0);
-                            wm.dyFrac = 0.006 * Math.sin(ph2 * 55.0);
-                            break;
-                        case "Bounce": {
-                            double u = (p * 2.0) % 1.0;
-                            wm.dyFrac = -0.06 * (4.0 * u * (1.0 - u));
-                            break;
-                        }
-                        case "Spin":
-                            wm.tiltDeg = 360.0 * eased;
-                            break;
-                        case "Flash":
-                            wm.alpha = 0.35 + 0.65 * Math.abs(Math.sin(p * Math.PI * 6));
-                            break;
-                        default:
-                            break;
-                    }
                 }
+                // Layer the effects on top of the motion. wm.scale stays the LANDING
+                // scale alone — the destination maths reads it to line the word's
+                // leading edge up on To X% — so the effects' scaling rides in on the
+                // separate per-axis pair and cannot drag the landing off its mark.
+                wm.scaleX = fx.scaleX;
+                wm.scaleY = fx.scaleY;
+                wm.dxFrac += fx.dxFrac;
+                wm.dyFrac += fx.dyFrac;
+                wm.tiltDeg += fx.tiltDeg;
+                wm.alpha *= fx.alpha;
+                wm.skewX += fx.skewX;
+                wm.glowSize = fx.glow;
+                wm.glowColor = fx.glowColor;
                 if (st.wordMotionsRender == null) st.wordMotionsRender = new java.util.ArrayList<>();
                 st.wordMotionsRender.add(wm);
                 continue;
             }
 
-            if (a.isMove()) {
+            // ----- Whole-text actions -----
+            double dx = 0.0, dy = 0.0, landScale = 1.0;
+            Color landCol = null;
+            LandingFormat lf = null;
+            if (moving) {
                 double dxFull = (a.toXPct - st.x) / 100.0;   // fraction of frame width
                 double dyFull = (a.toYPct - st.y) / 100.0;   // fraction of frame height
-                double dx = dxFull * eased;
-                double dy = dyFull * eased;
+                dx = dxFull * eased;
+                dy = dyFull * eased;
                 // Landing polish: persistent scale/colour once arrived, plus a
                 // brief overshoot pop centred just after touchdown.
-                double landScale = 1.0;
-                Color  landCol   = null;
-                LandingFormat lf = null;
                 if (landed && a.landFormat) {
-                    long sinceLanded = since - dur;
                     lf = resolveLandingFormat(a, texts);
-                    landScale = lf.scale * (1.0 + landingPop(sinceLanded));
+                    landScale = lf.scale * (1.0 + landingPop(since - dur));
                     landCol   = lf.color;
                 }
-                if ("Move Copy".equals(a.kind)) {
-                    st.ghostActive = true;
-                    st.ghostDxFrac = dx;
-                    st.ghostDyFrac = dy;
-                    st.ghostScale  = landScale;
-                    if (landCol != null) st.ghostColor = landCol;
-                    if (lf != null) {
-                        st.ghostFontName      = lf.fontName;
-                        st.ghostFontStyle     = lf.fontStyle;
-                        st.ghostFontSize      = lf.fontSize;
-                        st.ghostLetterSpacing = lf.letterSpacing;
-                    }
-                } else {
-                    st.audioOtherDxFrac  += dx;
-                    st.shakeRenderDyFrac += dy;
-                    if (lf != null) {
-                        st.pulseRenderScale *= landScale;
-                        if (landCol != null) st.renderColorOverride = landCol;
-                        st.renderFontNameOverride  = lf.fontName;
-                        st.renderFontStyleOverride = lf.fontStyle;
-                        st.renderFontSizeOverride  = lf.fontSize;
-                        st.renderLetterSpacingOverride = lf.letterSpacing;
-                    }
+            }
+
+            if (SlideTextData.Action.MOTION_MOVE_COPY.equals(a.kind)) {
+                // The duplicate is the one that travels, so it is the one that wears
+                // the effects; the original is left exactly as it was.
+                st.ghostActive = true;
+                st.ghostDxFrac = dx + fx.dxFrac;
+                st.ghostDyFrac = dy + fx.dyFrac;
+                st.ghostScale  = landScale;
+                st.ghostScaleX = fx.scaleX;
+                st.ghostScaleY = fx.scaleY;
+                st.ghostSkewX  = fx.skewX;
+                st.ghostTiltDeg = fx.tiltDeg;
+                st.ghostAlpha  = fx.alpha;
+                st.ghostGlowSize  = fx.glow;
+                st.ghostGlowColor = fx.glowColor;
+                if (landCol != null) st.ghostColor = landCol;
+                if (lf != null) {
+                    st.ghostFontName      = lf.fontName;
+                    st.ghostFontStyle     = lf.fontStyle;
+                    st.ghostFontSize      = lf.fontSize;
+                    st.ghostLetterSpacing = lf.letterSpacing;
                 }
                 continue;
             }
 
-            // In-place emphasis effects run only during their window; afterwards
-            // the fields stay at the identity values set earlier this frame.
-            if (landed) continue;
-            double ph = since / 1000.0;   // seconds since fired, for continuous cycles
-            switch (a.kind) {
-                case "Pulse": {
-                    int cycles = Math.max(1, (int) Math.round(dur / 550.0));
-                    st.pulseRenderScale *= 1.0 + 0.18 * Math.sin(p * Math.PI * 2 * cycles);
-                    break;
-                }
-                case "Shake":
-                    st.audioOtherDxFrac  += 0.012 * Math.sin(ph * 42.0);
-                    st.shakeRenderDyFrac += 0.006 * Math.sin(ph * 55.0);
-                    break;
-                case "Bounce": {
-                    double u = (p * 2.0) % 1.0;               // two hops over the window
-                    st.shakeRenderDyFrac += -0.06 * (4.0 * u * (1.0 - u));
-                    break;
-                }
-                case "Spin":
-                    st.audioOtherTiltDeg += 360.0 * eased;    // one full turn, eased
-                    break;
-                case "Flash":
-                    st.audioOtherAlpha *= 0.35 + 0.65 * Math.abs(Math.sin(p * Math.PI * 6));
-                    break;
-                default:
-                    break;
+            // Move (the text itself) and None (effects in place) share every hook:
+            // a row with no motion simply contributes a zero translation.
+            st.audioOtherDxFrac  += dx + fx.dxFrac;
+            st.shakeRenderDyFrac += dy + fx.dyFrac;
+            st.pulseRenderScale  *= landScale;
+            st.fxScaleX          *= fx.scaleX;
+            st.fxScaleY          *= fx.scaleY;
+            st.fxSkewX           += fx.skewX;
+            st.audioOtherTiltDeg += fx.tiltDeg;
+            st.audioOtherAlpha   *= fx.alpha;
+            if (fx.glow > st.fxGlowSize) {
+                st.fxGlowSize  = fx.glow;
+                st.fxGlowColor = fx.glowColor;
+            }
+            if (lf != null) {
+                if (landCol != null) st.renderColorOverride = landCol;
+                st.renderFontNameOverride  = lf.fontName;
+                st.renderFontStyleOverride = lf.fontStyle;
+                st.renderFontSizeOverride  = lf.fontSize;
+                st.renderLetterSpacingOverride = lf.letterSpacing;
             }
         }
     }
@@ -20360,6 +20735,14 @@ public class GifSlideShowApp extends JFrame {
             ghost.pulseRenderScale   = st.ghostScale;
             ghost.audioOtherAlpha    = st.ghostAlpha;
             ghost.renderColorOverride = st.ghostColor;
+            // The emphasis effects the copy is carrying, on the same hooks the
+            // renderer already reads for any other text.
+            ghost.fxScaleX           = st.ghostScaleX;
+            ghost.fxScaleY           = st.ghostScaleY;
+            ghost.fxSkewX            = st.ghostSkewX;
+            ghost.audioOtherTiltDeg  = st.ghostTiltDeg;
+            ghost.fxGlowSize         = st.ghostGlowSize;
+            ghost.fxGlowColor        = st.ghostGlowColor;
             // The clone's own font fields are final (constructor-set), so a landing
             // typeface rides in through the same override hooks the renderer already
             // reads for a plain Move.
@@ -20491,6 +20874,17 @@ public class GifSlideShowApp extends JFrame {
         st.ghostFontStyle = -1;
         st.ghostFontSize  = 0;
         st.ghostLetterSpacing = LAND_TRACK_KEEP;
+        st.fxScaleX = 1.0;
+        st.fxScaleY = 1.0;
+        st.fxSkewX  = 0.0;
+        st.fxGlowSize  = 0;
+        st.fxGlowColor = null;
+        st.ghostScaleX = 1.0;
+        st.ghostScaleY = 1.0;
+        st.ghostSkewX  = 0.0;
+        st.ghostTiltDeg = 0.0;
+        st.ghostGlowSize  = 0;
+        st.ghostGlowColor = null;
         st.altRendersThisFrame = null;
         if (st.wordMotionsRender != null) st.wordMotionsRender.clear();
     }
@@ -21226,6 +21620,20 @@ public class GifSlideShowApp extends JFrame {
                 hl.ghostFontStyle = st.ghostFontStyle;
                 hl.ghostFontSize  = st.ghostFontSize;
                 hl.ghostLetterSpacing = st.ghostLetterSpacing;
+                // The layered motion effects' own channels, for the same reason:
+                // without these a text that is audio-active loses its stretch,
+                // its lean and its halo for as long as it is speaking.
+                hl.fxScaleX = st.fxScaleX;
+                hl.fxScaleY = st.fxScaleY;
+                hl.fxSkewX  = st.fxSkewX;
+                hl.fxGlowSize  = st.fxGlowSize;
+                hl.fxGlowColor = st.fxGlowColor;
+                hl.ghostScaleX = st.ghostScaleX;
+                hl.ghostScaleY = st.ghostScaleY;
+                hl.ghostSkewX  = st.ghostSkewX;
+                hl.ghostTiltDeg = st.ghostTiltDeg;
+                hl.ghostGlowSize  = st.ghostGlowSize;
+                hl.ghostGlowColor = st.ghostGlowColor;
                 hl.wordMotionsRender = st.wordMotionsRender;
                 hl.altRendersThisFrame = st.altRendersThisFrame;
                 hl.forceShow = st.forceShow;
@@ -21983,6 +22391,38 @@ public class GifSlideShowApp extends JFrame {
         int    ghostFontSize  = 0;
         int    ghostLetterSpacing = LAND_TRACK_KEEP;
 
+        // ---- Motion-effect render hooks (transient, not persisted) ----
+        // The channels the layered emphasis effects need beyond the uniform
+        // scale / translate / tilt / alpha hooks above: a NON-uniform scale (so
+        // Rubber Band, Squash and the two Flips can stretch one axis against the
+        // other), a horizontal shear (Jello) and a per-frame halo (Glow Pulse,
+        // Neon Flicker). All are re-derived every frame: cleared by
+        // resetQuizRevealAnim, set by applyTextActions.
+        double fxScaleX = 1.0;      // extra horizontal scale about the block centre
+        double fxScaleY = 1.0;      // extra vertical scale about the block centre
+        double fxSkewX  = 0.0;      // horizontal shear factor (0 = upright)
+        int    fxGlowSize  = 0;     // 0 = none; 1..20 = halo spread, like audioGlowSize
+        Color  fxGlowColor = null;  // halo colour (null = the text's own colour)
+        // The same five channels for the "Move Copy" ghost, so a copy that flies
+        // away can carry the row's effects while the original stays untouched.
+        double ghostScaleX = 1.0;
+        double ghostScaleY = 1.0;
+        double ghostSkewX  = 0.0;
+        double ghostTiltDeg = 0.0;
+        int    ghostGlowSize  = 0;
+        Color  ghostGlowColor = null;
+
+        /** The halo spread to draw this frame: the larger of the audio-FX glow the
+         *  text is configured with and the transient glow a motion effect asks for,
+         *  so neither can switch the other off. */
+        int effectiveGlowSize() { return Math.max(audioGlowSize, fxGlowSize); }
+
+        /** The colour that halo is drawn in — the motion effect's when its glow is
+         *  the one being drawn, otherwise the audio-FX colour (null = text colour). */
+        Color effectiveGlowColor() {
+            return (fxGlowSize > audioGlowSize && fxGlowColor != null) ? fxGlowColor : audioGlowColor;
+        }
+
         // Per-frame word-motion overlays (Texts Timer → Motion, with a Word target).
         // Each entry describes a formatted copy of one word to draw this frame — its
         // travel/effect state. Computed by applyTextActions, consumed by renderFrame
@@ -21996,6 +22436,12 @@ public class GifSlideShowApp extends JFrame {
             double destXFrac, destYFrac, eased;  // move interpolation target + progress
             double dxFrac, dyFrac;               // in-place translate (fraction of frame)
             double scale = 1.0, alpha = 1.0, tiltDeg = 0.0;
+            // Non-uniform scale, shear and halo, matching the block-level hooks on
+            // SlideTextData, so a word-targeted row plays exactly the same effects
+            // as a whole-text one.
+            double scaleX = 1.0, scaleY = 1.0, skewX = 0.0;
+            int    glowSize = 0;
+            Color  glowColor;    // null = the halo takes the word's draw colour
             Color color;         // null = keep the text's colour
             // Landing typeface for the flying copy: family / style bits / point
             // size. null / -1 / 0 keep the paragraph's own, so a word that only
@@ -22151,14 +22597,64 @@ public class GifSlideShowApp extends JFrame {
          *  live in applyTextActions() (render) and the Motion editor (UI). Every
          *  field defaults to a harmless no-op so older presets keep working. */
         static class Action {
-            // Supported behaviours. "Move" relocates the text itself; "Move Copy"
-            // leaves the original and sends a duplicate; the rest are in-place.
-            static final String[] KINDS = {
-                    "Move", "Move Copy", "Pulse", "Shake", "Bounce", "Spin", "Flash" };
+            // ---- Motion: the one relocation behaviour, chosen from three ----
+            // "Move" relocates the text itself, "Move Copy" leaves the original and
+            // sends a duplicate, "None" stays put (the row then runs on its emphasis
+            // effects, its trigger and its sound alone).
+            static final String MOTION_NONE      = "None";
+            static final String MOTION_MOVE      = "Move";
+            static final String MOTION_MOVE_COPY = "Move Copy";
+            static final String[] MOTIONS = { MOTION_NONE, MOTION_MOVE, MOTION_MOVE_COPY };
+
+            // ---- Emphasis effects: any number of them, layered ----
+            // Grouped exactly as the picker shows them: element 0 of each row is the
+            // group heading, the rest are effect names. Every effect returns to its
+            // identity by the end of its window (the one deliberate exception is
+            // "Fade Out", which stays faded), so any combination composes cleanly and
+            // leaves nothing behind. The semantics live in applyMotionEffect().
+            static final String[][] EFFECT_GROUPS = {
+                    { "Attention",       "Pulse", "Pop", "Heartbeat", "Tada",
+                                         "Zoom Punch", "Flash", "Blink" },
+                    { "Movement",        "Shake", "Vibrate", "Bounce", "Float",
+                                         "Drift", "Nudge", "Orbit", "Wobble" },
+                    { "Rotation",        "Spin", "Sway", "Swing", "Flip X", "Flip Y" },
+                    { "Elastic",         "Rubber Band", "Squash", "Jello" },
+                    { "Entrance / Exit", "Rise", "Drop", "Zoom In", "Zoom Out",
+                                         "Fade In", "Fade Out" },
+                    { "Light",           "Glow Pulse", "Neon Flicker" },
+            };
+
+            /** Every effect name, in picker order. */
+            static final String[] EFFECTS;
+            /** Membership test set for {@link #EFFECTS}. */
+            private static final java.util.Set<String> EFFECT_SET;
+            /** Legacy flat list — the three motions followed by every effect. Kept so
+             *  anything still reading a single "kind" sees a valid vocabulary. */
+            static final String[] KINDS;
+            static {
+                java.util.List<String> fx = new java.util.ArrayList<>();
+                for (String[] grp : EFFECT_GROUPS) {
+                    for (int i = 1; i < grp.length; i++) fx.add(grp[i]);
+                }
+                EFFECTS = fx.toArray(new String[0]);
+                EFFECT_SET = java.util.Collections.unmodifiableSet(
+                        new java.util.LinkedHashSet<>(fx));
+                java.util.List<String> all = new java.util.ArrayList<>();
+                all.add(MOTION_MOVE); all.add(MOTION_MOVE_COPY); all.addAll(fx);
+                KINDS = all.toArray(new String[0]);
+            }
             static final String[] EASINGS = {
                     "Linear", "Ease In", "Ease Out", "Ease In Out", "Bounce" };
 
-            String kind = "Move";       // one of KINDS
+            // The row's motion, or — on a row with no motion — the FIRST of its
+            // emphasis effects. Written that way (rather than as a bare "None") so a
+            // preset stays readable by the single-effect build this grew out of: it
+            // sees the leading effect and plays it, ignoring the rest.
+            String kind = "Move";
+            // Every emphasis effect on this row, comma-separated, in the order the
+            // picker lists them. Empty means "whatever `kind` names, if that is an
+            // effect" — which is exactly how a pre-multi-select preset reads.
+            String effects = "";
             int atMs = 0;               // when the action fires (ms from slide start)
             int durMs = 800;            // motion / effect duration in ms
             String easing = "Ease Out"; // easing curve for the motion
@@ -22210,7 +22706,68 @@ public class GifSlideShowApp extends JFrame {
             Action() {}
 
             /** True for the two relocation kinds (they use toX/toY + landing). */
-            boolean isMove() { return "Move".equals(kind) || "Move Copy".equals(kind); }
+            boolean isMove() { return MOTION_MOVE.equals(kind) || MOTION_MOVE_COPY.equals(kind); }
+
+            /** This row's motion — one of {@link #MOTIONS}. A {@code kind} holding an
+             *  effect name (a row with effects but no motion) reads as "None". */
+            String motion() {
+                if (MOTION_MOVE.equals(kind)) return MOTION_MOVE;
+                if (MOTION_MOVE_COPY.equals(kind)) return MOTION_MOVE_COPY;
+                return MOTION_NONE;
+            }
+
+            /** True when {@code name} is one of the emphasis effects. */
+            static boolean isEffectName(String name) {
+                return name != null && EFFECT_SET.contains(name.trim());
+            }
+
+            /** The emphasis effects on this row, de-duplicated and in stored order.
+             *  Falls back to {@code kind} so a preset written before effects could be
+             *  layered still plays the single effect it names. */
+            java.util.List<String> effectList() {
+                java.util.List<String> out = new java.util.ArrayList<>();
+                if (effects != null && !effects.trim().isEmpty()) {
+                    for (String raw : effects.split(",")) {
+                        String e = raw.trim();
+                        if (isEffectName(e) && !out.contains(e)) out.add(e);
+                    }
+                    return out;
+                }
+                if (isEffectName(kind)) out.add(kind.trim());
+                return out;
+            }
+
+            /** True when this row plays {@code name}. */
+            boolean hasEffect(String name) { return effectList().contains(name); }
+
+            /** Store a motion plus a set of effects, keeping {@code kind} meaningful
+             *  for an older reader: the motion when there is one, else the leading
+             *  effect, else "None". Effects are re-ordered into picker order so two
+             *  rows with the same selection always serialise identically. */
+            void setSelection(String motion, java.util.Collection<String> fx) {
+                java.util.List<String> ordered = new java.util.ArrayList<>();
+                if (fx != null) {
+                    for (String name : EFFECTS) {
+                        if (fx.contains(name)) ordered.add(name);
+                    }
+                }
+                effects = String.join(", ", ordered);
+                if (MOTION_MOVE.equals(motion) || MOTION_MOVE_COPY.equals(motion)) kind = motion;
+                else kind = ordered.isEmpty() ? MOTION_NONE : ordered.get(0);
+            }
+
+            /** Short human label for this row's behaviour, e.g. "Move + Pulse + Glow
+             *  Pulse" — used by the picker button and the row summaries. */
+            String selectionLabel() {
+                java.util.List<String> parts = new java.util.ArrayList<>();
+                if (isMove()) parts.add(kind);
+                parts.addAll(effectList());
+                return parts.isEmpty() ? MOTION_NONE : String.join(" + ", parts);
+            }
+
+            /** True when the row would draw nothing on its own — no motion and no
+             *  effect. Such a row is still useful: it can fire a trigger or a sound. */
+            boolean isInert() { return !isMove() && effectList().isEmpty(); }
 
             /** True when this action targets a single word rather than the block. */
             boolean isWordTargeted() { return word != null && !word.trim().isEmpty(); }
@@ -22218,7 +22775,8 @@ public class GifSlideShowApp extends JFrame {
             /** Deep copy — Action instances must not be shared between texts. */
             Action copy() {
                 Action a = new Action();
-                a.kind = kind; a.atMs = atMs; a.durMs = durMs; a.easing = easing;
+                a.kind = kind; a.effects = effects;
+                a.atMs = atMs; a.durMs = durMs; a.easing = easing;
                 a.toXPct = toXPct; a.toYPct = toYPct;
                 a.landFormat = landFormat; a.landScale = landScale; a.landColor = landColor;
                 a.landFont = landFont; a.landStyle = landStyle;
@@ -33697,7 +34255,7 @@ public class GifSlideShowApp extends JFrame {
             final JScrollPane scroll = new JScrollPane(rowsPanel);
             // Wide enough for the whole trigger line — combo, at X%/Y% and the
             // "Follow text" tick — so a row never needs sideways scrolling.
-            scroll.setPreferredSize(new Dimension(880, 340));
+            scroll.setPreferredSize(new Dimension(980, 340));
             scroll.getVerticalScrollBar().setUnitIncrement(18);
 
             final java.util.List<ActionRowUI> rowUIs = new java.util.ArrayList<>();
@@ -33877,9 +34435,14 @@ public class GifSlideShowApp extends JFrame {
             });
 
             JLabel help = new JLabel("<html>Each action fires at its own time (seconds from the start of this "
-                    + "slide).<br><b>Move</b> sends this text to a new spot; <b>Move Copy</b> leaves the "
-                    + "original in place and sends a duplicate; <b>Pulse / Shake / Bounce / Spin / Flash</b> "
-                    + "play in place. <b>To X% / Y%</b> is the destination as a percentage of the frame. "
+                    + "slide).<br>The first box on a row is its <b>behaviour</b> — click it to choose a "
+                    + "<b>motion</b> (<b>Move</b> sends this text to a new spot, <b>Move Copy</b> leaves the "
+                    + "original in place and sends a duplicate, <b>None</b> stays put) and to tick "
+                    + "<b>as many effects as you like</b> from the grouped list. Everything ticked plays "
+                    + "<i>together</i> — Rise + Fade In for an entrance, Pulse + Glow Pulse for a beat, "
+                    + "Move + Spin to send the text off spinning — and the sample under the list shows "
+                    + "the exact combination at this row's speed before you commit to it. "
+                    + "<b>To X% / Y%</b> is the destination as a percentage of the frame. "
                     + "<b>Format on landing</b> re-formats the arrival — scale, colour, and the "
                     + "<b>Land font</b> / <b>Style</b> on the next line; tick <b>Same as trigger</b> "
                     + "to land in the triggered text's exact format instead, so the two match. "
@@ -34529,12 +35092,409 @@ public class GifSlideShowApp extends JFrame {
             dlg.setVisible(true);
         }
 
+        /**
+         * Live sample of whatever the picker currently has selected: the word
+         * "Sample" driven by the SAME {@link GifSlideShowApp#applyMotionEffect}
+         * the renderer uses, on a loop of the row's own duration. It exists so a
+         * combination can be judged where it is chosen, instead of by rendering
+         * the slide and scrubbing to the right second.
+         */
+        private static final class EffectPreviewPanel extends JPanel {
+            private final javax.swing.Timer ticker;
+            private final long start = System.currentTimeMillis();
+            private java.util.List<String> effects = java.util.Collections.emptyList();
+            private String motion = SlideTextData.Action.MOTION_NONE;
+            private int durMs = 800;
+
+            EffectPreviewPanel() {
+                setPreferredSize(new Dimension(430, 92));
+                setBackground(new Color(30, 32, 40));
+                setBorder(BorderFactory.createLineBorder(new Color(64, 68, 82)));
+                // 50 fps: fast enough that a Vibrate or a Neon Flicker looks the way
+                // it will on export, cheap enough to leave running in a popup.
+                ticker = new javax.swing.Timer(20, e -> repaint());
+            }
+
+            void setSelection(String motion, java.util.Collection<String> fx, int durMs) {
+                this.motion = motion;
+                this.effects = new java.util.ArrayList<>(fx);
+                this.durMs = Math.max(60, durMs);
+                repaint();
+            }
+
+            void start() { ticker.start(); }
+            void stop()  { ticker.stop(); }
+
+            @Override protected void paintComponent(Graphics g0) {
+                super.paintComponent(g0);
+                Graphics2D g = (Graphics2D) g0.create();
+                try {
+                    g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                            RenderingHints.VALUE_ANTIALIAS_ON);
+                    g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+                            RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                    g.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS,
+                            RenderingHints.VALUE_FRACTIONALMETRICS_ON);
+                    int w = getWidth(), h = getHeight();
+                    // A beat of stillness between takes, so a one-shot effect reads
+                    // as a distinct event rather than an unbroken loop.
+                    long cycle = durMs + 600L;
+                    long since = (System.currentTimeMillis() - start) % cycle;
+                    double p = Math.min(1.0, since / (double) durMs);
+                    boolean landed = since >= durMs;
+                    double eased = QuizSlide.easeNamed("Ease Out", p);
+                    FxAccum f = new FxAccum();
+                    for (String name : effects) {
+                        applyMotionEffect(f, name, p, since / 1000.0, durMs, landed, eased, null);
+                    }
+                    boolean move = SlideTextData.Action.MOTION_MOVE.equals(motion)
+                            || SlideTextData.Action.MOTION_MOVE_COPY.equals(motion);
+                    boolean copy = SlideTextData.Action.MOTION_MOVE_COPY.equals(motion);
+
+                    Font font = new Font("Segoe UI", Font.BOLD, 26);
+                    g.setFont(font);
+                    FontMetrics fm = g.getFontMetrics();
+                    String sample = "Sample";
+                    int tw = fm.stringWidth(sample);
+                    double cx = move ? w * 0.28 : w * 0.5;
+                    double cy = h * 0.5;
+
+                    // "Move Copy" leaves the original behind; show that, faintly, so
+                    // the difference between the two relocations is visible here.
+                    if (copy) {
+                        Graphics2D og = (Graphics2D) g.create();
+                        og.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.28f));
+                        og.setColor(new Color(220, 226, 240));
+                        og.drawString(sample, (float) (cx - tw / 2.0),
+                                (float) (cy + (fm.getAscent() - fm.getDescent()) / 2.0));
+                        og.dispose();
+                    }
+
+                    double px = cx + (move ? (w * 0.34) * eased : 0) + f.dxFrac * w * 3.0;
+                    double py = cy + f.dyFrac * h * 3.0;
+                    Graphics2D tg = (Graphics2D) g.create();
+                    try {
+                        if (f.alpha < 1.0) {
+                            tg.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER,
+                                    (float) Math.max(0.0, Math.min(1.0, f.alpha))));
+                        }
+                        tg.translate(px, py);
+                        if (f.tiltDeg != 0.0) tg.rotate(Math.toRadians(f.tiltDeg));
+                        if (f.skewX != 0.0) tg.shear(f.skewX, 0.0);
+                        if (f.scaleX != 1.0 || f.scaleY != 1.0) tg.scale(f.scaleX, f.scaleY);
+                        float bx = -tw / 2f, by = (fm.getAscent() - fm.getDescent()) / 2f;
+                        if (f.glow > 0) {
+                            Color gc = f.glowColor != null ? f.glowColor : new Color(120, 190, 255);
+                            Shape outline = font.createGlyphVector(
+                                    tg.getFontRenderContext(), sample).getOutline(bx, by);
+                            tg.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL,
+                                    RenderingHints.VALUE_STROKE_PURE);
+                            for (int L = 8; L >= 1; L--) {
+                                double q = L / 8.0;
+                                int alpha = (int) Math.round(70 * (1 - q) * (1 - q) + 12);
+                                tg.setColor(new Color(gc.getRed(), gc.getGreen(), gc.getBlue(), alpha));
+                                tg.setStroke(new BasicStroke(
+                                        (float) (font.getSize2D() * (0.02 + 0.035 * f.glow) * 2.0 * q),
+                                        BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                                tg.draw(outline);
+                            }
+                        }
+                        tg.setColor(Color.WHITE);
+                        tg.drawString(sample, bx, by);
+                    } finally {
+                        tg.dispose();
+                    }
+
+                    g.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+                    g.setColor(new Color(150, 158, 178));
+                    String cap = effects.isEmpty() && !move
+                            ? "nothing selected"
+                            : (durMs + " ms · " + (move ? motion : "in place")
+                               + (effects.isEmpty() ? "" : " · " + String.join(" + ", effects)));
+                    g.drawString(cap, 8, h - 7);
+                } finally {
+                    g.dispose();
+                }
+            }
+        }
+
+        /**
+         * The Motion editor's behaviour picker. One control replaces what used to be
+         * a single-choice "kind" combo, and carries two independent things:
+         *
+         *   a MOTION  — None / Move / Move Copy, mutually exclusive, and
+         *   EFFECTS   — any number of the emphasis effects, ticked from a grouped
+         *               list and layered on top of one another.
+         *
+         * It looks and behaves like a combo box (same border, same ▾ affordance, the
+         * selection written across its face) so the row's layout is unchanged, but
+         * its popup is a grouped checklist with a live sample of the exact
+         * combination underneath — which is the only honest way to choose between
+         * thirty-odd effects.
+         */
+        private static final class MotionEffectPicker extends JButton {
+            private String motion;
+            private final java.util.Set<String> selected = new java.util.LinkedHashSet<>();
+            private final java.util.Map<String, JCheckBox> boxes = new java.util.LinkedHashMap<>();
+            private final java.util.Map<String, JRadioButton> motionRadios = new java.util.LinkedHashMap<>();
+            private final Runnable onChange;
+            /** The row's live "Dur (ms)" value, so the sample plays at the speed the
+             *  action will actually run at. */
+            private final java.util.function.IntSupplier durSupplier;
+            private JPopupMenu popup;
+            private EffectPreviewPanel preview;
+            private boolean syncing = false;
+
+            MotionEffectPicker(SlideTextData.Action seed, java.util.function.IntSupplier durSupplier,
+                               Runnable onChange) {
+                this.onChange = onChange;
+                this.durSupplier = durSupplier;
+                this.motion = seed == null ? SlideTextData.Action.MOTION_MOVE : seed.motion();
+                if (seed != null) selected.addAll(seed.effectList());
+
+                setHorizontalAlignment(SwingConstants.LEFT);
+                setFocusPainted(false);
+                setMargin(new Insets(2, 6, 2, 6));
+                setPreferredSize(new Dimension(190, 24));
+                setFont(new Font("Segoe UI", Font.PLAIN, 12));
+                addActionListener(e -> togglePopup());
+                refreshLabel();
+            }
+
+            String motion() { return motion; }
+            boolean isMove() {
+                return SlideTextData.Action.MOTION_MOVE.equals(motion)
+                        || SlideTextData.Action.MOTION_MOVE_COPY.equals(motion);
+            }
+            java.util.List<String> effects() { return new java.util.ArrayList<>(selected); }
+
+            /** Write the current motion + effects onto an action. */
+            void applyTo(SlideTextData.Action a) { a.setSelection(motion, selected); }
+
+            private void togglePopup() {
+                if (popup != null && popup.isVisible()) { popup.setVisible(false); return; }
+                if (popup == null) popup = buildPopup();
+                syncPreview();
+                popup.show(this, 0, getHeight());
+            }
+
+            private JPopupMenu buildPopup() {
+                JPopupMenu pop = new JPopupMenu();
+                pop.setBorder(BorderFactory.createLineBorder(new Color(186, 190, 202)));
+                JPanel body = new JPanel(new BorderLayout(0, 0));
+                body.setBackground(Color.WHITE);
+                body.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
+
+                // ---- Motion (mutually exclusive) ----
+                JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+                top.setBackground(Color.WHITE);
+                top.add(popupHeading("MOTION"));
+                ButtonGroup grp = new ButtonGroup();
+                String[] tips = {
+                        "Stay put — the row plays its effects where the text already is "
+                                + "(and can still fire a trigger and a sound).",
+                        "Send this text to To X% / Y%.",
+                        "Leave the original where it is and send a duplicate to To X% / Y% — "
+                                + "the duplicate is the one that carries the effects." };
+                for (int i = 0; i < SlideTextData.Action.MOTIONS.length; i++) {
+                    String m = SlideTextData.Action.MOTIONS[i];
+                    JRadioButton rb = new JRadioButton(m, m.equals(motion));
+                    rb.setBackground(Color.WHITE);
+                    rb.setFocusPainted(false);
+                    rb.setToolTipText(tips[i]);
+                    rb.addActionListener(e -> { if (!syncing) { motion = m; changed(); } });
+                    grp.add(rb);
+                    motionRadios.put(m, rb);
+                    top.add(rb);
+                }
+                body.add(top, BorderLayout.NORTH);
+
+                // ---- Effects (any number, grouped) ----
+                JPanel list = new JPanel();
+                list.setLayout(new BoxLayout(list, BoxLayout.Y_AXIS));
+                list.setBackground(Color.WHITE);
+                for (String[] group : SlideTextData.Action.EFFECT_GROUPS) {
+                    JPanel head = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+                    head.setBackground(Color.WHITE);
+                    head.setAlignmentX(Component.LEFT_ALIGNMENT);
+                    head.add(popupHeading(group[0].toUpperCase(java.util.Locale.ROOT)));
+                    list.add(head);
+                    JPanel grid = new JPanel(new GridLayout(0, 3, 4, 0));
+                    grid.setBackground(Color.WHITE);
+                    grid.setAlignmentX(Component.LEFT_ALIGNMENT);
+                    for (int i = 1; i < group.length; i++) {
+                        final String fx = group[i];
+                        JCheckBox cb = new JCheckBox(fx, selected.contains(fx));
+                        cb.setBackground(Color.WHITE);
+                        cb.setFocusPainted(false);
+                        cb.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+                        cb.setToolTipText(effectTip(fx));
+                        cb.addActionListener(e -> {
+                            if (syncing) return;
+                            if (cb.isSelected()) selected.add(fx); else selected.remove(fx);
+                            changed();
+                        });
+                        boxes.put(fx, cb);
+                        grid.add(cb);
+                    }
+                    list.add(grid);
+                    list.add(Box.createVerticalStrut(6));
+                }
+                JScrollPane sc = new JScrollPane(list,
+                        ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+                        ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+                sc.setBorder(BorderFactory.createMatteBorder(1, 0, 1, 0, new Color(226, 228, 236)));
+                sc.getVerticalScrollBar().setUnitIncrement(16);
+                sc.setPreferredSize(new Dimension(450, 292));
+                body.add(sc, BorderLayout.CENTER);
+
+                // ---- Live sample + actions ----
+                JPanel south = new JPanel(new BorderLayout(0, 6));
+                south.setBackground(Color.WHITE);
+                south.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
+                preview = new EffectPreviewPanel();
+                south.add(preview, BorderLayout.CENTER);
+                JPanel btns = new JPanel(new BorderLayout());
+                btns.setBackground(Color.WHITE);
+                JButton clear = new JButton("Clear effects");
+                clear.setFocusPainted(false);
+                clear.setToolTipText("Untick every effect. The motion is left as it is.");
+                clear.addActionListener(e -> {
+                    selected.clear();
+                    syncing = true;
+                    for (JCheckBox cb : boxes.values()) cb.setSelected(false);
+                    syncing = false;
+                    changed();
+                });
+                JButton done = new JButton("Done");
+                done.setFocusPainted(false);
+                done.addActionListener(e -> pop.setVisible(false));
+                btns.add(clear, BorderLayout.WEST);
+                btns.add(done, BorderLayout.EAST);
+                south.add(btns, BorderLayout.SOUTH);
+                body.add(south, BorderLayout.SOUTH);
+
+                pop.add(body);
+                // The sample only animates while it can be seen.
+                pop.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+                    @Override public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
+                        preview.start();
+                    }
+                    @Override public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) {
+                        preview.stop();
+                    }
+                    @Override public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {
+                        preview.stop();
+                    }
+                });
+                return pop;
+            }
+
+            private static JLabel popupHeading(String text) {
+                JLabel l = new JLabel(text);
+                l.setFont(new Font("Segoe UI", Font.BOLD, 10));
+                l.setForeground(new Color(112, 106, 150));
+                l.setBorder(BorderFactory.createEmptyBorder(4, 0, 3, 0));
+                return l;
+            }
+
+            private void changed() {
+                refreshLabel();
+                syncPreview();
+                if (onChange != null) onChange.run();
+            }
+
+            private void syncPreview() {
+                if (preview != null) {
+                    int dur = durSupplier == null ? 800 : durSupplier.getAsInt();
+                    preview.setSelection(motion, selected, dur);
+                }
+            }
+
+            /** Re-read the widgets from the model — used when a row is seeded again. */
+            void refreshWidgets() {
+                syncing = true;
+                JRadioButton rb = motionRadios.get(motion);
+                if (rb != null) rb.setSelected(true);
+                for (java.util.Map.Entry<String, JCheckBox> e : boxes.entrySet()) {
+                    e.getValue().setSelected(selected.contains(e.getKey()));
+                }
+                syncing = false;
+                refreshLabel();
+            }
+
+            /** Write the selection across the button's face, the way a combo shows
+             *  its current item — abbreviated once it stops fitting. */
+            private void refreshLabel() {
+                java.util.List<String> parts = new java.util.ArrayList<>();
+                if (isMove()) parts.add(motion);
+                parts.addAll(selected);
+                String label;
+                if (parts.isEmpty()) {
+                    label = SlideTextData.Action.MOTION_NONE;
+                } else if (parts.size() <= 2) {
+                    label = String.join(" + ", parts);
+                } else {
+                    label = parts.get(0) + " + " + parts.get(1) + " +" + (parts.size() - 2);
+                }
+                setText(label + "   ▾");
+                setToolTipText("<html><b>" + (parts.isEmpty()
+                        ? "Nothing selected — this row only fires its trigger and sound."
+                        : String.join(" + ", parts))
+                        + "</b><br>Click to choose the motion and tick as many effects as you "
+                        + "like; they all play together.</html>");
+                // A row that does nothing on screen is easy to leave behind by
+                // accident, so it says so rather than looking like a set-up row.
+                setForeground(parts.isEmpty() ? new Color(155, 70, 0) : Color.BLACK);
+            }
+
+            /** One line on what each effect actually does, so the list can be read
+             *  without playing all thirty of them. */
+            private static String effectTip(String fx) {
+                switch (fx) {
+                    case "Pulse":        return "Breathes in and out — steady, rhythmic emphasis.";
+                    case "Pop":          return "Snaps up and settles elastically. The accent hit.";
+                    case "Heartbeat":    return "A strong beat and a softer echo, over and over.";
+                    case "Tada":         return "Coils in, then swells and shimmies. An arrival.";
+                    case "Zoom Punch":   return "One hard zoom that recoils immediately. Impact.";
+                    case "Flash":        return "Fades down and back up, several times.";
+                    case "Blink":        return "Hard on/off — reads as an alert, not a fade.";
+                    case "Shake":        return "Rapid side-to-side. Urgency, or a wrong answer.";
+                    case "Vibrate":      return "A fine, fast tremble. Tension without alarm.";
+                    case "Bounce":       return "Two hops on a real gravity arc.";
+                    case "Float":        return "One slow, weightless rise and fall.";
+                    case "Drift":        return "Glides sideways and back. Very subtle.";
+                    case "Nudge":        return "A single decisive shove, then an elastic recovery.";
+                    case "Orbit":        return "Traces a small circle around where the text sits.";
+                    case "Wobble":       return "Swings sideways while counter-rotating, dying away.";
+                    case "Spin":         return "One full turn, on the row's easing curve.";
+                    case "Sway":         return "A pendulum losing energy. Ends perfectly upright.";
+                    case "Swing":        return "Tips hard one way, then rocks to a stop.";
+                    case "Flip X":       return "Turns over on its vertical axis, like a card.";
+                    case "Flip Y":       return "Turns over on its horizontal axis.";
+                    case "Rubber Band":  return "Stretches wide, squashes flat, rings out.";
+                    case "Squash":       return "Squash and stretch — the animator's weight cue.";
+                    case "Jello":        return "Shears back and forth without changing size.";
+                    case "Rise":         return "Comes up into place and settles.";
+                    case "Drop":         return "Falls in from above and lands on a bounce.";
+                    case "Zoom In":      return "Grows into place from small.";
+                    case "Zoom Out":     return "Shrinks into place from oversized.";
+                    case "Fade In":      return "Dissolves in over the first half of the window.";
+                    case "Fade Out":     return "Dissolves away — and stays gone afterwards.";
+                    case "Glow Pulse":   return "A halo breathing in and out around the letters.";
+                    case "Neon Flicker": return "Stutters like a neon tube, halo and all.";
+                    default:             return fx;
+                }
+            }
+        }
+
         /** One editable action row in the Motion editor. Holds its widgets, seeds
          *  them from an Action, and reads them back out via {@link #toAction()}. */
         private final class ActionRowUI {
             final JPanel panel = new JPanel(new GridBagLayout());
             private final JLabel idxLbl = new JLabel("#1");
-            private final JComboBox<String> kindCombo = new JComboBox<>(SlideTextData.Action.KINDS);
+            /** Motion + any number of layered effects, in one combo-shaped control. */
+            private final MotionEffectPicker kindPicker;
             private final JTextField atField = new JTextField(4);
             private final JTextField durField = new JTextField(5);
             private final JComboBox<String> easeCombo = new JComboBox<>(SlideTextData.Action.EASINGS);
@@ -34582,7 +35542,11 @@ public class GifSlideShowApp extends JFrame {
                         BorderFactory.createEmptyBorder(6, 8, 6, 8)));
 
                 idxLbl.setFont(new Font("Segoe UI", Font.BOLD, 12));
-                kindCombo.setSelectedItem(a.kind == null ? "Move" : a.kind);
+                // The picker's sample plays at the row's own duration, so it reads
+                // the Dur box live rather than a copy taken when the row was built.
+                kindPicker = new MotionEffectPicker(a,
+                        () -> Math.max(1, pInt.apply(durField.getText(), 800)),
+                        this::syncEnabled);
                 atField.setText(timerMsToSecStr(a.atMs));
                 atField.setToolTipText("When this action fires — seconds from the start of the slide.");
                 durField.setText(String.valueOf(a.durMs));
@@ -34711,8 +35675,8 @@ public class GifSlideShowApp extends JFrame {
                 removeBtn.setMargin(new Insets(1, 6, 1, 6));
                 removeBtn.addActionListener(ev -> { owner.remove(this); rebuild.run(); });
 
-                // Enable the move-only fields only for the relocation kinds.
-                kindCombo.addActionListener(ev -> syncEnabled());
+                // Enable the move-only fields only for the relocation kinds. (The
+                // picker calls syncEnabled itself whenever its selection changes.)
                 landCheck.addActionListener(ev -> syncEnabled());
 
                 GridBagConstraints g = new GridBagConstraints();
@@ -34721,7 +35685,7 @@ public class GifSlideShowApp extends JFrame {
                 // Line 1
                 g.gridy = 0;
                 g.gridx = 0; panel.add(idxLbl, g);
-                g.gridx = 1; panel.add(kindCombo, g);
+                g.gridx = 1; panel.add(kindPicker, g);
                 g.gridx = 2; panel.add(new JLabel("At (s):"), g);
                 g.gridx = 3; panel.add(atField, g);
                 g.gridx = 4; panel.add(new JLabel("Dur (ms):"), g);
@@ -34823,14 +35787,10 @@ public class GifSlideShowApp extends JFrame {
                 return MotionSound.resolve((String) soundCombo.getSelectedItem(), isMoveKind());
             }
 
-            private boolean isMoveKind() {
-                return "Move".equals(kindCombo.getSelectedItem())
-                        || "Move Copy".equals(kindCombo.getSelectedItem());
-            }
+            private boolean isMoveKind() { return kindPicker.isMove(); }
 
             private void syncEnabled() {
-                boolean move = "Move".equals(kindCombo.getSelectedItem())
-                        || "Move Copy".equals(kindCombo.getSelectedItem());
+                boolean move = kindPicker.isMove();
                 toXField.setEnabled(move);
                 toYField.setEnabled(move);
                 landCheck.setEnabled(move);
@@ -34861,7 +35821,7 @@ public class GifSlideShowApp extends JFrame {
 
             SlideTextData.Action toAction() {
                 SlideTextData.Action a = new SlideTextData.Action();
-                a.kind = (String) kindCombo.getSelectedItem();
+                kindPicker.applyTo(a);
                 a.atMs = (int) Math.round(Math.max(0.0, pDbl.apply(atField.getText(), 0.0)) * 1000.0);
                 a.durMs = Math.max(1, pInt.apply(durField.getText(), 800));
                 a.easing = (String) easeCombo.getSelectedItem();
@@ -34909,7 +35869,7 @@ public class GifSlideShowApp extends JFrame {
                         setter.accept(ActionRowUI.this);
                     }
                 };
-                JComponent[] fields = { kindCombo, atField, durField, easeCombo,
+                JComponent[] fields = { kindPicker, atField, durField, easeCombo,
                         toXField, toYField, scaleField, wordField, occSpinner, triggerCombo,
                         trigXField, trigYField, trigFollowCheck, soundCombo };
                 for (JComponent c : fields) c.addFocusListener(fa);
