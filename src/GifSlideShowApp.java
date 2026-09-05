@@ -280,7 +280,9 @@ public class GifSlideShowApp extends JFrame {
                 + "<br>and say how many of them share a slide."
                 + "<br>Enter 5 and the first five words land on slide 1, the next five on slide 2, and so on."
                 + "<br>Every text arrives with all the other cells from its own row — meaning, translation,"
-                + "<br>example, audio — so one row of the sheet stays one block of the slide."
+                + "<br>example, audio. Choose how they are arranged: entry by entry (each row's cells stay"
+                + "<br>together) or column by column (all the words first, then all the translations, and so on)."
+                + "<br>Either way the audio follows its own column — AUDIOLINK1 is the first column's audio."
                 + "<br>Understands the same optional columns as Dict Import (HL/UL/BOLD/ITALIC/COLOR,"
                 + "<br>FONT1.., AUDIOLINK/AUDIO1.., X-AXIS/Y-AXIS/TEXT-SIZE, TEXTnTIME, TIMER_TARGET,"
                 + "<br>TIMER_END_AUDIO, PIC..), read per entry rather than per slide.</html>");
@@ -4695,6 +4697,10 @@ public class GifSlideShowApp extends JFrame {
     /** The folder of the last F1 sheet, so the next import opens where the last
      *  one left off. */
     private File lastF1ImportDir = null;
+    /** The last "texts per slide" and text order used, so a second import of the
+     *  same kind of sheet opens on the answer that was right the first time. */
+    private int lastF1TextsPerSlide = 5;
+    private boolean lastF1ColumnOrder = false;
 
     /** What the F1 options window decided. */
     private static final class F1Options {
@@ -4702,6 +4708,28 @@ public class GifSlideShowApp extends JFrame {
         int textsPerSlide = 5;
         boolean hasHeader = true;
         boolean clearDeckFirst = false;
+        /** false: each entry's cells stay together (row 1 → Text 1..n).
+         *  true: column by column (every entry's 1st cell first, then every
+         *  entry's 2nd cell, and so on). */
+        boolean columnOrder = false;
+    }
+
+    /**
+     * Where one entry's {@code cell}-th value sits on the slide (0-based).
+     *
+     * <p>Entry by entry keeps a row together — row 1 owns Text 1..n, row 2 owns
+     * Text n+1..2n. Column by column lays the first cell of every entry first,
+     * then every second cell, and so on: with 5 entries of 3 cells the five
+     * words become Text 1-5, their five translations Text 6-10, their five
+     * examples Text 11-15.
+     *
+     * <p>Both orders run through this one formula, so everything the sheet
+     * attaches to a cell — its audio, its X/Y, its size, its appear/go timing —
+     * follows the cell to wherever it lands. AUDIOLINK1 is always the audio of
+     * the first column, whichever order is in force.
+     */
+    private static int f1Slot(boolean columnOrder, int rowInGroup, int cell, int stride, int perSlide) {
+        return columnOrder ? cell * perSlide + rowInGroup : rowInGroup * stride + cell;
     }
 
     /**
@@ -4799,9 +4827,19 @@ public class GifSlideShowApp extends JFrame {
 
         form.add(new JLabel("Texts per slide:"), gc);
         gc.gridx = 1;
-        final JSpinner perSlideSpinner = new JSpinner(new SpinnerNumberModel(5, 1, 500, 1));
+        final JSpinner perSlideSpinner = new JSpinner(
+                new SpinnerNumberModel(clampInt(lastF1TextsPerSlide, 1, 500), 1, 500, 1));
         ((JSpinner.DefaultEditor) perSlideSpinner.getEditor()).getTextField().setColumns(4);
         form.add(perSlideSpinner, gc);
+
+        gc.gridx = 0; gc.gridy++;
+        form.add(new JLabel("Order texts:"), gc);
+        gc.gridx = 1;
+        final JComboBox<String> orderCombo = new JComboBox<>(new String[]{
+                "Entry by entry — each row's cells stay together",
+                "Column by column — all the 1st cells, then all the 2nd"});
+        orderCombo.setSelectedIndex(lastF1ColumnOrder ? 1 : 0);
+        form.add(orderCombo, gc);
 
         gc.gridx = 0; gc.gridy++; gc.gridwidth = 2;
         final JCheckBox headerCheck = new JCheckBox(
@@ -4830,8 +4868,8 @@ public class GifSlideShowApp extends JFrame {
         final Runnable refresh = () -> {
             SpreadsheetReader.Sheet chosen = sheets.get(
                     Math.max(0, Math.min(sheetCombo.getSelectedIndex(), sheets.size() - 1)));
-            preview.setText(buildF1Preview(chosen,
-                    (Integer) perSlideSpinner.getValue(), headerCheck.isSelected()));
+            preview.setText(buildF1Preview(chosen, (Integer) perSlideSpinner.getValue(),
+                    headerCheck.isSelected(), orderCombo.getSelectedIndex() == 1));
             preview.setCaretPosition(0);
         };
         sheetCombo.addActionListener(e -> {
@@ -4843,6 +4881,7 @@ public class GifSlideShowApp extends JFrame {
         });
         perSlideSpinner.addChangeListener(e -> refresh.run());
         headerCheck.addActionListener(e -> refresh.run());
+        orderCombo.addActionListener(e -> refresh.run());
         refresh.run();
 
         int result = JOptionPane.showConfirmDialog(this, panel, "F1 — Texts per Slide",
@@ -4853,6 +4892,9 @@ public class GifSlideShowApp extends JFrame {
         options.textsPerSlide = (Integer) perSlideSpinner.getValue();
         options.hasHeader = headerCheck.isSelected();
         options.clearDeckFirst = clearCheck.isSelected();
+        options.columnOrder = orderCombo.getSelectedIndex() == 1;
+        lastF1TextsPerSlide = options.textsPerSlide;
+        lastF1ColumnOrder = options.columnOrder;
         return options;
     }
 
@@ -4884,7 +4926,8 @@ public class GifSlideShowApp extends JFrame {
 
     /** The plain-English summary the options window shows: how the rows group,
      *  which columns became texts, and which became settings. */
-    private static String buildF1Preview(SpreadsheetReader.Sheet sheet, int perSlide, boolean hasHeader) {
+    private static String buildF1Preview(SpreadsheetReader.Sheet sheet, int perSlide,
+            boolean hasHeader, boolean columnOrder) {
         List<String> headerFields = hasHeader ? firstRowOf(sheet) : null;
         ImportColumns cols = ImportColumns.scan(headerFields);
         List<List<String>> entries = f1DataRows(sheet, hasHeader);
@@ -4933,6 +4976,33 @@ public class GifSlideShowApp extends JFrame {
         }
         if (slides > show) sb.append("…and ").append(slides - show).append(" more slides.\n");
 
+        // How slide 1 actually fills, text by text — the arrangement answered
+        // with the sheet's own words instead of a rule to work out.
+        sb.append('\n').append(columnOrder ? "Column by column" : "Entry by entry")
+                .append(" — slide 1 fills like this:\n");
+        java.util.TreeMap<Integer, int[]> firstSlide = new java.util.TreeMap<>();
+        int inFirst = Math.min(perSlide, entries.size());
+        for (int r = 0; r < inFirst; r++) {
+            for (int t = 0; t < stride; t++) {
+                firstSlide.put(f1Slot(columnOrder, r, t, stride, perSlide), new int[]{r, t});
+            }
+        }
+        int listed = 0;
+        for (java.util.Map.Entry<Integer, int[]> e : firstSlide.entrySet()) {
+            if (listed >= 14) {
+                sb.append("  …and ").append(firstSlide.size() - listed).append(" more texts.\n");
+                break;
+            }
+            listed++;
+            int r = e.getValue()[0], t = e.getValue()[1];
+            String value = cellAt(entries.get(r), textCols.get(t));
+            String colName = headerFields != null ? cellAt(headerFields, textCols.get(t)) : null;
+            if (colName == null || colName.isEmpty()) colName = columnLetter(textCols.get(t));
+            sb.append("  Text ").append(pad(String.valueOf(e.getKey() + 1), 3))
+                    .append(pad("(row " + (r + 1) + ", " + colName + ")", 18)).append("  ")
+                    .append(shorten(value, 40)).append('\n');
+        }
+
         if (headerFields != null) {
             List<String> settings = new ArrayList<>();
             for (int c : cols.settingColumns()) {
@@ -4948,6 +5018,20 @@ public class GifSlideShowApp extends JFrame {
             sb.append("\nNo header row: every column is imported as a text.\n");
         }
         return sb.toString();
+    }
+
+    /** Pad on the right so the preview's Text numbers and values line up. */
+    private static String pad(String s, int width) {
+        StringBuilder sb = new StringBuilder(s == null ? "" : s);
+        while (sb.length() < width) sb.append(' ');
+        return sb.toString();
+    }
+
+    /** Cut a cell down to preview length, keeping it readable. */
+    private static String shorten(String s, int max) {
+        String v = s == null ? "" : s.trim();
+        if (v.isEmpty()) return "(blank)";
+        return v.length() <= max ? v : v.substring(0, max - 1) + "…";
     }
 
     /** "A", "B", … "AA" — a column's spreadsheet letter, for messages. */
@@ -4999,10 +5083,12 @@ public class GifSlideShowApp extends JFrame {
     /**
      * In F1 a plain number in TIMER_TARGET means that ENTRY's own text number
      * (1 = the entry's first cell), because every other settings column in the
-     * row counts from the row too. Anything else is matched against the whole
-     * slide's texts, exactly as Dict Import does.
+     * row counts from the row too; {@code cellToTextNumber} turns it into the
+     * slide's own text number for whichever order is in force. Anything else is
+     * matched against the whole slide's texts, exactly as Dict Import does.
      */
-    private static int f1ResolveTimerTarget(String cell, int base, List<SlideTextData> texts) {
+    private static int f1ResolveTimerTarget(String cell,
+            java.util.function.IntUnaryOperator cellToTextNumber, List<SlideTextData> texts) {
         String v = cell == null ? "" : cell.trim();
         if (v.isEmpty()) return -1;
         String low = v.toLowerCase(Locale.ROOT);
@@ -5012,7 +5098,7 @@ public class GifSlideShowApp extends JFrame {
         if (m.matches()) {
             try {
                 int n = Integer.parseInt(m.group(1));
-                return n <= 0 ? 0 : base + n;
+                return n <= 0 ? 0 : cellToTextNumber.applyAsInt(n);
             } catch (NumberFormatException ignored) { }
         }
         return resolveTimerTarget(v, texts);
@@ -5049,6 +5135,7 @@ public class GifSlideShowApp extends JFrame {
         }
         final int stride = textCols.size();
         final int perSlide = clampInt(o.textsPerSlide, 1, 500);
+        final boolean columnOrder = o.columnOrder;
         final int slideCount = (entries.size() + perSlide - 1) / perSlide;
         final File importSourceDir = source.getParentFile();
 
@@ -5110,25 +5197,26 @@ public class GifSlideShowApp extends JFrame {
                 List<int[]> pendingTimers = new ArrayList<>();
                 List<Runnable> pendingAudio = new ArrayList<>();
                 String timerTargetCell = null;
-                int timerTargetBase = 0;
+                int timerTargetRow = 0;
                 String timerEndAudioCell = null;
 
                 for (int r = 0; r < perSlide; r++) {
                     int idx = g * perSlide + r;
                     if (idx >= entries.size()) break;
                     final List<String> fields = entries.get(idx);
-                    final int base = r * stride;
+                    final int rowInGroup = r;
 
-                    // The entry's own cells, in sheet order: row 1 owns Text 1..n,
-                    // row 2 owns Text n+1..2n, and so on. The stride is fixed even
-                    // when a cell is blank, so the settings columns keep pointing
-                    // at the right text.
+                    // The entry's own cells, in sheet order. Their slots come from
+                    // f1Slot, so the chosen arrangement is decided in one place;
+                    // the slot is taken even when a cell is blank, which is what
+                    // keeps the settings columns pointing at the right text.
                     for (int t = 0; t < stride; t++) {
                         String value = cellAt(fields, textCols.get(t));
-                        slide.setSlideTextAt(base + t, value == null ? "" : value);
+                        int at = f1Slot(columnOrder, rowInGroup, t, stride, perSlide);
+                        slide.setSlideTextAt(at, value == null ? "" : value);
                         if (value != null && !value.isEmpty()) textsImported++;
+                        textsOnSlide = Math.max(textsOnSlide, at + 1);
                     }
-                    textsOnSlide = base + stride;
 
                     mergeWordList(hlWords, cellAt(fields, cols.hlCol));
                     mergeWordList(ulWords, cellAt(fields, cols.ulCol));
@@ -5145,20 +5233,23 @@ public class GifSlideShowApp extends JFrame {
                         mergeWordList(fontGroupWords.get(e.getKey()), cellAt(fields, e.getValue()));
                     }
 
-                    // AUDIOLINK → this entry's first text; AUDIO1/AUDIOLINK4/… →
-                    // the entry's 1st / 4th text. Two paths in one quoted cell
-                    // still mean primary + second audio for that same text.
+                    // AUDIOLINK → this entry's first cell; AUDIO1/AUDIOLINK4/… →
+                    // the entry's 1st / 4th cell. The audio follows its own column
+                    // to wherever that column landed, so AUDIOLINK1 is the first
+                    // column's audio under either arrangement. Two paths in one
+                    // quoted cell still mean primary + second audio for that text.
                     String bareAudio = cellAt(fields, cols.audioLinkCol);
                     if (bareAudio != null && !bareAudio.isEmpty()) {
                         final String cell = bareAudio;
-                        pendingAudio.add(() -> applyImportedAudioCell(slide, base, cell,
+                        final int textIdx = f1Slot(columnOrder, rowInGroup, 0, stride, perSlide);
+                        pendingAudio.add(() -> applyImportedAudioCell(slide, textIdx, cell,
                                 importSourceDir, slideIdx, missingAudioFiles));
                     }
                     for (java.util.Map.Entry<Integer, Integer> e : cols.audioColByTextIndex.entrySet()) {
                         String cell = cellAt(fields, e.getValue());
                         if (cell == null || cell.isEmpty()) continue;
                         final String audioCell = cell;
-                        final int textIdx = base + e.getKey();
+                        final int textIdx = f1Slot(columnOrder, rowInGroup, e.getKey(), stride, perSlide);
                         pendingAudio.add(() -> applyImportedAudioCell(slide, textIdx, audioCell,
                                 importSourceDir, slideIdx, missingAudioFiles));
                     }
@@ -5171,9 +5262,12 @@ public class GifSlideShowApp extends JFrame {
                     final String sizeCell = cellAt(fields, cols.textSizeCol);
                     if (xCell != null || yCell != null || sizeCell != null) {
                         pendingTextGeometry.add(() -> {
-                            forEachCsvInt(xCell, (i, v) -> slide.setSlideTextXAt(base + i, v));
-                            forEachCsvInt(yCell, (i, v) -> slide.setSlideTextYAt(base + i, v));
-                            forEachCsvInt(sizeCell, (i, v) -> slide.setSlideTextSizeAt(base + i, v));
+                            forEachCsvInt(xCell, (i, v) -> slide.setSlideTextXAt(
+                                    f1Slot(columnOrder, rowInGroup, i, stride, perSlide), v));
+                            forEachCsvInt(yCell, (i, v) -> slide.setSlideTextYAt(
+                                    f1Slot(columnOrder, rowInGroup, i, stride, perSlide), v));
+                            forEachCsvInt(sizeCell, (i, v) -> slide.setSlideTextSizeAt(
+                                    f1Slot(columnOrder, rowInGroup, i, stride, perSlide), v));
                         });
                     }
 
@@ -5197,7 +5291,8 @@ public class GifSlideShowApp extends JFrame {
                                 if (goSec > appearSec) goMs = (int) Math.round(goSec * 1000.0);
                             } catch (NumberFormatException ignored) { }
                         }
-                        pendingTimers.add(new int[]{base + e.getKey(),
+                        pendingTimers.add(new int[]{
+                                f1Slot(columnOrder, rowInGroup, e.getKey(), stride, perSlide),
                                 (int) Math.round(appearSec * 1000.0), goMs});
                     }
 
@@ -5207,7 +5302,7 @@ public class GifSlideShowApp extends JFrame {
                         String cell = cellAt(fields, cols.timerTargetCol);
                         if (cell != null && !cell.isEmpty()) {
                             timerTargetCell = cell;
-                            timerTargetBase = base;
+                            timerTargetRow = rowInGroup;
                         }
                     }
                     if (timerEndAudioCell == null) {
@@ -5243,7 +5338,9 @@ public class GifSlideShowApp extends JFrame {
                 for (int[] t : pendingTimers) slide.setSlideTextTimerAt(t[0], t[1], t[2]);
 
                 if (timerTargetCell != null) {
-                    int target = f1ResolveTimerTarget(timerTargetCell, timerTargetBase,
+                    final int targetRow = timerTargetRow;
+                    int target = f1ResolveTimerTarget(timerTargetCell,
+                            n -> f1Slot(columnOrder, targetRow, n - 1, stride, perSlide) + 1,
                             slide.getSlideTextDataList());
                     if (target < 0) {
                         unmatchedTimerTargets.add("Slide " + (g + 1) + ": \"" + timerTargetCell + "\"");
@@ -5318,7 +5415,10 @@ public class GifSlideShowApp extends JFrame {
                 .append(perSlide).append(" text").append(perSlide == 1 ? "" : "s")
                 .append(" per slide, ").append(stride).append(" cell")
                 .append(stride == 1 ? "" : "s").append(" from each row (")
-                .append(textsImported).append(" texts in all).");
+                .append(textsImported).append(" texts in all).")
+                .append(columnOrder
+                        ? "\nColumn by column: every entry's 1st cell first, then every 2nd, and so on."
+                        : "\nEntry by entry: each row's cells sit together on the slide.");
         if (headerFields == null) {
             msg.append("\nNo header row: every column was imported as a text.");
         } else {
