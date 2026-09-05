@@ -21284,6 +21284,10 @@ public class GifSlideShowApp extends JFrame {
                     // end of the text. Among entries sharing one start time take
                     // the FIRST, so a tie can never skip the box forward over
                     // several words at once.
+                    // The list is in SPOKEN order, which is the same as word order
+                    // only until the narration reads the text a second time. From
+                    // then on the entry says which word it belongs to, so the box
+                    // jumps back to the top and sweeps the text again.
                     int lastSpoken = lastSpokenTimingIndex(wordTimings);
                     int candidate = -1;
                     for (int wi = 0; wi <= lastSpoken; wi++) {
@@ -21294,13 +21298,14 @@ public class GifSlideShowApp extends JFrame {
                     }
                     if (candidate >= 0) {
                         WordTiming wt = wordTimings.get(candidate);
-                        // For the last spoken word, drop the highlight ~300ms
-                        // after its endSec so we don't keep it lit forever.
+                        // For the last spoken word of the LAST reading, drop the
+                        // highlight ~300ms after its endSec so we don't keep it lit
+                        // forever. Earlier readings hand straight over to the next.
                         boolean isLast = (candidate == lastSpoken);
                         if (isLast && wt.endSec > 0 && t > wt.endSec + 0.3) {
                             karaokeIdx = -1;
                         } else {
-                            karaokeIdx = candidate;
+                            karaokeIdx = wt.tokenAt(candidate);
                         }
                     }
                 }
@@ -24172,17 +24177,87 @@ public class GifSlideShowApp extends JFrame {
         final String word;
         final double startSec;
         final double endSec;
+        /**
+         * Which visible token of the text this window lights up, or -1 for
+         * "whichever token sits at my own position in the list".
+         *
+         * <p>Only a REPEAT READ makes the two differ. When the narration says the
+         * text through more than once — a refrain, a verse read twice, a line
+         * repeated for emphasis — the list holds one entry per token PER READING,
+         * laid end to end in the order they are spoken. The second reading's first
+         * word therefore sits at list position n while still pointing at token 0.
+         * Everything that walks the list in time order is unaffected; only the step
+         * from "entry" to "word on screen" goes through {@link #tokenAt(int)}.
+         */
+        final int tokenIndex;
+
         WordTiming(String word, double startSec, double endSec) {
+            this(word, startSec, endSec, -1);
+        }
+        WordTiming(String word, double startSec, double endSec, int tokenIndex) {
             this.word = word == null ? "" : word;
             this.startSec = startSec;
             this.endSec = endSec;
+            this.tokenIndex = tokenIndex;
         }
+
+        /** The visible token this entry belongs to, given where it sits in the list. */
+        int tokenAt(int listPos) { return tokenIndex >= 0 ? tokenIndex : listPos; }
+    }
+
+    /**
+     * List positions where each reading of the text begins — {@code {0}} for
+     * ordinary audio, {@code {0, n}} for a text read twice, and so on.
+     *
+     * <p>A reading always walks the tokens forward, so a boundary is exactly the
+     * point where the token index stops advancing. Timings captured before repeat
+     * reads were understood carry no token index at all, resolve to their own
+     * position, and so read back as the single pass they are.
+     */
+    static int[] readPassStarts(List<WordTiming> timings) {
+        if (timings == null || timings.isEmpty()) return new int[0];
+        java.util.List<Integer> starts = new ArrayList<>();
+        starts.add(0);
+        for (int i = 1; i < timings.size(); i++) {
+            WordTiming a = timings.get(i - 1), b = timings.get(i);
+            int ta = (a == null) ? i - 1 : a.tokenAt(i - 1);
+            int tb = (b == null) ? i     : b.tokenAt(i);
+            if (tb <= ta) starts.add(i);
+        }
+        int[] out = new int[starts.size()];
+        for (int i = 0; i < out.length; i++) out[i] = starts.get(i);
+        return out;
+    }
+
+    /** How many times the narration reads the text through (1 for ordinary audio). */
+    static int readPassCount(List<WordTiming> timings) {
+        return readPassStarts(timings).length;
+    }
+
+    /** The reading (0-based) that each entry of {@code timings} belongs to. */
+    static int[] readPassOf(List<WordTiming> timings) {
+        int n = timings == null ? 0 : timings.size();
+        int[] out = new int[n];
+        int[] starts = readPassStarts(timings);
+        for (int p = 0; p < starts.length; p++) {
+            int end = (p + 1 < starts.length) ? starts[p + 1] : n;
+            for (int i = starts[p]; i < end; i++) out[i] = p;
+        }
+        return out;
     }
 
     /** Persistent on-disk format for a list of word timings, stored as a `.timings`
      *  sidecar next to the audio file. One line per word: `start|end|word`.
      *  Pipes are used (instead of JSON) so the file is human-grep-able and the
-     *  parser is one line of Java. Spaces inside the word are preserved. */
+     *  parser is one line of Java. Spaces inside the word are preserved.
+     *
+     *  <p>A text the narration reads more than once needs a fourth field, since
+     *  the line's position in the file no longer says which word it lights up:
+     *  `start|end|token|word`. It is written ONLY for such a file, so every
+     *  sidecar written before repeat reads existed — and every one written for
+     *  ordinary single-read audio since — is byte-for-byte the three-field form.
+     *  Reading tells the two apart by whether the third field parses as an
+     *  integer, and the word stays last so a word containing a pipe survives. */
     static class WordTimingFile {
         static List<WordTiming> readSidecar(File audioFile) {
             if (audioFile == null) return null;
@@ -24193,12 +24268,23 @@ public class GifSlideShowApp extends JFrame {
                 String line;
                 while ((line = r.readLine()) != null) {
                     if (line.isEmpty()) continue;
-                    String[] parts = line.split("\\|", 3);
-                    if (parts.length != 3) continue;
+                    String[] parts = line.split("\\|", 4);
+                    if (parts.length < 3) continue;
                     try {
                         double s = Double.parseDouble(parts[0]);
                         double e = Double.parseDouble(parts[1]);
-                        out.add(new WordTiming(parts[2], s, e));
+                        String word = parts[2];
+                        int token = -1;
+                        if (parts.length == 4) {
+                            try {
+                                token = Integer.parseInt(parts[2].trim());
+                                word = parts[3];
+                            } catch (NumberFormatException notATokenIndex) {
+                                // Three-field line whose word itself contains a pipe.
+                                word = parts[2] + "|" + parts[3];
+                            }
+                        }
+                        out.add(new WordTiming(word, s, e, token));
                     } catch (NumberFormatException ignored) {}
                 }
             } catch (IOException e) {
@@ -24208,17 +24294,47 @@ public class GifSlideShowApp extends JFrame {
         }
         static void writeSidecar(File audioFile, List<WordTiming> timings) throws IOException {
             File side = sidecarFor(audioFile);
+            boolean repeats = readPassCount(timings) > 1;
             try (java.io.Writer w = new java.io.OutputStreamWriter(
                     new java.io.FileOutputStream(side), java.nio.charset.StandardCharsets.UTF_8)) {
-                for (WordTiming t : timings) {
-                    w.write(String.format(java.util.Locale.US, "%.3f|%.3f|%s%n",
-                            t.startSec, t.endSec, t.word.replace("\r", "").replace("\n", " ")));
+                for (int i = 0; i < timings.size(); i++) {
+                    WordTiming t = timings.get(i);
+                    String word = t.word.replace("\r", "").replace("\n", " ");
+                    if (repeats) {
+                        w.write(String.format(java.util.Locale.US, "%.3f|%.3f|%d|%s%n",
+                                t.startSec, t.endSec, t.tokenAt(i), word));
+                    } else {
+                        w.write(String.format(java.util.Locale.US, "%.3f|%.3f|%s%n",
+                                t.startSec, t.endSec, word));
+                    }
                 }
             }
         }
         static File sidecarFor(File audioFile) {
             return new File(audioFile.getParentFile(),
                     audioFile.getName() + ".timings");
+        }
+    }
+
+    /** How many times over one narration is allowed to read the same text. A
+     *  guard against a pathological transcript, not a real limit — no author
+     *  repeats a line a dozen times. */
+    static final int MAX_READ_PASSES = 12;
+
+    /** One reading's worth of alignment: a window per visible token, how much of
+     *  the hint the reading actually matched, and where the Scribe stream stands
+     *  once the reading is over. */
+    private static final class ReadPassFit {
+        final double[] startSec, endSec;
+        final int matchedChars, matchedTokens, consumedChars, nextEntry;
+        ReadPassFit(double[] startSec, double[] endSec, int matchedChars,
+                    int matchedTokens, int consumedChars, int nextEntry) {
+            this.startSec = startSec;
+            this.endSec = endSec;
+            this.matchedChars = matchedChars;
+            this.matchedTokens = matchedTokens;
+            this.consumedChars = consumedChars;
+            this.nextEntry = nextEntry;
         }
     }
 
@@ -24243,6 +24359,25 @@ public class GifSlideShowApp extends JFrame {
      *  inherit a window interpolated from their neighbours so the highlight
      *  still passes through. If the hint and Scribe diverge too far for the
      *  alignment to be meaningful, the original timings are returned unchanged.
+     *
+     *  <p><b>Text the narration reads more than once.</b> One walk of the hint
+     *  covers one reading: the moment it reaches the end of the text, every
+     *  remaining Scribe entry matches nothing and would be thrown away — which is
+     *  why a repeated line used to light up on the first reading and then sit dark
+     *  through the second. Those leftover entries are instead offered a FRESH walk
+     *  of the same hint. If they re-match a real share of it they are a second
+     *  reading, and the output grows by another window per token, appended in
+     *  spoken order so the highlight sweeps the text again; if they match little
+     *  (an outro, a stray "thanks for listening", room tone Scribe named) they are
+     *  discarded exactly as before. This repeats until the audio runs out. A
+     *  reading that covers only PART of the text — the last line said twice —
+     *  needs nothing extra: the tokens that reading never reaches keep the empty
+     *  window that means "not spoken here", and the highlight simply resumes
+     *  where the repeat begins.
+     *
+     *  <p>Only the first reading's entries are position-aligned, so single-read
+     *  audio produces exactly the list it always did; the later readings carry an
+     *  explicit token index instead.
      */
     static List<WordTiming> alignTimingsToText(List<WordTiming> scribe, String hintText) {
         if (scribe == null || scribe.isEmpty() || hintText == null) return scribe;
@@ -24270,18 +24405,121 @@ public class GifSlideShowApp extends JFrame {
         }
         String hintNorm = hintNormBuf.toString();
 
-        double[] minStart = new double[tokens.length];
-        double[] maxEnd   = new double[tokens.length];
+        List<WordTiming> out = new ArrayList<>(tokens.length);
+        int from = 0;
+        double floor = Double.NEGATIVE_INFINITY;   // latest start emitted so far
+        for (int pass = 0; pass < MAX_READ_PASSES && from < scribe.size(); pass++) {
+            // A reading need not start at the top of the text: a repeat may pick up
+            // from the middle ("…and again: the last line"), and even a first
+            // reading starts late when the block opens with a heading the narration
+            // never says. The walk's 8-character resync window is far too short to
+            // find either entry point on its own — it stumbles into the heading and
+            // credits it stray letters — so hand the reading the token it starts on.
+            int enter = seekReadStart(scribe, from, tnorm, tokStart);
+            ReadPassFit fit = alignOneReadPass(scribe, from, tokens.length,
+                    charToToken, tokStart, hintNorm, enter);
+            // A first pass that matched almost nothing means the hint and the audio
+            // are different texts — hand back what Scribe said. A LATER pass has a
+            // higher bar to clear: it has to look like the text being SAID AGAIN,
+            // not like the handful of words that follow a narration. What settles it
+            // is how much of what the reading said landed on the text — an outro,
+            // a sign-off or a stray noise matches barely any of itself, however
+            // long or short the text is.
+            boolean isReading = (pass == 0)
+                    ? fit.matchedChars >= Math.max(1, hintNorm.length() / 4)
+                    : fit.matchedTokens >= 2
+                      && fit.matchedChars >= Math.min(6, hintNorm.length())
+                      && fit.matchedChars * 5 >= fit.consumedChars * 3;
+            if (!isReading) {
+                if (pass == 0) return scribe;
+                break;
+            }
+            for (int i = 0; i < tokens.length; i++) {
+                double st = fit.startSec[i], en = fit.endSec[i];
+                // Safety rail only: the karaoke scan walks the list in time order,
+                // so a later reading may never sort before an earlier one even if
+                // Scribe hands back an overlapping entry.
+                if (st < floor) {
+                    boolean spoken = en > st;
+                    st = floor;
+                    en = spoken ? Math.max(en, st + 0.05) : st;
+                }
+                out.add(new WordTiming(tokens[i], st, en, pass == 0 ? -1 : i));
+                if (st > floor) floor = st;
+            }
+            if (fit.nextEntry <= from) break;      // no progress; nothing more to read
+            from = fit.nextEntry;
+        }
+        return out.isEmpty() ? scribe : out;
+    }
+
+    /**
+     * Which token of the text a reading picks up from, as a character offset into
+     * {@code hintNorm} — 0 when it cannot tell, which is also the right answer for
+     * the ordinary reading that starts at the first word.
+     *
+     * <p>The reading's first few spoken words are matched against the text as
+     * whole words, and the candidate that carries on agreeing for longest wins.
+     * Scoring the words that FOLLOW is what keeps a repeat of "the last line"
+     * from anchoring on the first "the" in the text; ties go to the earliest
+     * candidate, so a reading that does start at the top starts at the top.
+     */
+    private static int seekReadStart(List<WordTiming> scribe, int from,
+                                     String[] tnorm, int[] tokStart) {
+        java.util.List<String> head = new ArrayList<>();
+        for (int si = from; si < scribe.size() && head.size() < 4; si++) {
+            WordTiming sw = scribe.get(si);
+            if (sw == null) continue;
+            String w = normalizeWordForAlign(sw.word);
+            if (!w.isEmpty()) head.add(w);
+        }
+        if (head.isEmpty()) return 0;
+        int best = -1, bestScore = 0;
+        for (int tk = 0; tk < tnorm.length; tk++) {
+            if (tnorm[tk].isEmpty() || !tnorm[tk].equals(head.get(0))) continue;
+            int score = 1;
+            int t = tk + 1;
+            for (int h = 1; h < head.size(); h++) {
+                while (t < tnorm.length && tnorm[t].isEmpty()) t++;   // punctuation-only token
+                if (t < tnorm.length && tnorm[t].equals(head.get(h))) { score++; t++; }
+                else break;
+            }
+            if (score > bestScore) { bestScore = score; best = tk; }
+        }
+        return best < 0 ? 0 : tokStart[best];
+    }
+
+    /**
+     * Align ONE reading of the hint: walk the Scribe stream from {@code from}
+     * until the reading is spent, and report a window per visible token.
+     *
+     * <p>The reading ends at the last entry that matched any of the hint. Every
+     * entry after that one contributed nothing here — the walk had already run
+     * off the end of the text — so it is left for the caller to offer to the next
+     * reading. That makes the split free of guesswork: a single-read narration
+     * simply has no entries left over, and comes out of here with precisely the
+     * alignment it got before repeat reads were understood.
+     */
+    private static ReadPassFit alignOneReadPass(List<WordTiming> scribe, int from, int tokenCount,
+                                                int[] charToToken, int[] tokStart, String hintNorm,
+                                                int startHintPos) {
+        double[] minStart = new double[tokenCount];
+        double[] maxEnd   = new double[tokenCount];
         java.util.Arrays.fill(minStart, Double.POSITIVE_INFINITY);
         java.util.Arrays.fill(maxEnd,   Double.NEGATIVE_INFINITY);
 
-        int hintPos = 0;
+        int hintPos = Math.max(0, Math.min(startHintPos, hintNorm.length()));
         int matchedChars = 0;
+        int spokenChars = 0;              // letters this reading has said so far
+        int consumedChars = 0;            // …up to the last entry it actually used
+        int lastEntry = from - 1;         // last entry this reading actually used
         final int LOOK_AHEAD = 8;
-        for (WordTiming sw : scribe) {
+        for (int si = from; si < scribe.size(); si++) {
+            WordTiming sw = scribe.get(si);
             if (sw == null) continue;
             String w = normalizeWordForAlign(sw.word);
             if (w.isEmpty()) continue;
+            spokenChars += w.length();
             int wi = 0;
             int openTok = -1;                 // token this entry is already inside
             // Chars this entry matched, per visible token, in stream order. An entry
@@ -24325,6 +24563,8 @@ public class GifSlideShowApp extends JFrame {
             int totalHit = 0;
             for (int[] h : hits) totalHit += h[1];
             if (totalHit > 0) {
+                lastEntry = si;
+                consumedChars = spokenChars;
                 double span = Math.max(0, sw.endSec - sw.startSec);
                 double acc = 0;
                 for (int[] h : hits) {
@@ -24337,34 +24577,35 @@ public class GifSlideShowApp extends JFrame {
             }
         }
 
-        if (matchedChars < Math.max(1, hintNorm.length() / 4)) return scribe;
-
         // Fill in the tokens Scribe matched nothing against. They arrive in runs,
         // and where a run sits decides what it means:
         //   • between two spoken tokens — words Scribe misheard or skipped. Share
         //     the gap out evenly so the highlight walks through them instead of
         //     jumping the whole run in one instant.
-        //   • before the first or after the last spoken token — text the narration
+        //   • before the first or after the last spoken token — text this reading
         //     never says at all: a heading above the quote, the "~ Author, Title"
-        //     attribution below it. These get an EMPTY window (end == start), which
-        //     is how a token says "never spoken"; the karaoke pass skips them, so
-        //     the box stops on the last word actually read out. Handing them a real
-        //     window is what used to fling the box onto the very last word of the
-        //     text the moment the narration ended.
-        double[] outS = new double[tokens.length];
-        double[] outE = new double[tokens.length];
-        for (int i = 0; i < tokens.length; i++) {
+        //     attribution below it, or the part of the text a partial repeat does
+        //     not cover. These get an EMPTY window (end == start), which is how a
+        //     token says "never spoken"; the karaoke pass skips them, so the box
+        //     stops on the last word actually read out. Handing them a real window
+        //     is what used to fling the box onto the very last word of the text the
+        //     moment the narration ended.
+        double[] outS = new double[tokenCount];
+        double[] outE = new double[tokenCount];
+        int matchedTokens = 0;
+        for (int i = 0; i < tokenCount; i++) {
             if (minStart[i] != Double.POSITIVE_INFINITY) {
                 outS[i] = minStart[i];
                 outE[i] = Math.max(maxEnd[i], minStart[i] + 0.05);
+                matchedTokens++;
                 continue;
             }
             int runEnd = i;
-            while (runEnd + 1 < tokens.length && minStart[runEnd + 1] == Double.POSITIVE_INFINITY) runEnd++;
+            while (runEnd + 1 < tokenCount && minStart[runEnd + 1] == Double.POSITIVE_INFINITY) runEnd++;
             // The token before a maximal run is always a matched one, so it is filled.
             double prev = i > 0 ? outE[i - 1] : Double.NEGATIVE_INFINITY;
             double next = Double.POSITIVE_INFINITY;
-            for (int j = runEnd + 1; j < tokens.length; j++)
+            for (int j = runEnd + 1; j < tokenCount; j++)
                 if (minStart[j] != Double.POSITIVE_INFINITY) { next = minStart[j]; break; }
             int len = runEnd - i + 1;
             if (prev != Double.NEGATIVE_INFINITY && next != Double.POSITIVE_INFINITY && next > prev) {
@@ -24381,9 +24622,7 @@ public class GifSlideShowApp extends JFrame {
             i = runEnd;
         }
 
-        List<WordTiming> out = new ArrayList<>(tokens.length);
-        for (int i = 0; i < tokens.length; i++) out.add(new WordTiming(tokens[i], outS[i], outE[i]));
-        return out;
+        return new ReadPassFit(outS, outE, matchedChars, matchedTokens, consumedChars, lastEntry + 1);
     }
 
     /**
@@ -34932,12 +35171,19 @@ public class GifSlideShowApp extends JFrame {
                 return;
             }
             final String[] tokens = new String[timings.size()];
+            // A text the narration reads more than once is listed once per reading,
+            // in spoken order, each row tagged with the reading it belongs to — so
+            // an action can be aimed at the SECOND time a word is said.
+            final int[] passStarts = readPassStarts(timings);
+            final int[] passOf = readPassOf(timings);
+            final int passes = passStarts.length;
             DefaultListModel<String> model = new DefaultListModel<>();
             for (int i = 0; i < timings.size(); i++) {
                 WordTiming t = timings.get(i);
                 tokens[i] = t.word;
-                model.addElement(String.format(java.util.Locale.US, "%7.2fs –%7.2fs    %s",
-                        t.startSec, t.endSec, t.word == null ? "" : t.word));
+                model.addElement(String.format(java.util.Locale.US, "%7.2fs –%7.2fs    %s%s",
+                        t.startSec, t.endSec, t.word == null ? "" : t.word,
+                        passes > 1 ? "      (read " + (passOf[i] + 1) + ")" : ""));
             }
             final JList<String> list = new JList<>(model);
             // A run of rows is how an EXPRESSION is picked: shift-click (or drag)
@@ -34964,7 +35210,12 @@ public class GifSlideShowApp extends JFrame {
             JLabel hdr = new JLabel("<html>Double-click a word (or select it and press <b>Use</b>) "
                     + "to fill <b>" + tgt + "</b>'s Word and At(s).<br>"
                     + "For an <b>expression</b>, shift-click the first and last word of it — "
-                    + "they are filled in as one phrase, timed from its first word.</html>");
+                    + "they are filled in as one phrase, timed from its first word."
+                    + (passes > 1
+                        ? "<br>This audio reads the text <b>" + passes + " times</b>; pick the "
+                          + "reading you want the motion to fire on."
+                        : "")
+                    + "</html>");
             hdr.setBorder(BorderFactory.createEmptyBorder(8, 10, 6, 10));
 
             final Runnable apply = () -> {
@@ -34973,7 +35224,15 @@ public class GifSlideShowApp extends JFrame {
                 // One row targets its own word; a run of rows targets the expression
                 // they spell. Either way At(s) is the START of the first row picked,
                 // which is the moment the target begins to be spoken.
-                final int i0 = sel[0], i1 = sel[sel.length - 1];
+                final int i0 = sel[0];
+                // An expression cannot straddle two readings — the words of one are
+                // not next to the words of the other on screen — so a selection that
+                // runs over the boundary keeps only the part inside the first row's
+                // reading.
+                final int passIdx = passOf[i0];
+                final int passFrom = passStarts[passIdx];
+                final int passTo = (passIdx + 1 < passes) ? passStarts[passIdx + 1] : timings.size();
+                final int i1 = Math.min(sel[sel.length - 1], passTo - 1);
                 StringBuilder phrase = new StringBuilder();
                 for (int k = i0; k <= i1; k++) {
                     String w = cleanPickWord(tokens[k]);
@@ -34985,7 +35244,11 @@ public class GifSlideShowApp extends JFrame {
                 String word = phrase.toString();
                 if (word.isEmpty()) return;
                 WordTiming t = timings.get(i0);
-                int occ = occurrenceForSpan(tokens, i0, i1 + 1);
+                // Occurrence counts within ONE reading, because that is what the
+                // renderer counts: the word appears in the text once however many
+                // times it is read aloud. The reading picked is carried by At(s).
+                String[] passTokens = java.util.Arrays.copyOfRange(tokens, passFrom, passTo);
+                int occ = occurrenceForSpan(passTokens, i0 - passFrom, i1 + 1 - passFrom);
                 ActionRowUI target = (activeRow[0] != null && rowUIs.contains(activeRow[0]))
                         ? activeRow[0]
                         : (!rowUIs.isEmpty() ? rowUIs.get(rowUIs.size() - 1) : null);
@@ -37999,6 +38262,7 @@ public class GifSlideShowApp extends JFrame {
          *  for the now-active text row. */
         private void refreshKaraokeStatus() {
             if (karaokeStatusLabel == null) return;
+            karaokeStatusLabel.setToolTipText(null);
             File audio = slideAudioFiles.get(currentSlideTextIndex);
             List<WordTiming> t = slideAudioWordTimingsMap.get(currentSlideTextIndex);
             if (audio == null) {
@@ -38012,7 +38276,19 @@ public class GifSlideShowApp extends JFrame {
                 karaokeSyncBtn.setEnabled(true);
                 karaokeClearBtn.setEnabled(false);
             } else {
-                karaokeStatusLabel.setText("✓ " + t.size() + " words");
+                // A text the narration reads through more than once holds one entry
+                // per word PER READING, so report the words once and say how many
+                // times they are read — "24 words × 2 reads" is the sync telling
+                // the author it heard the repeat and will sweep the text twice.
+                int passes = readPassCount(t);
+                int words = passes > 1 ? t.size() / passes : t.size();
+                karaokeStatusLabel.setText(passes > 1
+                        ? "✓ " + words + " words × " + passes + " reads"
+                        : "✓ " + words + " words");
+                karaokeStatusLabel.setToolTipText(passes > 1
+                        ? "The audio reads this text " + passes + " times — the word highlight "
+                          + "sweeps it once per reading."
+                        : null);
                 karaokeStatusLabel.setForeground(new Color(140, 230, 170));
                 karaokeSyncBtn.setEnabled(true);
                 karaokeClearBtn.setEnabled(true);
