@@ -11842,6 +11842,52 @@ public class GifSlideShowApp extends JFrame {
         return words.length - 1; // past the estimated end → keep the last word lit
     }
 
+    /**
+     * Fold the space characters that are not spaces to a tokenizer back into
+     * plain ones.
+     *
+     * <p>Text pasted from a browser, a PDF or Word routinely carries NO-BREAK
+     * SPACE (U+00A0) and its relatives — narrow no-break, thin, en/em, ideographic
+     * — between words. They draw as an ordinary gap, so the author sees two words
+     * and counts two words. Java disagrees: {@code \s} matches none of them and
+     * neither does {@code Character.isWhitespace}, so every word count in the app
+     * read "made of" as ONE word. A Word Sync of "The drones are often made of
+     * flimsy plastics." reported <i>6 words</i> instead of 8, and the highlight
+     * box covered two words at a time for the rest of the line.
+     *
+     * <p>Normalising once, where text enters a text row, is what keeps the
+     * aligner, the wrapper and the word-index counter all counting the same
+     * words — fixing it in one of them and not the others would just move the
+     * highlight off by one somewhere else. The characters are replaced, never
+     * dropped: the text draws exactly as it did, and the only thing lost is a
+     * no-break's refusal to wrap. Line and paragraph separators become real
+     * newlines, which the wrapper already understands. Zero-width marks are left
+     * strictly alone — U+200C/U+200D carry meaning in Arabic and Persian script.
+     */
+    static String normalizeTextSpaces(String s) {
+        if (s == null || s.isEmpty()) return s;
+        StringBuilder sb = null;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            char r = c;
+            if (c == '\u2028' || c == '\u2029' || c == '\u0085') r = '\n';
+            else if (c != ' ' && Character.isSpaceChar(c)) r = ' ';
+            if (r != c) {
+                if (sb == null) sb = new StringBuilder(s);
+                sb.setCharAt(i, r);
+            }
+        }
+        return sb == null ? s : sb.toString();
+    }
+
+    /** How many words a text has, counted the way Word Sync and the word-index
+     *  renderer count them. */
+    static int textWordCount(String text) {
+        if (text == null) return 0;
+        String t = normalizeTextSpaces(text).trim();
+        return t.isEmpty() ? 0 : t.split("\\s+").length;
+    }
+
     static java.util.List<java.util.List<int[]>> computeWordIndexSegment(List<String> wrappedLines, int wordIdx) {
         return computeWordIndexSegment(WrappedText.of(wrappedLines), wordIdx);
     }
@@ -21323,8 +21369,12 @@ public class GifSlideShowApp extends JFrame {
                 int     spokenTight     = karaokeTight;
                 if (fx.contains("SpokenWords") && karaokeIdx < 0
                         && (wordTimings == null || wordTimings.isEmpty())) {
+                    // Count the words the way computeWordIndexSegment does — the
+                    // wrapper breaks the text at a newline, so the words either side
+                    // of one are two words, not the single "made,of" that allText
+                    // (which joins lines with a comma for the underline pass) spells.
                     int est = (segElapsedMs >= 0)
-                            ? estimateSpokenWordIndex(allText, segElapsedMs)
+                            ? estimateSpokenWordIndex(st.text.replace('\n', ' ').replace('\r', ' '), segElapsedMs)
                             : 0; // static preview: show the effect on the first word
                     if (est >= 0) {
                         karaokeIdx = est;
@@ -23243,7 +23293,12 @@ public class GifSlideShowApp extends JFrame {
                       int animStartMs, String animEasing,
                       int tiltDegrees, int letterSpacing, int lineSpacing, int opacity) {
             this.show = show;
-            this.text = text;
+            // Every SlideTextData in the app is built through this one constructor,
+            // so folding exotic spaces here is what makes the whole pipeline —
+            // wrapping, word indexing, Word Sync, HL matching — agree on where one
+            // word ends and the next begins. The phrase fields are folded too, so a
+            // pasted HL phrase still matches the text it was pasted from.
+            this.text = normalizeTextSpaces(text);
             this.fontName = fontName;
             this.fontSize = fontSize;
             this.fontStyle = fontStyle;
@@ -23258,15 +23313,15 @@ public class GifSlideShowApp extends JFrame {
             this.alignment = alignment;
             this.textEffect = textEffect != null ? textEffect : "None";
             this.textEffectIntensity = textEffectIntensity;
-            this.highlightText = highlightText != null ? highlightText : "";
+            this.highlightText = highlightText != null ? normalizeTextSpaces(highlightText) : "";
             this.highlightColor = highlightColor != null ? highlightColor : new Color(255, 100, 150, 180);
             this.highlightStyle = highlightStyle != null ? highlightStyle : "Regular";
             this.highlightTightness = highlightTightness;
             this.underlineStyle = underlineStyle != null ? underlineStyle : "None";
-            this.underlineText = underlineText != null ? underlineText : "";
-            this.boldText = boldText != null ? boldText : "";
-            this.italicText = italicText != null ? italicText : "";
-            this.colorText = colorText != null ? colorText : "";
+            this.underlineText = underlineText != null ? normalizeTextSpaces(underlineText) : "";
+            this.boldText = boldText != null ? normalizeTextSpaces(boldText) : "";
+            this.italicText = italicText != null ? normalizeTextSpaces(italicText) : "";
+            this.colorText = colorText != null ? normalizeTextSpaces(colorText) : "";
             this.colorTextColor = colorTextColor != null ? colorTextColor : new Color(255, 80, 80);
             this.xLeftAligned = xLeftAligned;
             this.odometer = odometer;
@@ -24381,7 +24436,10 @@ public class GifSlideShowApp extends JFrame {
      */
     static List<WordTiming> alignTimingsToText(List<WordTiming> scribe, String hintText) {
         if (scribe == null || scribe.isEmpty() || hintText == null) return scribe;
-        String trimmed = hintText.trim();
+        // Count the hint's words the way the renderer will: a no-break space between
+        // two words is a word boundary to the author and must be one here too, or
+        // the timings come out one entry short for every one of them.
+        String trimmed = normalizeTextSpaces(hintText).trim();
         if (trimmed.isEmpty()) return scribe;
         String[] tokens = trimmed.split("\\s+");
 
@@ -35359,7 +35417,7 @@ public class GifSlideShowApp extends JFrame {
                 applyQuizHideMask(texts, quiz, elapsed, true);
                 int frame = (int) (elapsed * fps / 1000);
                 BufferedImage img = renderFrame(
-                        bgF, textArea.getText(),
+                        bgF, getSubtitleText(),
                         getSelectedFont(), getFontSize(), getFontStyle(),
                         getFontColor(), getTextAlignment(), isShowPin(),
                         getPreviewWidth(), getPreviewHeight(),
@@ -37767,7 +37825,7 @@ public class GifSlideShowApp extends JFrame {
             applyTimerEndActions(getSlideTextDataList(), slideTimer, 0,
                     timerPreviewTimeMs(), !timerDialogOpen);
             BufferedImage preview = renderFrame(
-                    frameImage, textArea.getText(),
+                    frameImage, getSubtitleText(),
                     getSelectedFont(), getFontSize(), getFontStyle(),
                     getFontColor(), getTextAlignment(), isShowPin(),
                     getPreviewWidth(), getPreviewHeight(),
@@ -38064,7 +38122,7 @@ public class GifSlideShowApp extends JFrame {
 
         JPanel getPanel() { return panel; }
         BufferedImage getImage() { return loadedImage; }
-        String getSubtitleText() { return textArea.getText(); }
+        String getSubtitleText() { return normalizeTextSpaces(textArea.getText()); }
         String getSelectedFont() { return (String) fontCombo.getSelectedItem(); }
         int getFontSize() { return (int) sizeSpinner.getValue(); }
         Color getFontColor() { return selectedColor; }
@@ -38282,14 +38340,25 @@ public class GifSlideShowApp extends JFrame {
                 // the author it heard the repeat and will sweep the text twice.
                 int passes = readPassCount(t);
                 int words = passes > 1 ? t.size() / passes : t.size();
-                karaokeStatusLabel.setText(passes > 1
-                        ? "✓ " + words + " words × " + passes + " reads"
-                        : "✓ " + words + " words");
-                karaokeStatusLabel.setToolTipText(passes > 1
-                        ? "The audio reads this text " + passes + " times — the word highlight "
-                          + "sweeps it once per reading."
-                        : null);
-                karaokeStatusLabel.setForeground(new Color(140, 230, 170));
+                int inText = textWordCount(getSlideTextItemText(currentSlideTextIndex));
+                String reads = passes > 1 ? " × " + passes + " reads" : "";
+                if (inText > 0 && words != inText) {
+                    // The timings were captured against different words — the text has
+                    // been edited since, or they came from an older sync. Say so
+                    // rather than letting the box quietly run one word behind.
+                    karaokeStatusLabel.setText("⚠ " + words + " of " + inText + " words" + reads);
+                    karaokeStatusLabel.setForeground(new Color(240, 190, 120));
+                    karaokeStatusLabel.setToolTipText("These timings cover " + words + " words but the "
+                            + "text now has " + inText + ". Run Sync again so the highlight lands on "
+                            + "the right words.");
+                } else {
+                    karaokeStatusLabel.setText("✓ " + words + " words" + reads);
+                    karaokeStatusLabel.setForeground(new Color(140, 230, 170));
+                    karaokeStatusLabel.setToolTipText(passes > 1
+                            ? "The audio reads this text " + passes + " times — the word highlight "
+                              + "sweeps it once per reading."
+                            : null);
+                }
                 karaokeSyncBtn.setEnabled(true);
                 karaokeClearBtn.setEnabled(true);
             }
@@ -38388,12 +38457,30 @@ public class GifSlideShowApp extends JFrame {
             schedulePreview();
         }
 
-        /** Kick off a Scribe sync for the currently-selected text row, and then
-         *  for the SAME text-row index on every other non-title-grid slide that
-         *  also has audio + text at that index. Each slide is synced against
-         *  its own audio (timings can't be shared across different files).
-         *  All calls run sequentially in one background worker so the EDT
-         *  stays responsive and we don't DoS Scribe. */
+        /** The master slide — the first slide that isn't a title grid — is the one
+         *  whose settings the deck broadcasts, the same slide Load Preset and the
+         *  format sync treat as the source. */
+        private boolean isMasterSlideRow() {
+            for (SlideRow row : slideRows) {
+                if (row.isTitleGridSlide) continue;
+                return row == this;
+            }
+            return false;
+        }
+
+        /** Kick off a Scribe sync for the currently-selected text row.
+         *
+         *  <p>Who else it touches follows the deck's master rule. From the MASTER
+         *  slide it goes on to the SAME text-row index on every other non-title-grid
+         *  slide — sync Text 4 on the master and Text 4 is synced everywhere, and no
+         *  other text row on any slide is touched. From any OTHER slide it syncs
+         *  that one row on that one slide only, so re-syncing a line you just
+         *  re-recorded can never reach across the deck and overwrite timings that
+         *  were right.
+         *
+         *  <p>Each slide is synced against its own audio (timings can't be shared
+         *  across different files). All calls run sequentially in one background
+         *  worker so the EDT stays responsive and we don't DoS Scribe. */
         private void runKaraokeSync() {
             final int idx = currentSlideTextIndex;
             final File audio = slideAudioFiles.get(idx);
@@ -38422,13 +38509,15 @@ public class GifSlideShowApp extends JFrame {
             }
             final java.util.List<Job> jobs = new java.util.ArrayList<>();
             jobs.add(new Job(this, audio, text));
-            // Propagate to other slides' same text-row index.
-            for (SlideRow row : slideRows) {
-                if (row == this || row.isTitleGridSlide) continue;
-                File a = row.slideAudioFiles.get(idx);
-                String t = row.getSlideTextItemText(idx);
-                if (a != null && a.isFile() && t != null && !t.trim().isEmpty()) {
-                    jobs.add(new Job(row, a, t));
+            // Only the master broadcasts, and only ever to the same text-row index.
+            if (isMasterSlideRow()) {
+                for (SlideRow row : slideRows) {
+                    if (row == this || row.isTitleGridSlide) continue;
+                    File a = row.slideAudioFiles.get(idx);
+                    String t = row.getSlideTextItemText(idx);
+                    if (a != null && a.isFile() && t != null && !t.trim().isEmpty()) {
+                        jobs.add(new Job(row, a, t));
+                    }
                 }
             }
 
@@ -38503,7 +38592,7 @@ public class GifSlideShowApp extends JFrame {
                         karaokeStatusLabel.setText("synced " + succeeded + "/" + total + " (" + failed + " failed)");
                         karaokeStatusLabel.setForeground(new Color(240, 180, 130));
                         JOptionPane.showMessageDialog(panel,
-                                failed + " slide(s) failed to sync at row " + idx + ".\n\n" + (lastErr != null ? "Last error: " + lastErr : "(empty Scribe responses)"),
+                                failed + " slide(s) failed to sync at Text " + (idx + 1) + ".\n\n" + (lastErr != null ? "Last error: " + lastErr : "(empty Scribe responses)"),
                                 "Word Sync — partial", JOptionPane.WARNING_MESSAGE);
                     }
                     schedulePreview();
