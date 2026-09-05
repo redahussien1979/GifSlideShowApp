@@ -275,7 +275,19 @@ public class GifSlideShowApp extends JFrame {
         botRow.add(presetSaveBtn);
         botRow.add(presetLoadBtn);
         botRow.add(presetDeleteBtn);
+        JButton f1Btn = createStyledButton("F1", new Color(230, 120, 40));
+        f1Btn.setToolTipText("<html>Import an Excel (.xlsx/.xls) or CSV sheet whose <b>rows</b> are the texts,"
+                + "<br>and say how many of them share a slide."
+                + "<br>Enter 5 and the first five words land on slide 1, the next five on slide 2, and so on."
+                + "<br>Every text arrives with all the other cells from its own row — meaning, translation,"
+                + "<br>example, audio — so one row of the sheet stays one block of the slide."
+                + "<br>Understands the same optional columns as Dict Import (HL/UL/BOLD/ITALIC/COLOR,"
+                + "<br>FONT1.., AUDIOLINK/AUDIO1.., X-AXIS/Y-AXIS/TEXT-SIZE, TEXTnTIME, TIMER_TARGET,"
+                + "<br>TIMER_END_AUDIO, PIC..), read per entry rather than per slide.</html>");
+        f1Btn.addActionListener(e -> f1Import());
+
         botRow.add(saveImagesBtn);
+        botRow.add(f1Btn);
         botRow.add(shuffleExportCheck);
 
         bottomPanel.add(topRow);
@@ -3727,6 +3739,240 @@ public class GifSlideShowApp extends JFrame {
     private static final java.util.regex.Pattern FONT_GROUP_HEADER =
             java.util.regex.Pattern.compile("(?:FONT|FN)(\\d+)");
 
+    /**
+     * Which spreadsheet column means what, read once from a header row.
+     *
+     * <p>Every importer that speaks the dictionary column language — Dict
+     * Import and F1 Import — reads its header through here, so a column name
+     * that works in one works in the other, and a new column name is added in
+     * exactly one place.
+     *
+     * <p>A column this does NOT recognise is a text (caption) column; {@link
+     * #textColumns} hands those back in sheet order.
+     */
+    static final class ImportColumns {
+        int hlCol = -1, ulCol = -1, boldCol = -1, italicCol = -1, colorCol = -1;
+        int audioLinkCol = -1, xAxisCol = -1, yAxisCol = -1, textSizeCol = -1;
+        int timerTargetCol = -1, timerEndAudioCol = -1;
+        /** HL2, HL3, ... → group number to column. "HL"/"HL1" is {@link #hlCol}. */
+        final java.util.Map<Integer, Integer> hlGroupColByNum = new java.util.TreeMap<>();
+        final java.util.Map<Integer, Integer> ulGroupColByNum = new java.util.TreeMap<>();
+        /** FONT/FONT1, FONT2, ... → group number to column (every number counts). */
+        final java.util.Map<Integer, Integer> fontGroupColByNum = new java.util.TreeMap<>();
+        /** AUDIO1/AUDIOLINK1, ... → 0-based text index to column. */
+        final java.util.Map<Integer, Integer> audioColByTextIndex = new java.util.TreeMap<>();
+        /** TEXT1TIME, TEXT2TIME, ... → 0-based text index to column. */
+        final java.util.Map<Integer, Integer> timeColByTextIndex = new java.util.TreeMap<>();
+        final java.util.Map<Integer, Integer> picFileColBySlot = new java.util.TreeMap<>();
+        final java.util.Map<Integer, Integer> picXColBySlot = new java.util.TreeMap<>();
+        final java.util.Map<Integer, Integer> picYColBySlot = new java.util.TreeMap<>();
+        final java.util.Map<Integer, Integer> picWColBySlot = new java.util.TreeMap<>();
+        final java.util.Map<Integer, Integer> picShapeColBySlot = new java.util.TreeMap<>();
+        final java.util.Map<Integer, Integer> picRadiusColBySlot = new java.util.TreeMap<>();
+        /** PIC&lt;n&gt; headers naming a slot past MAX_IMPORTED_PIC_SLOTS — held out
+         *  of the text columns so a mistyped PIC9999 does not print its file path
+         *  onto the slide, and reported back so the typo is visible. */
+        final java.util.Set<Integer> picOverflowCols = new java.util.LinkedHashSet<>();
+        final List<String> picOverflowHeaders = new ArrayList<>();
+
+        /** True when the sheet says anything at all about slide pictures. */
+        boolean hasPictureColumns() {
+            return !picFileColBySlot.isEmpty() || !picXColBySlot.isEmpty()
+                    || !picYColBySlot.isEmpty() || !picWColBySlot.isEmpty()
+                    || !picShapeColBySlot.isEmpty() || !picRadiusColBySlot.isEmpty();
+        }
+
+        /** Every Pic slot the sheet mentions, in slot order. */
+        java.util.Set<Integer> picSlots() {
+            java.util.Set<Integer> slots = new java.util.TreeSet<>();
+            slots.addAll(picFileColBySlot.keySet());
+            slots.addAll(picXColBySlot.keySet());
+            slots.addAll(picYColBySlot.keySet());
+            slots.addAll(picWColBySlot.keySet());
+            slots.addAll(picShapeColBySlot.keySet());
+            slots.addAll(picRadiusColBySlot.keySet());
+            return slots;
+        }
+
+        /** Every column that carries a setting rather than a caption. */
+        java.util.Set<Integer> settingColumns() {
+            java.util.Set<Integer> s = new java.util.HashSet<>();
+            for (int c : new int[]{hlCol, ulCol, boldCol, italicCol, colorCol, audioLinkCol,
+                    xAxisCol, yAxisCol, textSizeCol, timerTargetCol, timerEndAudioCol}) {
+                if (c >= 0) s.add(c);
+            }
+            s.addAll(audioColByTextIndex.values());
+            s.addAll(timeColByTextIndex.values());
+            // Picture columns are settings, not captions — without this an image
+            // path would be imported as slide text and printed on the frame.
+            s.addAll(picFileColBySlot.values());
+            s.addAll(picXColBySlot.values());
+            s.addAll(picYColBySlot.values());
+            s.addAll(picWColBySlot.values());
+            s.addAll(picShapeColBySlot.values());
+            s.addAll(picRadiusColBySlot.values());
+            s.addAll(picOverflowCols);
+            // Extra HL/UL group columns (HL2, HL3, ... / UL2, UL3, ...) are
+            // formatting too. Without this an HL2 column both prints its own word
+            // list onto the slide as a text item AND shifts every text column
+            // after it by one, so TEXT31 lands in Text 32's slot. FONT / FONT1,
+            // FONT2, ... are formatting columns for the same reason.
+            s.addAll(hlGroupColByNum.values());
+            s.addAll(ulGroupColByNum.values());
+            s.addAll(fontGroupColByNum.values());
+            return s;
+        }
+
+        /** The caption columns among 0..maxCols-1, in sheet order. */
+        List<Integer> textColumns(int maxCols) {
+            java.util.Set<Integer> settings = settingColumns();
+            List<Integer> cols = new ArrayList<>();
+            for (int c = 0; c < maxCols; c++) {
+                if (!settings.contains(c)) cols.add(c);
+            }
+            return cols;
+        }
+
+        /** Read a header row. A name this does not know stays a text column. */
+        static ImportColumns scan(List<String> headerFields) {
+            ImportColumns cols = new ImportColumns();
+            if (headerFields == null) return cols;
+            int hlColIndex = -1, ulColIndex = -1, boldColIndex = -1, italicColIndex = -1;
+            int colorColIndex = -1, audioLinkColIndex = -1, xAxisColIndex = -1;
+            int yAxisColIndex = -1, textSizeColIndex = -1;
+            int timerTargetColIndex = -1, timerEndAudioColIndex = -1;
+            java.util.Map<Integer, Integer> hlGroupColByNum = cols.hlGroupColByNum;
+            java.util.Map<Integer, Integer> ulGroupColByNum = cols.ulGroupColByNum;
+            java.util.Map<Integer, Integer> fontGroupColByNum = cols.fontGroupColByNum;
+            java.util.Map<Integer, Integer> audioColByTextIndex = cols.audioColByTextIndex;
+            java.util.Map<Integer, Integer> timeColByTextIndex = cols.timeColByTextIndex;
+            java.util.Map<Integer, Integer> picFileColBySlot = cols.picFileColBySlot;
+            java.util.Map<Integer, Integer> picXColBySlot = cols.picXColBySlot;
+            java.util.Map<Integer, Integer> picYColBySlot = cols.picYColBySlot;
+            java.util.Map<Integer, Integer> picWColBySlot = cols.picWColBySlot;
+            java.util.Map<Integer, Integer> picShapeColBySlot = cols.picShapeColBySlot;
+            java.util.Map<Integer, Integer> picRadiusColBySlot = cols.picRadiusColBySlot;
+            java.util.Set<Integer> picOverflowCols = cols.picOverflowCols;
+            List<String> picOverflowHeaders = cols.picOverflowHeaders;
+
+            // Scan headers for HL, UL, BOLD, ITALIC, COLOR, and AUDIOLINK columns (case-insensitive)
+            for (int c = 0; c < headerFields.size(); c++) {
+                String h = headerFields.get(c).trim().toUpperCase();
+                // HLn (n >= 2) is checked before plain HL so "HL2" isn't swallowed
+                // by it. "HL1" is just another name for the plain HL column.
+                java.util.regex.Matcher hlNumM = HL_GROUP_HEADER.matcher(h);
+                java.util.regex.Matcher ulNumM = UL_GROUP_HEADER.matcher(h);
+                java.util.regex.Matcher fnNumM = FONT_GROUP_HEADER.matcher(h);
+                if (hlNumM.matches()) {
+                    int n = Integer.parseInt(hlNumM.group(1));
+                    if (n <= 1) hlColIndex = c; else hlGroupColByNum.put(n, c);
+                } else if (ulNumM.matches()) {
+                    int n = Integer.parseInt(ulNumM.group(1));
+                    if (n <= 1) ulColIndex = c; else ulGroupColByNum.put(n, c);
+                } else if (fnNumM.matches()) {
+                    // FONT1, FONT2, ... — every number is its own Font dropdown row.
+                    int n = Integer.parseInt(fnNumM.group(1));
+                    if (n >= 1) fontGroupColByNum.put(n, c);
+                } else if (h.equals("FONT") || h.equals("FN")) {
+                    // A bare FONT column means the first font group.
+                    fontGroupColByNum.put(1, c);
+                } else if (h.equals("HL") || h.equals("HIGHLIGHT")) {
+                    hlColIndex = c;
+                } else if (h.equals("UL") || h.equals("UNDERLINE")) {
+                    ulColIndex = c;
+                } else if (h.equals("BOLD") || h.equals("B")) {
+                    boldColIndex = c;
+                } else if (h.equals("ITALIC") || h.equals("I")) {
+                    italicColIndex = c;
+                } else if (h.equals("COLOR") || h.equals("CLR") || h.equals("COLOUR")) {
+                    colorColIndex = c;
+                } else if (h.equals("AUDIOLINK") || h.equals("AUDIO") || h.equals("AUDIO_LINK")) {
+                    audioLinkColIndex = c;
+                } else if (h.equals("X-AXIS") || h.equals("XAXIS") || h.equals("X_AXIS")) {
+                    xAxisColIndex = c;
+                } else if (h.equals("Y-AXIS") || h.equals("YAXIS") || h.equals("Y_AXIS")) {
+                    yAxisColIndex = c;
+                } else if (h.equals("TEXT-SIZE") || h.equals("TEXTSIZE") || h.equals("TEXT_SIZE") || h.equals("SIZE")) {
+                    textSizeColIndex = c;
+                } else if (h.equals("TIMER_TARGET") || h.equals("TIMER-TARGET")
+                        || h.equals("TIMERTARGET") || h.equals("TIMER_TARGET_TEXT")
+                        || h.equals("TARGET_TEXT") || h.equals("TARGET-TEXT")
+                        || h.equals("TARGET") || h.equals("TIMER_ANSWER")) {
+                    // The Slide Timer's target text for this slide.
+                    timerTargetColIndex = c;
+                } else if (h.equals("TIMER_END_AUDIO") || h.equals("TIMER-END-AUDIO")
+                        || h.equals("TIMERENDAUDIO") || h.equals("TIMER_END_SOUND")
+                        || h.equals("TIMER_END_SOUND_FILE")) {
+                    // The Slide Timer's "play when it ends" sound for this slide.
+                    timerEndAudioColIndex = c;
+                } else if (h.matches("TEXT\\d+TIME")) {
+                    // Texts-Timer columns: TEXT1TIME, TEXT2TIME, … map to text items.
+                    // Each cell is "appear,go" in seconds ("appear" alone = never leaves).
+                    String numPart = h.substring(4, h.length() - 4); // strip TEXT…TIME
+                    try {
+                        int textIdx = Integer.parseInt(numPart) - 1; // 1-based to 0-based
+                        if (textIdx >= 0) timeColByTextIndex.put(textIdx, c);
+                    } catch (NumberFormatException ignored) {}
+                } else if (h.matches("(AUDIOLINK|AUDIO|AUDIO_LINK)\\d+")) {
+                    // Multi-audio columns: AUDIO1, AUDIO2, AUDIOLINK1, AUDIOLINK2, etc.
+                    String numPart = h.replaceAll("^(AUDIOLINK|AUDIO_LINK|AUDIO)", "");
+                    int textIdx = Integer.parseInt(numPart) - 1; // 1-based to 0-based
+                    if (textIdx >= 0) {
+                        audioColByTextIndex.put(textIdx, c);
+                    }
+                } else {
+                    // Slide-picture columns. PIC / PIC<n> carries the image path;
+                    // PIC<n>_X, _Y, _W, _SHAPE, _RADIUS place it. A bare PIC means
+                    // Pic 1, and hyphens read the same as underscores.
+                    java.util.regex.Matcher pm =
+                            PIC_COLUMN_PATTERN.matcher(h.replace('-', '_'));
+                    if (pm.matches()) {
+                        String numPart = pm.group(2);
+                        int slot = 0;
+                        if (!numPart.isEmpty()) {
+                            try {
+                                slot = Integer.parseInt(numPart) - 1;
+                            } catch (NumberFormatException ex) {
+                                slot = -1; // absurd number → not a picture column
+                            }
+                        }
+                        // Cap the slot so a typo like PIC9999 can't make the import
+                        // grow thousands of empty Pic slots on every slide.
+                        if (slot < 0 || slot >= MAX_IMPORTED_PIC_SLOTS) {
+                            picOverflowCols.add(c);
+                            picOverflowHeaders.add(headerFields.get(c).trim());
+                        } else {
+                            String attr = pm.group(3);
+                            if (attr == null) {
+                                picFileColBySlot.put(slot, c);
+                            } else switch (attr) {
+                                case "X":                    picXColBySlot.put(slot, c); break;
+                                case "Y":                    picYColBySlot.put(slot, c); break;
+                                case "W": case "WIDTH":      picWColBySlot.put(slot, c); break;
+                                case "SHAPE":                picShapeColBySlot.put(slot, c); break;
+                                case "RADIUS": case "CORNER": picRadiusColBySlot.put(slot, c); break;
+                                default: break;
+                            }
+                        }
+                    }
+                }
+            }
+            cols.hlCol = hlColIndex;
+            cols.ulCol = ulColIndex;
+            cols.boldCol = boldColIndex;
+            cols.italicCol = italicColIndex;
+            cols.colorCol = colorColIndex;
+            cols.audioLinkCol = audioLinkColIndex;
+            cols.xAxisCol = xAxisColIndex;
+            cols.yAxisCol = yAxisColIndex;
+            cols.textSizeCol = textSizeColIndex;
+            cols.timerTargetCol = timerTargetColIndex;
+            cols.timerEndAudioCol = timerEndAudioColIndex;
+            return cols;
+        }
+    }
+
+
     private void dictionaryImport() {
         // Choose source: file or clipboard
         String[] options = {"From File (CSV/TSV)", "From Clipboard / Paste"};
@@ -3883,111 +4129,37 @@ public class GifSlideShowApp extends JFrame {
         List<String> picOverflowHeaders = new ArrayList<>();
         List<String> headerFields = null;
 
+        ImportColumns cols = new ImportColumns();
         List<String> dataLines;
         if (headerChoice == 0) {
             headerFields = parseCsvLine(trimmed.get(0));
-            // Scan headers for HL, UL, BOLD, ITALIC, COLOR, and AUDIOLINK columns (case-insensitive)
-            for (int c = 0; c < headerFields.size(); c++) {
-                String h = headerFields.get(c).trim().toUpperCase();
-                // HLn (n >= 2) is checked before plain HL so "HL2" isn't swallowed
-                // by it. "HL1" is just another name for the plain HL column.
-                java.util.regex.Matcher hlNumM = HL_GROUP_HEADER.matcher(h);
-                java.util.regex.Matcher ulNumM = UL_GROUP_HEADER.matcher(h);
-                java.util.regex.Matcher fnNumM = FONT_GROUP_HEADER.matcher(h);
-                if (hlNumM.matches()) {
-                    int n = Integer.parseInt(hlNumM.group(1));
-                    if (n <= 1) hlColIndex = c; else hlGroupColByNum.put(n, c);
-                } else if (ulNumM.matches()) {
-                    int n = Integer.parseInt(ulNumM.group(1));
-                    if (n <= 1) ulColIndex = c; else ulGroupColByNum.put(n, c);
-                } else if (fnNumM.matches()) {
-                    // FONT1, FONT2, ... — every number is its own Font dropdown row.
-                    int n = Integer.parseInt(fnNumM.group(1));
-                    if (n >= 1) fontGroupColByNum.put(n, c);
-                } else if (h.equals("FONT") || h.equals("FN")) {
-                    // A bare FONT column means the first font group.
-                    fontGroupColByNum.put(1, c);
-                } else if (h.equals("HL") || h.equals("HIGHLIGHT")) {
-                    hlColIndex = c;
-                } else if (h.equals("UL") || h.equals("UNDERLINE")) {
-                    ulColIndex = c;
-                } else if (h.equals("BOLD") || h.equals("B")) {
-                    boldColIndex = c;
-                } else if (h.equals("ITALIC") || h.equals("I")) {
-                    italicColIndex = c;
-                } else if (h.equals("COLOR") || h.equals("CLR") || h.equals("COLOUR")) {
-                    colorColIndex = c;
-                } else if (h.equals("AUDIOLINK") || h.equals("AUDIO") || h.equals("AUDIO_LINK")) {
-                    audioLinkColIndex = c;
-                } else if (h.equals("X-AXIS") || h.equals("XAXIS") || h.equals("X_AXIS")) {
-                    xAxisColIndex = c;
-                } else if (h.equals("Y-AXIS") || h.equals("YAXIS") || h.equals("Y_AXIS")) {
-                    yAxisColIndex = c;
-                } else if (h.equals("TEXT-SIZE") || h.equals("TEXTSIZE") || h.equals("TEXT_SIZE") || h.equals("SIZE")) {
-                    textSizeColIndex = c;
-                } else if (h.equals("TIMER_TARGET") || h.equals("TIMER-TARGET")
-                        || h.equals("TIMERTARGET") || h.equals("TIMER_TARGET_TEXT")
-                        || h.equals("TARGET_TEXT") || h.equals("TARGET-TEXT")
-                        || h.equals("TARGET") || h.equals("TIMER_ANSWER")) {
-                    // The Slide Timer's target text for this slide.
-                    timerTargetColIndex = c;
-                } else if (h.equals("TIMER_END_AUDIO") || h.equals("TIMER-END-AUDIO")
-                        || h.equals("TIMERENDAUDIO") || h.equals("TIMER_END_SOUND")
-                        || h.equals("TIMER_END_SOUND_FILE")) {
-                    // The Slide Timer's "play when it ends" sound for this slide.
-                    timerEndAudioColIndex = c;
-                } else if (h.matches("TEXT\\d+TIME")) {
-                    // Texts-Timer columns: TEXT1TIME, TEXT2TIME, … map to text items.
-                    // Each cell is "appear,go" in seconds ("appear" alone = never leaves).
-                    String numPart = h.substring(4, h.length() - 4); // strip TEXT…TIME
-                    try {
-                        int textIdx = Integer.parseInt(numPart) - 1; // 1-based to 0-based
-                        if (textIdx >= 0) timeColByTextIndex.put(textIdx, c);
-                    } catch (NumberFormatException ignored) {}
-                } else if (h.matches("(AUDIOLINK|AUDIO|AUDIO_LINK)\\d+")) {
-                    // Multi-audio columns: AUDIO1, AUDIO2, AUDIOLINK1, AUDIOLINK2, etc.
-                    String numPart = h.replaceAll("^(AUDIOLINK|AUDIO_LINK|AUDIO)", "");
-                    int textIdx = Integer.parseInt(numPart) - 1; // 1-based to 0-based
-                    if (textIdx >= 0) {
-                        audioColByTextIndex.put(textIdx, c);
-                    }
-                } else {
-                    // Slide-picture columns. PIC / PIC<n> carries the image path;
-                    // PIC<n>_X, _Y, _W, _SHAPE, _RADIUS place it. A bare PIC means
-                    // Pic 1, and hyphens read the same as underscores.
-                    java.util.regex.Matcher pm =
-                            PIC_COLUMN_PATTERN.matcher(h.replace('-', '_'));
-                    if (pm.matches()) {
-                        String numPart = pm.group(2);
-                        int slot = 0;
-                        if (!numPart.isEmpty()) {
-                            try {
-                                slot = Integer.parseInt(numPart) - 1;
-                            } catch (NumberFormatException ex) {
-                                slot = -1; // absurd number → not a picture column
-                            }
-                        }
-                        // Cap the slot so a typo like PIC9999 can't make the import
-                        // grow thousands of empty Pic slots on every slide.
-                        if (slot < 0 || slot >= MAX_IMPORTED_PIC_SLOTS) {
-                            picOverflowCols.add(c);
-                            picOverflowHeaders.add(headerFields.get(c).trim());
-                        } else {
-                            String attr = pm.group(3);
-                            if (attr == null) {
-                                picFileColBySlot.put(slot, c);
-                            } else switch (attr) {
-                                case "X":                    picXColBySlot.put(slot, c); break;
-                                case "Y":                    picYColBySlot.put(slot, c); break;
-                                case "W": case "WIDTH":      picWColBySlot.put(slot, c); break;
-                                case "SHAPE":                picShapeColBySlot.put(slot, c); break;
-                                case "RADIUS": case "CORNER": picRadiusColBySlot.put(slot, c); break;
-                                default: break;
-                            }
-                        }
-                    }
-                }
-            }
+            // One shared reading of the header row, so Dict Import and F1 Import
+            // always understand the same column names.
+            cols = ImportColumns.scan(headerFields);
+            hlColIndex = cols.hlCol;
+            ulColIndex = cols.ulCol;
+            boldColIndex = cols.boldCol;
+            italicColIndex = cols.italicCol;
+            colorColIndex = cols.colorCol;
+            audioLinkColIndex = cols.audioLinkCol;
+            xAxisColIndex = cols.xAxisCol;
+            yAxisColIndex = cols.yAxisCol;
+            textSizeColIndex = cols.textSizeCol;
+            timerTargetColIndex = cols.timerTargetCol;
+            timerEndAudioColIndex = cols.timerEndAudioCol;
+            hlGroupColByNum.putAll(cols.hlGroupColByNum);
+            ulGroupColByNum.putAll(cols.ulGroupColByNum);
+            fontGroupColByNum.putAll(cols.fontGroupColByNum);
+            audioColByTextIndex.putAll(cols.audioColByTextIndex);
+            timeColByTextIndex.putAll(cols.timeColByTextIndex);
+            picFileColBySlot.putAll(cols.picFileColBySlot);
+            picXColBySlot.putAll(cols.picXColBySlot);
+            picYColBySlot.putAll(cols.picYColBySlot);
+            picWColBySlot.putAll(cols.picWColBySlot);
+            picShapeColBySlot.putAll(cols.picShapeColBySlot);
+            picRadiusColBySlot.putAll(cols.picRadiusColBySlot);
+            picOverflowCols.addAll(cols.picOverflowCols);
+            picOverflowHeaders.addAll(cols.picOverflowHeaders);
             dataLines = trimmed.subList(1, trimmed.size());
         } else {
             dataLines = trimmed;
@@ -4009,39 +4181,9 @@ public class GifSlideShowApp extends JFrame {
         }
 
         // Determine which columns are text columns (not HL/UL/BOLD/ITALIC/COLOR/AUDIOLINK)
-        java.util.Set<Integer> audioColIndices = new java.util.HashSet<>(audioColByTextIndex.values());
-        java.util.Set<Integer> timeColIndices = new java.util.HashSet<>(timeColByTextIndex.values());
-        // Picture columns are settings, not captions — without this an image path
-        // would be imported as slide text and printed on the frame.
-        java.util.Set<Integer> picColIndices = new java.util.HashSet<>();
-        picColIndices.addAll(picFileColBySlot.values());
-        picColIndices.addAll(picXColBySlot.values());
-        picColIndices.addAll(picYColBySlot.values());
-        picColIndices.addAll(picWColBySlot.values());
-        picColIndices.addAll(picShapeColBySlot.values());
-        picColIndices.addAll(picRadiusColBySlot.values());
-        picColIndices.addAll(picOverflowCols);
-        // Extra HL/UL group columns (HL2, HL3, ... / UL2, UL3, ...) are formatting,
-        // not slide text — they must be held out of textColIndices exactly like the
-        // plain HL/UL columns above. Without this an HL2 column both prints its own
-        // word list onto the slide as a text item AND shifts every text column after
-        // it by one, so TEXT31 lands in Text 32's slot.
-        java.util.Set<Integer> hlUlGroupColIndices = new java.util.HashSet<>();
-        hlUlGroupColIndices.addAll(hlGroupColByNum.values());
-        hlUlGroupColIndices.addAll(ulGroupColByNum.values());
-        // FONT / FONT1, FONT2, ... are formatting columns too, for the same reason.
-        hlUlGroupColIndices.addAll(fontGroupColByNum.values());
-        List<Integer> textColIndices = new ArrayList<>();
-        for (int c = 0; c < maxCols; c++) {
-            if (c != hlColIndex && c != ulColIndex && c != boldColIndex
-                    && c != italicColIndex && c != colorColIndex && c != audioLinkColIndex
-                    && c != xAxisColIndex && c != yAxisColIndex && c != textSizeColIndex
-                    && c != timerTargetColIndex && c != timerEndAudioColIndex
-                    && !audioColIndices.contains(c) && !timeColIndices.contains(c)
-                    && !picColIndices.contains(c) && !hlUlGroupColIndices.contains(c)) {
-                textColIndices.add(c);
-            }
-        }
+        // Which columns are captions and which are settings — the same
+        // reading Dict Import and F1 Import share.
+        List<Integer> textColIndices = cols.textColumns(maxCols);
 
         // Collect non-title-grid slides
         List<SlideRow> targetSlides = new ArrayList<>();
@@ -4546,6 +4688,796 @@ public class GifSlideShowApp extends JFrame {
             if (!have.isEmpty() && (have.contains(want) || want.contains(have))) return i + 1;
         }
         return -1;
+    }
+
+    // ==================== F1 Import (rows → texts, N rows per slide) ====================
+
+    /** The folder of the last F1 sheet, so the next import opens where the last
+     *  one left off. */
+    private File lastF1ImportDir = null;
+
+    /** What the F1 options window decided. */
+    private static final class F1Options {
+        SpreadsheetReader.Sheet sheet;
+        int textsPerSlide = 5;
+        boolean hasHeader = true;
+        boolean clearDeckFirst = false;
+    }
+
+    /**
+     * F1: turn a sheet whose ROWS are entries into slides that hold several
+     * entries each.
+     *
+     * <p>Dict Import reads a sheet the other way round — one row is one slide,
+     * and each column is one of that slide's texts. A vocabulary sheet is not
+     * shaped like that: one row is one word, and the columns beside it are that
+     * word's meaning, its translation, its example sentence, its audio. F1
+     * reads exactly that sheet: say "5 texts per slide" and the first five
+     * words land on slide 1 — each of them carrying every cell from its own
+     * row — the next five on slide 2, and so on.
+     *
+     * <p>So a row with text1..text6 contributes six texts to the slide, and
+     * five rows fill Text 1..Text 30: row 1 owns Text 1-6, row 2 owns Text
+     * 7-12, and so on. That fixed stride is what lets the settings columns keep
+     * pointing at the right text — AUDIOLINK4 on the second row means the
+     * second row's fourth text, Text 10 on the slide.
+     */
+    private void f1Import() {
+        JFileChooser fc = new JFileChooser(lastF1ImportDir);
+        fc.setDialogTitle("F1 — Choose an Excel or CSV sheet");
+        fc.setFileFilter(new FileNameExtensionFilter(
+                "Spreadsheets (*.xlsx, *.xlsm, *.xls, *.csv, *.tsv, *.txt)",
+                SpreadsheetReader.EXTENSIONS));
+        if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        File file = fc.getSelectedFile();
+        if (file == null || !file.isFile()) return;
+        lastF1ImportDir = file.getParentFile();
+
+        List<SpreadsheetReader.Sheet> sheets;
+        setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+        try {
+            sheets = SpreadsheetReader.read(file);
+        } catch (IOException | RuntimeException ex) {
+            String why = ex.getMessage() == null ? ex.toString() : ex.getMessage();
+            JOptionPane.showMessageDialog(this,
+                    "Could not read " + file.getName() + ":\n\n" + why,
+                    "F1 Import", JOptionPane.ERROR_MESSAGE);
+            return;
+        } finally {
+            setCursor(Cursor.getDefaultCursor());
+        }
+
+        List<SpreadsheetReader.Sheet> usable = new ArrayList<>();
+        for (SpreadsheetReader.Sheet s : sheets) {
+            if (!s.isBlank()) usable.add(s);
+        }
+        if (usable.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    file.getName() + " has no data in it — every sheet is empty.",
+                    "F1 Import", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        F1Options options = askF1Options(file, usable);
+        if (options == null) return;
+        applyF1Import(file, options);
+    }
+
+    /** The F1 options window: which sheet, how many texts per slide, whether the
+     *  first row is a header — with a live preview of the grouping it produces. */
+    private F1Options askF1Options(File file, List<SpreadsheetReader.Sheet> sheets) {
+        final F1Options options = new F1Options();
+        options.sheet = sheets.get(0);
+        options.hasHeader = looksLikeHeaderRow(firstRowOf(options.sheet));
+
+        JPanel panel = new JPanel(new BorderLayout(0, 8));
+
+        JPanel form = new JPanel(new GridBagLayout());
+        GridBagConstraints gc = new GridBagConstraints();
+        gc.insets = new Insets(3, 4, 3, 4);
+        gc.anchor = GridBagConstraints.WEST;
+        gc.gridx = 0; gc.gridy = 0; gc.gridwidth = 2;
+
+        JLabel intro = new JLabel("<html><b>" + file.getName() + "</b><br>"
+                + "Each row of the sheet is one text. Say how many of them share a slide —<br>"
+                + "every text arrives with all the other cells from its own row.</html>");
+        form.add(intro, gc);
+
+        gc.gridwidth = 1;
+        gc.gridy++;
+        final JComboBox<String> sheetCombo = new JComboBox<>();
+        for (SpreadsheetReader.Sheet s : sheets) {
+            sheetCombo.addItem(s.name + "  (" + s.nonEmptyRowCount() + " rows)");
+        }
+        if (sheets.size() > 1) {
+            form.add(new JLabel("Sheet:"), gc);
+            gc.gridx = 1;
+            form.add(sheetCombo, gc);
+            gc.gridx = 0;
+            gc.gridy++;
+        }
+
+        form.add(new JLabel("Texts per slide:"), gc);
+        gc.gridx = 1;
+        final JSpinner perSlideSpinner = new JSpinner(new SpinnerNumberModel(5, 1, 500, 1));
+        ((JSpinner.DefaultEditor) perSlideSpinner.getEditor()).getTextField().setColumns(4);
+        form.add(perSlideSpinner, gc);
+
+        gc.gridx = 0; gc.gridy++; gc.gridwidth = 2;
+        final JCheckBox headerCheck = new JCheckBox(
+                "First row is a header row (text1, HL, AUDIOLINK1, …)", options.hasHeader);
+        form.add(headerCheck, gc);
+
+        gc.gridy++;
+        final JCheckBox clearCheck = new JCheckBox(
+                "Remove the slides already in the app first", false);
+        clearCheck.setToolTipText("Off: the sheet fills the slides that are there and adds "
+                + "more as needed. On: the deck starts empty.");
+        form.add(clearCheck, gc);
+
+        panel.add(form, BorderLayout.NORTH);
+
+        final JTextArea preview = new JTextArea(10, 52);
+        preview.setEditable(false);
+        preview.setLineWrap(true);
+        preview.setWrapStyleWord(true);
+        preview.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        preview.setBorder(BorderFactory.createTitledBorder("What this will build"));
+        JScrollPane previewScroll = new JScrollPane(preview);
+        previewScroll.setPreferredSize(new Dimension(560, 230));
+        panel.add(previewScroll, BorderLayout.CENTER);
+
+        final Runnable refresh = () -> {
+            SpreadsheetReader.Sheet chosen = sheets.get(
+                    Math.max(0, Math.min(sheetCombo.getSelectedIndex(), sheets.size() - 1)));
+            preview.setText(buildF1Preview(chosen,
+                    (Integer) perSlideSpinner.getValue(), headerCheck.isSelected()));
+            preview.setCaretPosition(0);
+        };
+        sheetCombo.addActionListener(e -> {
+            // A different sheet may well have a different kind of first row.
+            SpreadsheetReader.Sheet chosen = sheets.get(
+                    Math.max(0, Math.min(sheetCombo.getSelectedIndex(), sheets.size() - 1)));
+            headerCheck.setSelected(looksLikeHeaderRow(firstRowOf(chosen)));
+            refresh.run();
+        });
+        perSlideSpinner.addChangeListener(e -> refresh.run());
+        headerCheck.addActionListener(e -> refresh.run());
+        refresh.run();
+
+        int result = JOptionPane.showConfirmDialog(this, panel, "F1 — Texts per Slide",
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (result != JOptionPane.OK_OPTION) return null;
+
+        options.sheet = sheets.get(Math.max(0, Math.min(sheetCombo.getSelectedIndex(), sheets.size() - 1)));
+        options.textsPerSlide = (Integer) perSlideSpinner.getValue();
+        options.hasHeader = headerCheck.isSelected();
+        options.clearDeckFirst = clearCheck.isSelected();
+        return options;
+    }
+
+    private static List<String> firstRowOf(SpreadsheetReader.Sheet sheet) {
+        return sheet.rows.isEmpty() ? new ArrayList<>() : sheet.rows.get(0);
+    }
+
+    /**
+     * Does this row name columns rather than hold data? True when it carries a
+     * name the importers know (HL, AUDIOLINK1, PIC_X, …) or a plain TEXT1 /
+     * TEXT2 heading. A vocabulary row ("Durable", "able to withstand", …) has
+     * none of those, so the guess is safe either way — and the checkbox in the
+     * dialog is the last word.
+     */
+    private static boolean looksLikeHeaderRow(List<String> row) {
+        if (row == null || row.isEmpty()) return false;
+        int named = 0;
+        for (String cell : row) {
+            String h = cell == null ? "" : cell.trim();
+            if (h.isEmpty()) continue;
+            if (h.matches("(?i)TEXT\\s*\\d+")) { named++; continue; }
+            List<String> single = new ArrayList<>();
+            single.add(h);
+            ImportColumns probe = ImportColumns.scan(single);
+            if (probe.textColumns(1).isEmpty()) named++;
+        }
+        return named >= 2;
+    }
+
+    /** The plain-English summary the options window shows: how the rows group,
+     *  which columns became texts, and which became settings. */
+    private static String buildF1Preview(SpreadsheetReader.Sheet sheet, int perSlide, boolean hasHeader) {
+        List<String> headerFields = hasHeader ? firstRowOf(sheet) : null;
+        ImportColumns cols = ImportColumns.scan(headerFields);
+        List<List<String>> entries = f1DataRows(sheet, hasHeader);
+        if (entries.isEmpty()) {
+            return "This sheet has no data rows"
+                    + (hasHeader ? " under its header row." : ".");
+        }
+        int maxCols = headerFields == null ? 0 : headerFields.size();
+        for (List<String> row : entries) maxCols = Math.max(maxCols, row.size());
+        List<Integer> textCols = cols.textColumns(maxCols);
+        if (textCols.isEmpty()) {
+            return "Every column in this sheet is a settings column (HL, AUDIOLINK, …),\n"
+                    + "so there is nothing to put on a slide. Untick the header box if the\n"
+                    + "first row is really data.";
+        }
+        int stride = textCols.size();
+        int slides = (entries.size() + perSlide - 1) / perSlide;
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(entries.size()).append(" entries → ").append(slides).append(" slide")
+                .append(slides == 1 ? "" : "s").append(", ").append(perSlide)
+                .append(" text").append(perSlide == 1 ? "" : "s").append(" each.\n");
+        sb.append("Each entry brings ").append(stride).append(" cell")
+                .append(stride == 1 ? "" : "s").append(" from its row");
+        if (headerFields != null) {
+            List<String> names = new ArrayList<>();
+            for (int c : textCols) {
+                String n = cellAt(headerFields, c);
+                names.add(n == null || n.isEmpty() ? columnLetter(c) : n);
+            }
+            sb.append(" (").append(String.join(", ", names)).append(")");
+        }
+        sb.append(", so a slide holds up to ").append(perSlide * stride).append(" texts.\n\n");
+
+        int show = Math.min(slides, 4);
+        for (int g = 0; g < show; g++) {
+            sb.append("Slide ").append(g + 1).append(":  ");
+            List<String> words = new ArrayList<>();
+            for (int r = 0; r < perSlide; r++) {
+                int idx = g * perSlide + r;
+                if (idx >= entries.size()) break;
+                String first = cellAt(entries.get(idx), textCols.get(0));
+                words.add(first == null || first.isEmpty() ? "(blank)" : first);
+            }
+            sb.append(String.join(", ", words)).append('\n');
+        }
+        if (slides > show) sb.append("…and ").append(slides - show).append(" more slides.\n");
+
+        if (headerFields != null) {
+            List<String> settings = new ArrayList<>();
+            for (int c : cols.settingColumns()) {
+                String n = cellAt(headerFields, c);
+                if (n != null && !n.isEmpty()) settings.add(n);
+            }
+            Collections.sort(settings, String.CASE_INSENSITIVE_ORDER);
+            if (!settings.isEmpty()) {
+                sb.append("\nSettings columns, applied per entry: ")
+                        .append(String.join(", ", settings)).append('\n');
+            }
+        } else {
+            sb.append("\nNo header row: every column is imported as a text.\n");
+        }
+        return sb.toString();
+    }
+
+    /** "A", "B", … "AA" — a column's spreadsheet letter, for messages. */
+    private static String columnLetter(int col) {
+        StringBuilder sb = new StringBuilder();
+        for (int c = col; c >= 0; c = c / 26 - 1) {
+            sb.insert(0, (char) ('A' + c % 26));
+        }
+        return sb.toString();
+    }
+
+    /** The sheet's data rows: the header dropped when there is one, and every
+     *  completely blank row left out so it cannot eat a text slot. */
+    private static List<List<String>> f1DataRows(SpreadsheetReader.Sheet sheet, boolean hasHeader) {
+        List<List<String>> entries = new ArrayList<>();
+        for (int i = hasHeader ? 1 : 0; i < sheet.rows.size(); i++) {
+            List<String> row = sheet.rows.get(i);
+            for (String cell : row) {
+                if (cell != null && !cell.trim().isEmpty()) { entries.add(row); break; }
+            }
+        }
+        return entries;
+    }
+
+    /** Split a cell's comma-separated word list into {@code into}, keeping the
+     *  order and dropping repeats — how several entries' HL/UL/BOLD/ITALIC/COLOR
+     *  cells become the one word list a slide carries. */
+    private static void mergeWordList(List<String> into, String cell) {
+        if (cell == null) return;
+        for (String part : cell.split(",")) {
+            String word = part.trim();
+            if (!word.isEmpty() && !into.contains(word)) into.add(word);
+        }
+    }
+
+    /** Feed a "12,30,48" cell to a setter, one value per text of the entry. */
+    private static void forEachCsvInt(String cell, java.util.function.BiConsumer<Integer, Integer> sink) {
+        if (cell == null || cell.trim().isEmpty()) return;
+        String[] parts = cell.split(",");
+        for (int i = 0; i < parts.length; i++) {
+            String v = parts[i].trim();
+            if (v.isEmpty()) continue;
+            try {
+                sink.accept(i, Integer.parseInt(v));
+            } catch (NumberFormatException ignored) { }
+        }
+    }
+
+    /**
+     * In F1 a plain number in TIMER_TARGET means that ENTRY's own text number
+     * (1 = the entry's first cell), because every other settings column in the
+     * row counts from the row too. Anything else is matched against the whole
+     * slide's texts, exactly as Dict Import does.
+     */
+    private static int f1ResolveTimerTarget(String cell, int base, List<SlideTextData> texts) {
+        String v = cell == null ? "" : cell.trim();
+        if (v.isEmpty()) return -1;
+        String low = v.toLowerCase(Locale.ROOT);
+        if (low.equals("none") || low.equals("-") || low.equals("no") || low.equals("0")) return 0;
+        java.util.regex.Matcher m =
+                java.util.regex.Pattern.compile("^(?:text\\s*#?\\s*)?(\\d+)$").matcher(low);
+        if (m.matches()) {
+            try {
+                int n = Integer.parseInt(m.group(1));
+                return n <= 0 ? 0 : base + n;
+            } catch (NumberFormatException ignored) { }
+        }
+        return resolveTimerTarget(v, texts);
+    }
+
+    /** One group's word lists, in group-number order, as the HL/UL/Font
+     *  dropdown rows want them. */
+    private static List<String> joinGroupWordLists(java.util.Map<Integer, List<String>> groups) {
+        List<String> lists = new ArrayList<>();
+        for (List<String> words : groups.values()) lists.add(String.join(", ", words));
+        return lists;
+    }
+
+    /** Build the deck from the chosen sheet. */
+    private void applyF1Import(File source, F1Options o) {
+        List<String> headerFields = o.hasHeader ? firstRowOf(o.sheet) : null;
+        final ImportColumns cols = ImportColumns.scan(headerFields);
+        final List<List<String>> entries = f1DataRows(o.sheet, o.hasHeader);
+        if (entries.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "That sheet has no data rows" + (o.hasHeader ? " under its header row." : "."),
+                    "F1 Import", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        int maxCols = headerFields == null ? 0 : headerFields.size();
+        for (List<String> row : entries) maxCols = Math.max(maxCols, row.size());
+        final List<Integer> textCols = cols.textColumns(maxCols);
+        if (textCols.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Every column in that sheet is a settings column (HL, AUDIOLINK, …),\n"
+                            + "so there is no text to put on a slide.",
+                    "F1 Import", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        final int stride = textCols.size();
+        final int perSlide = clampInt(o.textsPerSlide, 1, 500);
+        final int slideCount = (entries.size() + perSlide - 1) / perSlide;
+        final File importSourceDir = source.getParentFile();
+
+        if (o.clearDeckFirst && !slideRows.isEmpty()) {
+            slideRows.clear();
+            slidesPanel.removeAll();
+        }
+        List<SlideRow> targetSlides = new ArrayList<>();
+        for (SlideRow row : slideRows) {
+            if (!row.isTitleGridSlide) targetSlides.add(row);
+        }
+
+        final List<String> missingAudioFiles = new ArrayList<>();
+        final List<String> missingPictureFiles = new ArrayList<>();
+        final List<String> unmatchedTimerTargets = new ArrayList<>();
+        // Picture assignments are buffered: applyFirstSlideFormattingToAll()
+        // below broadcasts slide 1's picture geometry across the deck and would
+        // overwrite whatever a row asked for.
+        final List<Runnable> pendingPictureApplies = new ArrayList<>();
+        // X-AXIS / Y-AXIS / TEXT-SIZE are buffered for the same reason.
+        final List<Runnable> pendingTextGeometry = new ArrayList<>();
+        final java.util.Map<String, BufferedImage> pictureCache = new java.util.HashMap<>();
+        // How many texts each slide's own entries filled, so the slide-1
+        // formatting broadcast below cannot leave a short last slide padded out
+        // to the master's text count.
+        final java.util.Map<SlideRow, Integer> filledTextCounts = new java.util.LinkedHashMap<>();
+        int timerTargetsSet = 0, timerEndAudiosSet = 0, pictureSlotsSet = 0, textsImported = 0;
+
+        setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+        try {
+            for (int g = 0; g < slideCount; g++) {
+                SlideRow row;
+                if (g < targetSlides.size()) {
+                    row = targetSlides.get(g);
+                } else {
+                    row = new SlideRow(slideRows.size() + 1);
+                    slideRows.add(row);
+                    slidesPanel.add(row.getPanel());
+                    slidesPanel.add(Box.createRigidArea(new Dimension(0, 10)));
+                    targetSlides.add(row);
+                }
+                final SlideRow slide = row;
+                final int slideIdx = g;
+
+                int textsOnSlide = 0;
+                // Formatting word lists are per slide, so the entries sharing a
+                // slide pool theirs: five HL cells become the slide's one HL list.
+                List<String> hlWords = new ArrayList<>(), ulWords = new ArrayList<>();
+                List<String> boldWords = new ArrayList<>(), italicWords = new ArrayList<>();
+                List<String> colorWords = new ArrayList<>();
+                java.util.Map<Integer, List<String>> hlGroupWords = new java.util.TreeMap<>();
+                java.util.Map<Integer, List<String>> ulGroupWords = new java.util.TreeMap<>();
+                java.util.Map<Integer, List<String>> fontGroupWords = new java.util.TreeMap<>();
+                for (int n : cols.hlGroupColByNum.keySet()) hlGroupWords.put(n, new ArrayList<>());
+                for (int n : cols.ulGroupColByNum.keySet()) ulGroupWords.put(n, new ArrayList<>());
+                for (int n : cols.fontGroupColByNum.keySet()) fontGroupWords.put(n, new ArrayList<>());
+                // Applied after the formatting setters below, which rebuild each
+                // text and would otherwise drop the timing set in place here.
+                List<int[]> pendingTimers = new ArrayList<>();
+                List<Runnable> pendingAudio = new ArrayList<>();
+                String timerTargetCell = null;
+                int timerTargetBase = 0;
+                String timerEndAudioCell = null;
+
+                for (int r = 0; r < perSlide; r++) {
+                    int idx = g * perSlide + r;
+                    if (idx >= entries.size()) break;
+                    final List<String> fields = entries.get(idx);
+                    final int base = r * stride;
+
+                    // The entry's own cells, in sheet order: row 1 owns Text 1..n,
+                    // row 2 owns Text n+1..2n, and so on. The stride is fixed even
+                    // when a cell is blank, so the settings columns keep pointing
+                    // at the right text.
+                    for (int t = 0; t < stride; t++) {
+                        String value = cellAt(fields, textCols.get(t));
+                        slide.setSlideTextAt(base + t, value == null ? "" : value);
+                        if (value != null && !value.isEmpty()) textsImported++;
+                    }
+                    textsOnSlide = base + stride;
+
+                    mergeWordList(hlWords, cellAt(fields, cols.hlCol));
+                    mergeWordList(ulWords, cellAt(fields, cols.ulCol));
+                    mergeWordList(boldWords, cellAt(fields, cols.boldCol));
+                    mergeWordList(italicWords, cellAt(fields, cols.italicCol));
+                    mergeWordList(colorWords, cellAt(fields, cols.colorCol));
+                    for (java.util.Map.Entry<Integer, Integer> e : cols.hlGroupColByNum.entrySet()) {
+                        mergeWordList(hlGroupWords.get(e.getKey()), cellAt(fields, e.getValue()));
+                    }
+                    for (java.util.Map.Entry<Integer, Integer> e : cols.ulGroupColByNum.entrySet()) {
+                        mergeWordList(ulGroupWords.get(e.getKey()), cellAt(fields, e.getValue()));
+                    }
+                    for (java.util.Map.Entry<Integer, Integer> e : cols.fontGroupColByNum.entrySet()) {
+                        mergeWordList(fontGroupWords.get(e.getKey()), cellAt(fields, e.getValue()));
+                    }
+
+                    // AUDIOLINK → this entry's first text; AUDIO1/AUDIOLINK4/… →
+                    // the entry's 1st / 4th text. Two paths in one quoted cell
+                    // still mean primary + second audio for that same text.
+                    String bareAudio = cellAt(fields, cols.audioLinkCol);
+                    if (bareAudio != null && !bareAudio.isEmpty()) {
+                        final String cell = bareAudio;
+                        pendingAudio.add(() -> applyImportedAudioCell(slide, base, cell,
+                                importSourceDir, slideIdx, missingAudioFiles));
+                    }
+                    for (java.util.Map.Entry<Integer, Integer> e : cols.audioColByTextIndex.entrySet()) {
+                        String cell = cellAt(fields, e.getValue());
+                        if (cell == null || cell.isEmpty()) continue;
+                        final String audioCell = cell;
+                        final int textIdx = base + e.getKey();
+                        pendingAudio.add(() -> applyImportedAudioCell(slide, textIdx, audioCell,
+                                importSourceDir, slideIdx, missingAudioFiles));
+                    }
+
+                    // Buffered like the pictures below: the slide-1 broadcast
+                    // stamps the master's position and size onto every slide, so
+                    // what the sheet asked for has to land after it.
+                    final String xCell = cellAt(fields, cols.xAxisCol);
+                    final String yCell = cellAt(fields, cols.yAxisCol);
+                    final String sizeCell = cellAt(fields, cols.textSizeCol);
+                    if (xCell != null || yCell != null || sizeCell != null) {
+                        pendingTextGeometry.add(() -> {
+                            forEachCsvInt(xCell, (i, v) -> slide.setSlideTextXAt(base + i, v));
+                            forEachCsvInt(yCell, (i, v) -> slide.setSlideTextYAt(base + i, v));
+                            forEachCsvInt(sizeCell, (i, v) -> slide.setSlideTextSizeAt(base + i, v));
+                        });
+                    }
+
+                    // TEXT1TIME, TEXT2TIME, … — "appear,go" in seconds for this
+                    // entry's 1st, 2nd, … text ("appear" alone = never leaves).
+                    for (java.util.Map.Entry<Integer, Integer> e : cols.timeColByTextIndex.entrySet()) {
+                        String cell = cellAt(fields, e.getValue());
+                        if (cell == null || cell.isEmpty()) continue;
+                        String[] parts = cell.split(",");
+                        double appearSec;
+                        try {
+                            appearSec = Double.parseDouble(parts[0].trim());
+                        } catch (NumberFormatException ex) {
+                            continue;
+                        }
+                        if (appearSec < 0) appearSec = 0;
+                        int goMs = -1;
+                        if (parts.length >= 2 && !parts[1].trim().isEmpty()) {
+                            try {
+                                double goSec = Double.parseDouble(parts[1].trim());
+                                if (goSec > appearSec) goMs = (int) Math.round(goSec * 1000.0);
+                            } catch (NumberFormatException ignored) { }
+                        }
+                        pendingTimers.add(new int[]{base + e.getKey(),
+                                (int) Math.round(appearSec * 1000.0), goMs});
+                    }
+
+                    // The countdown belongs to the slide, so the first entry that
+                    // names a target text (or an end sound) speaks for the group.
+                    if (timerTargetCell == null) {
+                        String cell = cellAt(fields, cols.timerTargetCol);
+                        if (cell != null && !cell.isEmpty()) {
+                            timerTargetCell = cell;
+                            timerTargetBase = base;
+                        }
+                    }
+                    if (timerEndAudioCell == null) {
+                        String cell = cellAt(fields, cols.timerEndAudioCol);
+                        if (cell != null && !cell.isEmpty()) timerEndAudioCell = cell;
+                    }
+                }
+
+                // Cut away any text left over from a previous, longer import.
+                slide.trimSlideTextsTo(Math.max(1, textsOnSlide));
+                filledTextCounts.put(slide, Math.max(1, textsOnSlide));
+
+                if (cols.hlCol >= 0) {
+                    String joined = String.join(", ", hlWords);
+                    slide.setHighlightText(joined);
+                    slide.setSlideTextHighlightText(joined);
+                }
+                if (cols.ulCol >= 0) slide.setSlideTextUnderlineText(String.join(", ", ulWords));
+                if (cols.boldCol >= 0) slide.setSlideTextBoldText(String.join(", ", boldWords));
+                if (cols.italicCol >= 0) slide.setSlideTextItalicText(String.join(", ", italicWords));
+                if (cols.colorCol >= 0) slide.setSlideTextColorText(String.join(", ", colorWords));
+                if (!hlGroupWords.isEmpty()) {
+                    slide.applyHlGroupColumnsToAllTexts(joinGroupWordLists(hlGroupWords));
+                }
+                if (!ulGroupWords.isEmpty()) {
+                    slide.applyUlGroupColumnsToAllTexts(joinGroupWordLists(ulGroupWords));
+                }
+                if (!fontGroupWords.isEmpty()) {
+                    slide.applyFnGroupColumnsToAllTexts(joinGroupWordLists(fontGroupWords));
+                }
+
+                for (Runnable attach : pendingAudio) attach.run();
+                for (int[] t : pendingTimers) slide.setSlideTextTimerAt(t[0], t[1], t[2]);
+
+                if (timerTargetCell != null) {
+                    int target = f1ResolveTimerTarget(timerTargetCell, timerTargetBase,
+                            slide.getSlideTextDataList());
+                    if (target < 0) {
+                        unmatchedTimerTargets.add("Slide " + (g + 1) + ": \"" + timerTargetCell + "\"");
+                    } else {
+                        slide.setSlideTimerTarget(target);
+                        timerTargetsSet++;
+                    }
+                }
+                if (timerEndAudioCell != null) {
+                    if (timerEndAudioCell.equalsIgnoreCase("none") || timerEndAudioCell.equals("-")) {
+                        slide.setSlideTimerEndAudio("", true);          // deliberately quiet
+                        timerEndAudiosSet++;
+                    } else if (timerEndAudioCell.equalsIgnoreCase("inherit")
+                            || timerEndAudioCell.equalsIgnoreCase("shared")
+                            || timerEndAudioCell.equalsIgnoreCase("default")) {
+                        slide.setSlideTimerEndAudio("", false);         // back to slide 1's sound
+                        timerEndAudiosSet++;
+                    } else {
+                        File endFile = new File(timerEndAudioCell);
+                        if (!endFile.isAbsolute() && importSourceDir != null) {
+                            endFile = new File(importSourceDir, timerEndAudioCell);
+                        }
+                        if (endFile.exists()) {
+                            slide.setSlideTimerEndAudio(endFile.getAbsolutePath(), false);
+                            timerEndAudiosSet++;
+                        } else {
+                            missingAudioFiles.add("Slide " + (g + 1) + " timer end sound: "
+                                    + timerEndAudioCell);
+                        }
+                    }
+                }
+
+                // Slide pictures: the first entry of the group that says anything
+                // about a Pic slot places it, since the picture is the slide's.
+                if (cols.hasPictureColumns()) {
+                    for (int slot : cols.picSlots()) {
+                        for (int r = 0; r < perSlide; r++) {
+                            int idx = g * perSlide + r;
+                            if (idx >= entries.size()) break;
+                            if (applyF1Picture(slide, slot, entries.get(idx), cols, importSourceDir,
+                                    g + 1, pictureCache, pendingPictureApplies, missingPictureFiles)) {
+                                pictureSlotsSet++;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        } finally {
+            setCursor(Cursor.getDefaultCursor());
+        }
+
+        applyFirstSlideFormattingToAll();
+        // Per-row pictures land last: the broadcast above copies slide 1's
+        // picture geometry onto every slide.
+        for (Runnable apply : pendingPictureApplies) apply.run();
+        // The broadcast also copies the master's per-text formats onto every
+        // slide, which grows a shorter slide back to the master's text count.
+        // A last slide holding two entries must show two entries.
+        for (java.util.Map.Entry<SlideRow, Integer> e : filledTextCounts.entrySet()) {
+            e.getKey().trimSlideTextsTo(e.getValue());
+        }
+        // Last of all, the positions and sizes the sheet gave each entry — they
+        // are the one thing that must beat the master's layout.
+        for (Runnable apply : pendingTextGeometry) apply.run();
+
+        rebuildSlidesPanel();
+
+        StringBuilder msg = new StringBuilder();
+        msg.append(entries.size()).append(" entries imported across ").append(slideCount)
+                .append(" slide").append(slideCount == 1 ? "" : "s").append(" — ")
+                .append(perSlide).append(" text").append(perSlide == 1 ? "" : "s")
+                .append(" per slide, ").append(stride).append(" cell")
+                .append(stride == 1 ? "" : "s").append(" from each row (")
+                .append(textsImported).append(" texts in all).");
+        if (headerFields == null) {
+            msg.append("\nNo header row: every column was imported as a text.");
+        } else {
+            if (cols.hlCol >= 0) msg.append("\nHL column detected — highlight words pooled per slide.");
+            if (cols.ulCol >= 0) msg.append("\nUL column detected — underline words pooled per slide.");
+            if (cols.boldCol >= 0) msg.append("\nBOLD column detected — bold words pooled per slide.");
+            if (cols.italicCol >= 0) msg.append("\nITALIC column detected — italic words pooled per slide.");
+            if (cols.colorCol >= 0) msg.append("\nCOLOR column detected — colour words pooled per slide.");
+            if (!cols.hlGroupColByNum.isEmpty() || !cols.ulGroupColByNum.isEmpty()) {
+                msg.append("\nHL/UL group columns detected — each imported as its own dropdown row.");
+            }
+            if (!cols.fontGroupColByNum.isEmpty()) {
+                msg.append("\nFONT column(s) detected — each imported as its own Font dropdown row."
+                        + "\n  Pick each row's font, type and colour on slide 1 (🔤 Font) and it "
+                        + "reaches the deck.");
+            }
+            if (cols.audioLinkCol >= 0 || !cols.audioColByTextIndex.isEmpty()) {
+                msg.append("\nAudio column(s) detected — each entry's audio is attached to that "
+                        + "entry's own text.");
+            }
+            if (cols.xAxisCol >= 0 || cols.yAxisCol >= 0 || cols.textSizeCol >= 0) {
+                msg.append("\nX-AXIS / Y-AXIS / TEXT-SIZE column(s) detected — applied per entry.");
+            }
+            if (!cols.timeColByTextIndex.isEmpty()) {
+                msg.append("\nTEXTnTIME column(s) detected — appear/go timing applied per entry.");
+            }
+            if (cols.timerTargetCol >= 0) {
+                msg.append("\nTIMER_TARGET column detected — Slide Timer target text set on ")
+                        .append(timerTargetsSet).append(" slide(s).");
+            }
+            if (cols.timerEndAudioCol >= 0) {
+                msg.append("\nTIMER_END_AUDIO column detected — timer end sound set on ")
+                        .append(timerEndAudiosSet).append(" slide(s).");
+            }
+            if (cols.hasPictureColumns()) {
+                msg.append("\nPIC column(s) detected — ").append(pictureSlotsSet)
+                        .append(" slide picture slot(s) set across Pic ")
+                        .append(describePicSlots(cols.picSlots())).append('.');
+            }
+            if (!cols.picOverflowHeaders.isEmpty()) {
+                msg.append("\n\nWARNING: ").append(cols.picOverflowHeaders.size())
+                        .append(" picture column(s) name a Pic slot above ")
+                        .append(MAX_IMPORTED_PIC_SLOTS).append(" and were ignored:\n  ")
+                        .append(String.join(", ", cols.picOverflowHeaders));
+            }
+        }
+        msg.append("\nSlides: ").append(slideRows.size()).append(" total.");
+        int untouched = targetSlides.size() - slideCount;
+        if (untouched > 0) {
+            msg.append("\n  ").append(untouched).append(" slide(s) that were already in the app sit "
+                    + "below the imported ones and were left alone.\n  Tick \"Remove the slides "
+                    + "already in the app first\" to start from an empty deck instead.");
+        }
+        appendMissingFileWarnings(msg, missingAudioFiles, missingPictureFiles, unmatchedTimerTargets);
+
+        JOptionPane.showMessageDialog(this, msg.toString(), "F1 Import",
+                missingAudioFiles.isEmpty() && missingPictureFiles.isEmpty()
+                        && unmatchedTimerTargets.isEmpty() && cols.picOverflowHeaders.isEmpty()
+                        ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+    }
+
+    /**
+     * Read one entry's PIC columns for one Pic slot and queue the placement.
+     * Returns false when the row says nothing at all about that slot, so the
+     * caller can ask the next entry in the group.
+     */
+    private boolean applyF1Picture(SlideRow slide, int slot, List<String> fields, ImportColumns cols,
+            File importSourceDir, int slideNumber, java.util.Map<String, BufferedImage> cache,
+            List<Runnable> pending, List<String> missingPictureFiles) {
+        BufferedImage img = null;
+        File imgFile = null;
+        Boolean show = null;
+        String pathCell = cellAt(fields, cols.picFileColBySlot.get(slot));
+        if (pathCell != null && !pathCell.isEmpty()) {
+            if (pathCell.equalsIgnoreCase("none") || pathCell.equals("-")) {
+                show = Boolean.FALSE;                 // keep the geometry, hide it
+            } else {
+                File f = new File(pathCell);
+                if (!f.isAbsolute() && importSourceDir != null) {
+                    f = new File(importSourceDir, pathCell);
+                }
+                if (f.isFile()) {
+                    String key = f.getAbsolutePath();
+                    if (cache.containsKey(key)) {
+                        img = cache.get(key);
+                        if (img != null) imgFile = f;
+                    } else {
+                        try {
+                            img = loadImageFile(f);
+                            imgFile = f;
+                        } catch (Exception ex) {
+                            img = null;
+                            missingPictureFiles.add("Slide " + slideNumber + " Pic " + (slot + 1)
+                                    + ": " + pathCell + " (" + ex.getMessage() + ")");
+                        }
+                        cache.put(key, img);
+                    }
+                } else {
+                    missingPictureFiles.add("Slide " + slideNumber + " Pic " + (slot + 1)
+                            + ": " + pathCell);
+                }
+            }
+        }
+        Integer picX = cellInt(fields, cols.picXColBySlot.get(slot));
+        Integer picY = cellInt(fields, cols.picYColBySlot.get(slot));
+        Integer picW = cellInt(fields, cols.picWColBySlot.get(slot));
+        Integer picR = cellInt(fields, cols.picRadiusColBySlot.get(slot));
+        String picShape = cellAt(fields, cols.picShapeColBySlot.get(slot));
+        if (picShape != null) {
+            if (picShape.isEmpty()) picShape = null;
+            else if (picShape.equalsIgnoreCase("circle") || picShape.equalsIgnoreCase("round")
+                    || picShape.equalsIgnoreCase("oval")) picShape = "Circle";
+            else picShape = "Rectangle";
+        }
+        if (img == null && show == null && picX == null && picY == null
+                && picW == null && picShape == null && picR == null) {
+            return false;                             // this row says nothing about this slot
+        }
+        final BufferedImage fImg = img;
+        final File fFile = imgFile;
+        final Boolean fShow = show;
+        final Integer fX = picX, fY = picY, fW = picW, fR = picR;
+        final String fShape = picShape;
+        pending.add(() -> slide.applyImportedSlidePicture(slot, fImg, fFile, fX, fY, fW,
+                fShape, fR, fShow));
+        return true;
+    }
+
+    /** The "some files were not found" tail every import summary shares. */
+    private static void appendMissingFileWarnings(StringBuilder msg, List<String> missingAudio,
+            List<String> missingPictures, List<String> unmatchedTimerTargets) {
+        if (!unmatchedTimerTargets.isEmpty()) {
+            msg.append("\n\n").append(unmatchedTimerTargets.size())
+                    .append(" TIMER_TARGET cell(s) matched none of their slide's texts:");
+            int show = Math.min(unmatchedTimerTargets.size(), 12);
+            for (int i = 0; i < show; i++) msg.append("\n  ").append(unmatchedTimerTargets.get(i));
+            if (unmatchedTimerTargets.size() > show) {
+                msg.append("\n  …and ").append(unmatchedTimerTargets.size() - show).append(" more.");
+            }
+        }
+        if (!missingAudio.isEmpty()) {
+            msg.append("\n\nWARNING: ").append(missingAudio.size()).append(" audio file(s) not found:");
+            int show = Math.min(missingAudio.size(), 12);
+            for (int i = 0; i < show; i++) msg.append("\n  ").append(missingAudio.get(i));
+            if (missingAudio.size() > show) {
+                msg.append("\n  …and ").append(missingAudio.size() - show).append(" more.");
+            }
+            msg.append("\n\nAudio paths resolve against the sheet's own folder.");
+        }
+        if (!missingPictures.isEmpty()) {
+            msg.append("\n\nWARNING: ").append(missingPictures.size())
+                    .append(" picture file(s) not found:");
+            int show = Math.min(missingPictures.size(), 12);
+            for (int i = 0; i < show; i++) msg.append("\n  ").append(missingPictures.get(i));
+            if (missingPictures.size() > show) {
+                msg.append("\n  …and ").append(missingPictures.size() - show).append(" more.");
+            }
+            msg.append("\n\nPicture paths resolve against the sheet's own folder too.");
+        }
     }
 
     // ==================== Quiz Import ====================
@@ -36620,6 +37552,52 @@ public class GifSlideShowApp extends JFrame {
             if (currentSlideTextIndex == textIndex) {
                 loadSlideTextFromItem(textIndex);
             }
+        }
+
+        /**
+         * Cut this slide back to exactly {@code count} text rows, dropping the
+         * per-text audio and karaoke settings that belonged to the rows that go.
+         * An import that lands fewer texts than the slide already had must not
+         * leave the tail of the previous one behind — F1 calls this once a slide
+         * is filled, so re-importing with a smaller "texts per slide" is clean.
+         */
+        void trimSlideTextsTo(int count) {
+            if (count < 1) count = 1;
+            if (slideTextItems.size() <= count) return;
+            while (slideTextItems.size() > count) {
+                slideTextItems.remove(slideTextItems.size() - 1);
+            }
+            dropTextKeysFrom(slideAudioFiles, count);
+            dropTextKeysFrom(slideAudioDurationsMs, count);
+            dropTextKeysFrom(slideAudioFiles2, count);
+            dropTextKeysFrom(slideAudioDurationsMs2, count);
+            dropTextKeysFrom(slideAudioHlEffectsMap, count);
+            dropTextKeysFrom(slideAudioHlColorMap, count);
+            dropTextKeysFrom(slideAudioHlGlowSizeMap, count);
+            dropTextKeysFrom(slideAudioWordTimingsMap, count);
+            dropTextKeysFrom(slideKaraokeStyleMap, count);
+            dropTextKeysFrom(slideKaraokeColorMap, count);
+            dropTextKeysFrom(slideKaraokeIntensityMap, count);
+            dropTextKeysFrom(slideKaraokeTightMap, count);
+            if (currentSlideTextIndex >= slideTextItems.size()) {
+                currentSlideTextIndex = slideTextItems.size() - 1;
+            }
+            isLoadingSlideText = true;
+            try {
+                rebuildSlideTextSelector();
+                slideTextSelector.setSelectedIndex(currentSlideTextIndex);
+            } finally {
+                isLoadingSlideText = false;
+            }
+            loadSlideTextFromItem(currentSlideTextIndex);
+            updateAudioUI();
+            schedulePreview();
+        }
+
+        /** Forget everything a per-text map holds for text rows at or past
+         *  {@code limit} — the rows a trim just removed. */
+        private static void dropTextKeysFrom(java.util.Map<Integer, ?> map, int limit) {
+            map.keySet().removeIf(k -> k == null || k >= limit);
         }
 
         /** Set X position for a specific text item by index. */
