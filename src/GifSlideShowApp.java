@@ -451,6 +451,8 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(p + "highlightText", t.highlightText);
             props.setProperty(p + "highlightColor", colorToHex(t.highlightColor));
             props.setProperty(p + "highlightStyle", t.highlightStyle);
+            props.setProperty(p + "highlightFx", t.highlightFx != null ? t.highlightFx : HL_FX_NONE);
+            props.setProperty(p + "highlightFxSpeedMs", String.valueOf(t.highlightFxSpeedMs));
             props.setProperty(p + "highlightTightness", String.valueOf(t.highlightTightness));
             writeHlGroups(props, p, t.hlGroups, t.ulGroups);
             writeFnGroups(props, p, t.fnGroups);
@@ -971,6 +973,10 @@ public class GifSlideShowApp extends JFrame {
             // Empty for presets written before HL/UL groups existed — no extra
             // dropdown rows, exactly the old single-HL-box behaviour.
             loaded.hlGroups = readHlGroups(props, p);
+            // Missing on presets predating live highlight effects — "None" there is
+            // the behaviour they were written with.
+            loaded.highlightFx = props.getProperty(p + "highlightFx", HL_FX_NONE);
+            loaded.highlightFxSpeedMs = parseIntOr(props.getProperty(p + "highlightFxSpeedMs"), 1600);
             loaded.ulGroups = readUlGroups(props, p);
             loaded.fnGroups = readFnGroups(props, p);
             loaded.bgColor2          = hexToColor(props.getProperty(p + "bgColor2", "#3C3C3C"));
@@ -2088,6 +2094,8 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(gp + "color", colorToHex(g.color != null ? g.color : new Color(255, 100, 150, 180)));
             props.setProperty(gp + "style", g.style != null ? g.style : "Regular");
             props.setProperty(gp + "tightness", String.valueOf(g.tightness));
+            props.setProperty(gp + "fx", g.fx != null ? g.fx : HL_FX_NONE);
+            props.setProperty(gp + "fxSpeedMs", String.valueOf(g.fxSpeedMs));
         }
         int un = ulGroups == null ? 0 : ulGroups.size();
         props.setProperty(p + "ulGroupCount", String.valueOf(un));
@@ -2111,6 +2119,10 @@ public class GifSlideShowApp extends JFrame {
             g.color = hexToColor(props.getProperty(gp + "color", "#FF6496B4"));
             g.style = props.getProperty(gp + "style", "Regular");
             g.tightness = parseIntOr(props.getProperty(gp + "tightness"), 50);
+            // Absent on a preset written before live highlight effects: "None" is
+            // exactly how those groups behaved.
+            g.fx = props.getProperty(gp + "fx", HL_FX_NONE);
+            g.fxSpeedMs = parseIntOr(props.getProperty(gp + "fxSpeedMs"), 1600);
             out.add(g);
         }
         return out;
@@ -21350,6 +21362,11 @@ public class GifSlideShowApp extends JFrame {
                 // resting layout.
                 if (applyTimer && !hidden) {
                     applyTextActions(st, elapsedMs, texts);
+                    // Live highlight effects run alongside — and after — the motion
+                    // actions, so the actions keep first claim on any word they are
+                    // animating and the marked words carry their own effect for as
+                    // long as the text is up.
+                    applyHighlightWordFx(st, elapsedMs);
                 }
                 // Alternating text: swap this text with its alternate string(s) on a
                 // repeating timer. Runs after the entrance window so the fly-in isn't
@@ -21951,10 +21968,21 @@ public class GifSlideShowApp extends JFrame {
     static Color shiftHue(Color base, double degrees) {
         if (base == null || degrees == 0.0) return base;
         float[] hsb = Color.RGBtoHSB(base.getRed(), base.getGreen(), base.getBlue(), null);
-        float sat = hsb[1];
-        if (sat < 0.12f) sat = 0.55f;          // give greys something to cycle
+        // A colour with little or no hue of its own — black, white, any grey, and
+        // the near-greys most body text is actually set in — has nothing to rotate,
+        // so it is given a hue, and given enough saturation for that hue to read.
+        // Brightness is then left where it was, beyond a floor that stops near-black
+        // from cycling invisibly: a dark word turns a deep, saturated green / blue /
+        // violet that still reads on a light page, and a pale one turns a bright
+        // version of the same. A colour that already HAS a hue keeps its own
+        // saturation and brightness and simply travels round the wheel.
+        float sat = hsb[1], bri = hsb[2];
+        if (sat < 0.25f) {
+            sat = 0.85f;
+            bri = Math.max(0.45f, bri);
+        }
         float hue = (float) (((hsb[0] + degrees / 360.0) % 1.0 + 1.0) % 1.0);
-        Color c = Color.getHSBColor(hue, sat, Math.max(0.35f, hsb[2]));
+        Color c = Color.getHSBColor(hue, sat, bri);
         return base.getAlpha() >= 255 ? c
                 : new Color(c.getRed(), c.getGreen(), c.getBlue(), base.getAlpha());
     }
@@ -22093,6 +22121,154 @@ public class GifSlideShowApp extends JFrame {
     private static java.awt.geom.Rectangle2D grownBounds(java.awt.geom.Rectangle2D r, double by) {
         return new java.awt.geom.Rectangle2D.Double(r.getX() - by, r.getY() - by,
                 r.getWidth() + by * 2, r.getHeight() + by * 2);
+    }
+
+    /** Ceiling on how many word copies one text's live highlight effects may put
+     *  on a frame. A paragraph has tens of marked words, not hundreds; the cap is
+     *  there so a pathological word list can never make a frame crawl. */
+    private static final int HL_FX_MAX_WORDS = 240;
+
+    /**
+     * Play each highlight group's live effect on its own words, where they sit in
+     * the paragraph, for as long as the text is on screen.
+     *
+     * <p>This is the "keep these words alive all slide" feature, and it is
+     * deliberately NOT built on the Motion rows: a text's motion actions keep doing
+     * exactly what they did — moving words, formatting landings, firing triggers —
+     * while the marked words carry their effect underneath, independently.
+     *
+     * <p>Each word becomes one {@link SlideTextData.WordMotionRender} at its own
+     * place in the paragraph, which is the same transient the Motion editor's
+     * word rows already use, so the two share one renderer. An effect that only
+     * paints (colour, light) is washed straight over the word and leaves its
+     * highlight mark, underline and format untouched; one that moves or resizes the
+     * word redraws it carrying its own format and its mark.
+     *
+     * <p>A word a Motion action is already animating this frame is left to that
+     * action — the two would otherwise draw the same word twice.
+     */
+    private static void applyHighlightWordFx(SlideTextData st, long elapsedMs) {
+        if (st == null || st.text == null || st.text.trim().isEmpty()) return;
+        int groups = 1 + (st.hlGroups == null ? 0 : st.hlGroups.size());
+        int emitted = 0;
+        for (int gi = 0; gi < groups; gi++) {
+            if (emitted >= HL_FX_MAX_WORDS) break;
+            String words, fx;
+            int speedMs;
+            if (gi == 0) {
+                words = st.highlightText; fx = st.highlightFx; speedMs = st.highlightFxSpeedMs;
+            } else {
+                SlideTextData.HlGroup g = st.hlGroups.get(gi - 1);
+                if (g == null) continue;
+                words = g.words; fx = g.fx; speedMs = g.fxSpeedMs;
+            }
+            if (isNoHighlightFx(fx)) continue;
+            String[] terms = splitTerms(words);
+            if (terms == null) continue;
+
+            // One cycle of the effect, repeating from the top of the slide. Held
+            // open (landed = false) so it never reaches the end and stops.
+            int dur = Math.max(120, speedMs);
+            double p = (elapsedMs % dur) / (double) dur;
+            FxAccum f = new FxAccum();
+            applyMotionEffect(f, fx.trim(), p, elapsedMs / 1000.0, dur, false,
+                    QuizSlide.easeNamed("Ease Out", p), null);
+            // At the seam of the cycle several effects read their identity. Nothing
+            // to draw then — and drawing it anyway would lift every marked word out
+            // of the paragraph to replace it with a copy of itself.
+            if (f.isIdentity()) continue;
+            boolean paint = SlideTextData.Action.PAINT_ONLY.contains(fx.trim());
+
+            for (String term : terms) {
+                if (emitted >= HL_FX_MAX_WORDS) break;
+                String w = term == null ? "" : term.trim();
+                if (w.isEmpty()) continue;
+                int occurrences = countWordOccurrences(st.text, w);
+                for (int occ = 1; occ <= occurrences && emitted < HL_FX_MAX_WORDS; occ++) {
+                    if (wordAlreadyAnimated(st, w, occ)) continue;
+                    SlideTextData.WordMotionRender wm = new SlideTextData.WordMotionRender();
+                    wm.word = w;
+                    wm.occ = occ;
+                    wm.paintOnly = paint;
+                    // The copy has to look like the word it stands in for, mark and
+                    // all — this one is on screen for the whole slide.
+                    WordOwnFormat own = resolveWordOwnFormat(st, w);
+                    wm.fontName = own.fontName;
+                    wm.fontStyle = own.style;
+                    wm.color = own.color;
+                    wm.carryMark = !paint;
+                    wm.scaleX = f.scaleX;
+                    wm.scaleY = f.scaleY;
+                    wm.dxFrac = f.dxFrac;
+                    wm.dyFrac = f.dyFrac;
+                    wm.tiltDeg = f.tiltDeg;
+                    wm.alpha = f.alpha;
+                    wm.skewX = f.skewX;
+                    wm.glowSize = f.glow;
+                    wm.glowColor = f.glowColor;
+                    if (f.hueShiftDeg != 0.0) {
+                        wm.color = shiftHue(wm.color != null ? wm.color : st.color, f.hueShiftDeg);
+                        wm.recolor = true;
+                    }
+                    wm.rainbowPhase = f.rainbowPhase;
+                    wm.sheenPos = f.sheenPos;
+                    wm.sheenKind = f.sheenKind;
+                    wm.sheenColor = f.sheenColor;
+                    if (st.wordMotionsRender == null) {
+                        st.wordMotionsRender = new java.util.ArrayList<>();
+                    }
+                    st.wordMotionsRender.add(wm);
+                    emitted++;
+                }
+            }
+        }
+    }
+
+    /**
+     * True when a Motion action has already taken this word + occurrence OUT of the
+     * paragraph this frame, so the highlight effect must leave it alone — the two
+     * would otherwise redraw the same word twice, over each other.
+     *
+     * <p>A word an action is FLYING (Move / Move Copy) does not count: those send a
+     * duplicate and leave the word itself sitting in the paragraph, where it can
+     * carry its highlight effect exactly like every other marked word.
+     */
+    private static boolean wordAlreadyAnimated(SlideTextData st, String word, int occ) {
+        if (st.wordMotionsRender == null || st.wordMotionsRender.isEmpty()) return false;
+        for (SlideTextData.WordMotionRender wm : st.wordMotionsRender) {
+            if (wm != null && !wm.isMove && wm.occ == occ
+                    && wm.word != null && wm.word.equalsIgnoreCase(word)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * How many times {@code needle} occurs in {@code text}, counted exactly the way
+     * {@link #locateWordCenter} picks an occurrence out of the wrapped lines —
+     * whole-word matches when there are any, otherwise plain substring matches — so
+     * occurrence N here is the same word N the renderer goes on to find.
+     */
+    private static int countWordOccurrences(String text, String needle) {
+        if (text == null || needle == null) return 0;
+        String hay = text.replaceAll("\\s+", " ").trim();
+        String want = needle.trim().replaceAll("\\s+", " ");
+        if (hay.isEmpty() || want.isEmpty()) return 0;
+        String hayLower = hay.toLowerCase();
+        String wantLower = want.toLowerCase();
+        int whole = 0, any = 0, from = 0;
+        while (from <= hayLower.length()) {
+            int idx = hayLower.indexOf(wantLower, from);
+            if (idx < 0) break;
+            int end = idx + wantLower.length();
+            any++;
+            boolean left = idx == 0 || !Character.isLetterOrDigit(hay.charAt(idx - 1));
+            boolean right = end >= hay.length() || !Character.isLetterOrDigit(hay.charAt(end));
+            if (left && right) whole++;
+            from = idx + Math.max(1, wantLower.length());
+        }
+        return whole > 0 ? whole : any;
     }
 
     /**
@@ -23947,6 +24123,31 @@ public class GifSlideShowApp extends JFrame {
     static final String FN_STYLE_INHERIT = "(text style)";
     static final String[] FN_WORD_STYLES = { FN_STYLE_INHERIT, "Regular", "Bold", "Italic", "Bold Italic" };
 
+    // ===== Live highlight effects (toolbar 4c1b "FX") =====
+    // A highlight group can play one emphasis effect on ITS OWN WORDS, where they
+    // sit in the paragraph, continuously for as long as the text is on screen —
+    // which is what makes a set of marked words read as alive rather than merely
+    // marked. The vocabulary is the Motion editor's, so an effect behaves
+    // identically whether a Motion row plays it once or a highlight group holds it.
+    static final String HL_FX_NONE = "None";
+
+    /** The FX combo's rows: "None", then the effects built to run continuously,
+     *  then everything else the Motion editor offers, in its own order. */
+    static String[] highlightFxChoices() {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        out.add(HL_FX_NONE);
+        out.addAll(SlideTextData.Action.ALWAYS_ON);
+        for (String fx : SlideTextData.Action.EFFECTS) {
+            if (!out.contains(fx)) out.add(fx);
+        }
+        return out.toArray(new String[0]);
+    }
+
+    /** True when a group's FX setting asks for nothing. */
+    static boolean isNoHighlightFx(String fx) {
+        return fx == null || fx.trim().isEmpty() || HL_FX_NONE.equals(fx.trim());
+    }
+
     /** Font-style bits for a {@link #FN_WORD_STYLES} entry, or null for
      *  "inherit" (keep whatever Bold/Italic the text itself is set to). */
     static Integer fnStyleBits(String style) {
@@ -24706,6 +24907,12 @@ public class GifSlideShowApp extends JFrame {
         // Independent word-highlight tuning, each a percentage where 100 = the
         // highlight's natural look (mutable so they ride along without touching the
         // constructor chain). Left at 100 everywhere except the summary popups.
+        // Live effect on the PRIMARY highlight group's words — the same thing
+        // HlGroup.fx is for its own words. Mutable, like the tuning fields below,
+        // so it rides along without touching the constructor chain.
+        String highlightFx = HL_FX_NONE;
+        int highlightFxSpeedMs = 1600;
+
         int highlightIntensityPct = 100; // 0..100 scales the mark's opacity
         int highlightHeightPct = 100;    // 50..200 scales the mark's height
         int highlightWidthPct = 100;     // 50..200 scales the mark's width
@@ -24727,9 +24934,15 @@ public class GifSlideShowApp extends JFrame {
             Color color = new Color(255, 100, 150, 180);
             String style = "Regular";
             int tightness = 50;
+            // Live effect played on every one of this group's words, where they sit
+            // in the paragraph, for as long as the text is on screen. "None" (the
+            // default) is the behaviour every group had before the feature.
+            String fx = HL_FX_NONE;
+            int fxSpeedMs = 1600;    // length of one cycle
             HlGroup copy() {
                 HlGroup g = new HlGroup();
                 g.words = words; g.color = color; g.style = style; g.tightness = tightness;
+                g.fx = fx; g.fxSpeedMs = fxSpeedMs;
                 return g;
             }
         }
@@ -24888,6 +25101,10 @@ public class GifSlideShowApp extends JFrame {
             // broadcast / HL-clone passes never share mutable group objects with src.
             dst.hlGroups = new java.util.ArrayList<>();
             if (src.hlGroups != null) for (HlGroup g : src.hlGroups) if (g != null) dst.hlGroups.add(g.copy());
+            // The primary group's live effect travels with its words, so every
+            // clone / broadcast / HL-pass copy keeps the paragraph alive.
+            dst.highlightFx = src.highlightFx;
+            dst.highlightFxSpeedMs = src.highlightFxSpeedMs;
             dst.ulGroups = new java.util.ArrayList<>();
             if (src.ulGroups != null) for (UlGroup g : src.ulGroups) if (g != null) dst.ulGroups.add(g.copy());
             // Font-words groups ride along on the same terms as HL/UL, so a
@@ -27187,6 +27404,11 @@ public class GifSlideShowApp extends JFrame {
         private Color slideTextHighlightColor = new Color(255, 100, 150, 180);
         private final JComboBox<String> slideTextHighlightStyleCombo;
         private final JSpinner slideTextHighlightTightnessSpinner;
+        /** Live effect played on the selected HL group's words, and how long one
+         *  cycle of it lasts. Like the colour / style / Tight controls beside them,
+         *  these read and write whichever group the HL dropdown has selected. */
+        private final JComboBox<String> slideTextHighlightFxCombo;
+        private final JSpinner slideTextHighlightFxSpeedSpinner;
         /** -1 = the HL combo's row 0 (primary) is selected; >= 0 = hlGroups[this]. */
         private int currentHlGroupIndex = -1;
         private final JComboBox<String> slideTextUnderlineCombo;
@@ -28774,6 +28996,29 @@ public class GifSlideShowApp extends JFrame {
             slideTextHighlightTightnessSpinner.setToolTipText("Tight: HL padding (-50=shrink, 0=tight, 100=loose) / UL distance below text (0=flush against text)");
             slideTextHighlightTightnessSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
+            slideTextHighlightFxCombo = new JComboBox<>(highlightFxChoices());
+            slideTextHighlightFxCombo.setPreferredSize(new Dimension(104, 24));
+            slideTextHighlightFxCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextHighlightFxCombo.setToolTipText("<html>A live effect played on <b>every word of "
+                    + "the group selected on the left</b>, where each word sits in the paragraph, "
+                    + "for as long as the text is on screen — so marked words read as alive rather "
+                    + "than merely marked.<br>"
+                    + "The first block (Throb, Breathe, Soft Blink, Colour Cycle, Rainbow, Line "
+                    + "Scan, Shine Sweep, Halo Breathe) is written to run continuously and stay "
+                    + "readable; the rest are the Motion editor's effects, which will also loop.<br>"
+                    + "The colour and light ones paint <i>over</i> the words, so the marks, the "
+                    + "underline and each word's own bold / colour / font stay exactly as they "
+                    + "are.<br>Motion actions are untouched: a word one of them is animating is "
+                    + "left to it.</html>");
+            slideTextHighlightFxCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
+            slideTextHighlightFxSpeedSpinner = new JSpinner(new SpinnerNumberModel(1600, 200, 20000, 100));
+            slideTextHighlightFxSpeedSpinner.setPreferredSize(new Dimension(62, 24));
+            slideTextHighlightFxSpeedSpinner.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextHighlightFxSpeedSpinner.setToolTipText("How long ONE cycle of the effect takes, "
+                    + "in milliseconds — smaller is faster (1600 is a calm breath, 700 an urgent one).");
+            slideTextHighlightFxSpeedSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
             slideTextUnderlineCombo = new JComboBox<>(UNDERLINE_STYLES);
             slideTextUnderlineCombo.setPreferredSize(new Dimension(80, 24));
             slideTextUnderlineCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
@@ -28996,6 +29241,9 @@ public class GifSlideShowApp extends JFrame {
             JLabel tc4cTightLbl = styledLabel("Tight:");
             tc4cTightLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
             tc4cTightLbl.setForeground(new Color(140, 210, 160));
+            JLabel tc4cHlFxLbl = styledLabel("FX:");
+            tc4cHlFxLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4cHlFxLbl.setForeground(new Color(140, 210, 160));
             JLabel tc4cUlLbl = styledLabel("UL:");
             tc4cUlLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
             tc4cUlLbl.setForeground(new Color(140, 210, 160));
@@ -29023,6 +29271,9 @@ public class GifSlideShowApp extends JFrame {
             toolbar4c1b.add(slideTextHighlightStyleCombo);
             toolbar4c1b.add(tc4cTightLbl);
             toolbar4c1b.add(slideTextHighlightTightnessSpinner);
+            toolbar4c1b.add(tc4cHlFxLbl);
+            toolbar4c1b.add(slideTextHighlightFxCombo);
+            toolbar4c1b.add(slideTextHighlightFxSpeedSpinner);
             toolbar4c1b.add(tc4cUlLbl);
             toolbar4c1b.add(slideTextUnderlineCombo);
             toolbar4c1b.add(slideTextUnderlineWordsCombo);
@@ -31653,6 +31904,9 @@ public class GifSlideShowApp extends JFrame {
                     slideTextHighlightColorBtn.setForeground(item.highlightColor);
                     slideTextHighlightStyleCombo.setSelectedItem(item.highlightStyle);
                     slideTextHighlightTightnessSpinner.setValue(item.highlightTightness);
+                    slideTextHighlightFxCombo.setSelectedItem(
+                            isNoHighlightFx(item.highlightFx) ? HL_FX_NONE : item.highlightFx);
+                    slideTextHighlightFxSpeedSpinner.setValue(hlFxSpeedOf(item.highlightFxSpeedMs));
                 } else {
                     SlideTextData.HlGroup g = (item.hlGroups != null && currentHlGroupIndex < item.hlGroups.size())
                             ? item.hlGroups.get(currentHlGroupIndex) : new SlideTextData.HlGroup();
@@ -31660,6 +31914,9 @@ public class GifSlideShowApp extends JFrame {
                     slideTextHighlightColorBtn.setForeground(slideTextHighlightColor);
                     slideTextHighlightStyleCombo.setSelectedItem(g.style != null ? g.style : "Regular");
                     slideTextHighlightTightnessSpinner.setValue(g.tightness);
+                    slideTextHighlightFxCombo.setSelectedItem(
+                            isNoHighlightFx(g.fx) ? HL_FX_NONE : g.fx);
+                    slideTextHighlightFxSpeedSpinner.setValue(hlFxSpeedOf(g.fxSpeedMs));
                 }
             } finally {
                 isLoadingSlideText = false;
@@ -31702,9 +31959,17 @@ public class GifSlideShowApp extends JFrame {
                 slideTextHighlightColorBtn.setForeground(slideTextHighlightColor);
                 slideTextHighlightStyleCombo.setSelectedItem("Regular");
                 slideTextHighlightTightnessSpinner.setValue(50);
+                slideTextHighlightFxCombo.setSelectedItem(HL_FX_NONE);
+                slideTextHighlightFxSpeedSpinner.setValue(1600);
             } finally {
                 isLoadingSlideText = false;
             }
+        }
+
+        /** Clamp a stored cycle length into the speed spinner's range, so a value
+         *  from an older or hand-edited preset can never make it throw. */
+        private int hlFxSpeedOf(int ms) {
+            return Math.max(200, Math.min(20000, ms <= 0 ? 1600 : ms));
         }
 
         /** "✕" next to the HL combo: drops the currently-selected extra group
@@ -31900,22 +32165,30 @@ public class GifSlideShowApp extends JFrame {
             List<SlideTextData.FnGroup> newFnGroups = new java.util.ArrayList<>();
             if (prevItem.fnGroups != null) for (SlideTextData.FnGroup g : prevItem.fnGroups) if (g != null) newFnGroups.add(g.copy());
 
+            String newHlFx;
+            int newHlFxSpeedMs;
             if (currentHlGroupIndex < 0) {
                 newHlText = (String) slideTextHighlightCombo.getEditor().getItem();
                 newHlColor = slideTextHighlightColor;
                 newHlStyle = (String) slideTextHighlightStyleCombo.getSelectedItem();
                 newHlTight = (int) slideTextHighlightTightnessSpinner.getValue();
+                newHlFx = (String) slideTextHighlightFxCombo.getSelectedItem();
+                newHlFxSpeedMs = (int) slideTextHighlightFxSpeedSpinner.getValue();
             } else {
                 newHlText = prevItem.highlightText;
                 newHlColor = prevItem.highlightColor;
                 newHlStyle = prevItem.highlightStyle;
                 newHlTight = prevItem.highlightTightness;
+                newHlFx = prevItem.highlightFx;
+                newHlFxSpeedMs = prevItem.highlightFxSpeedMs;
                 while (newHlGroups.size() <= currentHlGroupIndex) newHlGroups.add(new SlideTextData.HlGroup());
                 SlideTextData.HlGroup g = newHlGroups.get(currentHlGroupIndex);
                 g.words = (String) slideTextHighlightCombo.getEditor().getItem();
                 g.color = slideTextHighlightColor;
                 g.style = (String) slideTextHighlightStyleCombo.getSelectedItem();
                 g.tightness = (int) slideTextHighlightTightnessSpinner.getValue();
+                g.fx = (String) slideTextHighlightFxCombo.getSelectedItem();
+                g.fxSpeedMs = (int) slideTextHighlightFxSpeedSpinner.getValue();
             }
             if (currentUlGroupIndex < 0) {
                 newUlStyle = (String) slideTextUnderlineCombo.getSelectedItem();
@@ -32012,6 +32285,8 @@ public class GifSlideShowApp extends JFrame {
             // forward from prevItem, with the one the dropdown has selected
             // refreshed from the live toolbar widgets.
             newItem.hlGroups = newHlGroups;
+            newItem.highlightFx = newHlFx == null ? HL_FX_NONE : newHlFx;
+            newItem.highlightFxSpeedMs = newHlFxSpeedMs;
             newItem.ulGroups = newUlGroups;
             newItem.fnGroups = newFnGroups;
             // The Texts-Timer timeline is edited in its own dialog, not on the
@@ -32114,6 +32389,9 @@ public class GifSlideShowApp extends JFrame {
                 slideTextHighlightColorBtn.setForeground(item.highlightColor);
                 slideTextHighlightStyleCombo.setSelectedItem(item.highlightStyle);
                 slideTextHighlightTightnessSpinner.setValue(item.highlightTightness);
+                slideTextHighlightFxCombo.setSelectedItem(
+                        isNoHighlightFx(item.highlightFx) ? HL_FX_NONE : item.highlightFx);
+                slideTextHighlightFxSpeedSpinner.setValue(hlFxSpeedOf(item.highlightFxSpeedMs));
                 slideTextUnderlineCombo.setSelectedItem(item.underlineStyle);
                 slideTextBoldField.setText(item.boldText);
                 slideTextItalicField.setText(item.italicText);
@@ -35363,6 +35641,8 @@ public class GifSlideShowApp extends JFrame {
             List<SlideTextData.HlGroup> hlGroupsFrom = (gHl ? src : dst).hlGroups;
             m.hlGroups = new java.util.ArrayList<>();
             if (hlGroupsFrom != null) for (SlideTextData.HlGroup hg : hlGroupsFrom) if (hg != null) m.hlGroups.add(hg.copy());
+            m.highlightFx        = (gHl ? src : dst).highlightFx;
+            m.highlightFxSpeedMs = (gHl ? src : dst).highlightFxSpeedMs;
             List<SlideTextData.UlGroup> ulGroupsFrom = (gWord ? src : dst).ulGroups;
             m.ulGroups = new java.util.ArrayList<>();
             if (ulGroupsFrom != null) for (SlideTextData.UlGroup ug : ulGroupsFrom) if (ug != null) m.ulGroups.add(ug.copy());
