@@ -10940,11 +10940,23 @@ public class GifSlideShowApp extends JFrame {
             int lineY = textStartY;
             for (int li = 0; li < lines.size(); li++) {
                 String line = lines.get(li);
+                boolean isLastLine = (li == lines.size() - 1);
+                // One justify implementation for the whole app: the slide texts and
+                // this block both go through justifyFit, so a line that is set by
+                // tracking rather than by word gaps (display sizes, where two words
+                // have to carry the slack eight used to) is set the same way here.
+                JustifyFit fit = justifyFit(line, fm, textJustify, isLastLine, maxLineWidth);
+                // A justified line is set to maxLineWidth, so it has to be PLACED by
+                // that width too. Placing it by its own natural width, as this block
+                // used to, started every line at a different x and then stretched it
+                // right from there -- so the right edge that justify exists to hold
+                // straight came out ragged, the more so the larger the type.
+                int placeW = fit != null ? maxLineWidth : fm.stringWidth(line);
                 int lx;
                 if (alignment == SwingConstants.CENTER) {
-                    lx = (targetW - fm.stringWidth(line)) / 2;
+                    lx = (targetW - placeW) / 2;
                 } else if (alignment == SwingConstants.RIGHT) {
-                    lx = blockX + blockWidth - paddingX - fm.stringWidth(line);
+                    lx = blockX + blockWidth - paddingX - placeW;
                 } else {
                     lx = blockX + paddingX + textOffsetX;
                 }
@@ -10957,10 +10969,13 @@ public class GifSlideShowApp extends JFrame {
                     while (searchFrom < lineLower.length()) {
                         int hlIdx = lineLower.indexOf(hlLower, searchFrom);
                         if (hlIdx < 0) break;
-                        String before = line.substring(0, hlIdx);
-                        String match = line.substring(hlIdx, hlIdx + highlightText.length());
-                        int hlX = lx + fm.stringWidth(before);
-                        int hlW = fm.stringWidth(match);
+                        // Measured through markSpan so the box lands on the words of a
+                        // justified line: they sit further right than the raw string
+                        // width says, by one gap for every word ahead of the match.
+                        int[] hlSpan = markSpan(fit, null, line, fm, lx, lx,
+                                hlIdx, hlIdx + highlightText.length());
+                        int hlX = hlSpan[0];
+                        int hlW = hlSpan[1];
                         Color hlC = highlightColor != null ? highlightColor : new Color(255, 255, 0, 180);
                         g.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()));
                         int hlPad = (int) (2 * scaleFactor);
@@ -10972,28 +10987,10 @@ public class GifSlideShowApp extends JFrame {
                     g.setColor(fontColor);
                 }
 
-                // Justify: distribute extra space between words (not for last line)
-                boolean isLastLine = (li == lines.size() - 1);
-                if (textJustify && !isLastLine && maxLineWidth > 0) {
-                    String[] words = line.split(" ");
-                    if (words.length > 1) {
-                        int totalWordsWidth = 0;
-                        for (String w : words) {
-                            totalWordsWidth += fm.stringWidth(w);
-                        }
-                        double extraSpace = (double) (maxLineWidth - totalWordsWidth) / (words.length - 1);
-                        double normalSpace = fm.stringWidth(" ");
-                        // Skip justify if gaps would be too large (looks unprofessional)
-                        if (extraSpace <= normalSpace * 3) {
-                            double drawX = lx;
-                            for (int wi = 0; wi < words.length; wi++) {
-                                g.drawString(words[wi], (int) drawX, lineY);
-                                drawX += fm.stringWidth(words[wi]) + extraSpace;
-                            }
-                            lineY += lineHeight;
-                            continue;
-                        }
-                    }
+                if (fit != null) {
+                    drawJustified(g, fit.words, lx, lineY, fit.gap, fm);
+                    lineY += lineHeight;
+                    continue;
                 }
 
                 g.drawString(line, lx, lineY);
@@ -14132,45 +14129,122 @@ public class GifSlideShowApp extends JFrame {
      *  set ragged instead. Past this the gaps read as rivers running down the block. */
     private static final double MAX_JUSTIFY_GAP = 3.0;
 
+    /** Widest a letter gap may grow, as a fraction of the em, when a line is set by
+     *  tracking instead of by word gaps. Past this the letters stop reading as a word.
+     *  0.45em is deliberately generous: display sizes are exactly where this fallback
+     *  has to earn its keep, and at 84pt it is still only ~38px between letters. */
+    private static final double MAX_JUSTIFY_TRACK_EM = 0.45;
+
     /**
-     * How one wrapped line is actually set when Justify is on: the words, and the
-     * gap that spaces them out to fill the block.
+     * How one wrapped line is actually set when Justify is on: the cells the line is
+     * cut into, and the gap that spaces them out to fill the block.
+     *
+     * <p>A cell is normally a word, and {@link #sepLen} is then 1 — the single space
+     * {@code split(" ")} consumed between two of them. On a line set by tracking
+     * (see {@link #justifyFit}) a cell is one grapheme cluster and {@code sepLen} is
+     * 0, because nothing was consumed between the cells. Either way the drawing pass
+     * is the same: draw the cell, advance by its width plus {@link #gap}.
      *
      * <p>Anything that needs to know where a word sits on screen must go through
      * {@link #justifyFit} and {@link #justifiedSpan} rather than measuring the line
-     * string. The drawing pass advances each word by its own width plus this gap, so
-     * a measurement taken with ordinary spacing drifts further left with every word
+     * string. The drawing pass advances each cell by its own width plus this gap, so
+     * a measurement taken with ordinary spacing drifts further left with every cell
      * it passes — which is exactly how the karaoke word FX ended up beside its word
      * instead of on it.
      */
     static final class JustifyFit {
         final String[] words;
         final double gap;
-        JustifyFit(String[] words, double gap) { this.words = words; this.gap = gap; }
+        /** Characters of the source line consumed between two cells: 1 for words
+         *  (the space), 0 for the grapheme cells of a tracked line. */
+        final int sepLen;
+        JustifyFit(String[] words, double gap) { this(words, gap, 1); }
+        JustifyFit(String[] words, double gap, int sepLen) {
+            this.words = words; this.gap = gap; this.sepLen = sepLen;
+        }
     }
 
     /**
      * Decide how {@code line} is set, given the block it has to fill. Returns null
-     * when the line takes ordinary spacing: Justify is off, it is the block's last
-     * line, it holds a single word, or its gaps would open past
-     * {@link #MAX_JUSTIFY_GAP}.
+     * when the line takes ordinary spacing.
+     *
+     * <p>Word gaps come first, the way a book sets a paragraph, and they carry any
+     * line whose gaps stay inside {@link #MAX_JUSTIFY_GAP}. That alone falls apart
+     * as the type grows: a line that held nine words at 24pt holds two at 84pt, so
+     * the same slack has one gap to go into instead of eight and blows past the cap
+     * — and the line came back ragged in the middle of a justified block. A line
+     * with a single word never had a gap to give in the first place.
+     *
+     * <p>So when word gaps cannot set the line, it is set by tracking instead: the
+     * slack is spread between every letter rather than dumped into the few spaces.
+     * That is what a typesetter does with display copy, and it is why justify now
+     * holds at sizes where it used to quietly give up. Tracking is capped in turn by
+     * {@link #MAX_JUSTIFY_TRACK_EM}, and a line past that cap is still set ragged —
+     * one loose line reads better than letters strewn across the frame.
      */
     static JustifyFit justifyFit(String line, FontMetrics fm, boolean justify,
                                  boolean isLastLine, int targetWidth) {
         if (line == null || !justify || isLastLine || targetWidth <= 0) return null;
         String[] words = line.split(" ");
-        if (words.length < 2) return null;
-        int totalWordsWidth = 0;
-        for (String w : words) totalWordsWidth += fm.stringWidth(w);
-        double gap = (double) (targetWidth - totalWordsWidth) / (words.length - 1);
-        if (gap > fm.stringWidth(" ") * MAX_JUSTIFY_GAP) return null;
-        return new JustifyFit(words, gap);
+        if (words.length >= 2) {
+            int totalWordsWidth = 0;
+            for (String w : words) totalWordsWidth += fm.stringWidth(w);
+            double gap = (double) (targetWidth - totalWordsWidth) / (words.length - 1);
+            if (gap <= fm.stringWidth(" ") * MAX_JUSTIFY_GAP) return new JustifyFit(words, gap, 1);
+        }
+        return trackingFit(line, fm, targetWidth);
+    }
+
+    /**
+     * Set {@code line} by tracking: one cell per grapheme cluster, each pushed along
+     * by the same gap. Spaces are cells too, so a word gap still comes out one space
+     * width wider than a letter gap and the words stay words.
+     *
+     * <p>Returns null unless drawing the line cell by cell would reproduce the line
+     * the font actually sets — a script that shapes (Arabic's cursive joins), reorders
+     * (bidi) or ligates cannot be cut into cells without breaking, and the width test
+     * below catches all three without having to enumerate scripts: if the cells do not
+     * add up to the line, they are not what the font draws. Null also when the line
+     * is already full (nothing to spread) or would need more tracking than
+     * {@link #MAX_JUSTIFY_TRACK_EM} allows.
+     */
+    private static JustifyFit trackingFit(String line, FontMetrics fm, int targetWidth) {
+        if (line == null || line.isEmpty()) return null;
+        char[] chars = line.toCharArray();
+        if (java.text.Bidi.requiresBidi(chars, 0, chars.length)) return null;
+        String[] cells = graphemeCells(line);
+        if (cells.length < 2) return null;
+        double cellsWidth = 0;
+        for (String c : cells) cellsWidth += fm.stringWidth(c);
+        int lineWidth = fm.stringWidth(line);
+        // Shaped / ligated / kerned runs measure differently whole than in pieces.
+        if (Math.abs(cellsWidth - lineWidth) > Math.max(1.0, lineWidth * 0.01)) return null;
+        double gap = (targetWidth - cellsWidth) / (cells.length - 1);
+        if (gap <= 0) return null;                       // line already fills the block
+        double em = fm.getFont() != null ? fm.getFont().getSize2D() : fm.getHeight();
+        if (gap > em * MAX_JUSTIFY_TRACK_EM) return null;
+        return new JustifyFit(cells, gap, 0);
+    }
+
+    /**
+     * Cut {@code line} into grapheme clusters, so a surrogate pair or a base letter
+     * and its combining marks stay in one cell and are drawn as one glyph.
+     */
+    private static String[] graphemeCells(String line) {
+        java.text.BreakIterator it = java.text.BreakIterator.getCharacterInstance();
+        it.setText(line);
+        List<String> cells = new ArrayList<>();
+        int start = it.first();
+        for (int end = it.next(); end != java.text.BreakIterator.DONE; start = end, end = it.next()) {
+            cells.add(line.substring(start, end));
+        }
+        return cells.toArray(new String[0]);
     }
 
     /**
      * Where the character range {@code [start, end)} of a justified line lands:
      * {@code {x offset from the line's left edge, width}}, or null when the range
-     * covers nothing. Walks the words exactly as {@link #drawJustified} draws them.
+     * covers nothing. Walks the cells exactly as {@link #drawJustified} draws them.
      */
     static double[] justifiedSpan(JustifyFit fit, FontMetrics fm, int start, int end) {
         if (fit == null || start >= end) return null;
@@ -14186,7 +14260,7 @@ public class GifSlideShowApp extends JFrame {
                 spanEnd = x + pre + wid;
             }
             x += fm.stringWidth(w) + fit.gap;
-            col = we + 1;   // the single space that split(" ") consumed
+            col = we + fit.sepLen;   // the space split(" ") consumed, or nothing on a tracked line
         }
         if (spanStart < 0) return null;
         return new double[]{spanStart, spanEnd - spanStart};
