@@ -500,6 +500,7 @@ public class GifSlideShowApp extends JFrame {
                 props.setProperty(ap + "atMs", String.valueOf(a.atMs));
                 props.setProperty(ap + "durMs", String.valueOf(a.durMs));
                 props.setProperty(ap + "easing", a.easing == null ? "Ease Out" : a.easing);
+                props.setProperty(ap + "loopSlide", String.valueOf(a.loopSlide));
                 props.setProperty(ap + "toXPct", String.valueOf(a.toXPct));
                 props.setProperty(ap + "toYPct", String.valueOf(a.toYPct));
                 props.setProperty(ap + "landFormat", String.valueOf(a.landFormat));
@@ -1039,6 +1040,9 @@ public class GifSlideShowApp extends JFrame {
                 a.atMs   = Integer.parseInt(props.getProperty(ap + "atMs", "0"));
                 a.durMs  = Integer.parseInt(props.getProperty(ap + "durMs", "800"));
                 a.easing = props.getProperty(ap + "easing", "Ease Out");
+                // Absent on a preset written before effects could be held: "false"
+                // is exactly how those rows behaved — one pass, then done.
+                a.loopSlide = Boolean.parseBoolean(props.getProperty(ap + "loopSlide", "false"));
                 a.toXPct = Integer.parseInt(props.getProperty(ap + "toXPct", "50"));
                 a.toYPct = Integer.parseInt(props.getProperty(ap + "toYPct", "50"));
                 a.landFormat = Boolean.parseBoolean(props.getProperty(ap + "landFormat", "false"));
@@ -7836,6 +7840,11 @@ public class GifSlideShowApp extends JFrame {
                     java.awt.geom.Area clipArea = null;
                     for (SlideTextData.WordMotionRender wm : st.wordMotionsRender) {
                         if (wm == null || wm.isMove || wm.word == null || wm.word.isEmpty()) continue;
+                        // A paint-only wash leaves the word exactly where it is and
+                        // recolours / lights the letters that are already drawn, so
+                        // the word must NOT be punched out here — punching it would
+                        // take its highlight and underline with it.
+                        if (wm.paintOnly) continue;
                         double[] loc = locateWordCenter(stWrapped, stFm, wm.word, wm.occ,
                                 st.alignment, stAlignLeft, stAlignWidth, stCenterX,
                                 firstBaselineH, stLineHeight,
@@ -10612,7 +10621,12 @@ public class GifSlideShowApp extends JFrame {
                 // themselves are illuminated. Skipped for empty text or when no light
                 // effect is selected. Runs after all lines have been drawn so the
                 // text shape acts as the clip mask.
-                if (st.audioOtherLightEffects != null && !st.audioOtherLightEffects.isEmpty()
+                // A whole-text Rainbow / Line Scan / Shine Sweep is painted through
+                // the very same glyph mask, so the two share this pass rather than
+                // building the block's outline twice.
+                boolean stFxWash = st.fxRainbowPhase >= 0.0 || st.fxSheenPos >= 0.0;
+                if (((st.audioOtherLightEffects != null && !st.audioOtherLightEffects.isEmpty())
+                            || stFxWash)
                         && !stWrappedLines.isEmpty() && stMaxLineWidth > 0 && totalTextHeight > 0) {
                     java.awt.geom.Path2D textShape = new java.awt.geom.Path2D.Float();
                     java.util.List<java.awt.Rectangle> lineBounds = new java.util.ArrayList<>();
@@ -10654,10 +10668,27 @@ public class GifSlideShowApp extends JFrame {
                     Graphics2D gLight = (Graphics2D) g.create();
                     gLight.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     gLight.clip(textShape);
-                    for (String name : st.audioOtherLightEffects.split(",")) {
-                        paintAudioLightOverlay(gLight, name.trim(),
-                                lboxX, lboxY, lboxW, lboxH, lineBounds,
-                                lightHl, animFrameIndex, stScaleFactor);
+                    if (st.audioOtherLightEffects != null && !st.audioOtherLightEffects.isEmpty()) {
+                        for (String name : st.audioOtherLightEffects.split(",")) {
+                            paintAudioLightOverlay(gLight, name.trim(),
+                                    lboxX, lboxY, lboxW, lboxH, lineBounds,
+                                    lightHl, animFrameIndex, stScaleFactor);
+                        }
+                    }
+                    if (stFxWash) {
+                        // Laid out across each LINE's own ink, so a rainbow reads the
+                        // same on a short line as on a long one and a sweep crosses
+                        // every line together instead of racing the longest.
+                        if (lineBounds.isEmpty()) {
+                            paintFxWash(gLight, textShape, textShape.getBounds2D(),
+                                    st.fxRainbowPhase, st.fxSheenPos, st.fxSheenKind, st.fxSheenColor);
+                        } else {
+                            for (java.awt.Rectangle lb : lineBounds) {
+                                if (lb.width <= 0 || lb.height <= 0) continue;
+                                paintFxWash(gLight, lb, lb,
+                                        st.fxRainbowPhase, st.fxSheenPos, st.fxSheenKind, st.fxSheenColor);
+                            }
+                        }
                     }
                     gLight.dispose();
                 }
@@ -10777,6 +10808,67 @@ public class GifSlideShowApp extends JFrame {
                         }
                         FontMetrics wmFm = (wmFont == stFont) ? stFm : g.getFontMetrics(wmFont);
                         double wx = loc[0], wy = loc[1];
+
+                        // ----- Paint-only: wash the word where it already sits -----
+                        // No copy, no punch-out: the letters the paragraph drew are
+                        // recoloured and lit through their own outline, so the word
+                        // stays exactly as sharp and exactly where it was, with its
+                        // highlight mark and underline untouched beneath it. This is
+                        // what an always-on word effect runs on.
+                        if (wm.paintOnly) {
+                            double drawnW = loc[2];
+                            if (drawnW <= 0) continue;
+                            // A word the reveal has not reached is not on screen yet,
+                            // and a wash paints the letters it is given: without this
+                            // the effect would spell the word out early in colour.
+                            if (st.wordRevealCount >= 0 && loc.length > 3
+                                    && loc[3] >= st.wordRevealCount) continue;
+                            float wmLeft = (float) (wx - drawnW / 2.0);
+                            float wmBase = (float) (wy + (stFm.getAscent() - stFm.getDescent()) / 2.0);
+                            java.awt.font.FontRenderContext wpFrc = ((Graphics2D) g).getFontRenderContext();
+                            // Laid out rather than measured character by character, so
+                            // the outline matches the drawn word in a script that
+                            // shapes or runs right to left just as it does in Latin.
+                            java.awt.font.TextLayout wpTl =
+                                    new java.awt.font.TextLayout(wm.word, wmFont, wpFrc);
+                            double naturalW = wpTl.getAdvance();
+                            if (naturalW <= 0) continue;
+                            Shape wpGlyphs = wpTl.getOutline(
+                                    java.awt.geom.AffineTransform.getTranslateInstance(wmLeft, wmBase));
+                            // A justified line spaces an expression out, so the glyphs
+                            // as drawn are wider than their natural advance; stretch
+                            // the outline to match rather than washing half of it.
+                            if (Math.abs(drawnW - naturalW) > 0.5) {
+                                java.awt.geom.AffineTransform wpTx =
+                                        java.awt.geom.AffineTransform.getTranslateInstance(wmLeft, 0);
+                                wpTx.scale(drawnW / naturalW, 1.0);
+                                wpTx.translate(-wmLeft, 0);
+                                wpGlyphs = wpTx.createTransformedShape(wpGlyphs);
+                            }
+                            java.awt.geom.Rectangle2D wpBounds = wpGlyphs.getBounds2D();
+                            if (wpBounds.getWidth() <= 0 || wpBounds.getHeight() <= 0) continue;
+                            Graphics2D wpG = (Graphics2D) g.create();
+                            try {
+                                wpG.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                                        RenderingHints.VALUE_ANTIALIAS_ON);
+                                if (wm.glowSize > 0) {
+                                    Color wpHalo = wm.glowColor != null ? wm.glowColor
+                                            : (wm.color != null ? wm.color : stColor);
+                                    paintHaloOutside(wpG, wpGlyphs, wpHalo, wm.glowSize,
+                                            wmFont.getSize2D());
+                                }
+                                if (wm.recolor && wm.color != null) {
+                                    wpG.setColor(wm.color);
+                                    wpG.fill(wpGlyphs);
+                                }
+                                paintFxWash(wpG, wpGlyphs, wpBounds, wm.rainbowPhase,
+                                        wm.sheenPos, wm.sheenKind, wm.sheenColor);
+                            } finally {
+                                wpG.dispose();
+                            }
+                            continue;
+                        }
+
                         double wwHalf = wmFm.stringWidth(wm.word) / 2.0;
                         double px, py;
                         if (wm.isMove) {
@@ -10818,6 +10910,13 @@ public class GifSlideShowApp extends JFrame {
                             Color wmDraw = wm.color != null ? wm.color : stColor;
                             int ww = wmFm.stringWidth(wm.word);
                             float baselineOff = (wmFm.getAscent() - wmFm.getDescent()) / 2f;
+                            // The word's own highlight mark, under the copy and
+                            // inside its transform, so an always-on effect keeps the
+                            // word marked instead of stripping the mark for the rest
+                            // of the slide.
+                            if (wm.carryMark) {
+                                drawWordCopyMark(wg, st, wm.word, ww, wmFm, stScaleFactor);
+                            }
                             // Halo (Glow Pulse / Neon Flicker) under the glyphs, built
                             // from the word's own outline so it hugs the letters the
                             // same way the whole-text glow does.
@@ -10849,6 +10948,15 @@ public class GifSlideShowApp extends JFrame {
                             }
                             wg.setColor(wmDraw);
                             wg.drawString(wm.word, -ww / 2f, baselineOff);
+                            // Colour / light wash over the copy's own glyphs, so a
+                            // word that is (say) throbbing can carry a sweep with it.
+                            if (wm.rainbowPhase >= 0.0 || wm.sheenPos >= 0.0) {
+                                Shape wgWash = wmFont.createGlyphVector(
+                                        wg.getFontRenderContext(), wm.word)
+                                        .getOutline(-ww / 2f, baselineOff);
+                                paintFxWash(wg, wgWash, wgWash.getBounds2D(), wm.rainbowPhase,
+                                        wm.sheenPos, wm.sheenKind, wm.sheenColor);
+                            }
                         } finally {
                             wg.dispose();
                         }
@@ -13310,10 +13418,43 @@ public class GifSlideShowApp extends JFrame {
                                     : fm.stringWidth(line.substring(0, inLineStart));
         int wordW = span != null ? (int) Math.round(span[1])
                                  : fm.stringWidth(line.substring(inLineStart, inLineEnd));
+        // In Arabic / Hebrew the characters BEFORE a word sit to its right, so
+        // measuring the offset by summing their widths — which is what the two
+        // lines above do — puts the word at its mirror image of where it is drawn,
+        // and a word effect lands on whatever happens to be over there. Ask the
+        // same TextLayout the highlight mark is measured with (see markSpan) for
+        // the word's real, visual span instead. Left-to-right text keeps the plain
+        // arithmetic: it is exact there, and the layout is not free.
+        if (span == null && containsRtl(line) && inLineEnd <= line.length()
+                && fm.getFont() != null) {
+            try {
+                java.awt.font.TextLayout tl = new java.awt.font.TextLayout(
+                        line, fm.getFont(), fm.getFontRenderContext());
+                java.awt.geom.Rectangle2D b =
+                        tl.getLogicalHighlightShape(inLineStart, inLineEnd).getBounds2D();
+                if (b.getWidth() > 0) {
+                    startOff = (int) Math.round(b.getX());
+                    wordW = (int) Math.ceil(b.getWidth());
+                }
+            } catch (RuntimeException ignored) {
+                // An unlayoutable line keeps the arithmetic above rather than
+                // costing the action its effect.
+            }
+        }
         double cx = lineX + startOff + wordW / 2.0;
         int baseline = firstBaseline + li * lineHeight;
         double cy = baseline - (fm.getAscent() - fm.getDescent()) / 2.0;
-        return new double[]{cx, cy, wordW};
+        // How many words of the paragraph come before this one, counted over the
+        // same flattened text the word-by-word reveal counts over, so a caller can
+        // tell whether the word it is about to decorate has actually been revealed.
+        int wordsBefore = 0;
+        boolean inWord = false;
+        for (int k = 0; k < idx && k < hay.length(); k++) {
+            boolean sp = Character.isWhitespace(hay.charAt(k));
+            if (!sp && !inWord) { wordsBefore++; inWord = true; }
+            else if (sp) inWord = false;
+        }
+        return new double[]{cx, cy, wordW, wordsBefore};
     }
 
     /**
@@ -21409,15 +21550,32 @@ public class GifSlideShowApp extends JFrame {
         int    glow = 0;         // halo spread, 0 = none
         Color  glowColor = null; // halo colour, null = the text's own
 
+        // ---- Paint channels (the always-on colour / light effects) ----
+        // These change how the letters are PAINTED rather than where they sit, so
+        // they can be washed over text that is already on screen — which is what
+        // keeps a word's highlight, underline and per-word format intact while the
+        // effect runs. All three read "off" at their defaults.
+        double hueShiftDeg = 0.0;   // Colour Cycle: rotate the draw colour's hue
+        double rainbowPhase = -1.0; // Rainbow: 0..1 scroll offset, < 0 = off
+        double sheenPos = -1.0;     // sweep position across the glyphs, < 0 = off
+        int    sheenKind = 0;       // 1 = Line Scan (bar), 2 = Shine Sweep (gloss)
+        Color  sheenColor = null;   // tint for the sweep, null = white
+
         /** Scale both axes together (the uniform effects). */
         void scale(double s) { scaleX *= s; scaleY *= s; }
+
+        /** True when this frame carries a colour / light wash. */
+        boolean hasPaint() {
+            return hueShiftDeg != 0.0 || rainbowPhase >= 0.0 || sheenPos >= 0.0;
+        }
 
         /** True when nothing would change on screen — the state every effect
          *  returns to at the end of its window. Lets a finished in-place row be
          *  dropped outright instead of drawing an identical copy of itself. */
         boolean isIdentity() {
             return scaleX == 1.0 && scaleY == 1.0 && dxFrac == 0.0 && dyFrac == 0.0
-                    && tiltDeg == 0.0 && alpha == 1.0 && skewX == 0.0 && glow == 0;
+                    && tiltDeg == 0.0 && alpha == 1.0 && skewX == 0.0 && glow == 0
+                    && !hasPaint();
         }
     }
 
@@ -21701,9 +21859,425 @@ public class GifSlideShowApp extends JFrame {
                 if (accent != null) f.glowColor = accent;
                 break;
             }
+            // ---------------- Always-on ----------------
+            // Every one of these reads its identity at BOTH ends of the cycle, so
+            // ticking "Hold for slide" repeats them without a seam. None of them
+            // takes the text below 55% opacity or blurs it: they are meant to run
+            // under the reader's eye for the whole slide, so legibility comes first.
+            case "Throb": {
+                // A deep, slow swell — the "look here" beat, at a pace you can read
+                // through. Slower and rounder than Pulse, and it never overshoots.
+                double cycles = Math.max(1, Math.round(durMs / 900.0));
+                f.scale(1.0 + 0.07 * breath(p, cycles));
+                break;
+            }
+            case "Breathe": {
+                // The quietest of the set: a hint of scale and a hint of shade.
+                double cycles = Math.max(1, Math.round(durMs / 1800.0));
+                double b = breath(p, cycles);
+                f.scale(1.0 + 0.028 * b);
+                f.alpha *= 1.0 - 0.16 * b;
+                break;
+            }
+            case "Soft Blink": {
+                // Blink's attention without Blink's strobe: the word dims and comes
+                // back on a smooth curve and is never actually switched off.
+                double cycles = Math.max(1, Math.round(durMs / 700.0));
+                f.alpha *= 1.0 - 0.42 * breath(p, cycles);
+                break;
+            }
+            case "Colour Cycle": {
+                // Walks the word's own colour right round the wheel and back to
+                // where it started. Saturation and brightness are preserved, so a
+                // colour that was readable stays readable at every hue.
+                double cycles = Math.max(1, Math.round(durMs / 2400.0));
+                f.hueShiftDeg += 360.0 * ((p * cycles) % 1.0);
+                break;
+            }
+            case "Rainbow": {
+                // A spectrum laid ALONG the letters and scrolled through them, so
+                // the word is many colours at once rather than one changing colour.
+                double cycles = Math.max(1, Math.round(durMs / 2600.0));
+                f.rainbowPhase = (p * cycles) % 1.0;
+                break;
+            }
+            case "Line Scan": {
+                // A bright bar travels across the glyphs, like a scanner passing
+                // over them — light on dark type, and a narrow passing shadow on
+                // pale type, so it reads whatever colour the words are.
+                double cycles = Math.max(1, Math.round(durMs / 1800.0));
+                f.sheenPos = (p * cycles) % 1.0;
+                f.sheenKind = 1;
+                if (accent != null) f.sheenColor = accent;
+                break;
+            }
+            case "Shine Sweep": {
+                // The polished-metal read: a raked gloss band crossing the letters
+                // with a warm halo ahead of it and a white spike at its centre.
+                double cycles = Math.max(1, Math.round(durMs / 2200.0));
+                f.sheenPos = (p * cycles) % 1.0;
+                f.sheenKind = 2;
+                if (accent != null) f.sheenColor = accent;
+                break;
+            }
+            case "Halo Breathe": {
+                // Glow Pulse's calmer sibling: the halo never goes out entirely, so
+                // the word keeps a steady presence instead of flashing on and off.
+                double cycles = Math.max(1, Math.round(durMs / 2000.0));
+                f.glow = Math.max(f.glow, 2 + (int) Math.round(5.0 * breath(p, cycles)));
+                if (accent != null) f.glowColor = accent;
+                break;
+            }
+
             default:
                 break;
         }
+    }
+
+    /** A 0 → 1 → 0 breath over each of {@code cycles} passes through the window.
+     *  Reads exactly 0 at p = 0 and p = 1, which is what lets the always-on
+     *  effects loop for a whole slide without a visible seam at the join. */
+    private static double breath(double p, double cycles) {
+        return 0.5 - 0.5 * Math.cos(2 * Math.PI * p * Math.max(1, cycles));
+    }
+
+    /**
+     * Rotate a colour's hue by {@code degrees}, keeping its saturation, brightness
+     * and alpha — so a colour chosen to be readable stays just as readable at every
+     * point in the cycle. A colour with almost no saturation (white, black, grey)
+     * has no hue to rotate, so it is given one: a light grey cycles through pale
+     * tints and a dark one through deep shades, rather than sitting there unchanged.
+     */
+    static Color shiftHue(Color base, double degrees) {
+        if (base == null || degrees == 0.0) return base;
+        float[] hsb = Color.RGBtoHSB(base.getRed(), base.getGreen(), base.getBlue(), null);
+        float sat = hsb[1];
+        if (sat < 0.12f) sat = 0.55f;          // give greys something to cycle
+        float hue = (float) (((hsb[0] + degrees / 360.0) % 1.0 + 1.0) % 1.0);
+        Color c = Color.getHSBColor(hue, sat, Math.max(0.35f, hsb[2]));
+        return base.getAlpha() >= 255 ? c
+                : new Color(c.getRed(), c.getGreen(), c.getBlue(), base.getAlpha());
+    }
+
+    /**
+     * Paint the always-on colour / light channels of an {@link FxAccum} over a set
+     * of glyph outlines. The wash is clipped to the letters themselves — it is the
+     * shape being filled — so nothing spills onto the background, onto a highlight
+     * mark or onto the words either side.
+     *
+     * @param glyphs the outline(s) to wash, in the caller's user space
+     * @param b      the outline's bounds, used to lay the gradients out along it
+     */
+    private static void paintFxWash(Graphics2D g0, Shape glyphs, java.awt.geom.Rectangle2D b,
+                                    double rainbowPhase, double sheenPos, int sheenKind,
+                                    Color sheenColor) {
+        if (glyphs == null || b == null || b.getWidth() <= 0 || b.getHeight() <= 0) return;
+        Graphics2D g = (Graphics2D) g0.create();
+        try {
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            float x0 = (float) b.getMinX(), w = (float) b.getWidth();
+            float yMid = (float) b.getCenterY();
+            if (rainbowPhase >= 0.0) {
+                // Six hues plus a repeat of the first, at a saturation and brightness
+                // chosen so every band keeps its contrast against dark AND light
+                // backgrounds; REPEAT then scrolls the same spectrum endlessly.
+                float[] stops = { 0f, 0.1667f, 0.3333f, 0.5f, 0.6667f, 0.8333f, 1f };
+                Color[] cols = new Color[stops.length];
+                for (int i = 0; i < stops.length; i++) {
+                    cols[i] = Color.getHSBColor(stops[i] % 1f, 0.82f, 0.98f);
+                }
+                float span = Math.max(1f, w);
+                float shift = (float) (rainbowPhase * span);
+                g.setPaint(new LinearGradientPaint(
+                        new java.awt.geom.Point2D.Float(x0 - shift, 0),
+                        new java.awt.geom.Point2D.Float(x0 - shift + span, 0),
+                        stops, cols, java.awt.MultipleGradientPaint.CycleMethod.REPEAT));
+                g.fill(glyphs);
+            }
+            if (sheenPos >= 0.0 && sheenKind > 0) {
+                Color tint = sheenColor != null ? sheenColor : new Color(255, 248, 225);
+                if (sheenKind == 1) {
+                    // Line Scan — an upright bar with a soft halo, travelling from
+                    // just off one edge to just off the other.
+                    float band = Math.max(10f, w * 0.16f);
+                    float cx = (float) (x0 - band + sheenPos * (w + 2f * band));
+                    g.setPaint(new LinearGradientPaint(
+                            new java.awt.geom.Point2D.Float(cx - band, 0),
+                            new java.awt.geom.Point2D.Float(cx + band, 0),
+                            SHEEN_STOPS, sheenColors(tint)));
+                    g.fill(glyphs);
+                } else {
+                    // Shine Sweep — the same idea raked over, so it reads as light
+                    // running across a polished surface rather than a machine pass.
+                    float band = Math.max(12f, w * 0.20f);
+                    float cx = (float) (x0 - band + sheenPos * (w + 2f * band));
+                    double th = Math.toRadians(-20);
+                    double ux = Math.cos(th), uy = Math.sin(th);
+                    java.awt.geom.Point2D.Float p1 = new java.awt.geom.Point2D.Float(
+                            (float) (cx - ux * band), (float) (yMid - uy * band));
+                    java.awt.geom.Point2D.Float p2 = new java.awt.geom.Point2D.Float(
+                            (float) (cx + ux * band), (float) (yMid + uy * band));
+                    g.setPaint(new LinearGradientPaint(p1, p2, SHEEN_STOPS, sheenColors(tint)));
+                    g.fill(glyphs);
+                }
+            }
+        } finally {
+            g.dispose();
+        }
+    }
+
+    /** Gradient stops for a sweep: nothing, a shadow shoulder, the tinted halo, the
+     *  white core, and back out the other side. */
+    private static final float[] SHEEN_STOPS =
+            { 0f, 0.26f, 0.40f, 0.5f, 0.60f, 0.74f, 1f };
+
+    /**
+     * The colours along a sweep. The shoulders either side of the bright core are
+     * the reason a sweep is visible at all on WHITE or very pale type: a white core
+     * on white letters adds nothing, but the narrow shadow running just ahead of and
+     * behind it reads clearly — and on dark type it disappears into the letters,
+     * leaving the bright core to do the work. Neither shoulder is deep enough to
+     * make the letters it crosses harder to read.
+     */
+    private static Color[] sheenColors(Color tint) {
+        int r = tint.getRed(), g = tint.getGreen(), b = tint.getBlue();
+        return new Color[] {
+                new Color(r, g, b, 0),
+                new Color(0, 0, 0, 46),
+                new Color(r, g, b, 120),
+                new Color(255, 255, 255, 240),
+                new Color(r, g, b, 120),
+                new Color(0, 0, 0, 46),
+                new Color(r, g, b, 0) };
+    }
+
+    /**
+     * Draw a halo around — and only around — glyphs that are already on screen.
+     * The letters' own shape is subtracted from the clip, so the light gathers
+     * outside them and nothing is painted over the type itself. That is what lets
+     * "Halo Breathe" run on a word inside a paragraph for a whole slide without
+     * ever touching how sharp the word looks.
+     */
+    private static void paintHaloOutside(Graphics2D g0, Shape glyphs, Color c,
+                                         int glowSize, float fontSize) {
+        if (glyphs == null || glowSize <= 0) return;
+        Graphics2D g = (Graphics2D) g0.create();
+        try {
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+            // Softer and tighter than the halo drawn UNDER a glyph: this one has no
+            // letter painted over its inner edge to absorb it, so the same numbers
+            // would read as fog around the word rather than as light behind it.
+            float max = Math.max(2f, fontSize * (0.012f + 0.020f * Math.min(20, glowSize)));
+            java.awt.geom.Area outside = new java.awt.geom.Area(
+                    grownBounds(glyphs.getBounds2D(), max * 2.5));
+            outside.subtract(new java.awt.geom.Area(glyphs));
+            Shape prior = g.getClip();
+            if (prior != null) outside.intersect(new java.awt.geom.Area(prior));
+            g.setClip(outside);
+            for (int L = 8; L >= 1; L--) {
+                double t = L / 8.0;
+                int a = (int) Math.round(40 * (1.0 - t) * (1.0 - t) + 4);
+                g.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(),
+                        Math.max(0, Math.min(255, a))));
+                g.setStroke(new BasicStroke((float) (max * 2.0 * t),
+                        BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g.draw(glyphs);
+            }
+        } finally {
+            g.dispose();
+        }
+    }
+
+    /** A rectangle grown by {@code by} on every side. */
+    private static java.awt.geom.Rectangle2D grownBounds(java.awt.geom.Rectangle2D r, double by) {
+        return new java.awt.geom.Rectangle2D.Double(r.getX() - by, r.getY() - by,
+                r.getWidth() + by * 2, r.getHeight() + by * 2);
+    }
+
+    /**
+     * How ONE word inside a paragraph is actually formatted — the family, the style
+     * bits and the colour the renderer would draw it in after the Bold / Italic /
+     * Colour word lists and the font groups have had their say.
+     *
+     * A word-targeted effect draws its own copy of the word, so without this it
+     * would draw the word in the paragraph's plain format and a word that is bold,
+     * or coloured, or in a font group would visibly lose all of that the moment the
+     * effect started. Mirrors the resolution order the per-word override pass uses
+     * (bold/italic fold on top of a group's style; the FIRST group claiming a word
+     * wins), so the copy and the paragraph can never disagree.
+     */
+    private static final class WordOwnFormat {
+        String fontName; int style; Color color;
+        WordOwnFormat(String fontName, int style, Color color) {
+            this.fontName = fontName; this.style = style; this.color = color;
+        }
+    }
+
+    /** True when one of {@code csv}'s terms and {@code word} overlap — either the
+     *  term occurs inside the word or the word inside the term — matched the same
+     *  case-insensitive, whitespace-flexible way the paragraph matches them. */
+    private static boolean wordInTermList(String csv, String word) {
+        String[] terms = splitTerms(csv);
+        if (terms == null || word == null || word.trim().isEmpty()) return false;
+        String w = word.trim().toLowerCase();
+        for (String t : terms) {
+            String term = t.trim().toLowerCase();
+            if (term.isEmpty()) continue;
+            if (flexibleTermPattern(term).matcher(w).find()) return true;
+            if (flexibleTermPattern(w).matcher(term).find()) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Draw the highlight mark belonging to one word, centred on the origin of
+     * {@code g} — used by a word-targeted copy that has been punched out of the
+     * paragraph and so has left its own mark behind. Because it is drawn inside the
+     * copy's transform, the mark scales, leans and travels with the word.
+     *
+     * Only the mark styles that ARE a shape — the fills and the box — are drawn
+     * here; the hand-drawn ones (Brush, Scribble, Sketch, Ink, Circle…) are built
+     * from per-occurrence randomness against the paragraph's own coordinates and
+     * cannot be reproduced faithfully on a moving copy, so a word wearing one of
+     * those keeps the behaviour it has always had and travels without it.
+     *
+     * @param wordW the word's width in the font the copy is drawn in
+     * @param fm    metrics of that same font
+     */
+    private static void drawWordCopyMark(Graphics2D g0, SlideTextData st, String word,
+                                         int wordW, FontMetrics fm, double scaleFactor) {
+        if (st == null || word == null || word.isEmpty() || wordW <= 0 || fm == null) return;
+        int groups = 1 + (st.hlGroups == null ? 0 : st.hlGroups.size());
+        for (int gi = 0; gi < groups; gi++) {
+            String words, style;
+            Color color;
+            int tight;
+            if (gi == 0) {
+                words = st.highlightText; style = st.highlightStyle;
+                color = st.highlightColor; tight = st.highlightTightness;
+            } else {
+                SlideTextData.HlGroup grp = st.hlGroups.get(gi - 1);
+                if (grp == null) continue;
+                words = grp.words; style = grp.style; color = grp.color; tight = grp.tightness;
+            }
+            if (words == null || words.trim().isEmpty()) continue;
+            if (style == null || "None".equals(style)) continue;
+            int colon = style.indexOf(':');
+            String kind = colon > 0 ? style.substring(0, colon) : style;
+            switch (kind) {
+                case "Regular": case "Pill": case "Gradient": case "Box": case "Marker":
+                    break;
+                default:
+                    continue;   // not reproducible on a moving copy — see above
+            }
+            if (!wordInTermList(words, word)) continue;
+
+            // Same geometry as the paragraph's mark, expressed about the word's
+            // centre: the pad from Tight, the full line height, then the width /
+            // height / intensity tuning.
+            int padX, padY, shrink = 0;
+            if (tight >= 0) {
+                padX = (int) ((tight / 100.0f) * 8 * scaleFactor);
+                padY = padX;
+            } else {
+                padX = 0; padY = 0;
+                shrink = (int) (fm.getHeight() * 0.7f * (Math.abs(tight) / 50.0f));
+            }
+            int fullH = fm.getHeight() + padY * 2;
+            int rectH = Math.max(2, fullH - shrink);
+            int rectW = Math.max(1, wordW + padX * 2);
+            int wPct = st.highlightWidthPct  <= 0 ? 100 : st.highlightWidthPct;
+            int hPct = st.highlightHeightPct <= 0 ? 100 : st.highlightHeightPct;
+            if (wPct != 100) rectW = Math.max(1, Math.round(rectW * wPct / 100f));
+            if (hPct != 100) rectH = Math.max(2, Math.round(rectH * hPct / 100f));
+            Color c = color != null ? color : new Color(255, 100, 150, 180);
+            if (st.highlightIntensityPct >= 0 && st.highlightIntensityPct != 100) {
+                c = new Color(c.getRed(), c.getGreen(), c.getBlue(), Math.max(0, Math.min(255,
+                        Math.round(c.getAlpha() * st.highlightIntensityPct / 100f))));
+            }
+            // The paragraph centres the mark on the LINE, which sits half the font's
+            // leading below the middle of the word's ink; matching that offset is
+            // what keeps the mark on the word rather than a hair above it.
+            int rectX = -rectW / 2;
+            int rectY = -rectH / 2 + (fm.getHeight() - fm.getAscent() - fm.getDescent()) / 2;
+            int arc = (int) (4 * scaleFactor);
+
+            Graphics2D g = (Graphics2D) g0.create();
+            try {
+                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                switch (kind) {
+                    case "Pill":
+                        g.setColor(c);
+                        g.fillRoundRect(rectX, rectY, rectW, rectH, rectH, rectH);
+                        break;
+                    case "Gradient":
+                        g.setPaint(new java.awt.GradientPaint(rectX, rectY, c,
+                                rectX + rectW, rectY, new Color(c.getRed(), c.getGreen(), c.getBlue(), 0)));
+                        g.fillRoundRect(rectX, rectY, rectW, rectH, arc, arc);
+                        break;
+                    case "Box": {
+                        g.setColor(c);
+                        g.setStroke(new BasicStroke(Math.max(1, (float) (2 * scaleFactor))));
+                        g.drawRoundRect(rectX, rectY, rectW, rectH, arc, arc);
+                        g.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(),
+                                Math.min(255, c.getAlpha() / 4)));
+                        g.fillRoundRect(rectX, rectY, rectW, rectH, arc, arc);
+                        break;
+                    }
+                    case "Marker": {
+                        // The highlighter band, without the paragraph version's
+                        // wet-edge detailing — at the sizes a travelling word is
+                        // drawn at, the band and its alpha cap are what read.
+                        int mx = rectX - (int) (3 * scaleFactor);
+                        int my = rectY + (int) (rectH * 0.08f);
+                        int mw = Math.max(4, rectW + (int) (6 * scaleFactor));
+                        int mh = Math.max(2, (int) (rectH * 0.86f));
+                        g.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(),
+                                Math.min(c.getAlpha(), 150)));
+                        g.fillRoundRect(mx, my, mw, mh,
+                                Math.max(1, (int) (3 * scaleFactor)), Math.max(1, (int) (3 * scaleFactor)));
+                        break;
+                    }
+                    default:
+                        g.setColor(c);
+                        g.fillRoundRect(rectX, rectY, rectW, rectH, arc, arc);
+                        break;
+                }
+            } finally {
+                g.dispose();
+            }
+        }
+    }
+
+    /** Resolve {@code word}'s own format inside {@code st} (see {@link WordOwnFormat}). */
+    private static WordOwnFormat resolveWordOwnFormat(SlideTextData st, String word) {
+        String fontName = st.fontName;
+        int style = st.fontStyle;
+        Color color = st.color;
+        boolean bold = wordInTermList(st.boldText, word);
+        boolean italic = wordInTermList(st.italicText, word);
+        if (bold) style |= Font.BOLD;
+        if (italic) style |= Font.ITALIC;
+        if (wordInTermList(st.colorText, word) && st.colorTextColor != null) {
+            color = st.colorTextColor;
+        }
+        if (st.fnGroups != null) {
+            for (SlideTextData.FnGroup grp : st.fnGroups) {
+                if (grp == null || !grp.hasOverride() || !wordInTermList(grp.words, word)) continue;
+                if (grp.fontName != null && !grp.fontName.isEmpty()
+                        && !FN_FONT_INHERIT.equals(grp.fontName)) {
+                    fontName = grp.fontName;
+                }
+                Integer bits = fnStyleBits(grp.style);
+                if (bits != null) {
+                    style = bits | (bold ? Font.BOLD : 0) | (italic ? Font.ITALIC : 0);
+                }
+                if (grp.useColor && grp.color != null) color = grp.color;
+                break;   // first group claiming the word wins, as in the paragraph
+            }
+        }
+        return new WordOwnFormat(fontName, style, color);
     }
 
     /**
@@ -21733,12 +22307,25 @@ public class GifSlideShowApp extends JFrame {
             boolean landed = since >= dur;
             double eased = QuizSlide.easeNamed(a.easing, p);
 
+            // "Hold for slide" loops the EFFECTS only: they run over and over on the
+            // row's own duration until the text goes away, while the motion below
+            // keeps the single, clamped progress it has always had — so a Move still
+            // travels once and then sits at its destination wearing the effect.
+            double pFx = p;
+            boolean landedFx = landed;
+            double easedFx = eased;
+            if (a.loopSlide) {
+                pFx = (since % dur) / (double) dur;
+                landedFx = false;
+                easedFx = QuizSlide.easeNamed(a.easing, pFx);
+            }
+
             // Every emphasis effect on the row, layered into one transform. Resolved
             // once and shared by the block / ghost / word paths below.
             FxAccum fx = new FxAccum();
             double secs = since / 1000.0;
             for (String name : a.effectList()) {
-                applyMotionEffect(fx, name, p, secs, dur, landed, eased, a.landColor);
+                applyMotionEffect(fx, name, pFx, secs, dur, landedFx, easedFx, a.landColor);
             }
             boolean moving = a.isMove();
 
@@ -21754,6 +22341,26 @@ public class GifSlideShowApp extends JFrame {
                 SlideTextData.WordMotionRender wm = new SlideTextData.WordMotionRender();
                 wm.word = a.word.trim();
                 wm.occ = Math.max(1, a.wordOccurrence);
+                // A row that only paints never displaces the word, so it is washed
+                // over the word where it already sits instead of punching it out of
+                // the paragraph and redrawing it. That is what keeps its highlight,
+                // its underline and its own bold / colour / font while a colour or
+                // light effect runs — for a whole slide, if it is held.
+                wm.paintOnly = !moving && a.isPaintOnly();
+                // The copy has to LOOK like the word it stands in for. Resolved for
+                // every paint-only wash (it decides the outline the wash is clipped
+                // to) and for a held effect, where losing the word's own format for
+                // the rest of the slide would be plain wrong. One-shot rows keep the
+                // format they have always had.
+                if (wm.paintOnly || (a.loopSlide && !a.landFormat)) {
+                    WordOwnFormat own = resolveWordOwnFormat(st, wm.word);
+                    wm.fontName = own.fontName;
+                    wm.fontStyle = own.style;
+                    wm.color = own.color;
+                    // Only the redrawn copy needs the mark drawn for it; a paint-only
+                    // wash never disturbs the one the paragraph already drew.
+                    wm.carryMark = !wm.paintOnly && !a.landFormat;
+                }
                 if (moving) {
                     wm.isMove = true;
                     wm.destXFrac = a.toXPct / 100.0;
@@ -21782,6 +22389,16 @@ public class GifSlideShowApp extends JFrame {
                 wm.skewX += fx.skewX;
                 wm.glowSize = fx.glow;
                 wm.glowColor = fx.glowColor;
+                // Colour / light channels ride along on the same entry, so one row
+                // can throb AND cycle colour on the same word.
+                if (fx.hueShiftDeg != 0.0) {
+                    wm.color = shiftHue(wm.color != null ? wm.color : st.color, fx.hueShiftDeg);
+                    wm.recolor = true;
+                }
+                wm.rainbowPhase = fx.rainbowPhase;
+                wm.sheenPos = fx.sheenPos;
+                wm.sheenKind = fx.sheenKind;
+                wm.sheenColor = fx.sheenColor;
                 if (st.wordMotionsRender == null) st.wordMotionsRender = new java.util.ArrayList<>();
                 st.wordMotionsRender.add(wm);
                 continue;
@@ -21819,7 +22436,15 @@ public class GifSlideShowApp extends JFrame {
                 st.ghostAlpha  = fx.alpha;
                 st.ghostGlowSize  = fx.glow;
                 st.ghostGlowColor = fx.glowColor;
+                st.ghostRainbowPhase = fx.rainbowPhase;
+                st.ghostSheenPos = fx.sheenPos;
+                st.ghostSheenKind = fx.sheenKind;
+                st.ghostSheenColor = fx.sheenColor;
                 if (landCol != null) st.ghostColor = landCol;
+                if (fx.hueShiftDeg != 0.0) {
+                    Color ghostBase = st.ghostColor != null ? st.ghostColor : st.color;
+                    st.ghostColor = shiftHue(ghostBase, fx.hueShiftDeg);
+                }
                 if (lf != null) {
                     st.ghostFontName      = lf.fontName;
                     st.ghostFontStyle     = lf.fontStyle;
@@ -21842,6 +22467,20 @@ public class GifSlideShowApp extends JFrame {
             if (fx.glow > st.fxGlowSize) {
                 st.fxGlowSize  = fx.glow;
                 st.fxGlowColor = fx.glowColor;
+            }
+            // Colour / light channels for a whole-text row. The hue rotation lands
+            // on the render colour override the renderer already reads; the two
+            // washes are painted over the block's glyph shape in their own pass.
+            if (fx.hueShiftDeg != 0.0) {
+                Color hueBase = st.renderColorOverride != null ? st.renderColorOverride
+                        : (landCol != null ? landCol : st.color);
+                st.renderColorOverride = shiftHue(hueBase, fx.hueShiftDeg);
+            }
+            if (fx.rainbowPhase >= 0.0) st.fxRainbowPhase = fx.rainbowPhase;
+            if (fx.sheenPos >= 0.0) {
+                st.fxSheenPos = fx.sheenPos;
+                st.fxSheenKind = fx.sheenKind;
+                st.fxSheenColor = fx.sheenColor;
             }
             if (lf != null) {
                 if (landCol != null) st.renderColorOverride = landCol;
@@ -21895,6 +22534,10 @@ public class GifSlideShowApp extends JFrame {
             ghost.audioOtherTiltDeg  = st.ghostTiltDeg;
             ghost.fxGlowSize         = st.ghostGlowSize;
             ghost.fxGlowColor        = st.ghostGlowColor;
+            ghost.fxRainbowPhase     = st.ghostRainbowPhase;
+            ghost.fxSheenPos         = st.ghostSheenPos;
+            ghost.fxSheenKind        = st.ghostSheenKind;
+            ghost.fxSheenColor       = st.ghostSheenColor;
             // The clone's own font fields are final (constructor-set), so a landing
             // typeface rides in through the same override hooks the renderer already
             // reads for a plain Move.
@@ -22031,6 +22674,14 @@ public class GifSlideShowApp extends JFrame {
         st.fxSkewX  = 0.0;
         st.fxGlowSize  = 0;
         st.fxGlowColor = null;
+        st.fxRainbowPhase = -1.0;
+        st.fxSheenPos = -1.0;
+        st.fxSheenKind = 0;
+        st.fxSheenColor = null;
+        st.ghostRainbowPhase = -1.0;
+        st.ghostSheenPos = -1.0;
+        st.ghostSheenKind = 0;
+        st.ghostSheenColor = null;
         st.ghostScaleX = 1.0;
         st.ghostScaleY = 1.0;
         st.ghostSkewX  = 0.0;
@@ -22789,6 +23440,10 @@ public class GifSlideShowApp extends JFrame {
                 hl.fxSkewX  = st.fxSkewX;
                 hl.fxGlowSize  = st.fxGlowSize;
                 hl.fxGlowColor = st.fxGlowColor;
+                hl.fxRainbowPhase = st.fxRainbowPhase;
+                hl.fxSheenPos = st.fxSheenPos;
+                hl.fxSheenKind = st.fxSheenKind;
+                hl.fxSheenColor = st.fxSheenColor;
                 hl.ghostScaleX = st.ghostScaleX;
                 hl.ghostScaleY = st.ghostScaleY;
                 hl.ghostSkewX  = st.ghostSkewX;
@@ -23564,6 +24219,14 @@ public class GifSlideShowApp extends JFrame {
         double fxSkewX  = 0.0;      // horizontal shear factor (0 = upright)
         int    fxGlowSize  = 0;     // 0 = none; 1..20 = halo spread, like audioGlowSize
         Color  fxGlowColor = null;  // halo colour (null = the text's own colour)
+        // Colour / light wash for a whole-text row (Rainbow, Line Scan, Shine
+        // Sweep). Painted over the block's glyph shape in its own pass, so the
+        // letters themselves light up rather than the box around them. Colour Cycle
+        // needs no channel of its own — it rides in on renderColorOverride.
+        double fxRainbowPhase = -1.0;   // 0..1 scroll offset, < 0 = off
+        double fxSheenPos = -1.0;       // 0..1 sweep position, < 0 = off
+        int    fxSheenKind = 0;         // 1 = Line Scan, 2 = Shine Sweep
+        Color  fxSheenColor = null;     // sweep tint (null = white)
         // The same five channels for the "Move Copy" ghost, so a copy that flies
         // away can carry the row's effects while the original stays untouched.
         double ghostScaleX = 1.0;
@@ -23572,6 +24235,10 @@ public class GifSlideShowApp extends JFrame {
         double ghostTiltDeg = 0.0;
         int    ghostGlowSize  = 0;
         Color  ghostGlowColor = null;
+        double ghostRainbowPhase = -1.0;
+        double ghostSheenPos = -1.0;
+        int    ghostSheenKind = 0;
+        Color  ghostSheenColor = null;
 
         /** The halo spread to draw this frame: the larger of the audio-FX glow the
          *  text is configured with and the transient glow a motion effect asks for,
@@ -23594,6 +24261,26 @@ public class GifSlideShowApp extends JFrame {
         static class WordMotionRender {
             String word; int occ;
             boolean isMove;      // true = fly to dest; false = in-place effect
+            // True when the row only PAINTS the word (colour / light) and never
+            // moves or resizes it. The renderer then washes the word where it
+            // already sits — no punch-out, no second copy — so the paragraph's
+            // highlight, underline and per-word format all survive underneath.
+            boolean paintOnly;
+            // True when `color` is a RECOLOUR the effect asked for (Colour Cycle)
+            // rather than simply the word's own colour. A paint-only wash only
+            // repaints the glyphs when this is set, so a word running nothing but a
+            // sweep keeps whatever the text effect (Shadow, Gradient, Outline…)
+            // already painted inside it.
+            boolean recolor;
+            // Draw the word's own highlight mark under the copy. A copy that stands
+            // in for the word for the whole slide has to carry the mark with it —
+            // the paragraph's own is punched out along with the word.
+            boolean carryMark;
+            // Colour / light channels, mirroring FxAccum's (see paintFxWash).
+            double rainbowPhase = -1.0;
+            double sheenPos = -1.0;
+            int    sheenKind = 0;
+            Color  sheenColor;
             double destXFrac, destYFrac, eased;  // move interpolation target + progress
             double dxFrac, dyFrac;               // in-place translate (fraction of frame)
             double scale = 1.0, alpha = 1.0, tiltDeg = 0.0;
@@ -23783,7 +24470,33 @@ public class GifSlideShowApp extends JFrame {
                     { "Entrance / Exit", "Rise", "Drop", "Zoom In", "Zoom Out",
                                          "Fade In", "Fade Out" },
                     { "Light",           "Glow Pulse", "Neon Flicker" },
+                    // Always-on: written to loop seamlessly (they read their identity
+                    // at both ends of the cycle) and to keep the words readable while
+                    // they run, so they can be held for the whole slide with the
+                    // row's "Hold for slide" box.
+                    { "Always-on",       "Throb", "Breathe", "Soft Blink", "Colour Cycle",
+                                         "Rainbow", "Line Scan", "Shine Sweep",
+                                         "Halo Breathe" },
             };
+
+            /** The always-on group, by name. These are the effects designed to be
+             *  held for the whole slide; everything else is a one-shot accent that
+             *  merely CAN be looped. */
+            static final java.util.Set<String> ALWAYS_ON =
+                    java.util.Collections.unmodifiableSet(new java.util.LinkedHashSet<>(
+                            java.util.Arrays.asList("Throb", "Breathe", "Soft Blink",
+                                    "Colour Cycle", "Rainbow", "Line Scan",
+                                    "Shine Sweep", "Halo Breathe")));
+
+            /** Effects that only PAINT — colour, light — and never move, resize or
+             *  fade the text. A word-targeted row made of nothing but these is washed
+             *  over the word where it already sits instead of being punched out and
+             *  redrawn, which is what lets its highlight, underline and per-word
+             *  format survive an effect that runs all slide. */
+            static final java.util.Set<String> PAINT_ONLY =
+                    java.util.Collections.unmodifiableSet(new java.util.LinkedHashSet<>(
+                            java.util.Arrays.asList("Colour Cycle", "Rainbow", "Line Scan",
+                                    "Shine Sweep", "Halo Breathe")));
 
             /** Every effect name, in picker order. */
             static final String[] EFFECTS;
@@ -23819,6 +24532,14 @@ public class GifSlideShowApp extends JFrame {
             int atMs = 0;               // when the action fires (ms from slide start)
             int durMs = 800;            // motion / effect duration in ms
             String easing = "Ease Out"; // easing curve for the motion
+
+            // Hold the EFFECTS for the rest of the slide: instead of playing once
+            // over durMs and stopping, they repeat from atMs until the text goes
+            // away, with durMs read as the length of one cycle. The motion is NOT
+            // looped — a Move still travels once and then stays where it landed,
+            // throbbing / glowing / cycling colour there — so this can be ticked on
+            // any row without changing where anything ends up.
+            boolean loopSlide = false;
 
             // Destination for Move / Move Copy, as a percentage of the frame
             // (0..100), matching how SlideTextData.x / y are stored.
@@ -23933,11 +24654,22 @@ public class GifSlideShowApp extends JFrame {
             /** True when this action targets a single word rather than the block. */
             boolean isWordTargeted() { return word != null && !word.trim().isEmpty(); }
 
+            /** True when every effect on this row only paints (colour / light), so
+             *  the text never has to be redrawn somewhere else for it to show. */
+            boolean isPaintOnly() {
+                java.util.List<String> fx = effectList();
+                if (fx.isEmpty()) return false;
+                for (String name : fx) if (!PAINT_ONLY.contains(name)) return false;
+                return true;
+            }
+
+
             /** Deep copy — Action instances must not be shared between texts. */
             Action copy() {
                 Action a = new Action();
                 a.kind = kind; a.effects = effects;
                 a.atMs = atMs; a.durMs = durMs; a.easing = easing;
+                a.loopSlide = loopSlide;
                 a.toXPct = toXPct; a.toYPct = toYPct;
                 a.landFormat = landFormat; a.landScale = landScale; a.landColor = landColor;
                 a.landFont = landFont; a.landStyle = landStyle;
@@ -34845,9 +35577,12 @@ public class GifSlideShowApp extends JFrame {
                 final int rowIdx = i;
                 JButton motionBtn = new JButton();
                 motionBtn.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-                motionBtn.setToolTipText("At a chosen time, move this text (or a copy of it) to a new spot "
-                        + "and format it beautifully on landing — or play an in-place effect like Pulse. "
-                        + "A landed move can also trigger another text to appear.");
+                motionBtn.setToolTipText("<html>At a chosen time, move this text (or a copy of it) to a new "
+                        + "spot and format it beautifully on landing — or play an in-place effect like "
+                        + "Pulse. A landed move can also trigger another text to appear.<br>"
+                        + "Tick <b>Hold for slide</b> on a row with a <b>Word</b> and an "
+                        + "<b>Always-on</b> effect to keep one word in the paragraph glowing, throbbing "
+                        + "or cycling colour for the whole slide.</html>");
                 Runnable updMotionLbl = () -> {
                     int c = rowActions.get(rowIdx).size();
                     motionBtn.setText(c == 0 ? "Motion…" : "Motion (" + c + ")");
@@ -35885,7 +36620,17 @@ public class GifSlideShowApp extends JFrame {
                     + "run of words it covers.<br><b>Sound</b> picks the "
                     + "cue this action fires — press ▶ to hear it. Leave it on <b>(Default)</b> to follow "
                     + "the default sound set at the bottom of this window, or choose <b>None</b> for "
-                    + "silence.</html>");
+                    + "silence."
+                    + "<br><b>Hold for slide</b> keeps the row's <b>effects</b> running until the text "
+                    + "goes away instead of playing them once — <b>Dur (ms)</b> then sets how long one "
+                    + "cycle takes. Put a <b>Word</b> on the row and pick from the <b>Always-on</b> group "
+                    + "(Throb, Breathe, Soft Blink, Colour Cycle, Rainbow, Line Scan, Shine Sweep, Halo "
+                    + "Breathe) and that word stays alive for the whole slide. The colour and light ones "
+                    + "wash <i>over</i> the word where it sits, so its highlight, underline and its own "
+                    + "bold / colour / font all stay exactly as they are and the word never moves or "
+                    + "blurs; the movement ones lift the word and take its highlight with them. A "
+                    + "<b>Move</b> on a held row still travels once and then sits at its destination "
+                    + "wearing the effect.</html>");
             help.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             help.setBorder(BorderFactory.createEmptyBorder(2, 2, 8, 2));
 
@@ -36574,6 +37319,9 @@ public class GifSlideShowApp extends JFrame {
             private java.util.List<String> effects = java.util.Collections.emptyList();
             private String motion = SlideTextData.Action.MOTION_NONE;
             private int durMs = 800;
+            /** Mirrors the row's "Hold for slide" box: the effects loop instead of
+             *  playing once, exactly as they will on the slide. */
+            private boolean hold = false;
 
             EffectPreviewPanel() {
                 setPreferredSize(new Dimension(430, 92));
@@ -36584,10 +37332,11 @@ public class GifSlideShowApp extends JFrame {
                 ticker = new javax.swing.Timer(20, e -> repaint());
             }
 
-            void setSelection(String motion, java.util.Collection<String> fx, int durMs) {
+            void setSelection(String motion, java.util.Collection<String> fx, int durMs, boolean hold) {
                 this.motion = motion;
                 this.effects = new java.util.ArrayList<>(fx);
                 this.durMs = Math.max(60, durMs);
+                this.hold = hold;
                 repaint();
             }
 
@@ -36606,15 +37355,21 @@ public class GifSlideShowApp extends JFrame {
                             RenderingHints.VALUE_FRACTIONALMETRICS_ON);
                     int w = getWidth(), h = getHeight();
                     // A beat of stillness between takes, so a one-shot effect reads
-                    // as a distinct event rather than an unbroken loop.
-                    long cycle = durMs + 600L;
-                    long since = (System.currentTimeMillis() - start) % cycle;
-                    double p = Math.min(1.0, since / (double) durMs);
-                    boolean landed = since >= durMs;
+                    // as a distinct event rather than an unbroken loop. A HELD row
+                    // has no such beat: its take runs four cycles, the motion plays
+                    // once at the top of it and the effects loop right through —
+                    // which is precisely what the slide will do.
+                    long cyc = Math.max(60, durMs);
+                    long take = hold ? cyc * 4L : cyc + 600L;
+                    long since = (System.currentTimeMillis() - start) % take;
+                    double p = Math.min(1.0, since / (double) cyc);
+                    double pFx = hold ? (since % cyc) / (double) cyc : p;
+                    boolean landed = !hold && since >= cyc;
                     double eased = QuizSlide.easeNamed("Ease Out", p);
+                    double easedFx = QuizSlide.easeNamed("Ease Out", pFx);
                     FxAccum f = new FxAccum();
                     for (String name : effects) {
-                        applyMotionEffect(f, name, p, since / 1000.0, durMs, landed, eased, null);
+                        applyMotionEffect(f, name, pFx, since / 1000.0, durMs, landed, easedFx, null);
                     }
                     boolean move = SlideTextData.Action.MOTION_MOVE.equals(motion)
                             || SlideTextData.Action.MOTION_MOVE_COPY.equals(motion);
@@ -36668,8 +37423,18 @@ public class GifSlideShowApp extends JFrame {
                                 tg.draw(outline);
                             }
                         }
-                        tg.setColor(Color.WHITE);
+                        Color sampleColor = f.hueShiftDeg != 0.0
+                                ? shiftHue(Color.WHITE, f.hueShiftDeg) : Color.WHITE;
+                        tg.setColor(sampleColor);
                         tg.drawString(sample, bx, by);
+                        // The colour / light washes read through the sample's own
+                        // glyphs, the same way they will through the real word.
+                        if (f.rainbowPhase >= 0.0 || f.sheenPos >= 0.0) {
+                            Shape wash = font.createGlyphVector(
+                                    tg.getFontRenderContext(), sample).getOutline(bx, by);
+                            paintFxWash(tg, wash, wash.getBounds2D(), f.rainbowPhase,
+                                    f.sheenPos, f.sheenKind, f.sheenColor);
+                        }
                     } finally {
                         tg.dispose();
                     }
@@ -36678,7 +37443,8 @@ public class GifSlideShowApp extends JFrame {
                     g.setColor(new Color(150, 158, 178));
                     String cap = effects.isEmpty() && !move
                             ? "nothing selected"
-                            : (durMs + " ms · " + (move ? motion : "in place")
+                            : (durMs + " ms" + (hold && !effects.isEmpty() ? " / cycle · held" : "")
+                               + " · " + (move ? motion : "in place")
                                + (effects.isEmpty() ? "" : " · " + String.join(" + ", effects)));
                     g.drawString(cap, 8, h - 7);
                 } finally {
@@ -36710,14 +37476,18 @@ public class GifSlideShowApp extends JFrame {
             /** The row's live "Dur (ms)" value, so the sample plays at the speed the
              *  action will actually run at. */
             private final java.util.function.IntSupplier durSupplier;
+            /** The row's live "Hold for slide" state, so the sample loops when the
+             *  action will loop. */
+            private final java.util.function.BooleanSupplier holdSupplier;
             private JPopupMenu popup;
             private EffectPreviewPanel preview;
             private boolean syncing = false;
 
             MotionEffectPicker(SlideTextData.Action seed, java.util.function.IntSupplier durSupplier,
-                               Runnable onChange) {
+                               java.util.function.BooleanSupplier holdSupplier, Runnable onChange) {
                 this.onChange = onChange;
                 this.durSupplier = durSupplier;
+                this.holdSupplier = holdSupplier;
                 this.motion = seed == null ? SlideTextData.Action.MOTION_MOVE : seed.motion();
                 if (seed != null) selected.addAll(seed.effectList());
 
@@ -36739,6 +37509,10 @@ public class GifSlideShowApp extends JFrame {
 
             /** Write the current motion + effects onto an action. */
             void applyTo(SlideTextData.Action a) { a.setSelection(motion, selected); }
+
+            /** Re-read the row's live Dur / Hold into the sample, so ticking "Hold
+             *  for slide" while the popup is open is visible immediately. */
+            void refreshPreview() { syncPreview(); }
 
             private void togglePopup() {
                 if (popup != null && popup.isVisible()) { popup.setVisible(false); return; }
@@ -36876,7 +37650,8 @@ public class GifSlideShowApp extends JFrame {
             private void syncPreview() {
                 if (preview != null) {
                     int dur = durSupplier == null ? 800 : durSupplier.getAsInt();
-                    preview.setSelection(motion, selected, dur);
+                    boolean held = holdSupplier != null && holdSupplier.getAsBoolean();
+                    preview.setSelection(motion, selected, dur, held);
                 }
             }
 
@@ -36974,6 +37749,14 @@ public class GifSlideShowApp extends JFrame {
                     case "Fade Out":     return "Dissolves away — and stays gone afterwards.";
                     case "Glow Pulse":   return "A halo breathing in and out around the letters.";
                     case "Neon Flicker": return "Stutters like a neon tube, halo and all.";
+                    case "Throb":        return "A deep, slow swell you can read straight through.";
+                    case "Breathe":      return "The quietest of the set — a hint of scale and shade.";
+                    case "Soft Blink":   return "Dims and returns smoothly. Never actually switches off.";
+                    case "Colour Cycle": return "Walks the word's own colour right round the wheel.";
+                    case "Rainbow":      return "A spectrum laid along the letters, scrolling through them.";
+                    case "Line Scan":    return "A bright bar passes across the letters, like a scanner.";
+                    case "Shine Sweep":  return "A raked gloss band crossing the letters. Polished metal.";
+                    case "Halo Breathe": return "A steady halo that swells and settles, never going out.";
                     default:             return fx;
                 }
             }
@@ -36989,6 +37772,21 @@ public class GifSlideShowApp extends JFrame {
             private final JTextField atField = new JTextField(4);
             private final JTextField durField = new JTextField(5);
             private final JComboBox<String> easeCombo = new JComboBox<>(SlideTextData.Action.EASINGS);
+            /** Hold the row's effects for the rest of the slide (Dur then reads as
+             *  one cycle). The motion, if any, still runs once. */
+            private final JCheckBox holdCheck = new JCheckBox("Hold for slide");
+            /** The box's resting look and wording, restored whenever the row stops
+             *  needing the "you probably want this on" warning. */
+            private final Color holdFg = holdCheck.getForeground();
+            private static final String holdTip =
+                    "<html>Keep this row's <b>effects</b> running for the rest of the slide instead "
+                    + "of playing them once: Dur (ms) becomes the length of ONE cycle and they "
+                    + "repeat from At (s) until the text goes away.<br>"
+                    + "The motion is not looped — a Move still travels once and then sits at its "
+                    + "destination wearing the effect.<br>"
+                    + "Pair it with a <b>Word</b> and the <b>Always-on</b> effects (Throb, Colour "
+                    + "Cycle, Line Scan…) to keep one word in a paragraph alive for the whole "
+                    + "slide.</html>";
             private final JTextField toXField = new JTextField(4);
             private final JTextField toYField = new JTextField(4);
             private final JCheckBox landCheck = new JCheckBox("Format on landing");
@@ -37045,12 +37843,17 @@ public class GifSlideShowApp extends JFrame {
                 // the Dur box live rather than a copy taken when the row was built.
                 kindPicker = new MotionEffectPicker(a,
                         () -> Math.max(1, pInt.apply(durField.getText(), 800)),
+                        holdCheck::isSelected,
                         this::onBehaviourChanged);
                 atField.setText(timerMsToSecStr(a.atMs));
                 atField.setToolTipText("When this action fires — seconds from the start of the slide.");
                 durField.setText(String.valueOf(a.durMs));
                 durField.setToolTipText("How long the move / effect takes, in milliseconds (e.g. 800).");
                 easeCombo.setSelectedItem(a.easing == null ? "Ease Out" : a.easing);
+                holdCheck.setSelected(a.loopSlide);
+                holdCheck.setBackground(panel.getBackground());
+                holdCheck.setToolTipText(holdTip);
+                holdCheck.addActionListener(ev -> { syncEnabled(); kindPicker.refreshPreview(); });
                 toXField.setText(String.valueOf(a.toXPct));
                 toYField.setText(String.valueOf(a.toYPct));
                 toXField.setToolTipText("Destination X as a percentage of the frame width (0–100).");
@@ -37191,7 +37994,8 @@ public class GifSlideShowApp extends JFrame {
                 g.gridx = 5; panel.add(durField, g);
                 g.gridx = 6; panel.add(new JLabel("Ease:"), g);
                 g.gridx = 7; panel.add(easeCombo, g);
-                g.gridx = 8; g.weightx = 1.0; g.anchor = GridBagConstraints.EAST;
+                g.gridx = 8; panel.add(holdCheck, g);
+                g.gridx = 9; g.weightx = 1.0; g.anchor = GridBagConstraints.EAST;
                 panel.add(removeBtn, g);
                 g.weightx = 0; g.anchor = GridBagConstraints.WEST;
                 // Line 2
@@ -37315,6 +38119,29 @@ public class GifSlideShowApp extends JFrame {
             java.util.List<String> effectNames() { return kindPicker.effects(); }
 
             private void syncEnabled() {
+                // An Always-on effect on a row that is not held plays once and stops,
+                // which is almost never what it was picked for — so the box that
+                // would fix it is called out rather than left to be discovered on
+                // export. Same amber the stale-trigger warning uses.
+                boolean wantsHold = false;
+                for (String fx : kindPicker.effects()) {
+                    if (SlideTextData.Action.ALWAYS_ON.contains(fx)) { wantsHold = true; break; }
+                }
+                holdCheck.setForeground(wantsHold && !holdCheck.isSelected()
+                        ? new Color(155, 70, 0) : holdFg);
+                if (wantsHold && !holdCheck.isSelected()) {
+                    holdCheck.setToolTipText("<html>This row plays an <b>Always-on</b> effect, which is "
+                            + "built to run continuously — tick this and it keeps going for the rest "
+                            + "of the slide instead of stopping after one pass.</html>");
+                } else {
+                    holdCheck.setToolTipText(holdTip);
+                }
+                // Held rows read Dur as a cycle length rather than a total, so the
+                // box says which of the two it is being asked for.
+                durField.setToolTipText(holdCheck.isSelected()
+                        ? "Length of ONE cycle, in milliseconds — the effects repeat at this pace "
+                          + "for the rest of the slide (e.g. 1800). A move still takes this long, once."
+                        : "How long the move / effect takes, in milliseconds (e.g. 800).");
                 boolean move = kindPicker.isMove();
                 toXField.setEnabled(move);
                 toYField.setEnabled(move);
@@ -37350,6 +38177,7 @@ public class GifSlideShowApp extends JFrame {
                 a.atMs = (int) Math.round(Math.max(0.0, pDbl.apply(atField.getText(), 0.0)) * 1000.0);
                 a.durMs = Math.max(1, pInt.apply(durField.getText(), 800));
                 a.easing = (String) easeCombo.getSelectedItem();
+                a.loopSlide = holdCheck.isSelected();
                 a.toXPct = Math.max(0, Math.min(100, pInt.apply(toXField.getText(), 50)));
                 a.toYPct = Math.max(0, Math.min(100, pInt.apply(toYField.getText(), 50)));
                 a.landFormat = landCheck.isSelected();
@@ -37394,7 +38222,7 @@ public class GifSlideShowApp extends JFrame {
                         setter.accept(ActionRowUI.this);
                     }
                 };
-                JComponent[] fields = { kindPicker, atField, durField, easeCombo,
+                JComponent[] fields = { kindPicker, atField, durField, easeCombo, holdCheck,
                         toXField, toYField, scaleField, wordField, occSpinner, triggerCombo,
                         trigXField, trigYField, trigFollowCheck, soundCombo };
                 for (JComponent c : fields) c.addFocusListener(fa);
