@@ -24131,15 +24131,31 @@ public class GifSlideShowApp extends JFrame {
     // identically whether a Motion row plays it once or a highlight group holds it.
     static final String HL_FX_NONE = "None";
 
-    /** The FX combo's rows: "None", then the effects built to run continuously,
-     *  then everything else the Motion editor offers, in its own order. */
+    /**
+     * The FX box's rows: "None" and the eight effects that are actually right for a
+     * word sitting inside running text.
+     *
+     * <p>The Motion editor's full vocabulary is deliberately NOT offered here. A
+     * word in a paragraph has no space of its own — it is locked between its
+     * neighbours and between two lines — so anything that translates it (Shake,
+     * Float, Orbit…), turns it (Spin, Swing, the Flips), changes its width (Rubber
+     * Band, Squash, Jello) or spikes its scale (Tada, Pop, Zoom Punch) lifts it out
+     * of its line or runs it into the words either side: it stops reading as
+     * emphasis and starts reading as a rendering fault. The hard on/off ones (Flash,
+     * Blink, Neon Flicker) are worse still — they keep taking a word out of a
+     * sentence somebody is trying to read. Those effects belong to a whole text
+     * block, which owns its space, and that is where they stay.
+     *
+     * <p>What is left changes only how the letters are PAINTED — colour, light,
+     * opacity — plus Throb, the one piece of geometry small enough (±7% about the
+     * word's own centre) to stay inside the word gap. These are also the ones that
+     * carry: at viewing distance colour and light read instantly, while small
+     * motion does not.
+     */
     static String[] highlightFxChoices() {
         java.util.List<String> out = new java.util.ArrayList<>();
         out.add(HL_FX_NONE);
         out.addAll(SlideTextData.Action.ALWAYS_ON);
-        for (String fx : SlideTextData.Action.EFFECTS) {
-            if (!out.contains(fx)) out.add(fx);
-        }
         return out.toArray(new String[0]);
     }
 
@@ -29002,13 +29018,19 @@ public class GifSlideShowApp extends JFrame {
             slideTextHighlightFxCombo.setToolTipText("<html>A live effect played on <b>every word of "
                     + "the group selected on the left</b>, where each word sits in the paragraph, "
                     + "for as long as the text is on screen — so marked words read as alive rather "
-                    + "than merely marked.<br>"
-                    + "The first block (Throb, Breathe, Soft Blink, Colour Cycle, Rainbow, Line "
-                    + "Scan, Shine Sweep, Halo Breathe) is written to run continuously and stay "
-                    + "readable; the rest are the Motion editor's effects, which will also loop.<br>"
-                    + "The colour and light ones paint <i>over</i> the words, so the marks, the "
-                    + "underline and each word's own bold / colour / font stay exactly as they "
-                    + "are.<br>Motion actions are untouched: a word one of them is animating is "
+                    + "than merely marked.<br><br>"
+                    + "<b>Colour Cycle · Rainbow · Line Scan · Shine Sweep · Halo Breathe</b> paint "
+                    + "<i>over</i> the words: nothing moves, and each word keeps its mark, its "
+                    + "underline and its own bold / colour / font. These read best from a "
+                    + "distance.<br>"
+                    + "<b>Breathe · Soft Blink</b> shade the words gently, never below 58% "
+                    + "opacity.<br>"
+                    + "<b>Throb</b> is the one that resizes — by a little, about each word's own "
+                    + "centre, so it stays clear of the words either side.<br><br>"
+                    + "The Motion editor's other effects are not offered here: a word inside a "
+                    + "paragraph has no room to travel, turn or stretch without running into its "
+                    + "neighbours. Use them on a whole text, which owns its space.<br>"
+                    + "Motion actions are untouched — a word one of them is animating in place is "
                     + "left to it.</html>");
             slideTextHighlightFxCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
@@ -31904,8 +31926,7 @@ public class GifSlideShowApp extends JFrame {
                     slideTextHighlightColorBtn.setForeground(item.highlightColor);
                     slideTextHighlightStyleCombo.setSelectedItem(item.highlightStyle);
                     slideTextHighlightTightnessSpinner.setValue(item.highlightTightness);
-                    slideTextHighlightFxCombo.setSelectedItem(
-                            isNoHighlightFx(item.highlightFx) ? HL_FX_NONE : item.highlightFx);
+                    selectHighlightFx(item.highlightFx);
                     slideTextHighlightFxSpeedSpinner.setValue(hlFxSpeedOf(item.highlightFxSpeedMs));
                 } else {
                     SlideTextData.HlGroup g = (item.hlGroups != null && currentHlGroupIndex < item.hlGroups.size())
@@ -31914,8 +31935,7 @@ public class GifSlideShowApp extends JFrame {
                     slideTextHighlightColorBtn.setForeground(slideTextHighlightColor);
                     slideTextHighlightStyleCombo.setSelectedItem(g.style != null ? g.style : "Regular");
                     slideTextHighlightTightnessSpinner.setValue(g.tightness);
-                    slideTextHighlightFxCombo.setSelectedItem(
-                            isNoHighlightFx(g.fx) ? HL_FX_NONE : g.fx);
+                    selectHighlightFx(g.fx);
                     slideTextHighlightFxSpeedSpinner.setValue(hlFxSpeedOf(g.fxSpeedMs));
                 }
             } finally {
@@ -31959,7 +31979,7 @@ public class GifSlideShowApp extends JFrame {
                 slideTextHighlightColorBtn.setForeground(slideTextHighlightColor);
                 slideTextHighlightStyleCombo.setSelectedItem("Regular");
                 slideTextHighlightTightnessSpinner.setValue(50);
-                slideTextHighlightFxCombo.setSelectedItem(HL_FX_NONE);
+                selectHighlightFx(HL_FX_NONE);
                 slideTextHighlightFxSpeedSpinner.setValue(1600);
             } finally {
                 isLoadingSlideText = false;
@@ -31970,6 +31990,22 @@ public class GifSlideShowApp extends JFrame {
          *  from an older or hand-edited preset can never make it throw. */
         private int hlFxSpeedOf(int ms) {
             return Math.max(200, Math.min(20000, ms <= 0 ? 1600 : ms));
+        }
+
+        /** Show a group's stored effect in the FX box. An effect the box no longer
+         *  offers — one saved before the list was cut back to what suits a word
+         *  inside a paragraph, or written into a preset by hand — is added as a row
+         *  of its own rather than quietly replaced: the renderer still plays what is
+         *  stored, so the box has to show it, and the next edit has to save it back
+         *  unchanged. Picking anything else drops it, which is the point. */
+        private void selectHighlightFx(String fx) {
+            String want = isNoHighlightFx(fx) ? HL_FX_NONE : fx.trim();
+            boolean known = false;
+            for (int i = 0; i < slideTextHighlightFxCombo.getItemCount(); i++) {
+                if (want.equals(slideTextHighlightFxCombo.getItemAt(i))) { known = true; break; }
+            }
+            if (!known) slideTextHighlightFxCombo.addItem(want);
+            slideTextHighlightFxCombo.setSelectedItem(want);
         }
 
         /** "✕" next to the HL combo: drops the currently-selected extra group
@@ -32389,8 +32425,7 @@ public class GifSlideShowApp extends JFrame {
                 slideTextHighlightColorBtn.setForeground(item.highlightColor);
                 slideTextHighlightStyleCombo.setSelectedItem(item.highlightStyle);
                 slideTextHighlightTightnessSpinner.setValue(item.highlightTightness);
-                slideTextHighlightFxCombo.setSelectedItem(
-                        isNoHighlightFx(item.highlightFx) ? HL_FX_NONE : item.highlightFx);
+                selectHighlightFx(item.highlightFx);
                 slideTextHighlightFxSpeedSpinner.setValue(hlFxSpeedOf(item.highlightFxSpeedMs));
                 slideTextUnderlineCombo.setSelectedItem(item.underlineStyle);
                 slideTextBoldField.setText(item.boldText);
