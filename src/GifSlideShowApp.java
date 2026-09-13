@@ -2467,6 +2467,8 @@ public class GifSlideShowApp extends JFrame {
         props.setProperty(p + "hlColor",            colorToHex(b.highlightColor != null ? b.highlightColor : new Color(255, 100, 150, 180)));
         props.setProperty(p + "hlStyle",            b.highlightStyle != null ? b.highlightStyle : "None");
         props.setProperty(p + "hlTightness",        String.valueOf(b.highlightTightness));
+        props.setProperty(p + "hlFx",               b.highlightFx != null ? b.highlightFx : HL_FX_NONE);
+        props.setProperty(p + "hlFxSpeedMs",        String.valueOf(b.highlightFxSpeedMs));
         props.setProperty(p + "ulStyle",            b.underlineStyle != null ? b.underlineStyle : "None");
         props.setProperty(p + "ulText",             b.underlineText != null ? b.underlineText : "");
     }
@@ -2515,6 +2517,8 @@ public class GifSlideShowApp extends JFrame {
         b.highlightColor      = hexToColor(props.getProperty(p + "hlColor", colorToHex(b.highlightColor)));
         b.highlightStyle      = props.getProperty(p + "hlStyle", b.highlightStyle);
         b.highlightTightness  = parseIntOr(props.getProperty(p + "hlTightness"), b.highlightTightness);
+        b.highlightFx         = props.getProperty(p + "hlFx", b.highlightFx);
+        b.highlightFxSpeedMs  = parseIntOr(props.getProperty(p + "hlFxSpeedMs"), b.highlightFxSpeedMs);
         b.underlineStyle      = props.getProperty(p + "ulStyle", b.underlineStyle);
         b.underlineText       = props.getProperty(p + "ulText", b.underlineText);
         return b;
@@ -7857,21 +7861,26 @@ public class GifSlideShowApp extends JFrame {
                         // the word must NOT be punched out here — punching it would
                         // take its highlight and underline with it.
                         if (wm.paintOnly) continue;
-                        double[] loc = locateWordCenter(stWrapped, stFm, wm.word, wm.occ,
+                        WordPlacement wpH = locateWordPlacement(stWrapped, stFm, wm.word, wm.occ,
                                 st.alignment, stAlignLeft, stAlignWidth, stCenterX,
                                 firstBaselineH, stLineHeight,
                                 st.justify, stBlockLeft, stMaxLineWidth);
-                        if (loc == null) continue;
-                        int pad = Math.max(2, (int) (stAscent * 0.15));
-                        double rw = loc[2] + pad * 2;
-                        double rh = stAscent + stFm.getDescent() + pad * 2;
-                        java.awt.geom.Rectangle2D.Double rect = new java.awt.geom.Rectangle2D.Double(
-                                loc[0] - rw / 2, loc[1] - rh / 2, rw, rh);
-                        if (clipArea == null) {
-                            clipArea = new java.awt.geom.Area(savedWordClip != null ? savedWordClip
-                                    : new java.awt.Rectangle(0, 0, targetW, targetH));
+                        if (wpH == null) continue;
+                        // A word the wrapper broke across a line is punched out in
+                        // BOTH of its pieces — the copy below redraws both, so
+                        // leaving one behind would show it twice.
+                        for (WordFragment frH : wpH.fragments) {
+                            int pad = Math.max(2, (int) (stAscent * 0.15));
+                            double rw = frH.width + pad * 2;
+                            double rh = stAscent + stFm.getDescent() + pad * 2;
+                            java.awt.geom.Rectangle2D.Double rect = new java.awt.geom.Rectangle2D.Double(
+                                    frH.cx - rw / 2, frH.cy - rh / 2, rw, rh);
+                            if (clipArea == null) {
+                                clipArea = new java.awt.geom.Area(savedWordClip != null ? savedWordClip
+                                        : new java.awt.Rectangle(0, 0, targetW, targetH));
+                            }
+                            clipArea.subtract(new java.awt.geom.Area(rect));
                         }
-                        clipArea.subtract(new java.awt.geom.Area(rect));
                     }
                     if (clipArea != null) { g.setClip(clipArea); wordClipApplied = true; }
                 }
@@ -10791,11 +10800,27 @@ public class GifSlideShowApp extends JFrame {
                     int firstBaseline = stCenterY - totalTextHeight / 2 + stAscent;
                     for (SlideTextData.WordMotionRender wm : st.wordMotionsRender) {
                         if (wm == null || wm.word == null || wm.word.isEmpty()) continue;
-                        double[] loc = locateWordCenter(stWrapped, stFm, wm.word, wm.occ,
+                        WordPlacement wp = locateWordPlacement(stWrapped, stFm, wm.word, wm.occ,
                                 st.alignment, stAlignLeft, stAlignWidth, stCenterX,
                                 firstBaseline, stLineHeight,
                                 st.justify, stBlockLeft, stMaxLineWidth);
-                        if (loc == null) continue;
+                        if (wp == null || wp.fragments.isEmpty()) continue;
+                        // What to draw, and where. Normally one piece — the word. A
+                        // word the wrapper broke across a line has two ("tor-" and
+                        // "rential"), and an effect that plays it WHERE IT SITS has to
+                        // play both, each in its own place and its own width; drawing
+                        // the whole word over the first piece would squeeze it into
+                        // half a word's space and leave the other half plain.
+                        // A word being FLOWN is the exception: it leaves the paragraph,
+                        // so it travels whole, from where its first piece was.
+                        java.util.List<WordFragment> wmParts;
+                        if (wm.isMove) {
+                            WordFragment f0 = wp.fragments.get(0);
+                            wmParts = java.util.Collections.singletonList(
+                                    new WordFragment(f0.cx, f0.cy, f0.width, wm.word));
+                        } else {
+                            wmParts = wp.fragments;
+                        }
                         // The copy may land in a different typeface (Format on
                         // landing / "Same as trigger"), so every measurement below —
                         // half-width for the destination edge, draw width, baseline —
@@ -10819,7 +10844,6 @@ public class GifSlideShowApp extends JFrame {
                             }
                         }
                         FontMetrics wmFm = (wmFont == stFont) ? stFm : g.getFontMetrics(wmFont);
-                        double wx = loc[0], wy = loc[1];
 
                         // ----- Paint-only: wash the word where it already sits -----
                         // No copy, no punch-out: the letters the paragraph drew are
@@ -10828,60 +10852,65 @@ public class GifSlideShowApp extends JFrame {
                         // highlight mark and underline untouched beneath it. This is
                         // what an always-on word effect runs on.
                         if (wm.paintOnly) {
-                            double drawnW = loc[2];
-                            if (drawnW <= 0) continue;
                             // A word the reveal has not reached is not on screen yet,
                             // and a wash paints the letters it is given: without this
                             // the effect would spell the word out early in colour.
-                            if (st.wordRevealCount >= 0 && loc.length > 3
-                                    && loc[3] >= st.wordRevealCount) continue;
-                            float wmLeft = (float) (wx - drawnW / 2.0);
-                            float wmBase = (float) (wy + (stFm.getAscent() - stFm.getDescent()) / 2.0);
-                            java.awt.font.FontRenderContext wpFrc = ((Graphics2D) g).getFontRenderContext();
-                            // Laid out rather than measured character by character, so
-                            // the outline matches the drawn word in a script that
-                            // shapes or runs right to left just as it does in Latin.
-                            java.awt.font.TextLayout wpTl =
-                                    new java.awt.font.TextLayout(wm.word, wmFont, wpFrc);
-                            double naturalW = wpTl.getAdvance();
-                            if (naturalW <= 0) continue;
-                            Shape wpGlyphs = wpTl.getOutline(
-                                    java.awt.geom.AffineTransform.getTranslateInstance(wmLeft, wmBase));
-                            // A justified line spaces an expression out, so the glyphs
-                            // as drawn are wider than their natural advance; stretch
-                            // the outline to match rather than washing half of it.
-                            if (Math.abs(drawnW - naturalW) > 0.5) {
-                                java.awt.geom.AffineTransform wpTx =
-                                        java.awt.geom.AffineTransform.getTranslateInstance(wmLeft, 0);
-                                wpTx.scale(drawnW / naturalW, 1.0);
-                                wpTx.translate(-wmLeft, 0);
-                                wpGlyphs = wpTx.createTransformedShape(wpGlyphs);
-                            }
-                            java.awt.geom.Rectangle2D wpBounds = wpGlyphs.getBounds2D();
-                            if (wpBounds.getWidth() <= 0 || wpBounds.getHeight() <= 0) continue;
-                            Graphics2D wpG = (Graphics2D) g.create();
-                            try {
-                                wpG.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
-                                        RenderingHints.VALUE_ANTIALIAS_ON);
-                                if (wm.glowSize > 0) {
-                                    Color wpHalo = wm.glowColor != null ? wm.glowColor
-                                            : (wm.color != null ? wm.color : stColor);
-                                    paintHaloOutside(wpG, wpGlyphs, wpHalo, wm.glowSize,
-                                            wmFont.getSize2D());
+                            if (st.wordRevealCount >= 0 && wp.wordsBefore >= st.wordRevealCount) continue;
+                            for (WordFragment part : wmParts) {
+                                double drawnW = part.width;
+                                if (drawnW <= 0 || part.text.isEmpty()) continue;
+                                float wmLeft = (float) (part.cx - drawnW / 2.0);
+                                float wmBase = (float) (part.cy
+                                        + (stFm.getAscent() - stFm.getDescent()) / 2.0);
+                                java.awt.font.FontRenderContext wpFrc =
+                                        ((Graphics2D) g).getFontRenderContext();
+                                // Laid out rather than measured character by character,
+                                // so the outline matches the drawn word in a script that
+                                // shapes or runs right to left just as it does in Latin.
+                                java.awt.font.TextLayout wpTl =
+                                        new java.awt.font.TextLayout(part.text, wmFont, wpFrc);
+                                double naturalW = wpTl.getAdvance();
+                                if (naturalW <= 0) continue;
+                                Shape wpGlyphs = wpTl.getOutline(
+                                        java.awt.geom.AffineTransform.getTranslateInstance(wmLeft, wmBase));
+                                // A justified line spaces an expression out, so the glyphs
+                                // as drawn are wider than their natural advance; stretch
+                                // the outline to match rather than washing half of it.
+                                if (Math.abs(drawnW - naturalW) > 0.5) {
+                                    java.awt.geom.AffineTransform wpTx =
+                                            java.awt.geom.AffineTransform.getTranslateInstance(wmLeft, 0);
+                                    wpTx.scale(drawnW / naturalW, 1.0);
+                                    wpTx.translate(-wmLeft, 0);
+                                    wpGlyphs = wpTx.createTransformedShape(wpGlyphs);
                                 }
-                                if (wm.recolor && wm.color != null) {
-                                    wpG.setColor(wm.color);
-                                    wpG.fill(wpGlyphs);
+                                java.awt.geom.Rectangle2D wpBounds = wpGlyphs.getBounds2D();
+                                if (wpBounds.getWidth() <= 0 || wpBounds.getHeight() <= 0) continue;
+                                Graphics2D wpG = (Graphics2D) g.create();
+                                try {
+                                    wpG.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                                            RenderingHints.VALUE_ANTIALIAS_ON);
+                                    if (wm.glowSize > 0) {
+                                        Color wpHalo = wm.glowColor != null ? wm.glowColor
+                                                : (wm.color != null ? wm.color : stColor);
+                                        paintHaloOutside(wpG, wpGlyphs, wpHalo, wm.glowSize,
+                                                wmFont.getSize2D());
+                                    }
+                                    if (wm.recolor && wm.color != null) {
+                                        wpG.setColor(wm.color);
+                                        wpG.fill(wpGlyphs);
+                                    }
+                                    paintFxWash(wpG, wpGlyphs, wpBounds, wm.rainbowPhase,
+                                            wm.sheenPos, wm.sheenKind, wm.sheenColor);
+                                } finally {
+                                    wpG.dispose();
                                 }
-                                paintFxWash(wpG, wpGlyphs, wpBounds, wm.rainbowPhase,
-                                        wm.sheenPos, wm.sheenKind, wm.sheenColor);
-                            } finally {
-                                wpG.dispose();
                             }
                             continue;
                         }
 
-                        double wwHalf = wmFm.stringWidth(wm.word) / 2.0;
+                        for (WordFragment part : wmParts) {
+                        double wx = part.cx, wy = part.cy;
+                        double wwHalf = wmFm.stringWidth(part.text) / 2.0;
                         double px, py;
                         if (wm.isMove) {
                             // To X% marks the word's START, not its centre. The copy is
@@ -10891,7 +10920,7 @@ public class GifSlideShowApp extends JFrame {
                             // scale/pop. "Start" is the LEFT edge for LTR words and the
                             // RIGHT edge for RTL (Arabic/Hebrew) words.
                             double sc = wm.scale != 0.0 ? wm.scale : 1.0;
-                            double edgeSign = containsRtl(wm.word) ? -1.0 : 1.0;
+                            double edgeSign = containsRtl(part.text) ? -1.0 : 1.0;
                             double destCenterX = wm.destXFrac * targetW + edgeSign * wwHalf * sc;
                             px = wx + (destCenterX - wx) * wm.eased;
                             py = wy + (wm.destYFrac * targetH - wy) * wm.eased;
@@ -10920,7 +10949,7 @@ public class GifSlideShowApp extends JFrame {
                             double wsx = wm.scale * wm.scaleX, wsy = wm.scale * wm.scaleY;
                             if (wsx != 1.0 || wsy != 1.0) wg.scale(wsx, wsy);
                             Color wmDraw = wm.color != null ? wm.color : stColor;
-                            int ww = wmFm.stringWidth(wm.word);
+                            int ww = wmFm.stringWidth(part.text);
                             float baselineOff = (wmFm.getAscent() - wmFm.getDescent()) / 2f;
                             // The word's own highlight mark, under the copy and
                             // inside its transform, so an always-on effect keeps the
@@ -10937,7 +10966,7 @@ public class GifSlideShowApp extends JFrame {
                                 float wgMax = Math.max(2f, wmFont.getSize2D()
                                         * (0.02f + 0.035f * Math.min(20, wm.glowSize)));
                                 Shape wgOutline = wmFont.createGlyphVector(
-                                        wg.getFontRenderContext(), wm.word)
+                                        wg.getFontRenderContext(), part.text)
                                         .getOutline(-ww / 2f, baselineOff);
                                 Object savedWgAA = wg.getRenderingHint(RenderingHints.KEY_ANTIALIASING);
                                 wg.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
@@ -10959,18 +10988,19 @@ public class GifSlideShowApp extends JFrame {
                                 }
                             }
                             wg.setColor(wmDraw);
-                            wg.drawString(wm.word, -ww / 2f, baselineOff);
+                            wg.drawString(part.text, -ww / 2f, baselineOff);
                             // Colour / light wash over the copy's own glyphs, so a
                             // word that is (say) throbbing can carry a sweep with it.
                             if (wm.rainbowPhase >= 0.0 || wm.sheenPos >= 0.0) {
                                 Shape wgWash = wmFont.createGlyphVector(
-                                        wg.getFontRenderContext(), wm.word)
+                                        wg.getFontRenderContext(), part.text)
                                         .getOutline(-ww / 2f, baselineOff);
                                 paintFxWash(wg, wgWash, wgWash.getBounds2D(), wm.rainbowPhase,
                                         wm.sheenPos, wm.sheenKind, wm.sheenColor);
                             }
                         } finally {
                             wg.dispose();
+                        }
                         }
                     }
                 }
@@ -13348,7 +13378,37 @@ public class GifSlideShowApp extends JFrame {
      * fly a copy from the word's spot. Returns {cx, cy, wordWidth} or null if not
      * found. Layout inputs mirror the render loop's own maths.
      */
-    private static double[] locateWordCenter(WrappedText wrapped, FontMetrics fm, String word, int occ,
+    /** One piece of a located word: the run of it that sits on a single line.
+     *  A word the wrapper broke ("tor-" + "rential") has two; every other word has
+     *  one. {@code text} is exactly what the paragraph drew there, hyphen and all,
+     *  so a copy or a wash of this piece matches the type underneath it. */
+    private static final class WordFragment {
+        final double cx, cy, width;
+        final String text;
+        WordFragment(double cx, double cy, double width, String text) {
+            this.cx = cx; this.cy = cy; this.width = width; this.text = text;
+        }
+    }
+
+    /** Where one occurrence of a word actually sits: its piece (or pieces), plus
+     *  how many words of the paragraph come before it. */
+    private static final class WordPlacement {
+        final java.util.List<WordFragment> fragments = new java.util.ArrayList<>();
+        int wordsBefore;
+    }
+
+    /**
+     * Find occurrence {@code occ} of {@code word} in the wrapped text and return
+     * every piece of it, in reading order.
+     *
+     * <p>Nearly always that is one piece. It is two when the wrapper has broken the
+     * word across a line ("tor-" on one line, "rential" on the next), and a caller
+     * that decorates the word in place has to decorate BOTH — drawing the whole word
+     * over the first piece, as this used to, squeezes it into the space of half a
+     * word and leaves the other half untouched.
+     */
+    private static WordPlacement locateWordPlacement(WrappedText wrapped, FontMetrics fm,
+                                             String word, int occ,
                                              int alignment, int alignLeft, int alignWidth, int centerX,
                                              int firstBaseline, int lineHeight,
                                              boolean justify, int blockLeft, int blockWidth) {
@@ -13361,7 +13421,7 @@ public class GifSlideShowApp extends JFrame {
         if (needle.isEmpty()) return null;
         int n = lines.size();
         int[] lineStart = new int[n];
-        int[] lineLen = new int[n];
+        int[] lineLen = new int[n];   // flattened length: one short on a hyphenated line
         StringBuilder flat = new StringBuilder();
         for (int i = 0; i < n; i++) {
             // Mirrors computeWrapSegments: a hyphenated line joins the next with
@@ -13406,67 +13466,94 @@ public class GifSlideShowApp extends JFrame {
         int want = Math.max(1, occ);
         int idx = matches.get(Math.min(want, matches.size()) - 1);
         int end = idx + needle.length();
-        int li = 0;
-        for (int k = 0; k < n; k++) {
-            int ls = lineStart[k], le = ls + lineLen[k];
-            if (idx >= ls && idx <= le) { li = k; break; }
-        }
-        String line = lines.get(li);
-        int inLineStart = idx - lineStart[li];
-        int inLineEnd = Math.min(line.length(), end - lineStart[li]);
-        if (inLineStart < 0) inLineStart = 0;
-        if (inLineEnd < inLineStart) inLineEnd = inLineStart;
-        int lineW = fm.stringWidth(line);
-        // On a justified line the words are spaced out to fill the block, so measure
-        // the word where it is actually drawn rather than at its natural offset.
-        JustifyFit fit = justifyFit(line, fm, justify, li == n - 1, blockWidth);
-        double[] span = justifiedSpan(fit, fm, inLineStart, inLineEnd);
-        int lineX;
-        if (fit != null) lineX = blockLeft;
-        else if (alignment == SwingConstants.LEFT) lineX = alignLeft;
-        else if (alignment == SwingConstants.RIGHT) lineX = alignLeft + alignWidth - lineW;
-        else lineX = centerX - lineW / 2;
-        int startOff = span != null ? (int) Math.round(span[0])
-                                    : fm.stringWidth(line.substring(0, inLineStart));
-        int wordW = span != null ? (int) Math.round(span[1])
-                                 : fm.stringWidth(line.substring(inLineStart, inLineEnd));
-        // In Arabic / Hebrew the characters BEFORE a word sit to its right, so
-        // measuring the offset by summing their widths — which is what the two
-        // lines above do — puts the word at its mirror image of where it is drawn,
-        // and a word effect lands on whatever happens to be over there. Ask the
-        // same TextLayout the highlight mark is measured with (see markSpan) for
-        // the word's real, visual span instead. Left-to-right text keeps the plain
-        // arithmetic: it is exact there, and the layout is not free.
-        if (span == null && containsRtl(line) && inLineEnd <= line.length()
-                && fm.getFont() != null) {
-            try {
-                java.awt.font.TextLayout tl = new java.awt.font.TextLayout(
-                        line, fm.getFont(), fm.getFontRenderContext());
-                java.awt.geom.Rectangle2D b =
-                        tl.getLogicalHighlightShape(inLineStart, inLineEnd).getBounds2D();
-                if (b.getWidth() > 0) {
-                    startOff = (int) Math.round(b.getX());
-                    wordW = (int) Math.ceil(b.getWidth());
-                }
-            } catch (RuntimeException ignored) {
-                // An unlayoutable line keeps the arithmetic above rather than
-                // costing the action its effect.
-            }
-        }
-        double cx = lineX + startOff + wordW / 2.0;
-        int baseline = firstBaseline + li * lineHeight;
-        double cy = baseline - (fm.getAscent() - fm.getDescent()) / 2.0;
+
+        WordPlacement out = new WordPlacement();
         // How many words of the paragraph come before this one, counted over the
         // same flattened text the word-by-word reveal counts over, so a caller can
         // tell whether the word it is about to decorate has actually been revealed.
-        int wordsBefore = 0;
         boolean inWord = false;
         for (int k = 0; k < idx && k < hay.length(); k++) {
             boolean sp = Character.isWhitespace(hay.charAt(k));
-            if (!sp && !inWord) { wordsBefore++; inWord = true; }
+            if (!sp && !inWord) { out.wordsBefore++; inWord = true; }
             else if (sp) inWord = false;
         }
-        return new double[]{cx, cy, wordW, wordsBefore};
+
+        for (int li = 0; li < n; li++) {
+            int ls = lineStart[li], le = ls + lineLen[li];
+            int segS = Math.max(ls, idx), segE = Math.min(le, end);
+            if (segS >= segE) {
+                if (le >= end) break;
+                continue;
+            }
+            String line = lines.get(li);
+            int inLineStart = segS - ls;
+            int inLineEnd = segE - ls;
+            // A piece running to the end of a line the wrapper hyphenated takes the
+            // hyphen with it: that hyphen is part of what was drawn there.
+            if (wrapped.hyphenAdded(li) && inLineEnd == lineLen[li]) inLineEnd++;
+            inLineEnd = Math.min(inLineEnd, line.length());
+            if (inLineEnd <= inLineStart) {
+                if (le >= end) break;
+                continue;
+            }
+            int lineW = fm.stringWidth(line);
+            // On a justified line the words are spaced out to fill the block, so measure
+            // the word where it is actually drawn rather than at its natural offset.
+            JustifyFit fit = justifyFit(line, fm, justify, li == n - 1, blockWidth);
+            double[] span = justifiedSpan(fit, fm, inLineStart, inLineEnd);
+            int lineX;
+            if (fit != null) lineX = blockLeft;
+            else if (alignment == SwingConstants.LEFT) lineX = alignLeft;
+            else if (alignment == SwingConstants.RIGHT) lineX = alignLeft + alignWidth - lineW;
+            else lineX = centerX - lineW / 2;
+            int startOff = span != null ? (int) Math.round(span[0])
+                                        : fm.stringWidth(line.substring(0, inLineStart));
+            int wordW = span != null ? (int) Math.round(span[1])
+                                     : fm.stringWidth(line.substring(inLineStart, inLineEnd));
+            // In Arabic / Hebrew the characters BEFORE a word sit to its right, so
+            // measuring the offset by summing their widths — which is what the two
+            // lines above do — puts the word at its mirror image of where it is drawn,
+            // and a word effect lands on whatever happens to be over there. Ask the
+            // same TextLayout the highlight mark is measured with (see markSpan) for
+            // the word's real, visual span instead. Left-to-right text keeps the plain
+            // arithmetic: it is exact there, and the layout is not free.
+            if (span == null && containsRtl(line) && fm.getFont() != null) {
+                try {
+                    java.awt.font.TextLayout tl = new java.awt.font.TextLayout(
+                            line, fm.getFont(), fm.getFontRenderContext());
+                    java.awt.geom.Rectangle2D b =
+                            tl.getLogicalHighlightShape(inLineStart, inLineEnd).getBounds2D();
+                    if (b.getWidth() > 0) {
+                        startOff = (int) Math.round(b.getX());
+                        wordW = (int) Math.ceil(b.getWidth());
+                    }
+                } catch (RuntimeException ignored) {
+                    // An unlayoutable line keeps the arithmetic above rather than
+                    // costing the action its effect.
+                }
+            }
+            double cx = lineX + startOff + wordW / 2.0;
+            int baseline = firstBaseline + li * lineHeight;
+            double cy = baseline - (fm.getAscent() - fm.getDescent()) / 2.0;
+            out.fragments.add(new WordFragment(cx, cy, wordW,
+                    line.substring(inLineStart, inLineEnd)));
+            if (le >= end) break;
+        }
+        return out.fragments.isEmpty() ? null : out;
+    }
+
+    /** The first (usually only) piece of a located word, as
+     *  {@code {centreX, centreY, width, wordsBefore}} — see
+     *  {@link #locateWordPlacement}. */
+    private static double[] locateWordCenter(WrappedText wrapped, FontMetrics fm, String word, int occ,
+                                             int alignment, int alignLeft, int alignWidth, int centerX,
+                                             int firstBaseline, int lineHeight,
+                                             boolean justify, int blockLeft, int blockWidth) {
+        WordPlacement wp = locateWordPlacement(wrapped, fm, word, occ, alignment, alignLeft,
+                alignWidth, centerX, firstBaseline, lineHeight, justify, blockLeft, blockWidth);
+        if (wp == null || wp.fragments.isEmpty()) return null;
+        WordFragment f = wp.fragments.get(0);
+        return new double[]{ f.cx, f.cy, f.width, wp.wordsBefore };
     }
 
     /**
@@ -24237,6 +24324,10 @@ public class GifSlideShowApp extends JFrame {
         Color   highlightColor = new Color(255, 100, 150, 180);
         String  highlightStyle = "None";
         int     highlightTightness = 50;
+        // The highlight's live effect travels with the rest of its look, so a group
+        // that stamps marked words stamps how they behave as well.
+        String  highlightFx = HL_FX_NONE;
+        int     highlightFxSpeedMs = 1600;
         String  underlineStyle = "None";
         String  underlineText = "";
 
@@ -24279,6 +24370,8 @@ public class GifSlideShowApp extends JFrame {
             b.highlightColor      = t.highlightColor != null ? t.highlightColor : new Color(255, 100, 150, 180);
             b.highlightStyle      = t.highlightStyle != null ? t.highlightStyle : "None";
             b.highlightTightness  = t.highlightTightness;
+            b.highlightFx         = isNoHighlightFx(t.highlightFx) ? HL_FX_NONE : t.highlightFx;
+            b.highlightFxSpeedMs  = t.highlightFxSpeedMs;
             b.underlineStyle      = t.underlineStyle != null ? t.underlineStyle : "None";
             b.underlineText       = t.underlineText != null ? t.underlineText : "";
             return b;
@@ -24303,6 +24396,7 @@ public class GifSlideShowApp extends JFrame {
             b.fxBurst = fxBurst; b.fxBurstStyle = fxBurstStyle;
             b.highlightText = highlightText; b.highlightColor = highlightColor;
             b.highlightStyle = highlightStyle; b.highlightTightness = highlightTightness;
+            b.highlightFx = highlightFx; b.highlightFxSpeedMs = highlightFxSpeedMs;
             b.underlineStyle = underlineStyle; b.underlineText = underlineText;
             return b;
         }
@@ -24327,6 +24421,10 @@ public class GifSlideShowApp extends JFrame {
             if (stampEffects) {
                 t.fxBurst = fxBurst;
                 t.fxBurstStyle = fxBurstStyle;
+                // Stamped with the highlight it belongs to: a group that sets the
+                // marked words and their colour sets how they behave too.
+                t.highlightFx = highlightFx;
+                t.highlightFxSpeedMs = highlightFxSpeedMs;
             }
         }
     }
@@ -33039,6 +33137,18 @@ public class GifSlideShowApp extends JFrame {
             fxTightSp.setToolTipText("Tight: HL padding / UL distance below text");
             fxTightSp.addChangeListener(e -> { b.highlightTightness = (int) fxTightSp.getValue(); onChange.run(); });
 
+            JComboBox<String> fxHlFxCb = new JComboBox<>(highlightFxChoices());
+            fxHlFxCb.setSelectedItem(isNoHighlightFx(b.highlightFx) ? HL_FX_NONE : b.highlightFx);
+            fxHlFxCb.setPreferredSize(new Dimension(104, 24));
+            fxHlFxCb.setToolTipText("Live effect played on the highlighted words, where they sit in "
+                    + "the paragraph, for as long as the text is on screen.");
+            fxHlFxCb.addActionListener(e -> { b.highlightFx = (String) fxHlFxCb.getSelectedItem(); onChange.run(); });
+            JSpinner fxHlFxSpeedSp = new JSpinner(new SpinnerNumberModel(
+                    clampRange(b.highlightFxSpeedMs <= 0 ? 1600 : b.highlightFxSpeedMs, 200, 20000), 200, 20000, 100));
+            fxHlFxSpeedSp.setPreferredSize(new Dimension(62, 24));
+            fxHlFxSpeedSp.setToolTipText("How long one cycle of that effect takes, in milliseconds.");
+            fxHlFxSpeedSp.addChangeListener(e -> { b.highlightFxSpeedMs = (int) fxHlFxSpeedSp.getValue(); onChange.run(); });
+
             JComboBox<String> fxUlCb = new JComboBox<>(UNDERLINE_STYLES);
             fxUlCb.setSelectedItem(b.underlineStyle);
             fxUlCb.setPreferredSize(new Dimension(90, 24));
@@ -33055,7 +33165,8 @@ public class GifSlideShowApp extends JFrame {
 
             // Grey the effect widgets out until "Text FX" is ticked.
             final JComponent[] fxWidgets = { fxEffectCb, fxPowerSp, fxBurstChk, fxBurstCb,
-                    fxHlField, fxHlColBtn, fxHlStyleCb, fxTightSp, fxUlCb, fxUlField };
+                    fxHlField, fxHlColBtn, fxHlStyleCb, fxTightSp, fxHlFxCb, fxHlFxSpeedSp,
+                    fxUlCb, fxUlField };
             final Runnable syncFxEnabled = () -> {
                 for (JComponent w : fxWidgets) w.setEnabled(fxOnChk.isSelected());
             };
@@ -33072,6 +33183,7 @@ public class GifSlideShowApp extends JFrame {
             r4.add(fxBurstChk); r4.add(fxBurstCb);
             r4.add(L.apply("HL:", 0)); r4.add(fxHlField); r4.add(fxHlColBtn); r4.add(fxHlStyleCb);
             r4.add(L.apply("Tight:", 0)); r4.add(fxTightSp);
+            r4.add(L.apply("FX:", 0)); r4.add(fxHlFxCb); r4.add(fxHlFxSpeedSp);
             r4.add(L.apply("UL:", 0)); r4.add(fxUlCb); r4.add(fxUlField);
 
             wrap.add(r1);
