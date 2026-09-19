@@ -26612,10 +26612,15 @@ public class GifSlideShowApp extends JFrame {
         if (trimmed.isEmpty()) return scribe;
         String[] tokens = trimmed.split("\\s+");
 
+        // A number on the page is written in figures and SAID in words, so the two
+        // streams share no characters until the figures are spelled out the way the
+        // narrator reads them. Scribe's own figures (when it writes any) are left
+        // alone — see expandNumbersForAlign.
+        java.util.Set<String> spokenDigits = spokenDigitRuns(scribe);
         String[] tnorm = new String[tokens.length];
         int totalChars = 0;
         for (int i = 0; i < tokens.length; i++) {
-            tnorm[i] = normalizeWordForAlign(tokens[i]);
+            tnorm[i] = expandNumbersForAlign(normalizeWordForAlign(tokens[i]), spokenDigits);
             totalChars += tnorm[i].length();
         }
         if (totalChars == 0) return scribe;
@@ -26764,7 +26769,21 @@ public class GifSlideShowApp extends JFrame {
                     hintPos++; wi++;
                     matchedChars++;
                 } else {
-                    int max = Math.min(LOOK_AHEAD, hintNorm.length() - hintPos);
+                    // The window has to be able to clear the token the cursor sits
+                    // in, or a token longer than LOOK_AHEAD pins the walk where it
+                    // stands: every later entry fails its resync, matches nothing,
+                    // and the whole rest of the text comes out never-spoken. A
+                    // number written in digits is exactly that token — "18,000km/h"
+                    // normalises to eight characters that no spoken word shares a
+                    // letter with in order. So reach at least the FIRST CHARACTER OF
+                    // THE NEXT token; the token-start rule below still decides
+                    // whether landing there is allowed, so widening the window can
+                    // only let the walk move on, never let it match more loosely.
+                    int curTok = charToToken[hintPos];
+                    int tokEnd = curTok + 1 < tokStart.length
+                            ? tokStart[curTok + 1] : hintNorm.length();
+                    int reach = Math.max(LOOK_AHEAD, tokEnd - hintPos + 1);
+                    int max = Math.min(reach, hintNorm.length() - hintPos);
                     int look = 1;
                     boolean found = false;
                     for (; look < max; look++) {
@@ -26887,6 +26906,174 @@ public class GifSlideShowApp extends JFrame {
             char c = s.charAt(i);
             if (Character.isLetterOrDigit(c)) sb.append(Character.toLowerCase(c));
         }
+        return sb.toString();
+    }
+
+    /** Every run of digits Scribe itself wrote, normalised. A number the
+     *  transcript spells in figures needs no expansion below — it already matches
+     *  the figures on screen, and rewriting it as words would break a pair that
+     *  lines up perfectly. */
+    private static java.util.Set<String> spokenDigitRuns(List<WordTiming> scribe) {
+        java.util.Set<String> out = new java.util.HashSet<>();
+        if (scribe == null) return out;
+        for (WordTiming w : scribe) {
+            if (w == null || w.word == null) continue;
+            String n = normalizeWordForAlign(w.word);
+            int i = 0;
+            while (i < n.length()) {
+                if (!Character.isDigit(n.charAt(i))) { i++; continue; }
+                int j = i;
+                while (j < n.length() && Character.isDigit(n.charAt(j))) j++;
+                out.add(n.substring(i, j));
+                i = j;
+            }
+        }
+        return out;
+    }
+
+    /** Units that are written short and said long. Only ever applied to the
+     *  letters that FOLLOW a number ("18,000km/h", "5kg"), never to a bare word,
+     *  so ordinary prose cannot be rewritten by accident. The longest key that
+     *  fits wins, whatever order they sit in here, so "kmh" is never read as
+     *  "km" with a stray "h" left over. */
+    private static final String[][] ALIGN_UNIT_WORDS = {
+            { "kmh",  "kilometersperhour" },
+            { "mph",  "milesperhour" },
+            { "kph",  "kilometersperhour" },
+            { "km",   "kilometers" },
+            { "kg",   "kilograms" },
+            { "cm",   "centimeters" },
+            { "mm",   "millimeters" },
+            { "ml",   "milliliters" },
+            { "hrs",  "hours" },
+            { "hr",   "hours" },
+            { "min",  "minutes" },
+            { "sec",  "seconds" },
+            { "ft",   "feet" },
+            { "lb",   "pounds" },
+            { "lbs",  "pounds" },
+    };
+
+    /**
+     * Rewrite a normalised visible token so it reads the way it is SAID, which is
+     * what the character walk in {@link #alignTimingsToText} compares against.
+     *
+     * <p>Scribe transcribes what it hears: a narrator saying "eighteen thousand
+     * kilometres per hour" produces those words, while the page says "18,000km/h".
+     * Normalised, those are {@code eighteenthousandkilometersperhour} and
+     * {@code 18000kmh} — not one character in common, in order. The walk cannot
+     * match them, so the number is never lit, and (before the widened resync
+     * window above) every word after it in the paragraph was lost with it.
+     *
+     * <p>So each run of digits becomes its spoken form, and any unit abbreviation
+     * glued to it becomes the word it stands for. A digit run Scribe wrote in
+     * figures itself is left exactly as it is. Text with no digits is returned
+     * unchanged and cannot be affected by any of this.
+     */
+    private static String expandNumbersForAlign(String norm, java.util.Set<String> spokenDigits) {
+        if (norm == null || norm.isEmpty()) return norm;
+        boolean hasDigit = false;
+        for (int i = 0; i < norm.length(); i++) {
+            if (Character.isDigit(norm.charAt(i))) { hasDigit = true; break; }
+        }
+        if (!hasDigit) return norm;
+
+        StringBuilder out = new StringBuilder(norm.length() * 4);
+        int i = 0;
+        boolean afterNumber = false;
+        while (i < norm.length()) {
+            char c = norm.charAt(i);
+            if (Character.isDigit(c)) {
+                int j = i;
+                while (j < norm.length() && Character.isDigit(norm.charAt(j))) j++;
+                String run = norm.substring(i, j);
+                out.append(spokenDigits.contains(run) ? run : numberWordsForAlign(run));
+                afterNumber = true;
+                i = j;
+                continue;
+            }
+            // Letters directly after a number may be a unit said in full.
+            if (afterNumber) {
+                String unit = null;
+                int used = 0;
+                for (String[] u : ALIGN_UNIT_WORDS) {
+                    if (u[0].length() > used && norm.startsWith(u[0], i)
+                            && (i + u[0].length() == norm.length()
+                                || Character.isDigit(norm.charAt(i + u[0].length())))) {
+                        unit = u[1];
+                        used = u[0].length();
+                    }
+                }
+                if (unit != null) { out.append(unit); i += used; continue; }
+            }
+            afterNumber = false;
+            out.append(c);
+            i++;
+        }
+        return out.toString();
+    }
+
+    /**
+     * A run of digits as the words a narrator says for it, letters only.
+     *
+     * <p>A four-digit run in 1100–2099 is read as a year ("1990" → "nineteen
+     * ninety"), which is how such a number is almost always spoken in prose;
+     * everything else is read as a cardinal ("18000" → "eighteen thousand").
+     * It does not have to be perfect: the walk scores by matched characters and
+     * resyncs over the rest, so a number read one way and written the other still
+     * lands on its own word instead of stalling the whole paragraph. Runs too long
+     * to name are returned as-is rather than guessed at.
+     */
+    private static String numberWordsForAlign(String digits) {
+        if (digits == null || digits.isEmpty()) return "";
+        String d = digits;
+        while (d.length() > 1 && d.charAt(0) == '0') d = d.substring(1);  // "007" is said "seven"
+        if (d.length() > 15) return digits;
+        long v;
+        try { v = Long.parseLong(d); } catch (NumberFormatException e) { return digits; }
+        if (d.length() == 4 && v >= 1100 && v <= 2099 && v % 100 != 0) {
+            // Year: two halves, said as a pair. 2005-style years are not spoken
+            // that way ("two thousand five"), so only 1100-1999 and 2010+ qualify.
+            int hi = (int) (v / 100), lo = (int) (v % 100);
+            if (hi != 20 || lo >= 10) {
+                return smallNumberWords(hi) + (lo == 0 ? "" : smallNumberWords(lo));
+            }
+        }
+        return cardinalWords(v);
+    }
+
+    private static final String[] ALIGN_ONES = {
+            "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+            "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
+            "seventeen", "eighteen", "nineteen" };
+    private static final String[] ALIGN_TENS = {
+            "", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety" };
+
+    /** 0–99 in words, letters only. */
+    private static String smallNumberWords(int n) {
+        if (n < 0 || n > 99) return "";
+        if (n < 20) return ALIGN_ONES[n];
+        return ALIGN_TENS[n / 10] + (n % 10 == 0 ? "" : ALIGN_ONES[n % 10]);
+    }
+
+    /** Any non-negative long in words, letters only, in the order it is said. */
+    private static String cardinalWords(long v) {
+        if (v < 0) return "";
+        if (v < 100) return smallNumberWords((int) v);
+        StringBuilder sb = new StringBuilder();
+        long[] scale   = { 1_000_000_000_000L, 1_000_000_000L, 1_000_000L, 1_000L };
+        String[] names = { "trillion", "billion", "million", "thousand" };
+        for (int i = 0; i < scale.length; i++) {
+            if (v >= scale[i]) {
+                sb.append(cardinalWords(v / scale[i])).append(names[i]);
+                v %= scale[i];
+            }
+        }
+        if (v >= 100) {
+            sb.append(ALIGN_ONES[(int) (v / 100)]).append("hundred");
+            v %= 100;
+        }
+        if (v > 0) sb.append(smallNumberWords((int) v));
         return sb.toString();
     }
 
