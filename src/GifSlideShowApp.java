@@ -233,8 +233,8 @@ public class GifSlideShowApp extends JFrame {
         topRow.add(mp4Btn);
         topRow.add(summaryBtn);
 
-        JButton clearAllBtn = createStyledButton("Clear All", new Color(180, 50, 50));
-        clearAllBtn.setToolTipText("Remove all slides and start fresh");
+        JButton clearAllBtn = createStyledButton("Clear…", new Color(180, 50, 50));
+        clearAllBtn.setToolTipText("Remove all slides, or a range of slides (e.g. 3 to 7)");
         clearAllBtn.addActionListener(e -> clearAllSlides());
         topRow.add(clearAllBtn);
 
@@ -6796,12 +6796,70 @@ public class GifSlideShowApp extends JFrame {
         });
     }
 
+    /**
+     * Clear button: remove every slide, or only slides {@code from}..{@code to}
+     * (1-based, inclusive, as numbered in the list). A range that covers every
+     * slide is the same as clearing all, which leaves one fresh empty slide.
+     */
     private void clearAllSlides() {
         if (slideRows.isEmpty()) return;
+        int n = slideRows.size();
+
+        JRadioButton allRb   = new JRadioButton("All slides (" + n + ")", true);
+        JRadioButton rangeRb = new JRadioButton("Slides from");
+        ButtonGroup grp = new ButtonGroup();
+        grp.add(allRb);
+        grp.add(rangeRb);
+        JSpinner fromSp = new JSpinner(new SpinnerNumberModel(1, 1, n, 1));
+        JSpinner toSp   = new JSpinner(new SpinnerNumberModel(n, 1, n, 1));
+        for (JSpinner sp : new JSpinner[]{ fromSp, toSp }) {
+            // Room for three-digit slide numbers.
+            ((JSpinner.DefaultEditor) sp.getEditor()).getTextField().setColumns(3);
+        }
+        // Touching a spinner means the user wants a range, so there is no need to
+        // pick the radio first.
+        javax.swing.event.ChangeListener pickRange = e -> rangeRb.setSelected(true);
+        fromSp.addChangeListener(pickRange);
+        toSp.addChangeListener(pickRange);
+
+        JPanel rangeRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        rangeRow.add(rangeRb);
+        rangeRow.add(fromSp);
+        rangeRow.add(new JLabel("to"));
+        rangeRow.add(toSp);
+        JPanel allRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        allRow.add(allRb);
+        JPanel panel = new JPanel(new GridLayout(0, 1, 0, 4));
+        panel.add(new JLabel("Which slides do you want to remove?"));
+        panel.add(allRow);
+        panel.add(rangeRow);
+
+        int choice = JOptionPane.showConfirmDialog(this, panel, "Clear Slides",
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
+        if (choice != JOptionPane.OK_OPTION) return;
+
+        int from = 1, to = n;
+        if (rangeRb.isSelected()) {
+            try { fromSp.commitEdit(); toSp.commitEdit(); } catch (java.text.ParseException ignored) { }
+            int a = (Integer) fromSp.getValue(), b = (Integer) toSp.getValue();
+            from = Math.min(a, b);   // "7 to 3" means the same slides as "3 to 7"
+            to   = Math.max(a, b);
+        }
+        int count = to - from + 1;
+        String what = count == n ? "all " + n + " slides and start fresh"
+                : count == 1 ? "slide " + from
+                : "slides " + from + " to " + to + " (" + count + " slides)";
         int confirm = JOptionPane.showConfirmDialog(this,
-                "Remove all " + slideRows.size() + " slides and start fresh?",
-                "Clear All", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                "Remove " + what + "?\nThis cannot be undone.",
+                "Clear Slides", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
         if (confirm != JOptionPane.YES_OPTION) return;
+
+        if (count < n) {
+            // Same effect as pressing each slide's own delete button.
+            slideRows.subList(from - 1, to).clear();
+            rebuildSlidesPanel();
+            return;
+        }
         slideRows.clear();
         slidesPanel.removeAll();
         slidesPanel.revalidate();
