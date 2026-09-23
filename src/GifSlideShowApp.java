@@ -1989,6 +1989,25 @@ public class GifSlideShowApp extends JFrame {
         return false;
     }
 
+    /**
+     * Outline of {@code s} with its baseline origin at ({@code x}, {@code y}), matching
+     * what {@code drawString} paints there. Font.createGlyphVector does no shaping or
+     * bidi reordering, so for Arabic it yields isolated letter forms in logical
+     * (reversed) order and for Hebrew reversed letters — a halo built from it misses
+     * the rendered word. Such text goes through TextLayout, which shapes and reorders
+     * exactly like drawString; plain LTR text keeps the cheaper glyph-vector path.
+     */
+    private static Shape textOutline(Font font, java.awt.font.FontRenderContext frc,
+                                     String s, float x, float y) {
+        if (s == null || s.isEmpty()) return new java.awt.geom.Path2D.Float();
+        char[] cs = s.toCharArray();
+        if (containsArabic(s) || java.text.Bidi.requiresBidi(cs, 0, cs.length)) {
+            return new java.awt.font.TextLayout(s, font, frc)
+                    .getOutline(AffineTransform.getTranslateInstance(x, y));
+        }
+        return font.createGlyphVector(frc, s).getOutline(x, y);
+    }
+
     private static String colorToHex(Color c) {
         if (c.getAlpha() == 255) {
             return String.format("#%02X%02X%02X", c.getRed(), c.getGreen(), c.getBlue());
@@ -8280,11 +8299,11 @@ public class GifSlideShowApp extends JFrame {
                         if (justified) {
                             double agDx = stBlockLeft;
                             for (String w : justifyWords) {
-                                agShapes.add(stFont.createGlyphVector(agFrc, w).getOutline((float) agDx, lineY));
+                                agShapes.add(textOutline(stFont, agFrc, w, (float) agDx, lineY));
                                 agDx += stFm.stringWidth(w) + justifyExtraSpace;
                             }
                         } else {
-                            agShapes.add(stFont.createGlyphVector(agFrc, visibleLine).getOutline(lineX, lineY));
+                            agShapes.add(textOutline(stFont, agFrc, visibleLine, lineX, lineY));
                         }
                         for (int agL = agLayers; agL >= 1; agL--) {
                             double agT = (double) agL / agLayers;
@@ -10969,9 +10988,8 @@ public class GifSlideShowApp extends JFrame {
                                 Color wgC = wm.glowColor != null ? wm.glowColor : wmDraw;
                                 float wgMax = Math.max(2f, wmFont.getSize2D()
                                         * (0.02f + 0.035f * Math.min(20, wm.glowSize)));
-                                Shape wgOutline = wmFont.createGlyphVector(
-                                        wg.getFontRenderContext(), part.text)
-                                        .getOutline(-ww / 2f, baselineOff);
+                                Shape wgOutline = textOutline(wmFont,
+                                        wg.getFontRenderContext(), part.text, -ww / 2f, baselineOff);
                                 Object savedWgAA = wg.getRenderingHint(RenderingHints.KEY_ANTIALIASING);
                                 wg.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
                                         RenderingHints.VALUE_ANTIALIAS_ON);
@@ -10996,9 +11014,8 @@ public class GifSlideShowApp extends JFrame {
                             // Colour / light wash over the copy's own glyphs, so a
                             // word that is (say) throbbing can carry a sweep with it.
                             if (wm.rainbowPhase >= 0.0 || wm.sheenPos >= 0.0) {
-                                Shape wgWash = wmFont.createGlyphVector(
-                                        wg.getFontRenderContext(), part.text)
-                                        .getOutline(-ww / 2f, baselineOff);
+                                Shape wgWash = textOutline(wmFont,
+                                        wg.getFontRenderContext(), part.text, -ww / 2f, baselineOff);
                                 paintFxWash(wg, wgWash, wgWash.getBounds2D(), wm.rainbowPhase,
                                         wm.sheenPos, wm.sheenKind, wm.sheenColor);
                             }
