@@ -29960,20 +29960,14 @@ public class GifSlideShowApp extends JFrame {
                 fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
                         "Images", "jpg", "jpeg", "png", "gif", "bmp", "webp", "avif", "heif", "heic"));
                 if (fc.showOpenDialog(panel) == JFileChooser.APPROVE_OPTION) {
-                    try {
-                        File f = fc.getSelectedFile();
-                        BufferedImage img = loadImageFile(f);
-                        if (img != null) {
-                            slidePicLoadedImage = img;
-                            slidePicLoadedFile = f;
-                            updateSlidePicPreview();
-                            slidePicShowCheck.setSelected(true);
-                            onFormatChanged();
-                        }
-                    } catch (Exception ex) {
-                        JOptionPane.showMessageDialog(panel, "Failed to load image: " + ex.getMessage());
-                    }
+                    loadSlidePicFile(fc.getSelectedFile());
                 }
+            });
+            slidePicBrowseBtn.setToolTipText("Browse for a picture to overlay on slide — or drag an image file here");
+            // The thumbnail's tooltip has always promised this: click it to browse.
+            slidePicPreviewLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            slidePicPreviewLabel.addMouseListener(new MouseAdapter() {
+                @Override public void mouseClicked(MouseEvent e) { slidePicBrowseBtn.doClick(); }
             });
 
             JButton slidePicAllBtn = new JButton("\u21CA All");
@@ -30038,6 +30032,11 @@ public class GifSlideShowApp extends JFrame {
             toolbar4e.add(slidePicBrowseBtn);
             toolbar4e.add(slidePicAllBtn);
             toolbar4e.add(slidePicClearBtn);
+            // Drop an image file on the thumbnail, the Browse button or anywhere on
+            // this row to load it into the current Pic slot.
+            installSlidePicDrop(slidePicPreviewLabel);
+            installSlidePicDrop(slidePicBrowseBtn);
+            installSlidePicDrop(toolbar4e);
             toolbar4e.add(styledLabel("X%:"));
             toolbar4e.add(slidePicXSpinner);
             toolbar4e.add(styledLabel("Y%:"));
@@ -39763,6 +39762,87 @@ public class GifSlideShowApp extends JFrame {
             for (int i = 0; i < slidePictureItems.size(); i++) {
                 slidePicSelector.addItem("Pic " + (i + 1));
             }
+        }
+
+        /** Extensions the Pic slot accepts — the same list the Browse dialog filters on. */
+        private static final String[] SLIDE_PIC_EXTS =
+                { "jpg", "jpeg", "png", "gif", "bmp", "webp", "avif", "heif", "heic" };
+
+        private static boolean isSlidePicFile(File f) {
+            if (f == null || !f.isFile()) return false;
+            String name = f.getName().toLowerCase();
+            for (String ext : SLIDE_PIC_EXTS) if (name.endsWith("." + ext)) return true;
+            return false;
+        }
+
+        /** Load {@code f} into the current Pic slot and show it — shared by Browse,
+         *  a click on the thumbnail and a drag-and-drop. */
+        private void loadSlidePicFile(File f) {
+            try {
+                BufferedImage img = loadImageFile(f);
+                if (img == null) throw new IOException("Unsupported image format.");
+                slidePicLoadedImage = img;
+                slidePicLoadedFile = f;
+                updateSlidePicPreview();
+                slidePicShowCheck.setSelected(true);
+                onFormatChanged();
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(panel, "Failed to load image: " + ex.getMessage());
+            }
+        }
+
+        /** First image file in a drag, or null when the drag carries none. */
+        @SuppressWarnings("unchecked")
+        private static File firstSlidePicFile(java.awt.datatransfer.Transferable t) {
+            if (t == null || !t.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) return null;
+            try {
+                for (File f : (List<File>) t.getTransferData(DataFlavor.javaFileListFlavor)) {
+                    if (isSlidePicFile(f)) return f;
+                }
+            } catch (Exception ignored) { }
+            return null;
+        }
+
+        /**
+         * Accept image files dropped on {@code target}. While files are dragged over it
+         * the thumbnail lights up; a drag that carries no files (text, a browser link)
+         * is refused at the cursor, and a dropped file that is not an image gets a
+         * message instead of silently doing nothing.
+         */
+        private void installSlidePicDrop(Component target) {
+            final javax.swing.border.Border normal = slidePicPreviewLabel.getBorder();
+            final javax.swing.border.Border hot =
+                    BorderFactory.createLineBorder(new Color(100, 220, 255), 2);
+            new DropTarget(target, DnDConstants.ACTION_COPY, new DropTargetAdapter() {
+                private boolean hasImage(DropTargetDragEvent e) {
+                    // Only the flavour is checked while dragging: the file list itself
+                    // is only guaranteed readable on drop (a native drag from Explorer
+                    // may refuse it until then), so the image check happens in drop().
+                    return e.isDataFlavorSupported(DataFlavor.javaFileListFlavor);
+                }
+                @Override public void dragEnter(DropTargetDragEvent e) {
+                    if (hasImage(e)) { e.acceptDrag(DnDConstants.ACTION_COPY); slidePicPreviewLabel.setBorder(hot); }
+                    else e.rejectDrag();
+                }
+                @Override public void dragOver(DropTargetDragEvent e) {
+                    if (hasImage(e)) e.acceptDrag(DnDConstants.ACTION_COPY); else e.rejectDrag();
+                }
+                @Override public void dragExit(DropTargetEvent e) { slidePicPreviewLabel.setBorder(normal); }
+                @Override public void drop(DropTargetDropEvent e) {
+                    slidePicPreviewLabel.setBorder(normal);
+                    if (!e.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) { e.rejectDrop(); return; }
+                    e.acceptDrop(DnDConstants.ACTION_COPY);
+                    File f = firstSlidePicFile(e.getTransferable());
+                    e.dropComplete(f != null);
+                    if (f != null) {
+                        loadSlidePicFile(f);
+                    } else {
+                        JOptionPane.showMessageDialog(panel,
+                                "Drop an image file (" + String.join(", ", SLIDE_PIC_EXTS) + ").",
+                                "Slide Pic", JOptionPane.INFORMATION_MESSAGE);
+                    }
+                }
+            });
         }
 
         private void updateSlidePicPreview() {
