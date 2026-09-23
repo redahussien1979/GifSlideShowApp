@@ -135,6 +135,21 @@ final class SpreadsheetReader {
                 readDelimited(Files.readAllBytes(file.toPath()))));
     }
 
+    /**
+     * True when {@code file} is an Excel workbook (.xlsx family or legacy .xls),
+     * judged by its magic bytes like {@link #read} — false for delimited text.
+     */
+    static boolean isWorkbook(File file) throws IOException {
+        byte[] m = readHead(file, 8);
+        boolean zip = m.length >= 4 && m[0] == 'P' && m[1] == 'K'
+                && (m[2] == 3 || m[2] == 5 || m[2] == 7);
+        boolean ole = m.length >= 8 && (m[0] & 0xFF) == 0xD0 && (m[1] & 0xFF) == 0xCF
+                && (m[2] & 0xFF) == 0x11 && (m[3] & 0xFF) == 0xE0
+                && (m[4] & 0xFF) == 0xA1 && (m[5] & 0xFF) == 0xB1
+                && (m[6] & 0xFF) == 0x1A && (m[7] & 0xFF) == 0xE1;
+        return zip || ole;
+    }
+
     /** The first {@code n} bytes of a file (fewer when the file is shorter). */
     private static byte[] readHead(File file, int n) throws IOException {
         byte[] buf = new byte[n];

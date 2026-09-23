@@ -182,7 +182,7 @@ public class GifSlideShowApp extends JFrame {
         bulkTextBtn.addActionListener(e -> bulkImportText());
 
         JButton dictImportBtn = createStyledButton("Dict Import", new Color(50, 180, 160));
-        dictImportBtn.setToolTipText("Import CSV/TSV: each row=slide, each column=slide text (A→Text1, B→Text2...). Optional headers: HL/UL/BOLD/ITALIC/COLOR, AUDIOLINK, AUDIO1.. (two comma-separated paths in a quoted cell = primary+second audio for that text, sharing the Gap), X-AXIS/Y-AXIS/TEXT-SIZE, TEXT1TIME/TEXT2TIME.. for appear,go timing per text (cell=\"appear,go\" in seconds; \"appear\" alone = never leaves), TIMER_TARGET for the Slide Timer's target text — the text the countdown reveals at zero, given as a text number (1 = Text 1, 0 = none) or as the text itself — TIMER_END_AUDIO for that slide's \"play when it ends\" sound — a path relative to the sheet, \"none\" for a quiet slide, or \"inherit\"/an empty cell to play the first slide's sound — and PIC/PIC2/PIC3.. for a slide picture overlay (a path relative to the sheet, or \"none\" to hide that slot), placed by the matching PIC_X, PIC_Y, PIC_W, PIC_SHAPE (Rectangle/Circle) and PIC_RADIUS columns. For the SAME picture on every slide, skip the PIC column and use \u21CA All in the \uD83D\uDDBC Pic toolbar row.");
+        dictImportBtn.setToolTipText("Import an Excel workbook (.xlsx/.xls) or CSV/TSV: each row=slide, each column=slide text (A→Text1, B→Text2...). Optional headers: HL/UL/BOLD/ITALIC/COLOR, AUDIOLINK, AUDIO1.. (two comma-separated paths in a quoted cell = primary+second audio for that text, sharing the Gap), X-AXIS/Y-AXIS/TEXT-SIZE, TEXT1TIME/TEXT2TIME.. for appear,go timing per text (cell=\"appear,go\" in seconds; \"appear\" alone = never leaves), TIMER_TARGET for the Slide Timer's target text — the text the countdown reveals at zero, given as a text number (1 = Text 1, 0 = none) or as the text itself — TIMER_END_AUDIO for that slide's \"play when it ends\" sound — a path relative to the sheet, \"none\" for a quiet slide, or \"inherit\"/an empty cell to play the first slide's sound — and PIC/PIC2/PIC3.. for a slide picture overlay (a path relative to the sheet, or \"none\" to hide that slot), placed by the matching PIC_X, PIC_Y, PIC_W, PIC_SHAPE (Rectangle/Circle) and PIC_RADIUS columns. For the SAME picture on every slide, skip the PIC column and use \u21CA All in the \uD83D\uDDBC Pic toolbar row.");
         dictImportBtn.addActionListener(e -> dictionaryImport());
 
         JButton quizImportBtn = createStyledButton("Quiz Import", new Color(180, 120, 200));
@@ -3506,6 +3506,68 @@ public class GifSlideShowApp extends JFrame {
         return rows;
     }
 
+    /**
+     * Read an Excel workbook (.xlsx / .xlsm / .xltx / .xls) as the CSV lines Excel's
+     * own "Save as CSV" would have written for it, so an importer built on
+     * {@link #splitCsvRows} / {@link #parseCsvLine} reads the workbook exactly as it
+     * reads the CSV: every cell is quoted (commas, tabs, quotes and line breaks
+     * inside a cell stay in that cell), and every row is padded to the sheet's full
+     * width the way Excel pads a CSV — so an empty cell under a header such as HL
+     * still arrives as an empty field rather than a missing one. Values are the text
+     * Excel shows (formula results, whole numbers without ".0", formatted dates).
+     *
+     * <p>With several non-empty sheets the user picks one. Returns null when the
+     * user cancels or the file cannot be read (after saying why).
+     */
+    private List<String> readWorkbookAsCsvLines(File file, String title) {
+        List<SpreadsheetReader.Sheet> sheets;
+        setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+        try {
+            sheets = SpreadsheetReader.read(file);
+        } catch (IOException | RuntimeException ex) {
+            String why = ex.getMessage() == null ? ex.toString() : ex.getMessage();
+            JOptionPane.showMessageDialog(this, "Could not read " + file.getName() + ":\n\n" + why,
+                    title, JOptionPane.ERROR_MESSAGE);
+            return null;
+        } finally {
+            setCursor(Cursor.getDefaultCursor());
+        }
+        List<SpreadsheetReader.Sheet> usable = new ArrayList<>();
+        for (SpreadsheetReader.Sheet sh : sheets) if (!sh.isBlank()) usable.add(sh);
+        if (usable.isEmpty()) {
+            JOptionPane.showMessageDialog(this, file.getName() + " has no data in it — every sheet is empty.",
+                    title, JOptionPane.WARNING_MESSAGE);
+            return null;
+        }
+        SpreadsheetReader.Sheet sheet = usable.get(0);
+        if (usable.size() > 1) {
+            JComboBox<String> sheetCombo = new JComboBox<>();
+            for (SpreadsheetReader.Sheet sh : usable) {
+                sheetCombo.addItem(sh.name + "  (" + sh.nonEmptyRowCount() + " rows)");
+            }
+            JPanel p = new JPanel(new BorderLayout(0, 6));
+            p.add(new JLabel(file.getName() + " has " + usable.size() + " sheets. Import which one?"),
+                    BorderLayout.NORTH);
+            p.add(sheetCombo, BorderLayout.CENTER);
+            if (JOptionPane.showConfirmDialog(this, p, title, JOptionPane.OK_CANCEL_OPTION,
+                    JOptionPane.QUESTION_MESSAGE) != JOptionPane.OK_OPTION) return null;
+            sheet = usable.get(Math.max(0, sheetCombo.getSelectedIndex()));
+        }
+        int width = 0;
+        for (List<String> row : sheet.rows) width = Math.max(width, row.size());
+        List<String> lines = new ArrayList<>(sheet.rows.size());
+        for (List<String> row : sheet.rows) {
+            StringBuilder sb = new StringBuilder();
+            for (int c = 0; c < width; c++) {
+                if (c > 0) sb.append(',');
+                String v = c < row.size() && row.get(c) != null ? row.get(c) : "";
+                sb.append('"').append(v.replace("\"", "\"\"")).append('"');
+            }
+            lines.add(sb.toString());
+        }
+        return lines;
+    }
+
     private List<String> parseCsvLine(String line) {
         List<String> fields = new ArrayList<>();
         StringBuilder sb = new StringBuilder();
@@ -4016,12 +4078,12 @@ public class GifSlideShowApp extends JFrame {
 
     private void dictionaryImport() {
         // Choose source: file or clipboard
-        String[] options = {"From File (CSV/TSV)", "From Clipboard / Paste"};
+        String[] options = {"From File (Excel / CSV / TSV)", "From Clipboard / Paste"};
         int choice = JOptionPane.showOptionDialog(this,
                 "Import dictionary: each row = one slide, each column = one slide text.\n"
                         + "Column A → Text 1, Column B → Text 2, Column C → Text 3, etc.\n"
-                        + "Supports CSV (comma) and TSV (tab) delimited files.\n"
-                        + "Tip: For Unicode/IPA characters, save from Excel as \"CSV UTF-8\" format.\n"
+                        + "Supports Excel workbooks (.xlsx, .xlsm, .xls) and CSV (comma) / TSV (tab) files.\n"
+                        + "Tip: an Excel file can be picked directly — no need to save it as CSV first.\n"
                         + "Optional columns: X-AXIS, Y-AXIS, TEXT-SIZE (comma-separated per text item).\n"
                         + "TEXT1TIME, TEXT2TIME, ... → per-text appear,go timing (seconds).\n"
                         + "  Put both in one cell, e.g. \"2,5\" (appears at 2s, goes at 5s).\n"
@@ -4041,11 +4103,22 @@ public class GifSlideShowApp extends JFrame {
         if (choice == 0) {
             JFileChooser fc = new JFileChooser();
             fc.setFileFilter(new FileNameExtensionFilter(
-                    "CSV / TSV files (*.csv, *.tsv, *.txt)", "csv", "tsv", "txt"));
+                    "Excel / CSV / TSV (*.xlsx, *.xlsm, *.xls, *.csv, *.tsv, *.txt)",
+                    SpreadsheetReader.EXTENSIONS));
             if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
             importSourceDir = fc.getSelectedFile().getParentFile();
 
+            boolean workbook;
             try {
+                workbook = SpreadsheetReader.isWorkbook(fc.getSelectedFile());
+            } catch (IOException ex) {
+                workbook = false;   // unreadable here too: the CSV path below reports it
+            }
+            if (workbook) {
+                // Read as the CSV Excel would have saved, so everything below is unchanged.
+                rawLines = readWorkbookAsCsvLines(fc.getSelectedFile(), "Dictionary Import");
+                if (rawLines == null) return;
+            } else try {
                 // Try UTF-8 first (handles BOM automatically via readAllLines)
                 byte[] fileBytes = Files.readAllBytes(fc.getSelectedFile().toPath());
                 // Strip UTF-8 BOM if present
