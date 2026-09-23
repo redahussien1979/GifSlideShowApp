@@ -14406,6 +14406,12 @@ public class GifSlideShowApp extends JFrame {
      * 0, because nothing was consumed between the cells. Either way the drawing pass
      * is the same: draw the cell, advance by its width plus {@link #gap}.
      *
+     * <p>Cells are held in VISUAL order, left to right, because every drawing pass
+     * lays them out from the block's left edge. For plain LTR text that is the typed
+     * order; for an Arabic / Hebrew (or mixed) line it is the bidi order, so the first
+     * word typed lands at the right edge. {@link #starts} keeps each cell's offset in
+     * the source line, since visual position no longer implies it.
+     *
      * <p>Anything that needs to know where a word sits on screen must go through
      * {@link #justifyFit} and {@link #justifiedSpan} rather than measuring the line
      * string. The drawing pass advances each cell by its own width plus this gap, so
@@ -14419,9 +14425,13 @@ public class GifSlideShowApp extends JFrame {
         /** Characters of the source line consumed between two cells: 1 for words
          *  (the space), 0 for the grapheme cells of a tracked line. */
         final int sepLen;
+        /** Source-line offset of each cell, parallel to {@link #words}; null when the
+         *  cells are in typed order and the offsets follow from {@link #sepLen}. */
+        final int[] starts;
         JustifyFit(String[] words, double gap) { this(words, gap, 1); }
-        JustifyFit(String[] words, double gap, int sepLen) {
-            this.words = words; this.gap = gap; this.sepLen = sepLen;
+        JustifyFit(String[] words, double gap, int sepLen) { this(words, gap, sepLen, null); }
+        JustifyFit(String[] words, double gap, int sepLen, int[] starts) {
+            this.words = words; this.gap = gap; this.sepLen = sepLen; this.starts = starts;
         }
     }
 
@@ -14451,9 +14461,44 @@ public class GifSlideShowApp extends JFrame {
             int totalWordsWidth = 0;
             for (String w : words) totalWordsWidth += fm.stringWidth(w);
             double gap = (double) (targetWidth - totalWordsWidth) / (words.length - 1);
-            if (gap <= fm.stringWidth(" ") * MAX_JUSTIFY_GAP) return new JustifyFit(words, gap, 1);
+            if (gap <= fm.stringWidth(" ") * MAX_JUSTIFY_GAP) return visualWordFit(line, words, gap);
         }
         return trackingFit(line, fm, targetWidth);
+    }
+
+    /**
+     * A word fit whose cells are in the order they appear on screen. Every drawing
+     * pass lays the cells out from the left edge, so an RTL line handed over in typed
+     * order came out with its words reversed — the sentence read backwards. Each word
+     * takes the bidi embedding level of its first character (base direction from the
+     * line's first strong character, as drawString decides it) and the words are
+     * reordered by the Unicode rules: an Arabic line runs right to left, and an English
+     * word inside it still keeps its place. Each word is still drawn whole, so its
+     * own letters are shaped and ordered by drawString as before.
+     */
+    private static JustifyFit visualWordFit(String line, String[] words, double gap) {
+        char[] chars = line.toCharArray();
+        if (!java.text.Bidi.requiresBidi(chars, 0, chars.length)) return new JustifyFit(words, gap, 1);
+        java.text.Bidi bidi = new java.text.Bidi(line, java.text.Bidi.DIRECTION_DEFAULT_LEFT_TO_RIGHT);
+        int n = words.length;
+        int[] starts = new int[n];
+        byte[] levels = new byte[n];
+        Integer[] order = new Integer[n];
+        int col = 0;
+        for (int i = 0; i < n; i++) {
+            starts[i] = col;
+            levels[i] = (byte) (col < line.length() ? bidi.getLevelAt(col) : bidi.getBaseLevel());
+            order[i] = i;
+            col += words[i].length() + 1;           // the space split(" ") consumed
+        }
+        java.text.Bidi.reorderVisually(levels, 0, order, 0, n);
+        String[] vWords = new String[n];
+        int[] vStarts = new int[n];
+        for (int i = 0; i < n; i++) {
+            vWords[i] = words[order[i]];
+            vStarts[i] = starts[order[i]];
+        }
+        return new JustifyFit(vWords, gap, 1, vStarts);
     }
 
     /**
@@ -14511,7 +14556,10 @@ public class GifSlideShowApp extends JFrame {
         if (fit == null || start >= end) return null;
         double x = 0, spanStart = -1, spanEnd = 0;
         int col = 0;
-        for (String w : fit.words) {
+        for (int wi = 0; wi < fit.words.length; wi++) {
+            String w = fit.words[wi];
+            // Cells run in visual order; an RTL line says where each came from.
+            if (fit.starts != null) col = fit.starts[wi];
             int ws = col, we = col + w.length();
             int a = Math.max(start, ws), b = Math.min(end, we);
             if (a < b) {
