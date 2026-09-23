@@ -10651,6 +10651,9 @@ public class GifSlideShowApp extends JFrame {
                         && !stWrappedLines.isEmpty() && stMaxLineWidth > 0 && totalTextHeight > 0) {
                     java.awt.geom.Path2D textShape = new java.awt.geom.Path2D.Float();
                     java.util.List<java.awt.Rectangle> lineBounds = new java.util.ArrayList<>();
+                    // Parallel to lineBounds: true where the line's base direction is
+                    // right-to-left (Arabic / Hebrew), so the sweeps start at its right edge.
+                    java.util.List<Boolean> lineRtl = new java.util.ArrayList<>();
                     int lyAcc = stCenterY - totalTextHeight / 2 + stAscent;
                     java.awt.font.FontRenderContext frc = ((Graphics2D) g).getFontRenderContext();
                     int descent = stFm.getDescent();
@@ -10675,6 +10678,7 @@ public class GifSlideShowApp extends JFrame {
                             // all lines at once.
                             lineBounds.add(new java.awt.Rectangle(
                                     lxA, lyAcc - stAscent, lwA, stAscent + descent));
+                            lineRtl.add(!tlA.isLeftToRight());
                         }
                         lyAcc += stLineHeight;
                     }
@@ -10692,7 +10696,7 @@ public class GifSlideShowApp extends JFrame {
                     if (st.audioOtherLightEffects != null && !st.audioOtherLightEffects.isEmpty()) {
                         for (String name : st.audioOtherLightEffects.split(",")) {
                             paintAudioLightOverlay(gLight, name.trim(),
-                                    lboxX, lboxY, lboxW, lboxH, lineBounds,
+                                    lboxX, lboxY, lboxW, lboxH, lineBounds, lineRtl,
                                     lightHl, animFrameIndex, stScaleFactor);
                         }
                     }
@@ -23022,6 +23026,11 @@ public class GifSlideShowApp extends JFrame {
      * each line's own width. Shimmer keeps a single global diagonal band because a
      * plate-glass shine looks correct crossing all lines simultaneously.
      *
+     * RTL aware: a line flagged in {@code lineRtl} (Arabic / Hebrew base direction)
+     * is swept right→left — Reveal / Wipe / Glow Trail / Scan are painted through a
+     * horizontal mirror about that line's centre, so the leading edge starts where
+     * the line is read from and every trail stays behind its head.
+     *
      * All effects loop on fixed cycles so they animate consistently regardless of
      * which audio segment is active. Negative {@code frame} renders a representative
      * mid-cycle preview (used for the static GIF/preview path).
@@ -23029,9 +23038,11 @@ public class GifSlideShowApp extends JFrame {
     private static void paintAudioLightOverlay(Graphics2D g, String name,
                                                int x, int y, int w, int h,
                                                java.util.List<java.awt.Rectangle> lineBounds,
+                                               java.util.List<Boolean> lineRtl,
                                                Color hl, int frame, float scale) {
         if (w <= 0 || h <= 0 || name == null || name.isEmpty()) return;
         if (lineBounds == null) lineBounds = java.util.Collections.emptyList();
+        if (lineRtl == null) lineRtl = java.util.Collections.emptyList();
         java.awt.geom.AffineTransform savedTx = g.getTransform();
         java.awt.Composite savedC = g.getComposite();
         java.awt.Paint savedP = g.getPaint();
@@ -23080,11 +23091,12 @@ public class GifSlideShowApp extends JFrame {
                     // slice of the cycle proportional to its width.
                     int cycle = 90;                                  // 3.0 s
                     double t = ((frame >= 0 ? frame : 30) % cycle) / (double) cycle;
-                    paintPerLineSequentialReveal(g, lineBounds, t, hl, scale);
+                    paintPerLineSequentialReveal(g, lineBounds, lineRtl, t, hl, scale);
                     break;
                 }
                 case "Wipe": {
-                    // Per-line PARALLEL fill — every line fills L→R together based on
+                    // Per-line PARALLEL fill — every line fills in its reading direction
+                    // (L→R, or R→L for an RTL line) together based on
                     // its own width, so a long line and short line finish at the same
                     // beat. Holds full color briefly, then fades, then loops.
                     int cycle = 96;                                  // 3.2 s
@@ -23108,9 +23120,13 @@ public class GifSlideShowApp extends JFrame {
                     int tintAlpha = (int) Math.round(230 * alphaScale);
                     Color tint = new Color(hl.getRed(), hl.getGreen(), hl.getBlue(), tintAlpha);
                     int edgeW = Math.max((int) (40 * scale), 18);
-                    for (java.awt.Rectangle lb : lineBounds) {
+                    java.awt.geom.AffineTransform wipeTx = g.getTransform();
+                    for (int li = 0; li < lineBounds.size(); li++) {
+                        java.awt.Rectangle lb = lineBounds.get(li);
                         int fillW = (int) Math.round(tFill * lb.width);
                         if (fillW <= 0) continue;
+                        g.setTransform(wipeTx);
+                        mirrorLineForRtl(g, lb, isRtlLine(lineRtl, li));
                         g.setColor(tint);
                         g.fillRect(lb.x, lb.y, fillW, lb.height);
                         // Bright leading-edge spike while still filling.
@@ -23134,7 +23150,7 @@ public class GifSlideShowApp extends JFrame {
                     // a long colored tail travels along each line in reading order.
                     int cycle = 90;                                  // 3.0 s
                     double t = ((frame >= 0 ? frame : 30) % cycle) / (double) cycle;
-                    paintPerLineSequentialGlow(g, lineBounds, t, hl, scale);
+                    paintPerLineSequentialGlow(g, lineBounds, lineRtl, t, hl, scale);
                     break;
                 }
                 case "Scan": {
@@ -23142,7 +23158,7 @@ public class GifSlideShowApp extends JFrame {
                     // along each line, like a high-end scanner light.
                     int cycle = 60;                                  // 2.0 s
                     double t = ((frame >= 0 ? frame : 20) % cycle) / (double) cycle;
-                    paintPerLineSequentialScan(g, lineBounds, t, scale);
+                    paintPerLineSequentialScan(g, lineBounds, lineRtl, t, scale);
                     break;
                 }
                 default:
@@ -23177,13 +23193,34 @@ public class GifSlideShowApp extends JFrame {
         return new double[] { lineBounds.size() - 1, 1.0 };
     }
 
+    /** True when line {@code li} was laid out right-to-left. Missing entries read as LTR. */
+    private static boolean isRtlLine(java.util.List<Boolean> lineRtl, int li) {
+        return lineRtl != null && li >= 0 && li < lineRtl.size() && Boolean.TRUE.equals(lineRtl.get(li));
+    }
+
+    /**
+     * For an RTL line, mirror {@code g} horizontally about the line's centre so a
+     * sweep written left→right runs right→left over the same bounds — leading edge,
+     * trail and gradients all flip together. The glyph clip is already in device
+     * space, so it is unaffected. No-op for LTR; caller restores the transform.
+     */
+    private static void mirrorLineForRtl(Graphics2D g, java.awt.Rectangle lb, boolean rtl) {
+        if (!rtl) return;
+        double cx = lb.x + lb.width / 2.0;
+        g.translate(cx, 0);
+        g.scale(-1, 1);
+        g.translate(-cx, 0);
+    }
+
     private static void paintPerLineSequentialReveal(Graphics2D g,
                                                      java.util.List<java.awt.Rectangle> lineBounds,
+                                                     java.util.List<Boolean> lineRtl,
                                                      double t, Color hl, float scale) {
         double[] r = resolveLineProgress(lineBounds, t);
         int li = (int) r[0];
         if (li < 0) return;
         java.awt.Rectangle lb = lineBounds.get(li);
+        mirrorLineForRtl(g, lb, isRtlLine(lineRtl, li));
         double localT = r[1];
         double edgeX = lb.x + localT * lb.width;
         int trailW = Math.max((int) (180 * scale), lb.width / 2);
@@ -23203,11 +23240,13 @@ public class GifSlideShowApp extends JFrame {
 
     private static void paintPerLineSequentialGlow(Graphics2D g,
                                                    java.util.List<java.awt.Rectangle> lineBounds,
+                                                   java.util.List<Boolean> lineRtl,
                                                    double t, Color hl, float scale) {
         double[] r = resolveLineProgress(lineBounds, t);
         int li = (int) r[0];
         if (li < 0) return;
         java.awt.Rectangle lb = lineBounds.get(li);
+        mirrorLineForRtl(g, lb, isRtlLine(lineRtl, li));
         double localT = r[1];
         double gx = lb.x + localT * lb.width;
         double gy = lb.y + lb.height / 2.0;
@@ -23239,11 +23278,13 @@ public class GifSlideShowApp extends JFrame {
 
     private static void paintPerLineSequentialScan(Graphics2D g,
                                                    java.util.List<java.awt.Rectangle> lineBounds,
+                                                   java.util.List<Boolean> lineRtl,
                                                    double t, float scale) {
         double[] r = resolveLineProgress(lineBounds, t);
         int li = (int) r[0];
         if (li < 0) return;
         java.awt.Rectangle lb = lineBounds.get(li);
+        mirrorLineForRtl(g, lb, isRtlLine(lineRtl, li));
         double localT = r[1];
         double sx = lb.x + localT * lb.width;
         int lineW = Math.max(4, (int) (6 * scale));
