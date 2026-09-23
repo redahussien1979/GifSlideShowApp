@@ -39804,9 +39804,10 @@ public class GifSlideShowApp extends JFrame {
         }
 
         /**
-         * Accept image files dropped on {@code target}. While an image is dragged over
-         * it the thumbnail lights up; anything that is not an image is refused, so the
-         * cursor shows "no drop" instead of silently doing nothing.
+         * Accept image files dropped on {@code target}. While files are dragged over it
+         * the thumbnail lights up; a drag that carries no files (text, a browser link)
+         * is refused at the cursor, and a dropped file that is not an image gets a
+         * message instead of silently doing nothing.
          */
         private void installSlidePicDrop(Component target) {
             final javax.swing.border.Border normal = slidePicPreviewLabel.getBorder();
@@ -39814,13 +39815,10 @@ public class GifSlideShowApp extends JFrame {
                     BorderFactory.createLineBorder(new Color(100, 220, 255), 2);
             new DropTarget(target, DnDConstants.ACTION_COPY, new DropTargetAdapter() {
                 private boolean hasImage(DropTargetDragEvent e) {
-                    // Drag data is only guaranteed readable on drop; on platforms that
-                    // withhold it during the drag, a file-list drag is let through and
-                    // checked again when dropped.
-                    if (!e.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) return false;
-                    java.awt.datatransfer.Transferable t;
-                    try { t = e.getTransferable(); } catch (Exception ex) { return true; }
-                    return t == null || firstSlidePicFile(t) != null;
+                    // Only the flavour is checked while dragging: the file list itself
+                    // is only guaranteed readable on drop (a native drag from Explorer
+                    // may refuse it until then), so the image check happens in drop().
+                    return e.isDataFlavorSupported(DataFlavor.javaFileListFlavor);
                 }
                 @Override public void dragEnter(DropTargetDragEvent e) {
                     if (hasImage(e)) { e.acceptDrag(DnDConstants.ACTION_COPY); slidePicPreviewLabel.setBorder(hot); }
