@@ -17196,6 +17196,7 @@ public class GifSlideShowApp extends JFrame {
                         boolean useConcatDemuxer = false;
                         boolean usePipeEncoding = false;
                         File concatFile = null;
+                        String concatVf = null;
 
                         publish("Rendering " + slides.size() + " slides at " + videoW + "×" + videoH + "...");
 
@@ -17607,6 +17608,7 @@ public class GifSlideShowApp extends JFrame {
                                 try (java.io.FileWriter fw = new java.io.FileWriter(concatFile)) {
                                     fw.write(concatContent.toString());
                                 }
+                                concatVf = concatListCfrFilter(concatContent, fps);
                             } else {
                                 // ANIMATED PATH: At least one slide has animated effects.
                                 // Optimization: render base frame once (without animated fx), then clone + apply effects per frame.
@@ -18065,6 +18067,12 @@ public class GifSlideShowApp extends JFrame {
                                 // Set output framerate for concat demuxer input
                                 videoCmd.add("-r");
                                 videoCmd.add(String.valueOf(fps));
+                                // Exact listed length: the trailing repeat entry must not
+                                // add an extra copy of the last slide.
+                                if (concatVf != null) {
+                                    videoCmd.add("-vf");
+                                    videoCmd.add(concatVf);
+                                }
                             }
                             videoCmd.add("-c:v");
                             videoCmd.add("libx264");
@@ -19116,6 +19124,7 @@ public class GifSlideShowApp extends JFrame {
                                 for (File af : s.audioFiles) { if (af != null && af.exists()) perSlideVaCount++; }
 
                                 File concatFile = new File(tempDir, "concat.txt");
+                                String concatVf;
                                 if (perSlideVaCount >= 2) {
                                     // Multi-audio: render per-segment PNGs with active text highlighted
                                     StringBuilder concatContent = new StringBuilder();
@@ -19220,6 +19229,7 @@ public class GifSlideShowApp extends JFrame {
                                     try (java.io.FileWriter fw = new java.io.FileWriter(concatFile)) {
                                         fw.write(concatContent.toString());
                                     }
+                                    concatVf = concatListCfrFilter(concatContent, fps);
                                 } else {
                                     // Single/no audio: one PNG
                                     BufferedImage frame = renderFrame(
@@ -19242,11 +19252,14 @@ public class GifSlideShowApp extends JFrame {
                                     ImageIO.write(frame, "png", imgFile);
 
                                     double durSec = slideDur / 1000.0;
+                                    StringBuilder concatContent = new StringBuilder();
+                                    concatContent.append("file '").append(imgFile.getAbsolutePath().replace("'", "'\\''")).append("'\n");
+                                    concatContent.append("duration ").append(String.format("%.3f", durSec)).append("\n");
+                                    concatContent.append("file '").append(imgFile.getAbsolutePath().replace("'", "'\\''")).append("'\n");
                                     try (java.io.FileWriter fw = new java.io.FileWriter(concatFile)) {
-                                        fw.write("file '" + imgFile.getAbsolutePath().replace("'", "'\\''") + "'\n");
-                                        fw.write("duration " + String.format("%.3f", durSec) + "\n");
-                                        fw.write("file '" + imgFile.getAbsolutePath().replace("'", "'\\''") + "'\n");
+                                        fw.write(concatContent.toString());
                                     }
+                                    concatVf = concatListCfrFilter(concatContent, fps);
                                 }
 
                                 java.util.List<String> cmd = new java.util.ArrayList<>();
@@ -19255,6 +19268,7 @@ public class GifSlideShowApp extends JFrame {
                                 cmd.add("-safe"); cmd.add("0");
                                 cmd.add("-i"); cmd.add(concatFile.getAbsolutePath());
                                 cmd.add("-r"); cmd.add(String.valueOf(fps));
+                                if (concatVf != null) { cmd.add("-vf"); cmd.add(concatVf); }
                                 cmd.add("-c:v"); cmd.add("libx264");
                                 cmd.add("-preset"); cmd.add("medium");
                                 cmd.add("-threads"); cmd.add("0");
@@ -20759,6 +20773,34 @@ public class GifSlideShowApp extends JFrame {
         } finally {
             writer.dispose();
         }
+    }
+
+    /**
+     * Video filter for encoding a still-image concat-demuxer list to a
+     * constant frame rate at exactly the list's total play time (the sum of
+     * its "duration" lines), or null when the list has none.
+     * <p>Our lists end with the last file repeated without a duration, which
+     * older ffmpeg needs to honor the final duration. Encoding that with a bare
+     * "-r" lets newer ffmpeg (7.x) hold the trailing frame for another whole
+     * gap, so the last slide plays twice (two 8 s slides came out 24 s). A
+     * plain "-t" is no fix: it drops the trailing frame before the rate
+     * conversion, cutting the last slide to one frame. Converting to CFR inside
+     * the graph and then trimming gives the exact length on every version.
+     */
+    private static String concatListCfrFilter(CharSequence list, int fps) {
+        double total = 0;
+        for (String line : list.toString().split("\n")) {
+            line = line.trim();
+            if (!line.startsWith("duration ")) continue;
+            try {
+                total += Double.parseDouble(line.substring(9).trim().replace(',', '.'));
+            } catch (NumberFormatException ignored) {
+                return null; // unreadable list: keep the plain encode
+            }
+        }
+        return total > 0
+                ? String.format(java.util.Locale.US, "fps=%d,trim=duration=%.3f", fps, total)
+                : null;
     }
 
     private void writeGifWithFfmpeg(List<BufferedImage> frames, List<Integer> delaysMs, File output) throws IOException {
