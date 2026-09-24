@@ -90,6 +90,7 @@ public class GifSlideShowApp extends JFrame {
     // random order while the rows on screen (and therefore the master slide)
     // stay exactly as they are.
     private JCheckBox shuffleExportCheck;
+    private JCheckBox normalizeVideoLoudnessCheck;
 
     // Orientation: "Landscape" or "Portrait"
     private JComboBox<String> orientationCombo;
@@ -266,6 +267,17 @@ public class GifSlideShowApp extends JFrame {
                 + "<br>A new random order is drawn for each export."
                 + "<br>Applied after any \"which slides to include\" choice, and not to \"Separate MP4 per Slide\".</html>");
 
+        normalizeVideoLoudnessCheck = new JCheckBox("Normalize video loudness");
+        normalizeVideoLoudnessCheck.setBackground(new Color(30, 30, 30));
+        normalizeVideoLoudnessCheck.setForeground(Color.LIGHT_GRAY);
+        normalizeVideoLoudnessCheck.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        normalizeVideoLoudnessCheck.setFocusPainted(false);
+        normalizeVideoLoudnessCheck.setToolTipText("<html>MP4 export: bring the sound of every uploaded video slide to the same loudness"
+                + "<br>(" + (int) VIDEO_LOUDNESS_TARGET_LUFS + " LUFS, EBU R128), so a quiet clip and a loud clip play equally loud."
+                + "<br>Each clip is measured first, then gets one steady gain \u2014 no pumping."
+                + "<br>Each slide's Vol% still applies on top (set it to 100 for full loudness)."
+                + "<br>Slide audio and the background music are not changed.</html>");
+
         JButton saveImagesBtn = createStyledButton("Save Images", new Color(120, 80, 180));
         saveImagesBtn.setToolTipText("Choose where to save and a layout, then save slides as HD PNGs (single or several per image)");
         saveImagesBtn.addActionListener(e -> saveSlidesAsImages());
@@ -291,6 +303,7 @@ public class GifSlideShowApp extends JFrame {
         botRow.add(saveImagesBtn);
         botRow.add(f1Btn);
         botRow.add(shuffleExportCheck);
+        botRow.add(normalizeVideoLoudnessCheck);
 
         bottomPanel.add(topRow);
         bottomPanel.add(botRow);
@@ -14841,6 +14854,8 @@ public class GifSlideShowApp extends JFrame {
             slides.get(slides.size() - 1).slideNumberStyle = row.getSlideNumberStyle();
             slides.get(slides.size() - 1).slideNumberEffect = row.getSlideNumberEffect();
             slides.get(slides.size() - 1).sourceVideoVolume = row.getSourceVideoVolume();
+            slides.get(slides.size() - 1).normalizeSourceAudio =
+                    normalizeVideoLoudnessCheck != null && normalizeVideoLoudnessCheck.isSelected();
             slides.get(slides.size() - 1).bgTransparency = row.getBgTransparency();
             slides.get(slides.size() - 1).videoRepeats = row.getVideoRepeats();
             slides.get(slides.size() - 1).videoRepeatCrossfade = row.isVideoRepeatCrossfade();
@@ -18581,6 +18596,8 @@ public class GifSlideShowApp extends JFrame {
                             java.util.List<Boolean> ovAudioIsSourceVideo = new java.util.ArrayList<>();
                             // Per-entry source-video volume (0..100 → 0.0..1.0 in the filter).
                             java.util.List<Integer> ovAudioSourceVideoVolume = new java.util.ArrayList<>();
+                            // Per-entry loudnorm chain ("" = leave the clip's loudness as is).
+                            java.util.List<String> ovAudioNorm = new java.util.ArrayList<>();
                             for (int j = 0; j < ovSlideIdx.size(); j++) {
                                 int si = ovSlideIdx.get(j);
                                 int ii = ovInputIdx.get(j);
@@ -18593,12 +18610,26 @@ public class GifSlideShowApp extends JFrame {
                                     ovAudioDelay.add(slideStartSec[si] * 1000.0);
                                     ovAudioIsSourceVideo.add(ovTaskIsSourceVideo.get(j));
                                     ovAudioSourceVideoVolume.add(slides.get(si).sourceVideoVolume);
+                                    String norm = "";
+                                    if (ovTaskIsSourceVideo.get(j) && slides.get(si).normalizeSourceAudio) {
+                                        publish("Measuring loudness of slide " + (si + 1) + " video...");
+                                        norm = sourceVideoLoudnormFilter(f);
+                                    }
+                                    ovAudioNorm.add(norm);
                                 }
                             }
 
                             // Per-entry source-video attenuation. Video Overlay toolbar audio
                             // is not attenuated — only uploaded source-video audio is, using
                             // each slide's "Vol%" setting (default 25 = legacy 0.25 attenuation).
+
+                            // With normalized clips, keep every input at the level it was
+                            // given: amix's default rescaling divides by the inputs still
+                            // running, so an earlier clip (while later clips' delayed
+                            // inputs run) came out quieter than a later one. Without the
+                            // option the mix stays exactly as it was.
+                            String amixLevels = ovAudioNorm.stream().anyMatch(n -> !n.isEmpty())
+                                    ? ":normalize=0" : "";
 
                             // Build audio filter: mix base audio with overlay audio
                             boolean baseHasAudio = probeHasAudio(finalOut);
@@ -18621,7 +18652,7 @@ public class GifSlideShowApp extends JFrame {
                                                 "atrim=duration=%.3f,asetpts=PTS-STARTPTS,",
                                                 slideDurSec[si]);
                                     }
-                                    aFilter.append("[").append(ii).append(":a]").append(volPrefix).append(trim)
+                                    aFilter.append("[").append(ii).append(":a]").append(ovAudioNorm.get(j)).append(volPrefix).append(trim)
                                             .append("adelay=").append(delayMs).append("|").append(delayMs)
                                             .append("[oa").append(j).append("];");
                                 }
@@ -18630,7 +18661,7 @@ public class GifSlideShowApp extends JFrame {
                                     aFilter.append("[oa").append(j).append("]");
                                 }
                                 aFilter.append("amix=inputs=").append(1 + ovAudioInputIdx.size())
-                                        .append(":duration=first:dropout_transition=0[outa]");
+                                        .append(":duration=first:dropout_transition=0").append(amixLevels).append("[outa]");
                                 vFilter.append(";").append(aFilter);
                                 audioMap = "[outa]";
                             } else if (!baseHasAudio && !ovAudioInputIdx.isEmpty()) {
@@ -18648,7 +18679,7 @@ public class GifSlideShowApp extends JFrame {
                                                 "atrim=duration=%.3f,asetpts=PTS-STARTPTS,",
                                                 slideDurSec[si]);
                                     }
-                                    aFilter.append("[").append(ii).append(":a]").append(volPrefix).append(trim)
+                                    aFilter.append("[").append(ii).append(":a]").append(ovAudioNorm.get(j)).append(volPrefix).append(trim)
                                             .append("adelay=").append(delayMs).append("|").append(delayMs)
                                             .append("[oa").append(j).append("];");
                                 }
@@ -18657,7 +18688,7 @@ public class GifSlideShowApp extends JFrame {
                                         aFilter.append("[oa").append(j).append("]");
                                     }
                                     aFilter.append("amix=inputs=").append(ovAudioInputIdx.size())
-                                            .append(":duration=longest:dropout_transition=0[outa]");
+                                            .append(":duration=longest:dropout_transition=0").append(amixLevels).append("[outa]");
                                     audioMap = "[outa]";
                                 } else {
                                     audioMap = "[oa0]";
@@ -19501,9 +19532,14 @@ public class GifSlideShowApp extends JFrame {
                                     publish("Failed to render decoration layer for slide " + (si + 1) + ": " + ioe.getMessage());
                                     decoOut = null;
                                 }
+                                String norm = "";
+                                if (s.normalizeSourceAudio && probeHasAudio(s.sourceVideoFile)) {
+                                    publish("Measuring loudness of slide " + (si + 1) + " video...");
+                                    norm = sourceVideoLoudnormFilter(s.sourceVideoFile);
+                                }
                                 applySourceVideoAndDecoration(slideOutFile, s.sourceVideoFile,
                                         decoOut, decoIsSeq, fps, videoW, videoH, crf, tempDir,
-                                        s.sourceVideoVolume);
+                                        s.sourceVideoVolume, norm);
                             }
 
                             // Apply per-slide video overlay if set
@@ -19906,7 +19942,8 @@ public class GifSlideShowApp extends JFrame {
                                                       int decoFps,
                                                       int videoW, int videoH, int crf,
                                                       File tempDir,
-                                                      int sourceVideoVolumePct) throws IOException, InterruptedException {
+                                                      int sourceVideoVolumePct,
+                                                      String audioNormFilter) throws IOException, InterruptedException {
         File preOverlay = new File(tempDir, "pre_sv_" + System.currentTimeMillis() + ".mp4");
         if (!baseVideo.renameTo(preOverlay)) {
             java.nio.file.Files.copy(baseVideo.toPath(), preOverlay.toPath(),
@@ -19942,13 +19979,15 @@ public class GifSlideShowApp extends JFrame {
                 sourceVideoVolumePct / 100.0);
         String audioMap = null;
         if (baseHasAudio && srcHasAudio) {
-            vf.append(";[1:a]volume=").append(sourceVideoVolume).append("[sva];")
-                    .append("[0:a][sva]amix=inputs=2:duration=first:dropout_transition=0[outa]");
+            vf.append(";[1:a]").append(audioNormFilter).append("volume=").append(sourceVideoVolume).append("[sva];")
+                    .append("[0:a][sva]amix=inputs=2:duration=first:dropout_transition=0")
+                    // Normalized clip: keep it at its given level (see the slideshow mix).
+                    .append(audioNormFilter.isEmpty() ? "" : ":normalize=0").append("[outa]");
             audioMap = "[outa]";
         } else if (baseHasAudio) {
             audioMap = "0:a";
         } else if (srcHasAudio) {
-            vf.append(";[1:a]volume=").append(sourceVideoVolume).append("[outa]");
+            vf.append(";[1:a]").append(audioNormFilter).append("volume=").append(sourceVideoVolume).append("[outa]");
             audioMap = "[outa]";
         }
 
@@ -19990,6 +20029,69 @@ public class GifSlideShowApp extends JFrame {
         for (String a : cmd) System.err.println("  " + a);
         runFfmpeg(cmd);
         preOverlay.delete();
+    }
+
+    /** Integrated loudness every uploaded video is brought to when
+     *  "Normalize video loudness" is on — a common target for online video. */
+    static final double VIDEO_LOUDNESS_TARGET_LUFS = -16.0;
+    private static final java.util.Map<String, String> LOUDNORM_FILTER_CACHE =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * Second pass of a two-pass EBU R128 normalization for one uploaded video:
+     * a filter-chain fragment (ending in a comma, to prefix a clip's audio
+     * chain) that brings the clip to {@link #VIDEO_LOUDNESS_TARGET_LUFS}.
+     * <p>The first pass measures the clip here; the chain then applies loudnorm
+     * in linear mode — one fixed gain, so the clip keeps its own dynamics —
+     * which ffmpeg only relaxes to its dynamic mode when that gain would push
+     * the peaks past -1.5 dBTP. loudnorm works at 192 kHz, so the chain
+     * resamples back to 48 kHz. Returns "" (leave the clip as is) when the clip
+     * is silent or cannot be measured. Measurements are cached per file state.
+     */
+    static String sourceVideoLoudnormFilter(File video) {
+        String key = video.getAbsolutePath() + "|" + video.lastModified() + "|" + video.length();
+        return LOUDNORM_FILTER_CACHE.computeIfAbsent(key, k -> measureLoudnormFilter(video));
+    }
+
+    private static String measureLoudnormFilter(File video) {
+        String target = String.format(java.util.Locale.US, "I=%.1f:TP=-1.5:LRA=20", VIDEO_LOUDNESS_TARGET_LUFS);
+        StringBuilder log = new StringBuilder();
+        try {
+            ProcessBuilder pb = new ProcessBuilder("ffmpeg", "-hide_banner", "-nostats",
+                    "-i", video.getAbsolutePath(), "-map", "0:a:0", "-vn",
+                    "-af", "loudnorm=" + target + ":print_format=json", "-f", "null", "-");
+            pb.redirectErrorStream(true);
+            Process proc = pb.start();
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(proc.getInputStream()))) {
+                String line;
+                while ((line = br.readLine()) != null) log.append(line).append('\n');
+            }
+            if (proc.waitFor() != 0) return "";
+        } catch (IOException e) {
+            return "";
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return "";
+        }
+        int open = log.lastIndexOf("{"), close = log.lastIndexOf("}");
+        if (open < 0 || close < open) return "";
+        java.util.Map<String, String> m = new java.util.HashMap<>();
+        java.util.regex.Matcher mt = java.util.regex.Pattern
+                .compile("\"(\\w+)\"\\s*:\\s*\"([^\"]*)\"")
+                .matcher(log.substring(open, close + 1));
+        while (mt.find()) m.put(mt.group(1), mt.group(2));
+        String[] keys = {"input_i", "input_tp", "input_lra", "input_thresh", "target_offset"};
+        for (String k : keys) {
+            try {
+                if (!Double.isFinite(Double.parseDouble(m.get(k)))) return ""; // "-inf": silent clip
+            } catch (RuntimeException e) {
+                return "";
+            }
+        }
+        return "loudnorm=" + target
+                + ":measured_I=" + m.get("input_i") + ":measured_TP=" + m.get("input_tp")
+                + ":measured_LRA=" + m.get("input_lra") + ":measured_thresh=" + m.get("input_thresh")
+                + ":offset=" + m.get("target_offset") + ":linear=true,aresample=48000,";
     }
 
     /** Format a time in seconds for an ffmpeg filter argument. Six decimals is
@@ -27671,6 +27773,10 @@ public class GifSlideShowApp extends JFrame {
         // Source-video audio volume as a 0..100 percentage. Default 25 matches the
         // legacy hardcoded -0.25 attenuation so existing exports stay byte-identical.
         int sourceVideoVolume = 25;
+        // "Normalize video loudness": bring this uploaded video's audio to the
+        // shared target before its Vol% is applied. Set externally like
+        // sourceVideoVolume; false keeps the export byte-identical.
+        boolean normalizeSourceAudio = false;
         // Background transparency 0..100. 0 = BG fully opaque (current behavior),
         // 100 = BG fully transparent (only base color shows). Set externally
         // like sourceVideoVolume to avoid threading another arg through the ctor.
