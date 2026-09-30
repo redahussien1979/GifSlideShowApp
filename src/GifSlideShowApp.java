@@ -185,6 +185,9 @@ public class GifSlideShowApp extends JFrame {
         JButton dictImportBtn = createStyledButton("Dict Import", new Color(50, 180, 160));
         dictImportBtn.setToolTipText("Import an Excel workbook (.xlsx/.xls) or CSV/TSV: each row=slide, each column=slide text (A→Text1, B→Text2...). Optional headers: HL/UL/BOLD/ITALIC/COLOR, AUDIOLINK, AUDIO1.. (two comma-separated paths in a quoted cell = primary+second audio for that text, sharing the Gap), X-AXIS/Y-AXIS/TEXT-SIZE, TEXT1TIME/TEXT2TIME.. for appear,go timing per text (cell=\"appear,go\" in seconds; \"appear\" alone = never leaves), TIMER_TARGET for the Slide Timer's target text — the text the countdown reveals at zero, given as a text number (1 = Text 1, 0 = none) or as the text itself — TIMER_END_AUDIO for that slide's \"play when it ends\" sound — a path relative to the sheet, \"none\" for a quiet slide, or \"inherit\"/an empty cell to play the first slide's sound — and PIC/PIC2/PIC3.. for a slide picture overlay (a path relative to the sheet, or \"none\" to hide that slot), placed by the matching PIC_X, PIC_Y, PIC_W, PIC_SHAPE (Rectangle/Circle) and PIC_RADIUS columns. For the SAME picture on every slide, skip the PIC column and use \u21CA All in the \uD83D\uDDBC Pic toolbar row.");
         dictImportBtn.addActionListener(e -> dictionaryImport());
+        dictImportBtn.setToolTipText(dictImportBtn.getToolTipText()
+                + " Tip: drag a sheet from your file manager and drop it on this button to import it directly.");
+        installSheetDrop(dictImportBtn, "Dict Import", this::dictionaryImport);
 
         JButton quizImportBtn = createStyledButton("Quiz Import", new Color(180, 120, 200));
         quizImportBtn.setToolTipText("Import CSV/TSV of quiz settings: each row = one slide. Headers: QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD, QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO, QUIZ_TIMER_STYLE/X/Y/SIZE/WIDTH/COLOR/TEXT_COLOR/FONT/LABEL/START_MODE, QUIZ_BAR_SHAPE, QUIZ_REVEAL_MARK_STYLE/SIZE/COLOR, QUIZ_REVEAL_PAD, QUIZ_TIMER_ANIM/_STRENGTH/_TRIGGER/_EASING, QUIZ_TIMER_RED_COLOR, QUIZ_CUE1_AUDIO..QUIZ_CUEn_AUDIO, QUIZ_CUE_SPECIAL_AUDIO, QUIZ_CUE_REPLAY (comma-list of Text-cue targets / all / none — Special is excluded), QUIZ_USE_SPECIAL_TIMELINE, QUIZ_SPECIAL_TIMELINE_AUDIO, QUIZ_SPECIAL_TIMELINE_AT (comma-separated seconds; Nth value → Text #N+1), QUIZ_USE_AFTER_REVEAL_TIMELINE, QUIZ_AFTER_REVEAL_AUDIO, QUIZ_AFTER_REVEAL_AT (same shape; plays after reveal).");
@@ -4090,9 +4093,19 @@ public class GifSlideShowApp extends JFrame {
 
 
     private void dictionaryImport() {
+        dictionaryImport(null);
+    }
+
+    /**
+     * Dict Import. With {@code droppedSheet} null the user picks the source (a file
+     * or pasted text); a sheet dropped on the Dict Import button arrives here
+     * directly and skips both the source prompt and the file chooser, reading
+     * exactly as a picked file would.
+     */
+    private void dictionaryImport(File droppedSheet) {
         // Choose source: file or clipboard
         String[] options = {"From File (Excel / CSV / TSV)", "From Clipboard / Paste"};
-        int choice = JOptionPane.showOptionDialog(this,
+        int choice = droppedSheet != null ? 0 : JOptionPane.showOptionDialog(this,
                 "Import dictionary: each row = one slide, each column = one slide text.\n"
                         + "Column A → Text 1, Column B → Text 2, Column C → Text 3, etc.\n"
                         + "Supports Excel workbooks (.xlsx, .xlsm, .xls) and CSV (comma) / TSV (tab) files.\n"
@@ -4114,26 +4127,30 @@ public class GifSlideShowApp extends JFrame {
         File importSourceDir = null; // directory of imported file, for resolving relative paths
 
         if (choice == 0) {
-            JFileChooser fc = new JFileChooser();
-            fc.setFileFilter(new FileNameExtensionFilter(
-                    "Excel / CSV / TSV (*.xlsx, *.xlsm, *.xls, *.csv, *.tsv, *.txt)",
-                    SpreadsheetReader.EXTENSIONS));
-            if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
-            importSourceDir = fc.getSelectedFile().getParentFile();
+            File sheet = droppedSheet;
+            if (sheet == null) {
+                JFileChooser fc = new JFileChooser();
+                fc.setFileFilter(new FileNameExtensionFilter(
+                        "Excel / CSV / TSV (*.xlsx, *.xlsm, *.xls, *.csv, *.tsv, *.txt)",
+                        SpreadsheetReader.EXTENSIONS));
+                if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
+                sheet = fc.getSelectedFile();
+            }
+            importSourceDir = sheet.getAbsoluteFile().getParentFile();
 
             boolean workbook;
             try {
-                workbook = SpreadsheetReader.isWorkbook(fc.getSelectedFile());
+                workbook = SpreadsheetReader.isWorkbook(sheet);
             } catch (IOException ex) {
                 workbook = false;   // unreadable here too: the CSV path below reports it
             }
             if (workbook) {
                 // Read as the CSV Excel would have saved, so everything below is unchanged.
-                rawLines = readWorkbookAsCsvLines(fc.getSelectedFile(), "Dictionary Import");
+                rawLines = readWorkbookAsCsvLines(sheet, "Dictionary Import");
                 if (rawLines == null) return;
             } else try {
                 // Try UTF-8 first (handles BOM automatically via readAllLines)
-                byte[] fileBytes = Files.readAllBytes(fc.getSelectedFile().toPath());
+                byte[] fileBytes = Files.readAllBytes(sheet.toPath());
                 // Strip UTF-8 BOM if present
                 int offset = 0;
                 if (fileBytes.length >= 3 && (fileBytes[0] & 0xFF) == 0xEF
@@ -4167,7 +4184,7 @@ public class GifSlideShowApp extends JFrame {
                 }
             } catch (IOException ex) {
                 try {
-                    rawLines = Files.readAllLines(fc.getSelectedFile().toPath());
+                    rawLines = Files.readAllLines(sheet.toPath());
                 } catch (IOException ex2) {
                     JOptionPane.showMessageDialog(this,
                             "Failed to read file:\n" + ex2.getMessage(),
@@ -6838,6 +6855,74 @@ public class GifSlideShowApp extends JFrame {
         return Integer.MAX_VALUE;
     }
 
+    /** Client property set on a styled button while a file is dragged over it. */
+    private static final String DROP_HOVER_KEY = "gifSlideShow.dropHover";
+
+    /** True when {@code f} is a file type the sheet importers read (see {@link SpreadsheetReader#EXTENSIONS}). */
+    private static boolean isSheetFile(File f) {
+        if (f == null || !f.isFile()) return false;
+        String name = f.getName().toLowerCase(Locale.ROOT);
+        for (String ext : SpreadsheetReader.EXTENSIONS) {
+            if (name.endsWith("." + ext)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Let a sheet (Excel / CSV / TSV) be dropped on {@code button}: the first dropped
+     * sheet file is handed to {@code importer}, just as if it had been picked in the
+     * importer's file chooser. The button shows a dashed outline while files are
+     * dragged over it; drags without files (text, links) are refused at the cursor,
+     * and a drop with no sheet among its files gets a message instead of nothing.
+     */
+    private void installSheetDrop(JButton button, String title, java.util.function.Consumer<File> importer) {
+        new DropTarget(button, DnDConstants.ACTION_COPY, new DropTargetAdapter() {
+            private void setHover(boolean on) {
+                button.putClientProperty(DROP_HOVER_KEY, on ? Boolean.TRUE : null);
+                button.repaint();
+            }
+            @Override public void dragEnter(DropTargetDragEvent e) {
+                // Only the flavour is checked while dragging: a native drag may refuse
+                // the file list until drop, so the file-type check happens in drop().
+                if (e.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
+                    e.acceptDrag(DnDConstants.ACTION_COPY);
+                    setHover(true);
+                } else {
+                    e.rejectDrag();
+                }
+            }
+            @Override public void dragOver(DropTargetDragEvent e) {
+                if (e.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) e.acceptDrag(DnDConstants.ACTION_COPY);
+                else e.rejectDrag();
+            }
+            @Override public void dragExit(DropTargetEvent e) { setHover(false); }
+            @Override
+            @SuppressWarnings("unchecked")
+            public void drop(DropTargetDropEvent e) {
+                setHover(false);
+                if (!e.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) { e.rejectDrop(); return; }
+                e.acceptDrop(DnDConstants.ACTION_COPY);
+                File sheet = null;
+                try {
+                    for (File f : (List<File>) e.getTransferable().getTransferData(DataFlavor.javaFileListFlavor)) {
+                        if (isSheetFile(f)) { sheet = f; break; }
+                    }
+                } catch (Exception ignored) { }
+                e.dropComplete(sheet != null);
+                if (sheet == null) {
+                    JOptionPane.showMessageDialog(GifSlideShowApp.this,
+                            "Drop an Excel / CSV / TSV file (" + String.join(", ", SpreadsheetReader.EXTENSIONS) + ").",
+                            title, JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+                // Run after the drop finishes, so the source app is not held waiting
+                // while the import's dialogs are open.
+                final File chosen = sheet;
+                SwingUtilities.invokeLater(() -> importer.accept(chosen));
+            }
+        });
+    }
+
     private JButton createStyledButton(String text, Color bg) {
         JButton btn = new JButton(text) {
             @Override
@@ -6846,6 +6931,13 @@ public class GifSlideShowApp extends JFrame {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 g2.setColor(getModel().isPressed() ? bg.darker() : getModel().isRollover() ? bg.brighter() : bg);
                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
+                if (Boolean.TRUE.equals(getClientProperty(DROP_HOVER_KEY))) {
+                    // A file is being dragged over a button that accepts drops.
+                    g2.setColor(Color.WHITE);
+                    g2.setStroke(new BasicStroke(2f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER,
+                            10f, new float[]{5f, 3f}, 0f));
+                    g2.drawRoundRect(1, 1, getWidth() - 3, getHeight() - 3, 12, 12);
+                }
                 g2.setColor(Color.WHITE);
                 g2.setFont(getFont());
                 FontMetrics fm = g2.getFontMetrics();
