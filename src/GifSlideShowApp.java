@@ -178,6 +178,11 @@ public class GifSlideShowApp extends JFrame {
         JButton bulkBtn = createStyledButton("Bulk Media", new Color(160, 100, 220));
         bulkBtn.setToolTipText("Bulk import images and/or videos (videos play full-screen with all toolbar features on top)");
         bulkBtn.addActionListener(e -> bulkImport());
+        bulkBtn.setToolTipText(bulkBtn.getToolTipText()
+                + ". Tip: drag images/videos (or a folder of them) and drop them on this button.");
+        installFileDrop(bulkBtn, "Bulk Media", GifSlideShowApp::isBulkMediaFile,
+                "image or video files (" + String.join(", ", BULK_MEDIA_EXTS) + ")",
+                files -> bulkImport(files.toArray(new File[0])));
 
         JButton bulkTextBtn = createStyledButton("Bulk Text", new Color(220, 160, 50));
         bulkTextBtn.addActionListener(e -> bulkImportText());
@@ -187,7 +192,9 @@ public class GifSlideShowApp extends JFrame {
         dictImportBtn.addActionListener(e -> dictionaryImport());
         dictImportBtn.setToolTipText(dictImportBtn.getToolTipText()
                 + " Tip: drag a sheet from your file manager and drop it on this button to import it directly.");
-        installSheetDrop(dictImportBtn, "Dict Import", this::dictionaryImport);
+        installFileDrop(dictImportBtn, "Dict Import", GifSlideShowApp::isSheetFile,
+                "an Excel / CSV / TSV file (" + String.join(", ", SpreadsheetReader.EXTENSIONS) + ")",
+                files -> dictionaryImport(files.get(0)));
 
         JButton quizImportBtn = createStyledButton("Quiz Import", new Color(180, 120, 200));
         quizImportBtn.setToolTipText("Import CSV/TSV of quiz settings: each row = one slide. Headers: QUIZ_ENABLED, QUIZ_CORRECT, QUIZ_SECONDS, QUIZ_RED_THRESHOLD, QUIZ_TICK, QUIZ_DING, QUIZ_QUESTION_AUDIO, QUIZ_TIMER_STYLE/X/Y/SIZE/WIDTH/COLOR/TEXT_COLOR/FONT/LABEL/START_MODE, QUIZ_BAR_SHAPE, QUIZ_REVEAL_MARK_STYLE/SIZE/COLOR, QUIZ_REVEAL_PAD, QUIZ_TIMER_ANIM/_STRENGTH/_TRIGGER/_EASING, QUIZ_TIMER_RED_COLOR, QUIZ_CUE1_AUDIO..QUIZ_CUEn_AUDIO, QUIZ_CUE_SPECIAL_AUDIO, QUIZ_CUE_REPLAY (comma-list of Text-cue targets / all / none — Special is excluded), QUIZ_USE_SPECIAL_TIMELINE, QUIZ_SPECIAL_TIMELINE_AUDIO, QUIZ_SPECIAL_TIMELINE_AT (comma-separated seconds; Nth value → Text #N+1), QUIZ_USE_AFTER_REVEAL_TIMELINE, QUIZ_AFTER_REVEAL_AUDIO, QUIZ_AFTER_REVEAL_AT (same shape; plays after reveal).");
@@ -3034,17 +3041,32 @@ public class GifSlideShowApp extends JFrame {
 
     // ==================== Bulk Import Images ====================
 
+    /** File types Bulk Media takes, from its file chooser or dropped on its button. */
+    private static final String[] BULK_MEDIA_EXTS = {
+            "jpg", "jpeg", "png", "gif", "bmp", "webp", "avif", "heif", "heic",
+            "mp4", "avi", "mov", "mkv", "webm", "flv", "wmv", "m4v", "mpg", "mpeg"};
+
+    private static boolean isBulkMediaFile(File f) {
+        return hasExtension(f, BULK_MEDIA_EXTS);
+    }
+
     private void bulkImport() {
         JFileChooser fc = new JFileChooser();
         fc.setMultiSelectionEnabled(true);
         fc.setFileFilter(new FileNameExtensionFilter(
                 "Images & Videos (jpg, png, gif, bmp, webp, avif, heif, mp4, mov, webm, mkv, avi, wmv, flv, m4v, mpg)",
-                "jpg", "jpeg", "png", "gif", "bmp", "webp", "avif", "heif", "heic",
-                "mp4", "avi", "mov", "mkv", "webm", "flv", "wmv", "m4v", "mpg", "mpeg"));
+                BULK_MEDIA_EXTS));
         if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        bulkImport(fc.getSelectedFiles());
+    }
 
-        File[] files = fc.getSelectedFiles();
-        if (files.length == 0) return;
+    /**
+     * Bulk Media import of {@code files} — picked in the file chooser, or dropped on
+     * the Bulk Media button. Everything from the placement prompt on is the same
+     * either way.
+     */
+    private void bulkImport(File[] files) {
+        if (files == null || files.length == 0) return;
 
         // Decide how to place the media. When there's existing content, offer a
         // third option — "Specific slides…" — that drops the media onto exactly
@@ -6858,24 +6880,32 @@ public class GifSlideShowApp extends JFrame {
     /** Client property set on a styled button while a file is dragged over it. */
     private static final String DROP_HOVER_KEY = "gifSlideShow.dropHover";
 
-    /** True when {@code f} is a file type the sheet importers read (see {@link SpreadsheetReader#EXTENSIONS}). */
-    private static boolean isSheetFile(File f) {
+    /** True when {@code f} is an existing file whose name ends in one of {@code exts}. */
+    private static boolean hasExtension(File f, String[] exts) {
         if (f == null || !f.isFile()) return false;
         String name = f.getName().toLowerCase(Locale.ROOT);
-        for (String ext : SpreadsheetReader.EXTENSIONS) {
+        for (String ext : exts) {
             if (name.endsWith("." + ext)) return true;
         }
         return false;
     }
 
+    /** True when {@code f} is a file type the sheet importers read (see {@link SpreadsheetReader#EXTENSIONS}). */
+    private static boolean isSheetFile(File f) {
+        return hasExtension(f, SpreadsheetReader.EXTENSIONS);
+    }
+
     /**
-     * Let a sheet (Excel / CSV / TSV) be dropped on {@code button}: the first dropped
-     * sheet file is handed to {@code importer}, just as if it had been picked in the
-     * importer's file chooser. The button shows a dashed outline while files are
-     * dragged over it; drags without files (text, links) are refused at the cursor,
-     * and a drop with no sheet among its files gets a message instead of nothing.
+     * Let files be dropped on {@code button}: the dropped files that pass
+     * {@code accepts} are handed to {@code importer} in drop order, just as if they
+     * had been picked in the importer's file chooser. A dropped folder contributes
+     * the matching files directly inside it (not its subfolders). The button shows
+     * a dashed outline while files are dragged over it; drags without files (text,
+     * links) are refused at the cursor, and a drop with nothing usable gets a
+     * message naming {@code wanted} instead of silently doing nothing.
      */
-    private void installSheetDrop(JButton button, String title, java.util.function.Consumer<File> importer) {
+    private void installFileDrop(JButton button, String title, java.util.function.Predicate<File> accepts,
+                                 String wanted, java.util.function.Consumer<List<File>> importer) {
         new DropTarget(button, DnDConstants.ACTION_COPY, new DropTargetAdapter() {
             private void setHover(boolean on) {
                 button.putClientProperty(DROP_HOVER_KEY, on ? Boolean.TRUE : null);
@@ -6902,23 +6932,28 @@ public class GifSlideShowApp extends JFrame {
                 setHover(false);
                 if (!e.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) { e.rejectDrop(); return; }
                 e.acceptDrop(DnDConstants.ACTION_COPY);
-                File sheet = null;
+                List<File> usable = new ArrayList<>();
                 try {
                     for (File f : (List<File>) e.getTransferable().getTransferData(DataFlavor.javaFileListFlavor)) {
-                        if (isSheetFile(f)) { sheet = f; break; }
+                        if (f.isDirectory()) {
+                            File[] inside = f.listFiles();
+                            if (inside == null) continue;
+                            Arrays.sort(inside);
+                            for (File g : inside) if (accepts.test(g)) usable.add(g);
+                        } else if (accepts.test(f)) {
+                            usable.add(f);
+                        }
                     }
                 } catch (Exception ignored) { }
-                e.dropComplete(sheet != null);
-                if (sheet == null) {
+                e.dropComplete(!usable.isEmpty());
+                if (usable.isEmpty()) {
                     JOptionPane.showMessageDialog(GifSlideShowApp.this,
-                            "Drop an Excel / CSV / TSV file (" + String.join(", ", SpreadsheetReader.EXTENSIONS) + ").",
-                            title, JOptionPane.INFORMATION_MESSAGE);
+                            "Drop " + wanted + ".", title, JOptionPane.INFORMATION_MESSAGE);
                     return;
                 }
                 // Run after the drop finishes, so the source app is not held waiting
                 // while the import's dialogs are open.
-                final File chosen = sheet;
-                SwingUtilities.invokeLater(() -> importer.accept(chosen));
+                SwingUtilities.invokeLater(() -> importer.accept(usable));
             }
         });
     }
