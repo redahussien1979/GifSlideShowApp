@@ -3046,6 +3046,14 @@ public class GifSlideShowApp extends JFrame {
             "jpg", "jpeg", "png", "gif", "bmp", "webp", "avif", "heif", "heic",
             "mp4", "avi", "mov", "mkv", "webm", "flv", "wmv", "m4v", "mpg", "mpeg"};
 
+    /**
+     * Range of a slide text's extra line spacing (pixels at scale 1). The floor
+     * matches the largest font size, so lines can be pulled together — or overlap —
+     * at any size; the renderer still keeps each line at least 1 px below the last.
+     */
+    private static final int LINE_SPACING_MIN = -500;
+    private static final int LINE_SPACING_MAX = 60;
+
     private static boolean isBulkMediaFile(File f) {
         return hasExtension(f, BULK_MEDIA_EXTS);
     }
@@ -7848,7 +7856,9 @@ public class GifSlideShowApp extends JFrame {
                 WrappedText stWrapped = wrapTextStatic(st.text, stFm, stMaxWrapWidth, st.justify);
                 List<String> stWrappedLines = stWrapped.lines;
 
-                int stLineHeight = stFm.getHeight() + (int) Math.round(st.lineSpacing * stScaleFactor);
+                // At least 1 px: a deeply negative spacing stacks the lines on top of
+                // each other, but never flips them so the last line draws above the first.
+                int stLineHeight = Math.max(1, stFm.getHeight() + (int) Math.round(st.lineSpacing * stScaleFactor));
                 int stAscent = stFm.getAscent();
 
                 int stCenterX = (int) (st.x / 100.0 * targetW);
@@ -16270,7 +16280,7 @@ public class GifSlideShowApp extends JFrame {
         final JComboBox<String> align = new JComboBox<>(ALIGN_LABELS);
         final JComboBox<String> textEffect = new JComboBox<>(TEXT_EFFECTS);
         final JSpinner textEffectIntensity = new JSpinner(new SpinnerNumberModel(60, 0, 100, 5));
-        final JSpinner lineSpacing = new JSpinner(new SpinnerNumberModel(8, -20, 60, 1));
+        final JSpinner lineSpacing = new JSpinner(new SpinnerNumberModel(8, LINE_SPACING_MIN, LINE_SPACING_MAX, 1));
         // Highlight specific word(s): a checklist of the words in the text.
         final java.util.LinkedHashSet<String> hlWords = new java.util.LinkedHashSet<>();
         final JButton highlightWordsBtn = new JButton("(choose words…)");
@@ -24982,7 +24992,7 @@ public class GifSlideShowApp extends JFrame {
         // ---- Typography transforms ----
         final int tiltDegrees;     // -180..180, rotates the whole text block around its center
         final int letterSpacing;   // -10..40, font tracking expressed in 0.01 units (so 10 = +0.10 tracking)
-        final int lineSpacing;     // -20..60, extra pixels between wrapped/paragraph lines
+        final int lineSpacing;     // LINE_SPACING_MIN..MAX, extra pixels between wrapped/paragraph lines
         final int opacity;         // 0..100, applied to the whole text block via AlphaComposite
 
         // ---- Per-frame audio-highlight animation state (transient, not persisted) ----
@@ -26012,7 +26022,7 @@ public class GifSlideShowApp extends JFrame {
             this.animEasing = animEasing != null ? animEasing : "Ease Out";
             this.tiltDegrees = Math.max(-180, Math.min(180, tiltDegrees));
             this.letterSpacing = Math.max(-10, Math.min(40, letterSpacing));
-            this.lineSpacing = Math.max(-20, Math.min(60, lineSpacing));
+            this.lineSpacing = Math.max(LINE_SPACING_MIN, Math.min(LINE_SPACING_MAX, lineSpacing));
             this.opacity = Math.max(0, Math.min(100, opacity));
         }
     }
@@ -29221,9 +29231,11 @@ public class GifSlideShowApp extends JFrame {
             slideTextLetterSpacingSpinner.setToolTipText("Letter spacing (tracking, percent of font size)");
             slideTextLetterSpacingSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
-            slideTextLineSpacingSpinner = new JSpinner(new SpinnerNumberModel(0, -20, 60, 1));
-            slideTextLineSpacingSpinner.setPreferredSize(new Dimension(50, 28));
-            slideTextLineSpacingSpinner.setToolTipText("Extra line spacing (pixels at scale 1)");
+            slideTextLineSpacingSpinner = new JSpinner(new SpinnerNumberModel(0, LINE_SPACING_MIN, LINE_SPACING_MAX, 1));
+            slideTextLineSpacingSpinner.setPreferredSize(new Dimension(58, 28));
+            slideTextLineSpacingSpinner.setToolTipText("Extra line spacing (pixels at scale 1, "
+                    + LINE_SPACING_MIN + " to " + LINE_SPACING_MAX + "). Go negative to pull lines closer; "
+                    + "far enough and they overlap.");
             slideTextLineSpacingSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
             slideTextOpacitySpinner = new JSpinner(new SpinnerNumberModel(100, 0, 100, 5));
