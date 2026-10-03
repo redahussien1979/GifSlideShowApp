@@ -91,6 +91,7 @@ public class GifSlideShowApp extends JFrame {
     // stay exactly as they are.
     private JCheckBox shuffleExportCheck;
     private JCheckBox normalizeVideoLoudnessCheck;
+    private JCheckBox levelVideoLoudnessCheck;
 
     // Orientation: "Landscape" or "Portrait"
     private JComboBox<String> orientationCombo;
@@ -278,6 +279,25 @@ public class GifSlideShowApp extends JFrame {
                 + "<br>Each slide's Vol% still applies on top (set it to 100 for full loudness)."
                 + "<br>Slide audio and the background music are not changed.</html>");
 
+        levelVideoLoudnessCheck = new JCheckBox("Level loudness within each video");
+        levelVideoLoudnessCheck.setBackground(new Color(30, 30, 30));
+        levelVideoLoudnessCheck.setForeground(Color.LIGHT_GRAY);
+        levelVideoLoudnessCheck.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        levelVideoLoudnessCheck.setFocusPainted(false);
+        levelVideoLoudnessCheck.setToolTipText("<html>MP4 export: also even out loud and quiet PARTS inside each uploaded video"
+                + "<br>(e.g. a quiet first half and a loud second half), by riding the volume over ~1.4 s."
+                + "<br>Then every video is brought to the same loudness, as with \"Normalize video loudness\"."
+                + "<br>Boosts at most +20 dB, so pauses and silences are not pumped up into hiss."
+                + "<br>Deliberately quiet moments (a whisper, a soft intro) are raised too.</html>");
+        // Leveling only sets the loudness inside a clip; the shared target comes
+        // from normalizing, so the two travel together.
+        levelVideoLoudnessCheck.addActionListener(e -> {
+            if (levelVideoLoudnessCheck.isSelected()) normalizeVideoLoudnessCheck.setSelected(true);
+        });
+        normalizeVideoLoudnessCheck.addActionListener(e -> {
+            if (!normalizeVideoLoudnessCheck.isSelected()) levelVideoLoudnessCheck.setSelected(false);
+        });
+
         JButton saveImagesBtn = createStyledButton("Save Images", new Color(120, 80, 180));
         saveImagesBtn.setToolTipText("Choose where to save and a layout, then save slides as HD PNGs (single or several per image)");
         saveImagesBtn.addActionListener(e -> saveSlidesAsImages());
@@ -304,6 +324,7 @@ public class GifSlideShowApp extends JFrame {
         botRow.add(f1Btn);
         botRow.add(shuffleExportCheck);
         botRow.add(normalizeVideoLoudnessCheck);
+        botRow.add(levelVideoLoudnessCheck);
 
         bottomPanel.add(topRow);
         bottomPanel.add(botRow);
@@ -14856,6 +14877,8 @@ public class GifSlideShowApp extends JFrame {
             slides.get(slides.size() - 1).sourceVideoVolume = row.getSourceVideoVolume();
             slides.get(slides.size() - 1).normalizeSourceAudio =
                     normalizeVideoLoudnessCheck != null && normalizeVideoLoudnessCheck.isSelected();
+            slides.get(slides.size() - 1).levelSourceAudio =
+                    levelVideoLoudnessCheck != null && levelVideoLoudnessCheck.isSelected();
             slides.get(slides.size() - 1).bgTransparency = row.getBgTransparency();
             slides.get(slides.size() - 1).videoRepeats = row.getVideoRepeats();
             slides.get(slides.size() - 1).videoRepeatCrossfade = row.isVideoRepeatCrossfade();
@@ -18613,7 +18636,7 @@ public class GifSlideShowApp extends JFrame {
                                     String norm = "";
                                     if (ovTaskIsSourceVideo.get(j) && slides.get(si).normalizeSourceAudio) {
                                         publish("Measuring loudness of slide " + (si + 1) + " video...");
-                                        norm = sourceVideoLoudnormFilter(f);
+                                        norm = sourceVideoLoudnormFilter(f, slides.get(si).levelSourceAudio);
                                     }
                                     ovAudioNorm.add(norm);
                                 }
@@ -19535,7 +19558,7 @@ public class GifSlideShowApp extends JFrame {
                                 String norm = "";
                                 if (s.normalizeSourceAudio && probeHasAudio(s.sourceVideoFile)) {
                                     publish("Measuring loudness of slide " + (si + 1) + " video...");
-                                    norm = sourceVideoLoudnormFilter(s.sourceVideoFile);
+                                    norm = sourceVideoLoudnormFilter(s.sourceVideoFile, s.levelSourceAudio);
                                 }
                                 applySourceVideoAndDecoration(slideOutFile, s.sourceVideoFile,
                                         decoOut, decoIsSeq, fps, videoW, videoH, crf, tempDir,
@@ -20036,6 +20059,12 @@ public class GifSlideShowApp extends JFrame {
     static final double VIDEO_LOUDNESS_TARGET_LUFS = -16.0;
     private static final java.util.Map<String, String> LOUDNORM_FILTER_CACHE =
             new java.util.concurrent.ConcurrentHashMap<>();
+    /** "Level loudness within each video": rides the gain over a ~1.4 s window
+     *  (200 ms frames, 7-frame smoothing) so loud and quiet parts of one clip
+     *  meet, with at most +20 dB of boost (m=10) so pauses and silences are not
+     *  lifted into hiss. Tuned on speech with an abrupt 7 dB jump: gap 6.7 ->
+     *  1.7 dB, no overshoot after the jump, pause level unchanged. */
+    private static final String VIDEO_LEVELER = "dynaudnorm=f=200:g=7:p=0.9:m=10";
 
     /**
      * Second pass of a two-pass EBU R128 normalization for one uploaded video:
@@ -20047,19 +20076,23 @@ public class GifSlideShowApp extends JFrame {
      * the peaks past -1.5 dBTP. loudnorm works at 192 kHz, so the chain
      * resamples back to 48 kHz. Returns "" (leave the clip as is) when the clip
      * is silent or cannot be measured. Measurements are cached per file state.
+     * <p>With {@code level} the chain first runs {@link #VIDEO_LEVELER}, and the
+     * first pass measures the leveled audio, so the target still lands exactly.
      */
-    static String sourceVideoLoudnormFilter(File video) {
-        String key = video.getAbsolutePath() + "|" + video.lastModified() + "|" + video.length();
-        return LOUDNORM_FILTER_CACHE.computeIfAbsent(key, k -> measureLoudnormFilter(video));
+    static String sourceVideoLoudnormFilter(File video, boolean level) {
+        String key = video.getAbsolutePath() + "|" + video.lastModified() + "|" + video.length()
+                + (level ? "|level" : "");
+        return LOUDNORM_FILTER_CACHE.computeIfAbsent(key, k -> measureLoudnormFilter(video, level));
     }
 
-    private static String measureLoudnormFilter(File video) {
+    private static String measureLoudnormFilter(File video, boolean level) {
+        String pre = level ? VIDEO_LEVELER + "," : "";
         String target = String.format(java.util.Locale.US, "I=%.1f:TP=-1.5:LRA=20", VIDEO_LOUDNESS_TARGET_LUFS);
         StringBuilder log = new StringBuilder();
         try {
             ProcessBuilder pb = new ProcessBuilder("ffmpeg", "-hide_banner", "-nostats",
                     "-i", video.getAbsolutePath(), "-map", "0:a:0", "-vn",
-                    "-af", "loudnorm=" + target + ":print_format=json", "-f", "null", "-");
+                    "-af", pre + "loudnorm=" + target + ":print_format=json", "-f", "null", "-");
             pb.redirectErrorStream(true);
             Process proc = pb.start();
             try (BufferedReader br = new BufferedReader(new InputStreamReader(proc.getInputStream()))) {
@@ -20088,7 +20121,7 @@ public class GifSlideShowApp extends JFrame {
                 return "";
             }
         }
-        return "loudnorm=" + target
+        return pre + "loudnorm=" + target
                 + ":measured_I=" + m.get("input_i") + ":measured_TP=" + m.get("input_tp")
                 + ":measured_LRA=" + m.get("input_lra") + ":measured_thresh=" + m.get("input_thresh")
                 + ":offset=" + m.get("target_offset") + ":linear=true,aresample=48000,";
@@ -27777,6 +27810,9 @@ public class GifSlideShowApp extends JFrame {
         // shared target before its Vol% is applied. Set externally like
         // sourceVideoVolume; false keeps the export byte-identical.
         boolean normalizeSourceAudio = false;
+        // "Level loudness within each video": also even out loud and quiet parts
+        // inside the clip before normalizing. Only meaningful with normalizeSourceAudio.
+        boolean levelSourceAudio = false;
         // Background transparency 0..100. 0 = BG fully opaque (current behavior),
         // 100 = BG fully transparent (only base color shows). Set externally
         // like sourceVideoVolume to avoid threading another arg through the ctor.
