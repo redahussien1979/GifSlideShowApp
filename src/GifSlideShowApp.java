@@ -189,7 +189,7 @@ public class GifSlideShowApp extends JFrame {
         bulkTextBtn.addActionListener(e -> bulkImportText());
 
         JButton dictImportBtn = createStyledButton("Dict Import", new Color(50, 180, 160));
-        dictImportBtn.setToolTipText("Import an Excel workbook (.xlsx/.xls) or CSV/TSV: each row=slide, each column=slide text (A→Text1, B→Text2...). Optional headers: HL/UL/BOLD/ITALIC/COLOR, AUDIOLINK, AUDIO1.. (two comma-separated paths in a quoted cell = primary+second audio for that text, sharing the Gap), X-AXIS/Y-AXIS/TEXT-SIZE, TEXT1TIME/TEXT2TIME.. for appear,go timing per text (cell=\"appear,go\" in seconds; \"appear\" alone = never leaves), TIMER_TARGET for the Slide Timer's target text — the text the countdown reveals at zero, given as a text number (1 = Text 1, 0 = none) or as the text itself — TIMER_END_AUDIO for that slide's \"play when it ends\" sound — a path relative to the sheet, \"none\" for a quiet slide, or \"inherit\"/an empty cell to play the first slide's sound — and PIC/PIC2/PIC3.. for a slide picture overlay (a path relative to the sheet, or \"none\" to hide that slot), placed by the matching PIC_X, PIC_Y, PIC_W, PIC_SHAPE (Rectangle/Circle) and PIC_RADIUS columns. For the SAME picture on every slide, skip the PIC column and use \u21CA All in the \uD83D\uDDBC Pic toolbar row.");
+        dictImportBtn.setToolTipText("Import an Excel workbook (.xlsx/.xls) or CSV/TSV: each row=slide, each column=slide text (A→Text1, B→Text2...). Optional headers: HL/UL/BOLD/ITALIC/COLOR, AUDIOLINK, AUDIO1.. (two comma-separated paths in a quoted cell = primary+second audio for that text, sharing the Gap), X-AXIS/Y-AXIS/TEXT-SIZE, TEXT1TIME/TEXT2TIME.. for appear,go timing per text (cell=\"appear,go\" in seconds; \"appear\" alone = never leaves), REPEAT1/REPEAT2.. for the Texts Timer's \"Repeat parts of the video\" box (cell=\"start,end,times,slow\", e.g. 1.06,1.62,2,1.25), TIMER_TARGET for the Slide Timer's target text — the text the countdown reveals at zero, given as a text number (1 = Text 1, 0 = none) or as the text itself — TIMER_END_AUDIO for that slide's \"play when it ends\" sound — a path relative to the sheet, \"none\" for a quiet slide, or \"inherit\"/an empty cell to play the first slide's sound — and PIC/PIC2/PIC3.. for a slide picture overlay (a path relative to the sheet, or \"none\" to hide that slot), placed by the matching PIC_X, PIC_Y, PIC_W, PIC_SHAPE (Rectangle/Circle) and PIC_RADIUS columns. For the SAME picture on every slide, skip the PIC column and use \u21CA All in the \uD83D\uDDBC Pic toolbar row.");
         dictImportBtn.addActionListener(e -> dictionaryImport());
         dictImportBtn.setToolTipText(dictImportBtn.getToolTipText()
                 + " Tip: drag a sheet from your file manager and drop it on this button to import it directly.");
@@ -326,7 +326,7 @@ public class GifSlideShowApp extends JFrame {
                 + "<br>together) or column by column (all the words first, then all the translations, and so on)."
                 + "<br>Either way the audio follows its own column — AUDIOLINK1 is the first column's audio."
                 + "<br>Understands the same optional columns as Dict Import (HL/UL/BOLD/ITALIC/COLOR,"
-                + "<br>FONT1.., AUDIOLINK/AUDIO1.., X-AXIS/Y-AXIS/TEXT-SIZE, TEXTnTIME, TIMER_TARGET,"
+                + "<br>FONT1.., AUDIOLINK/AUDIO1.., X-AXIS/Y-AXIS/TEXT-SIZE, TEXTnTIME, REPEATn, TIMER_TARGET,"
                 + "<br>TIMER_END_AUDIO, PIC..), read per entry rather than per slide.</html>");
         f1Btn.addActionListener(e -> f1Import());
 
@@ -3908,6 +3908,73 @@ public class GifSlideShowApp extends JFrame {
      *  included — is one row of the Font dropdown. */
     private static final java.util.regex.Pattern FONT_GROUP_HEADER =
             java.util.regex.Pattern.compile("(?:FONT|FN)(\\d+)");
+    /** Matches REPEAT / REPEAT1 / REPEAT_2 / REPEAT-3 / ... headers — the Texts
+     *  Timer's "Repeat parts of the video" box; group 1 is the number, or "" for
+     *  bare REPEAT (= REPEAT1). */
+    private static final java.util.regex.Pattern REPEAT_COLUMN_HEADER =
+            java.util.regex.Pattern.compile("REPEAT[_\\- ]?(\\d*)");
+
+    /**
+     * Read one REPEATn cell into the slide's video-repeat ranges, each
+     * {startMs, endMs, plays, slowPct} — the same "start,end[,times[,slow]]"
+     * line, with the same rules, as the Texts Timer's repeat box. A cell may
+     * hold several ranges, one per line or separated by ';'.
+     *
+     * @param out     receives every valid range, in cell order
+     * @param invalid receives each range that could not be read, unchanged
+     */
+    static void parseImportedRepeatCell(String cell, List<int[]> out, List<String> invalid) {
+        if (cell == null) return;
+        for (String raw : cell.split("[;\\r\\n]+")) {
+            String line = raw.trim();
+            if (line.isEmpty()) continue;
+            int[] r = parseImportedRepeatRange(line);
+            if (r != null) out.add(r); else invalid.add(line);
+        }
+    }
+
+    /** One "start,end[,times[,slow]]" range, or null when it breaks the Texts
+     *  Timer's rules (end after start, times a whole number 2+, slow 1+). Times
+     *  is capped at 20 and slow at 4, exactly as that dialog caps them. */
+    private static int[] parseImportedRepeatRange(String line) {
+        String[] p = line.split(",");
+        if (p.length < 2 || p.length > 4) return null;
+        double sSec, eSec;
+        try {
+            sSec = Double.parseDouble(p[0].trim());
+            eSec = Double.parseDouble(p[1].trim());
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+        if (Double.isNaN(sSec) || Double.isNaN(eSec) || Double.isInfinite(eSec)) return null;
+        if (sSec < 0) sSec = 0;
+        if (eSec <= sSec) return null;
+        int plays = 2; // default: plays twice
+        if (p.length >= 3 && !p[2].trim().isEmpty()) {
+            double t;
+            try {
+                t = Double.parseDouble(p[2].trim()); // Excel may write 2 as "2.0"
+            } catch (NumberFormatException ex) {
+                return null;
+            }
+            if (Double.isNaN(t) || t != Math.rint(t) || t < 2) return null;
+            plays = (int) Math.min(20, t);
+        }
+        int slowPct = 100; // default: the repeat plays at normal speed
+        if (p.length >= 4 && !p[3].trim().isEmpty()) {
+            double slow;
+            try {
+                slow = Double.parseDouble(p[3].trim());
+            } catch (NumberFormatException ex) {
+                return null;
+            }
+            if (Double.isNaN(slow) || slow < 1.0) return null;
+            if (slow > 4.0) slow = 4.0;
+            slowPct = (int) Math.round(slow * 100.0);
+        }
+        return new int[]{ (int) Math.round(sSec * 1000.0), (int) Math.round(eSec * 1000.0),
+                plays, slowPct };
+    }
 
     /**
      * Which spreadsheet column means what, read once from a header row.
@@ -3933,6 +4000,8 @@ public class GifSlideShowApp extends JFrame {
         final java.util.Map<Integer, Integer> audioColByTextIndex = new java.util.TreeMap<>();
         /** TEXT1TIME, TEXT2TIME, ... → 0-based text index to column. */
         final java.util.Map<Integer, Integer> timeColByTextIndex = new java.util.TreeMap<>();
+        /** REPEAT/REPEAT1, REPEAT2, ... → repeat number to column (sheet order by number). */
+        final java.util.Map<Integer, Integer> repeatColByNum = new java.util.TreeMap<>();
         final java.util.Map<Integer, Integer> picFileColBySlot = new java.util.TreeMap<>();
         final java.util.Map<Integer, Integer> picXColBySlot = new java.util.TreeMap<>();
         final java.util.Map<Integer, Integer> picYColBySlot = new java.util.TreeMap<>();
@@ -3973,6 +4042,8 @@ public class GifSlideShowApp extends JFrame {
             }
             s.addAll(audioColByTextIndex.values());
             s.addAll(timeColByTextIndex.values());
+            // REPEATn holds "start,end,times,slow" for the video, not a caption.
+            s.addAll(repeatColByNum.values());
             // Picture columns are settings, not captions — without this an image
             // path would be imported as slide text and printed on the frame.
             s.addAll(picFileColBySlot.values());
@@ -4033,7 +4104,23 @@ public class GifSlideShowApp extends JFrame {
                 java.util.regex.Matcher hlNumM = HL_GROUP_HEADER.matcher(h);
                 java.util.regex.Matcher ulNumM = UL_GROUP_HEADER.matcher(h);
                 java.util.regex.Matcher fnNumM = FONT_GROUP_HEADER.matcher(h);
-                if (hlNumM.matches()) {
+                java.util.regex.Matcher rptM = REPEAT_COLUMN_HEADER.matcher(h);
+                if (rptM.matches()) {
+                    // REPEAT, REPEAT1, REPEAT2, … — the Texts Timer's "Repeat parts
+                    // of the video" lines. A bare REPEAT is REPEAT1.
+                    String numPart = rptM.group(1);
+                    int n = 1;
+                    if (!numPart.isEmpty()) {
+                        try {
+                            n = Integer.parseInt(numPart);
+                        } catch (NumberFormatException ex) {
+                            n = Integer.MAX_VALUE; // absurd number → still a setting
+                        }
+                    }
+                    // Two columns with one number (REPEAT and REPEAT1) both count.
+                    while (cols.repeatColByNum.containsKey(n) && n < Integer.MAX_VALUE) n++;
+                    cols.repeatColByNum.put(n, c);
+                } else if (hlNumM.matches()) {
                     int n = Integer.parseInt(hlNumM.group(1));
                     if (n <= 1) hlColIndex = c; else hlGroupColByNum.put(n, c);
                 } else if (ulNumM.matches()) {
@@ -4165,6 +4252,8 @@ public class GifSlideShowApp extends JFrame {
                         + "TEXT1TIME, TEXT2TIME, ... → per-text appear,go timing (seconds).\n"
                         + "  Put both in one cell, e.g. \"2,5\" (appears at 2s, goes at 5s).\n"
                         + "  A single value like \"2\" means it appears then never leaves.\n"
+                        + "REPEAT1, REPEAT2, ... → the Texts Timer's \"Repeat parts of the video\" lines,\n"
+                        + "  one per cell: start,end[,times[,slow]], e.g. \"1.06,1.62,2,1.25\".\n"
                         + "PIC, PIC2, PIC3, ... → a picture for that slide (path relative to the sheet).\n"
                         + "  Place it with PIC_X, PIC_Y, PIC_W, PIC_SHAPE, PIC_RADIUS.\n"
                         + "  Same picture on every slide? Skip PIC and use \u21CA All in the Pic row.\n"
@@ -4276,7 +4365,7 @@ public class GifSlideShowApp extends JFrame {
 
         // Ask whether first row is a header
         int headerChoice = JOptionPane.showOptionDialog(this,
-                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting.\nHL/UL are now dropdowns in the app: add HL2, HL3, ... (or\nUL2, UL3, ...) columns and each becomes its own extra row\non the dropdown, exactly like HL itself — just words,\ncomma-separated. Give each row its own colour/style/Tight\nafterwards in the app by opening the dropdown and using the\ncontrols beside it (or the + button there to add one without\nimporting at all).\nFONT (or FONT1, FONT2, ...) works the same way for the Font row:\neach column is one font group's word list. Pick the font, type and\ncolour for each group once in the app — that reaches the whole deck.\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.\nFor TWO audios on one text, put both paths comma-separated in that\ntext's audio cell, quoted: \"first.mp3,second.mp3\" (2nd plays after the\nfirst, separated by the Gap value).\nX-AXIS/Y-AXIS/TEXT-SIZE for position & size per text item.\nTEXT1TIME/TEXT2TIME/... for appear,go timing per text item\n(cell = \"appear,go\" in seconds; \"appear\" alone = never leaves).\nTIMER_TARGET for the Slide Timer's target text — the text the countdown\nreveals and badges at zero. Either a text number (1 = Text 1, 0 = none)\nor the text itself, matched against that row's texts.\nTIMER_END_AUDIO for that slide's \"play when it ends\" sound: a path\nrelative to the sheet (like AUDIOLINK), \"none\" for a quiet slide, or\n\"inherit\"/an empty cell to play the first slide's sound.\nEverything else about the timer comes from the first slide.\nPIC/PIC2/PIC3/... for a slide picture overlay: a path relative to the\nsheet (like AUDIOLINK), or \"none\" to hide that Pic slot. Place it with\nPIC_X, PIC_Y (centre, % of the frame), PIC_W (width, % of the frame),\nPIC_SHAPE (Rectangle or Circle) and PIC_RADIUS (corner radius).\nA bare PIC means Pic 1; PIC2_X places Pic 2, and so on. Hyphens read\nthe same as underscores (PIC2-X = PIC2_X).\nFor the SAME picture on every slide, leave PIC out of the sheet and\nuse the \u21CA All button in the Pic toolbar row instead.)",
+                "Does the first row contain column headers?\n(If yes, it will be skipped.\nUse HL/UL/BOLD/ITALIC/COLOR headers for formatting.\nHL/UL are now dropdowns in the app: add HL2, HL3, ... (or\nUL2, UL3, ...) columns and each becomes its own extra row\non the dropdown, exactly like HL itself — just words,\ncomma-separated. Give each row its own colour/style/Tight\nafterwards in the app by opening the dropdown and using the\ncontrols beside it (or the + button there to add one without\nimporting at all).\nFONT (or FONT1, FONT2, ...) works the same way for the Font row:\neach column is one font group's word list. Pick the font, type and\ncolour for each group once in the app — that reaches the whole deck.\nAUDIOLINK for slide audio, AUDIO1/AUDIO2/... for multi-audio per text.\nFor TWO audios on one text, put both paths comma-separated in that\ntext's audio cell, quoted: \"first.mp3,second.mp3\" (2nd plays after the\nfirst, separated by the Gap value).\nX-AXIS/Y-AXIS/TEXT-SIZE for position & size per text item.\nTEXT1TIME/TEXT2TIME/... for appear,go timing per text item\n(cell = \"appear,go\" in seconds; \"appear\" alone = never leaves).\nREPEAT1/REPEAT2/... for the Texts Timer's \"Repeat parts of the video\"\nbox: one start,end[,times[,slow]] line per cell, e.g. 1.06,1.62,2,1.25.\nTIMER_TARGET for the Slide Timer's target text — the text the countdown\nreveals and badges at zero. Either a text number (1 = Text 1, 0 = none)\nor the text itself, matched against that row's texts.\nTIMER_END_AUDIO for that slide's \"play when it ends\" sound: a path\nrelative to the sheet (like AUDIOLINK), \"none\" for a quiet slide, or\n\"inherit\"/an empty cell to play the first slide's sound.\nEverything else about the timer comes from the first slide.\nPIC/PIC2/PIC3/... for a slide picture overlay: a path relative to the\nsheet (like AUDIOLINK), or \"none\" to hide that Pic slot. Place it with\nPIC_X, PIC_Y (centre, % of the frame), PIC_W (width, % of the frame),\nPIC_SHAPE (Rectangle or Circle) and PIC_RADIUS (corner radius).\nA bare PIC means Pic 1; PIC2_X places Pic 2, and so on. Hyphens read\nthe same as underscores (PIC2-X = PIC2_X).\nFor the SAME picture on every slide, leave PIC out of the sheet and\nuse the \u21CA All button in the Pic toolbar row instead.)",
                 "Dictionary Import", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,
                 null, new String[]{"Yes, skip first row", "No, first row is data"}, "No, first row is data");
 
@@ -4392,6 +4481,8 @@ public class GifSlideShowApp extends JFrame {
         int timerTargetsSet = 0;
         int timerEndAudiosSet = 0;
         int pictureSlotsSet = 0;
+        int repeatRangesSet = 0;
+        List<String> invalidRepeats = new ArrayList<>();
         List<String> missingAudioFiles = new ArrayList<>();
         List<String> missingPictureFiles = new ArrayList<>();
         List<String> unmatchedTimerTargets = new ArrayList<>();
@@ -4599,6 +4690,20 @@ public class GifSlideShowApp extends JFrame {
                 slide.setSlideTextTimerAt(textIdx, appearMs, goMs);
             }
 
+            // REPEAT1, REPEAT2, … fill the Texts Timer's "Repeat parts of the
+            // video" box, one "start,end[,times[,slow]]" line per cell. The
+            // row's list replaces the slide's, so an empty row clears old ones.
+            if (!cols.repeatColByNum.isEmpty()) {
+                List<int[]> repeats = new ArrayList<>();
+                List<String> bad = new ArrayList<>();
+                for (int col : cols.repeatColByNum.values()) {
+                    parseImportedRepeatCell(cellAt(fields, col), repeats, bad);
+                }
+                slide.setVideoRepeats(repeats);
+                repeatRangesSet += repeats.size();
+                for (String b : bad) invalidRepeats.add("Row " + (i + 1) + ": \"" + b + "\"");
+            }
+
             // Collect the slide-picture columns (PIC / PIC<n> and their _X/_Y/_W/
             // _SHAPE/_RADIUS partners). Applied after the formatting broadcast
             // below, which would otherwise reset them to slide 1's geometry.
@@ -4758,6 +4863,11 @@ public class GifSlideShowApp extends JFrame {
         if (yAxisColIndex >= 0) importMsg += "\nY-AXIS column detected — Y positions imported per text item.";
         if (textSizeColIndex >= 0) importMsg += "\nTEXT-SIZE column detected — text sizes imported per text item.";
         if (!timeColByTextIndex.isEmpty()) importMsg += "\nTEXTnTIME column(s) detected — appear/go timing imported per text item.";
+        if (!cols.repeatColByNum.isEmpty()) {
+            importMsg += "\nREPEATn column(s) detected — " + repeatRangesSet
+                    + " video repeat range(s) put in the Texts Timer's repeat box.";
+            importMsg += describeInvalidRepeats(invalidRepeats);
+        }
         if (timerTargetColIndex >= 0) {
             importMsg += "\nTIMER_TARGET column detected — Slide Timer target text set on "
                     + timerTargetsSet + " slide(s).";
@@ -5297,6 +5407,20 @@ public class GifSlideShowApp extends JFrame {
         return resolveTimerTarget(v, texts);
     }
 
+    /** The import summary's note on REPEATn ranges that could not be read
+     *  ("" when there are none); at most ten are listed. */
+    private static String describeInvalidRepeats(List<String> invalid) {
+        if (invalid.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder("\n  ").append(invalid.size())
+                .append(" REPEAT range(s) skipped — each needs start,end[,times[,slow]]\n"
+                        + "  with end after start, times a whole number 2+ and slow 1+:");
+        for (int k = 0; k < Math.min(10, invalid.size()); k++) {
+            sb.append("\n    ").append(invalid.get(k));
+        }
+        if (invalid.size() > 10) sb.append("\n    … and ").append(invalid.size() - 10).append(" more");
+        return sb.toString();
+    }
+
     /** One group's word lists, in group-number order, as the HL/UL/Font
      *  dropdown rows want them. */
     private static List<String> joinGroupWordLists(java.util.Map<Integer, List<String>> groups) {
@@ -5356,6 +5480,8 @@ public class GifSlideShowApp extends JFrame {
         // to the master's text count.
         final java.util.Map<SlideRow, Integer> filledTextCounts = new java.util.LinkedHashMap<>();
         int timerTargetsSet = 0, timerEndAudiosSet = 0, pictureSlotsSet = 0, textsImported = 0;
+        int repeatRangesSet = 0;
+        final List<String> invalidRepeats = new ArrayList<>();
 
         setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
         try {
@@ -5392,6 +5518,9 @@ public class GifSlideShowApp extends JFrame {
                 String timerTargetCell = null;
                 int timerTargetRow = 0;
                 String timerEndAudioCell = null;
+                // REPEATn ranges belong to the slide's video, so every entry's
+                // ranges are pooled into the slide's one repeat box.
+                List<int[]> slideRepeats = new ArrayList<>();
 
                 for (int r = 0; r < perSlide; r++) {
                     int idx = g * perSlide + r;
@@ -5502,6 +5631,18 @@ public class GifSlideShowApp extends JFrame {
                         String cell = cellAt(fields, cols.timerEndAudioCol);
                         if (cell != null && !cell.isEmpty()) timerEndAudioCell = cell;
                     }
+                    List<String> bad = new ArrayList<>();
+                    for (int col : cols.repeatColByNum.values()) {
+                        parseImportedRepeatCell(cellAt(fields, col), slideRepeats, bad);
+                    }
+                    for (String b : bad) {
+                        invalidRepeats.add("Slide " + (g + 1) + ", entry " + (rowInGroup + 1)
+                                + ": \"" + b + "\"");
+                    }
+                }
+                if (!cols.repeatColByNum.isEmpty()) {
+                    slide.setVideoRepeats(slideRepeats);
+                    repeatRangesSet += slideRepeats.size();
                 }
 
                 // Cut away any text left over from a previous, longer import.
@@ -5637,6 +5778,11 @@ public class GifSlideShowApp extends JFrame {
             }
             if (!cols.timeColByTextIndex.isEmpty()) {
                 msg.append("\nTEXTnTIME column(s) detected — appear/go timing applied per entry.");
+            }
+            if (!cols.repeatColByNum.isEmpty()) {
+                msg.append("\nREPEATn column(s) detected — ").append(repeatRangesSet)
+                        .append(" video repeat range(s) put in the Texts Timer's repeat box.")
+                        .append(describeInvalidRepeats(invalidRepeats));
             }
             if (cols.timerTargetCol >= 0) {
                 msg.append("\nTIMER_TARGET column detected — Slide Timer target text set on ")
