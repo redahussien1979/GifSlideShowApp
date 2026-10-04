@@ -37215,6 +37215,46 @@ public class GifSlideShowApp extends JFrame {
             slowAllPanel.add(slowAllSpinner);
             slowAllPanel.add(slowAllX);
 
+            // The export slows the whole video by the LARGEST value any slide
+            // holds, so lowering it here alone changes nothing while another
+            // slide still asks for more. This sets every slide to one value.
+            JButton slowAllSlidesBtn = new JButton("\u2192 Apply to all slides");
+            slowAllSlidesBtn.setToolTipText("Set \"Slow the ENTIRE video\" to this value on every slide. "
+                    + "The export uses the largest value any slide holds.");
+            slowAllSlidesBtn.addActionListener(e -> {
+                try { slowAllSpinner.commitEdit(); } catch (java.text.ParseException ignored) { }
+                double slow = ((Number) slowAllSpinner.getValue()).doubleValue();
+                int pct = (int) Math.round(slow * 100.0);
+                int ok = JOptionPane.showConfirmDialog(dlg,
+                        "Set \"Slow the ENTIRE video\" to " + slowAllSpinner.getValue()
+                                + "\u00d7 on every slide?",
+                        "Apply to all slides", JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
+                if (ok != JOptionPane.OK_OPTION) return;
+                int applied = 0, locked = 0, lockedFaster = 0;
+                for (SlideRow row : slideRows) {
+                    if (row == SlideRow.this || row.isTitleGridSlide) continue;
+                    if (row.isLocked()) {
+                        locked++;
+                        if (row.getVideoGlobalSlowPct() > pct) lockedFaster++;
+                        continue;
+                    }
+                    row.setVideoGlobalSlowPct(pct);
+                    applied++;
+                }
+                // This slide too, so the value cannot be lost to Cancel.
+                setVideoGlobalSlowPct(pct);
+                String msg = "Slow the ENTIRE video set to " + slowAllSpinner.getValue()
+                        + "\u00d7 on this slide and " + applied + " other slide(s).";
+                if (locked > 0) msg += "\n" + locked + " locked slide(s) were left alone.";
+                if (lockedFaster > 0) {
+                    msg += "\n" + lockedFaster + " of them hold a larger value, and the export uses the "
+                            + "largest — unlock them and run this again.";
+                }
+                JOptionPane.showMessageDialog(dlg, msg, "Apply to all slides",
+                        JOptionPane.INFORMATION_MESSAGE);
+            });
+            slowAllPanel.add(slowAllSlidesBtn);
+
             // ----- Import the repeat ranges from Excel/CSV -----
             // Reads one range per row (start, end, times, slow) and fills the box
             // above; the actual validation happens on Apply, same as typed input.
@@ -37267,6 +37307,7 @@ public class GifSlideShowApp extends JFrame {
             });
 
             JButton applyAllBtn = new JButton("Effect → all texts");
+            JButton effectAllSlidesBtn = new JButton("Effect → all slides");
             JButton clearBtn  = new JButton("Clear All");
             JButton cancelBtn = new JButton("Cancel");
             JButton okBtn     = new JButton("Apply");
@@ -37284,6 +37325,73 @@ public class GifSlideShowApp extends JFrame {
                     easeCombos.get(i).setSelectedItem(ease);
                     durFields.get(i).setText(dur);
                 }
+            });
+
+            // Push the Effect / Ease / Anim (ms) columns over the whole deck. Text n
+            // on every other slide takes row n here; a slide with more texts than
+            // this one gives the extras the last row's setting — so after "Effect
+            // → all texts" every text on every slide gets the same entrance.
+            effectAllSlidesBtn.setToolTipText("<html>Copy the Effect, Ease and Anim (ms) columns to every "
+                    + "other slide: Text 1 → Text 1, Text 2 → Text 2, …<br>Texts beyond this slide's "
+                    + "count take the last row's setting. Appear/Go times are not touched.</html>");
+            effectAllSlidesBtn.addActionListener(e -> {
+                int nRows = effectCombos.size();
+                if (nRows == 0) return;
+                String[] effs = new String[nRows];
+                String[] eases = new String[nRows];
+                int[] durs = new int[nRows];
+                for (int i = 0; i < nRows; i++) {
+                    String eff = (String) effectCombos.get(i).getSelectedItem();
+                    String ease = (String) easeCombos.get(i).getSelectedItem();
+                    int dMs = 500;
+                    String dStr = durFields.get(i).getText().trim();
+                    if (!dStr.isEmpty()) {
+                        try { dMs = (int) Math.round(Double.parseDouble(dStr)); }
+                        catch (NumberFormatException ex) {
+                            JOptionPane.showMessageDialog(dlg,
+                                    "Text " + (i + 1) + ": \"" + dStr + "\" is not a valid animation duration (ms).",
+                                    "Texts Timer", JOptionPane.ERROR_MESSAGE);
+                            return;
+                        }
+                    }
+                    effs[i]  = eff == null ? "None" : eff;
+                    eases[i] = ease == null ? "Ease Out" : ease;
+                    durs[i]  = Math.max(100, Math.min(3000, dMs));
+                }
+                boolean uniform = true;
+                for (int i = 1; i < nRows && uniform; i++) {
+                    uniform = effs[i].equals(effs[0]) && eases[i].equals(eases[0]) && durs[i] == durs[0];
+                }
+                String what = uniform
+                        ? "<b>" + effs[0] + "</b>" + ("None".equals(effs[0]) ? ""
+                                : " (" + eases[0] + ", " + durs[0] + " ms)") + " to every text"
+                        : "each text's Effect, Ease and Anim (ms) to the same text number";
+                int ok = JOptionPane.showConfirmDialog(dlg,
+                        "<html><body style='width:340px'>Copy " + what + " on every other slide?"
+                                + (uniform ? "" : "<br>Texts beyond Text " + nRows
+                                        + " take Text " + nRows + "'s setting.")
+                                + "<br>Appear and Go times stay as they are.</body></html>",
+                        "Apply to all slides", JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
+                if (ok != JOptionPane.OK_OPTION) return;
+                int applied = 0, locked = 0;
+                for (SlideRow row : slideRows) {
+                    if (row == SlideRow.this || row.isTitleGridSlide) continue;
+                    if (row.isLocked()) { locked++; continue; }
+                    for (int t = 0; t < row.slideTextItems.size(); t++) {
+                        int src = Math.min(t, nRows - 1);
+                        SlideTextData st = row.slideTextItems.get(t);
+                        st.timerAppearEffect = effs[src];
+                        st.timerAppearEasing = eases[src];
+                        st.timerAppearDurMs  = durs[src];
+                    }
+                    row.schedulePreview();
+                    applied++;
+                }
+                String msg = "Copied the entrance effects to " + applied + " other slide(s)."
+                        + "\nClick Apply to keep them on this slide too.";
+                if (locked > 0) msg += "\n" + locked + " locked slide(s) were left alone.";
+                JOptionPane.showMessageDialog(dlg, msg, "Apply to all slides",
+                        JOptionPane.INFORMATION_MESSAGE);
             });
 
             clearBtn.addActionListener(e -> {
@@ -37503,6 +37611,7 @@ public class GifSlideShowApp extends JFrame {
 
             JPanel btnLeft = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6));
             btnLeft.add(applyAllBtn);
+            btnLeft.add(effectAllSlidesBtn);
             JPanel btnRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 6));
             btnRight.add(clearBtn);
             btnRight.add(cancelBtn);
