@@ -37204,6 +37204,15 @@ public class GifSlideShowApp extends JFrame {
             addTimerRow(look, r++, "Title:", titleRow);
             addTimerSlider(look, r++, "Title size:", 40, 220, live.titleSizePct, "%",
                     v -> live.titleSizePct = v, refresh);
+            final JComboBox<String> titleAlignCombo = new JComboBox<>(SlideCarousel.alignments());
+            titleAlignCombo.setSelectedItem(live.titleAlign);
+            titleAlignCombo.setToolTipText("Where the title sits inside the card: left, centre or right. "
+                    + "Auto puts Arabic (right-to-left) text on the right and other text on the left.");
+            titleAlignCombo.addActionListener(e -> {
+                live.titleAlign = (String) titleAlignCombo.getSelectedItem();
+                refresh.run();
+            });
+            addTimerRow(look, r++, "Title alignment:", titleAlignCombo);
             JPanel subRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
             subRow.setOpaque(false);
             subRow.add(timerColorButton(dlg, "Subtitle colour",
@@ -37215,6 +37224,29 @@ public class GifSlideShowApp extends JFrame {
             addTimerRow(look, r++, "Subtitle:", subRow);
             addTimerSlider(look, r++, "Subtitle size:", 40, 220, live.subtitleSizePct, "%",
                     v -> live.subtitleSizePct = v, refresh);
+            final JComboBox<String> subAlignCombo = new JComboBox<>(SlideCarousel.alignments());
+            subAlignCombo.setSelectedItem(live.subtitleAlign);
+            subAlignCombo.setToolTipText("Where the subtitle sits inside the card: left, centre or right. "
+                    + "Auto puts Arabic (right-to-left) text on the right and other text on the left.");
+            subAlignCombo.addActionListener(e -> {
+                live.subtitleAlign = (String) subAlignCombo.getSelectedItem();
+                refresh.run();
+            });
+            addTimerRow(look, r++, "Subtitle alignment:", subAlignCombo);
+            JPanel alignBoth = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+            alignBoth.setOpaque(false);
+            for (String al : new String[] { SlideCarousel.ALIGN_LEFT, SlideCarousel.ALIGN_CENTER,
+                    SlideCarousel.ALIGN_RIGHT }) {
+                JButton b = new JButton(al);
+                b.setMargin(new Insets(1, 8, 1, 8));
+                b.setToolTipText("Put both the title and the subtitle " + al.toLowerCase());
+                b.addActionListener(e -> {
+                    titleAlignCombo.setSelectedItem(al);
+                    subAlignCombo.setSelectedItem(al);
+                });
+                alignBoth.add(b);
+            }
+            addTimerRow(look, r++, "Align both:", alignBoth);
             addTimerSlider(look, r++, "Corner roundness:", 0, 400, live.cornerPct, "%",
                     v -> live.cornerPct = v, refresh);
             final JCheckBox shadowCheck = new JCheckBox("Soft shadow under the centre card", live.shadow);

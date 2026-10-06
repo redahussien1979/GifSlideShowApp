@@ -63,6 +63,17 @@ public class SlideCarousel {
         return new String[] { TIMING_FIXED, TIMING_AUDIO };
     }
 
+    // ---- text alignment inside the card ------------------------------------
+    public static final String ALIGN_LEFT   = "Left";
+    public static final String ALIGN_CENTER = "Centre";
+    public static final String ALIGN_RIGHT  = "Right";
+    /** Right for right-to-left text (Arabic, Hebrew…), left for everything else. */
+    public static final String ALIGN_AUTO   = "Auto (Arabic right, others left)";
+
+    public static String[] alignments() {
+        return new String[] { ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT, ALIGN_AUTO };
+    }
+
     public static final String DIR_UP   = "Up (next card rises from below)";
     public static final String DIR_DOWN = "Down (next card drops from above)";
 
@@ -178,6 +189,9 @@ public class SlideCarousel {
     public boolean titleBold = true;
     public boolean titleUpper = true;
     public boolean subtitleBold = false;
+    /** Where the title / subtitle sit across the card's text area (see {@link #alignments()}). */
+    public String titleAlign = ALIGN_LEFT;
+    public String subtitleAlign = ALIGN_LEFT;
     /** Title / subtitle size, % of the stock size. */
     public int titleSizePct = 100;
     public int subtitleSizePct = 100;
@@ -256,6 +270,7 @@ public class SlideCarousel {
         haloColor = s.haloColor; showHalo = s.showHalo; haloSizePct = s.haloSizePct; iconSizePct = s.iconSizePct;
         titleColor = s.titleColor; subtitleColor = s.subtitleColor; fontName = s.fontName;
         titleBold = s.titleBold; titleUpper = s.titleUpper; subtitleBold = s.subtitleBold;
+        titleAlign = s.titleAlign; subtitleAlign = s.subtitleAlign;
         titleSizePct = s.titleSizePct; subtitleSizePct = s.subtitleSizePct;
         shadow = s.shadow; cornerPct = s.cornerPct; sideCards = s.sideCards;
         sideScalePct = s.sideScalePct; gapPct = s.gapPct;
@@ -724,13 +739,13 @@ public class SlideCarousel {
             double capMid = top + H * (both ? 0.335 : 0.5);
             drawFitted(g, title, titleBase.deriveFont(titleSize), textX, capMid, maxW,
                     titleColor != null ? titleColor : new Color(69, 71, 77),
-                    titleBold ? 0.055 : 0.018);
+                    titleBold ? 0.055 : 0.018, titleAlign);
         }
         if (!sub.isEmpty()) {
             double capMid = top + H * (both ? 0.655 : 0.5);
             drawFitted(g, sub, subBase.deriveFont(subSize), textX, capMid, maxW,
                     subtitleColor != null ? subtitleColor : new Color(92, 95, 103),
-                    subtitleBold ? 0.055 : 0.022);
+                    subtitleBold ? 0.055 : 0.022, subtitleAlign);
         }
     }
 
@@ -742,7 +757,7 @@ public class SlideCarousel {
      * stroked around the glyphs when the font has no real bold face of its own.
      */
     private static void drawFitted(Graphics2D g, String s, Font f, double x, double capMid,
-                                   double maxW, Color col, double weightEm) {
+                                   double maxW, Color col, double weightEm, String align) {
         java.awt.font.FontRenderContext frc = g.getFontRenderContext();
         java.awt.font.TextLayout tl = shapedLayout(s, f, frc);
         Font use = f;
@@ -760,6 +775,12 @@ public class SlideCarousel {
             }
         }
         double capH = use.createGlyphVector(frc, "H").getVisualBounds().getHeight();
+        // Place the line inside the text area [x, x + maxW] as asked.
+        double free = Math.max(0, maxW - tl.getAdvance());
+        String a = align == null ? ALIGN_LEFT : align;
+        if (ALIGN_AUTO.equals(a)) a = tl.isLeftToRight() ? ALIGN_LEFT : ALIGN_RIGHT;
+        if (ALIGN_CENTER.equals(a))     x += free / 2.0;
+        else if (ALIGN_RIGHT.equals(a)) x += free;
         Shape outline = tl.getOutline(AffineTransform.getTranslateInstance(x, capMid + capH / 2.0));
         g.setColor(col);
         g.fill(outline);
