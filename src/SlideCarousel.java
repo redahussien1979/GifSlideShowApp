@@ -9,7 +9,6 @@ import java.awt.LinearGradientPaint;
 import java.awt.MultipleGradientPaint;
 import java.awt.RenderingHints;
 import java.awt.Shape;
-import java.awt.font.GlyphVector;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Area;
 import java.awt.geom.Ellipse2D;
@@ -98,6 +97,11 @@ public class SlideCarousel {
         /** 1-based slide text this card came from (0 = typed in). Used by
          *  {@link #TIMING_AUDIO} to find the audio that turns the card. */
         public int sourceTextIndex = 0;
+        /** Sound played the moment this card arrives in the centre ("" = none). */
+        public String audioPath = "";
+        /** Length of {@link #audioPath}, ms (0 = none / not known yet). The card
+         *  stays in the centre at least this long, so its sound is never cut. */
+        public int audioMs = 0;
 
         public Item() { }
 
@@ -116,6 +120,8 @@ public class SlideCarousel {
             c.iconPath = iconPath;
             c.iconText = iconText;
             c.sourceTextIndex = sourceTextIndex;
+            c.audioPath = audioPath;
+            c.audioMs = audioMs;
             return c;
         }
 
@@ -124,7 +130,13 @@ public class SlideCarousel {
             String t = title == null ? "" : title.replace('\n', ' ').trim();
             String s = subtitle == null ? "" : subtitle.replace('\n', ' ').trim();
             if (t.isEmpty() && s.isEmpty()) return "(empty card)";
-            return s.isEmpty() ? t : (t.isEmpty() ? s : t + "  —  " + s);
+            String base = s.isEmpty() ? t : (t.isEmpty() ? s : t + "  —  " + s);
+            return hasAudio() ? "♪ " + base : base;
+        }
+
+        /** True when this card has a sound file to play. */
+        public boolean hasAudio() {
+            return audioPath != null && !audioPath.trim().isEmpty();
         }
     }
 
@@ -193,6 +205,8 @@ public class SlideCarousel {
     public boolean fadeIn = true;
     /** Stretch the slide so every card gets its turn. */
     public boolean stretchSlide = true;
+    /** Volume of the cards' own sounds, 0..100. */
+    public int audioVolume = 100;
 
     // optional backdrop
     /** Paint a full-frame gradient behind the cards (covers the slide picture). */
@@ -247,7 +261,7 @@ public class SlideCarousel {
         sideScalePct = s.sideScalePct; gapPct = s.gapPct;
         timingMode = s.timingMode; direction = s.direction; startMs = s.startMs;
         holdMs = s.holdMs; moveMs = s.moveMs; loop = s.loop; fadeIn = s.fadeIn;
-        stretchSlide = s.stretchSlide;
+        stretchSlide = s.stretchSlide; audioVolume = s.audioVolume;
         backdrop = s.backdrop; backdropColor1 = s.backdropColor1; backdropColor2 = s.backdropColor2;
         backdropAngle = s.backdropAngle;
     }
@@ -256,7 +270,20 @@ public class SlideCarousel {
     //  TIMING
     // ======================================================================
 
+    /** Silence left after a card's own sound before it turns away, ms. */
+    private static final int AUDIO_TAIL_MS = 350;
+
     private int stepMs() { return Math.max(1, Math.max(0, holdMs) + Math.max(1, moveMs)); }
+
+    private int move() { return Math.max(1, moveMs); }
+
+    /** How long card {@code k} rests in the centre: the hold time, or longer when its sound needs it. */
+    private int holdOf(int k) {
+        int hold = Math.max(0, holdMs);
+        Item it = k >= 0 && k < items.size() ? items.get(k) : null;
+        if (it != null && it.hasAudio() && it.audioMs > 0) hold = Math.max(hold, it.audioMs + AUDIO_TAIL_MS);
+        return hold;
+    }
 
     private boolean audioMode() {
         return TIMING_AUDIO.equals(timingMode) && audioCues != null && audioCues.length == items.size();
@@ -266,7 +293,7 @@ public class SlideCarousel {
      * Resolve {@link #TIMING_AUDIO} turn times from the slide's per-text audio
      * starts (entry N = text N+1's audio start, -1 = no audio). Card K follows
      * the audio of its source text, or of text K+1 when it was typed in. A card
-     * with no audio of its own turns one fixed step after the card before it.
+     * with no audio of its own turns one step after the card before it.
      */
     public int[] resolveAudioCues(int[] audioStarts) {
         int n = items == null ? 0 : items.size();
@@ -281,26 +308,73 @@ public class SlideCarousel {
             } else if (at >= 0) {
                 cues[k] = Math.max(prev, at);
             } else {
-                cues[k] = prev + stepMs();
+                cues[k] = prev + holdOf(k - 1) + move();
             }
             prev = cues[k];
         }
         return cues;
     }
 
+    /**
+     * Fixed timing: when each card arrives in the centre during the first pass,
+     * ms after the carousel starts; entry n is when the pass ends (the first
+     * card back in the centre).
+     */
+    private int[] fixedArrivals() {
+        int n = items.size();
+        int[] at = new int[n + 1];
+        for (int k = 1; k <= n; k++) at[k] = at[k - 1] + holdOf(k - 1) + move();
+        return at;
+    }
+
     /** How long the carousel needs (from slide start) to give every card its turn, ms. */
     public int requiredSlideMs() {
         if (!isActive()) return 0;
         int n = items.size();
-        int hold = Math.max(0, holdMs);
-        if (audioMode()) {
-            return Math.max(0, startMs) + audioCues[n - 1] + Math.max(hold, 600);
-        }
         int body;
-        if (n <= 1)     body = Math.max(hold, 600);
-        else if (loop)  body = n * stepMs();           // back round to the first card
-        else            body = (n - 1) * stepMs() + hold;
+        if (audioMode()) {
+            body = audioCues[n - 1] + Math.max(holdOf(n - 1), 600);
+        } else if (n <= 1) {
+            body = Math.max(holdOf(0), 600);
+        } else {
+            int[] at = fixedArrivals();
+            body = loop ? at[n]                   // back round to the first card
+                        : at[n - 1] + holdOf(n - 1);
+        }
         return Math.max(0, startMs) + body;
+    }
+
+    /**
+     * Every moment a card with a sound arrives in the centre while the slide is
+     * on screen: {slide-relative ms, card index}. A loop replays a card's sound
+     * each time it comes back, as long as the sound fits before the slide ends.
+     */
+    public List<int[]> audioEvents(int slideMs) {
+        List<int[]> out = new ArrayList<>();
+        if (!isActive()) return out;
+        int n = items.size();
+        int base = Math.max(0, startMs);
+        if (audioMode() || n <= 1 || !loop) {
+            int[] at = audioMode() ? audioCues : fixedArrivals();
+            for (int k = 0; k < n; k++) addEvent(out, k, base + (k == 0 ? 0 : at[k]), slideMs, true);
+            return out;
+        }
+        int[] at = fixedArrivals();
+        int period = Math.max(1, at[n]);
+        for (long cycle = 0; base + cycle * period < slideMs; cycle++) {
+            for (int k = 0; k < n; k++) {
+                addEvent(out, k, (int) (base + cycle * period + at[k]), slideMs, cycle == 0);
+            }
+        }
+        return out;
+    }
+
+    private void addEvent(List<int[]> out, int k, int atMs, int slideMs, boolean always) {
+        Item it = items.get(k);
+        if (it == null || !it.hasAudio() || atMs >= slideMs) return;
+        // A replay that would be cut off by the end of the slide is left out.
+        if (!always && it.audioMs > 0 && atMs + it.audioMs > slideMs) return;
+        out.add(new int[] { atMs, k });
     }
 
     /**
@@ -326,7 +400,7 @@ public class SlideCarousel {
         int n = items.size();
         if (n <= 1 || t <= 0) return 0;
         if (audioMode()) {
-            int move = Math.max(1, moveMs);
+            int move = move();
             for (int k = n - 1; k >= 1; k--) {
                 int arrive = audioCues[k];
                 int leave = Math.max(audioCues[k - 1], arrive - move);
@@ -338,14 +412,25 @@ public class SlideCarousel {
             }
             return 0;
         }
-        int step = stepMs();
-        int hold = Math.max(0, holdMs);
-        long k = t / step;
-        long r = t - k * step;
-        double frac = r < hold ? 0 : easeInOut((r - hold) / (double) Math.max(1, moveMs));
-        double p = k + frac;
-        if (!loop && p > n - 1) p = n - 1;
-        return p;
+        int[] at = fixedArrivals();
+        long cycles = 0;
+        long r = t;
+        if (loop) {
+            int period = Math.max(1, at[n]);
+            cycles = t / period;
+            r = t - cycles * period;
+        } else if (t >= at[n - 1]) {
+            return n - 1;
+        }
+        for (int k = 0; k < n; k++) {
+            if (r < at[k + 1]) {
+                long into = r - at[k];
+                int hold = holdOf(k);
+                double frac = into < hold ? 0 : easeInOut((into - hold) / (double) move());
+                return cycles * n + k + frac;
+            }
+        }
+        return cycles * n + n;   // not reached: r < at[n] always holds
     }
 
     // ======================================================================
@@ -595,15 +680,15 @@ public class SlideCarousel {
                 String s = it.iconText == null ? "" : it.iconText.trim();
                 if (s.isEmpty()) { paintDot(g, bx, by, size, col); return; }
                 Font f = titleBase.deriveFont(Font.BOLD, (float) (size * 0.82));
-                GlyphVector gv = f.createGlyphVector(g.getFontRenderContext(), s);
-                Rectangle2D vb = gv.getVisualBounds();
+                java.awt.font.TextLayout gv = shapedLayout(s, f, g.getFontRenderContext());
+                Rectangle2D vb = gv.getOutline(null).getBounds2D();
                 double fit = Math.min(1.0, Math.min(size / Math.max(1e-3, vb.getWidth()),
                         size / Math.max(1e-3, vb.getHeight())));
                 AffineTransform t0 = g.getTransform();
                 g.translate(bx, by);
                 g.scale(fit, fit);
                 g.setColor(col);
-                g.fill(gv.getOutline((float) (-vb.getCenterX()), (float) (-vb.getCenterY())));
+                g.fill(gv.getOutline(AffineTransform.getTranslateInstance(-vb.getCenterX(), -vb.getCenterY())));
                 g.setTransform(t0);
                 return;
             }
@@ -659,24 +744,23 @@ public class SlideCarousel {
     private static void drawFitted(Graphics2D g, String s, Font f, double x, double capMid,
                                    double maxW, Color col, double weightEm) {
         java.awt.font.FontRenderContext frc = g.getFontRenderContext();
-        double w = f.getStringBounds(s, frc).getWidth();
+        java.awt.font.TextLayout tl = shapedLayout(s, f, frc);
         Font use = f;
-        if (w > maxW) {
-            float shrunk = (float) Math.max(f.getSize2D() * 0.72, f.getSize2D() * maxW / w);
+        if (tl.getAdvance() > maxW) {
+            float shrunk = (float) Math.max(f.getSize2D() * 0.72, f.getSize2D() * maxW / tl.getAdvance());
             use = f.deriveFont(shrunk);
-            w = use.getStringBounds(s, frc).getWidth();
-            if (w > maxW) {
+            tl = shapedLayout(s, use, frc);
+            if (tl.getAdvance() > maxW) {
                 String ell = "\u2026";
                 String cut = s;
-                while (cut.length() > 1 && use.getStringBounds(cut + ell, frc).getWidth() > maxW) {
+                while (cut.length() > 1 && shapedLayout(cut + ell, use, frc).getAdvance() > maxW) {
                     cut = cut.substring(0, cut.length() - 1);
                 }
-                s = cut.trim() + ell;
+                tl = shapedLayout(cut.trim() + ell, use, frc);
             }
         }
         double capH = use.createGlyphVector(frc, "H").getVisualBounds().getHeight();
-        GlyphVector gv = use.createGlyphVector(frc, s);
-        Shape outline = gv.getOutline((float) x, (float) (capMid + capH / 2.0));
+        Shape outline = tl.getOutline(AffineTransform.getTranslateInstance(x, capMid + capH / 2.0));
         g.setColor(col);
         g.fill(outline);
         boolean realBold = use.isBold() && !use.getFontName().equals(use.deriveFont(Font.PLAIN).getFontName());
@@ -685,6 +769,70 @@ public class SlideCarousel {
             g.setStroke(new BasicStroke((float) sw, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
             g.draw(outline);
         }
+    }
+
+    /**
+     * Lay {@code s} out the way a word processor would: through TextLayout, which
+     * joins Arabic letters into their connected forms and puts right-to-left text
+     * in the right order (a plain glyph vector does neither, which is what gave
+     * separated, back-to-front Arabic). Characters the chosen font has no glyph
+     * for — typically Arabic in a Latin-only font such as Montserrat — are set in
+     * a font that has them, at the same size and weight.
+     */
+    static java.awt.font.TextLayout shapedLayout(String s, Font f, java.awt.font.FontRenderContext frc) {
+        if (s == null || s.isEmpty()) s = " ";
+        java.text.AttributedString as = new java.text.AttributedString(s);
+        as.addAttribute(java.awt.font.TextAttribute.FONT, f);
+        if (f.canDisplayUpTo(s) != -1) {
+            Font fb = null;
+            int i = 0;
+            while (i < s.length()) {
+                int cp = s.codePointAt(i);
+                int n = Character.charCount(cp);
+                if (!f.canDisplay(cp) && !Character.isWhitespace(cp)) {
+                    if (fb == null) fb = fallbackFont(cp, f);
+                    if (fb != null) {
+                        // Grow the run over neighbouring characters the fallback
+                        // also covers (spaces included), so a whole Arabic phrase
+                        // is shaped as one piece.
+                        int j = i + n;
+                        while (j < s.length()) {
+                            int c2 = s.codePointAt(j);
+                            if (f.canDisplay(c2) && !Character.isWhitespace(c2)) break;
+                            if (!fb.canDisplay(c2) && !Character.isWhitespace(c2)) break;
+                            j += Character.charCount(c2);
+                        }
+                        as.addAttribute(java.awt.font.TextAttribute.FONT, fb, i, j);
+                        i = j;
+                        continue;
+                    }
+                }
+                i += n;
+            }
+        }
+        return new java.awt.font.TextLayout(as.getIterator(), frc);
+    }
+
+    private static final Map<String, Font> FALLBACK_CACHE = new ConcurrentHashMap<>();
+
+    /** A font that can draw {@code cp}, at {@code like}'s size and style (null when none can). */
+    private static Font fallbackFont(int cp, Font like) {
+        String key = Character.UnicodeScript.of(cp) + "|" + like.getStyle();
+        Font base = FALLBACK_CACHE.get(key);
+        if (base == null) {
+            String[] candidates = { "Segoe UI", "Tahoma", "Arial", "Times New Roman",
+                    "Noto Sans Arabic", "Noto Naskh Arabic", "DejaVu Sans", "FreeSerif", "Dialog" };
+            for (String name : candidates) {
+                Font c = new Font(name, like.getStyle(), 32);
+                // new Font() silently falls back to Dialog for unknown names; keep
+                // the named font only when it really is installed (or is Dialog).
+                boolean real = name.equals("Dialog") || c.getFamily().equalsIgnoreCase(name);
+                if (real && c.canDisplay(cp)) { base = c; break; }
+            }
+            if (base == null) return null;
+            FALLBACK_CACHE.put(key, base);
+        }
+        return base.deriveFont(like.getStyle(), like.getSize2D());
     }
 
     // ======================================================================

@@ -19157,11 +19157,15 @@ public class GifSlideShowApp extends JFrame {
                                             new File(st.endAudioPath),
                                             Math.max(0, Math.min(1.0, st.endAudioVolume / 100.0))));
                                 }
+                                // Carousel cards' own sounds, each dropped the moment its
+                                // card arrives in the centre.
+                                timerCues.addAll(carouselSoundCues(s, slideStartMs,
+                                        computeSlideDuration(s, duration)));
                                 offT += computeSlideDuration(s, duration) / 1000.0;
                                 if (scrollEnabled && i < slides.size() - 1) offT += transSecT;
                             }
                             if (!timerCues.isEmpty()) {
-                                publish("Adding timer sound...");
+                                publish("Adding timer / carousel sound...");
                                 overlayTimerSounds(finalOut, timerCues, tempDir);
                             }
                         } catch (Exception tex) {
@@ -19938,6 +19942,20 @@ public class GifSlideShowApp extends JFrame {
                                     }
                                 } catch (Exception tex) {
                                     publish("Timer sound skipped for slide " + (si + 1) + ": " + tex.getMessage());
+                                }
+                            }
+
+                            // Carousel cards' own sounds on this slide's file (slide-relative).
+                            if (slideOutFile.exists() && hasCarousel(s)) {
+                                try {
+                                    java.util.List<TimerSoundCue> cues =
+                                            carouselSoundCues(s, 0, computeSlideDuration(s, duration));
+                                    if (!cues.isEmpty()) {
+                                        publish("Adding carousel sound to slide " + (si + 1) + "...");
+                                        overlayTimerSounds(slideOutFile, cues, tempDir);
+                                    }
+                                } catch (Exception cex) {
+                                    publish("Carousel sound skipped for slide " + (si + 1) + ": " + cex.getMessage());
                                 }
                             }
 
@@ -21990,6 +22008,24 @@ public class GifSlideShowApp extends JFrame {
                 lastKey = key;
             }
         }
+    }
+
+    /**
+     * The carousel's card sounds for one slide, placed on the export timeline:
+     * each fires when its card arrives in the centre ({@code slideStartMs} +
+     * the slide-relative moment). Empty when the slide has no carousel sound.
+     */
+    private static java.util.List<TimerSoundCue> carouselSoundCues(SlideData s, long slideStartMs,
+                                                                   int slideMs) {
+        java.util.List<TimerSoundCue> out = new java.util.ArrayList<>();
+        if (!hasCarousel(s)) return out;
+        SlideCarousel c = s.slideCarousel;
+        double gain = Math.max(0, Math.min(1.0, c.audioVolume / 100.0));
+        for (int[] ev : c.audioEvents(slideMs)) {
+            File f = new File(c.items.get(ev[1]).audioPath.trim());
+            if (f.isFile()) out.add(new TimerSoundCue(slideStartMs + ev[0], f, gain));
+        }
+        return out;
     }
 
     /** True when this slide carries a card carousel that has to be drawn. */
@@ -36406,6 +36442,100 @@ public class GifSlideShowApp extends JFrame {
             dlg.setVisible(true);
         }
 
+        /** "name.mp3 (3.2s)" for a card's sound. */
+        private static String carouselSoundLabel(SlideCarousel.Item it) {
+            String name = new File(it.audioPath.trim()).getName();
+            if (!new File(it.audioPath.trim()).isFile()) return name + "  (file not found)";
+            return it.audioMs > 0 ? name + "  (" + timerSecs(it.audioMs) + ")" : name;
+        }
+
+        /** Cell {@code i} of a spreadsheet row, trimmed ("" when absent). */
+        private static String carouselCell(java.util.List<String> row, int i) {
+            if (row == null || i >= row.size() || row.get(i) == null) return "";
+            return row.get(i).trim();
+        }
+
+        /** True for a heading row such as "Title | Subtitle | Audio". */
+        private static boolean isCarouselHeaderRow(String a, String b, String c) {
+            String[] heads = { "title", "titles", "subtitle", "subtitles", "audio", "sound", "voice",
+                    "text", "العنوان", "العنوان الفرعي", "الصوت" };
+            for (String h : heads) {
+                if (a.equalsIgnoreCase(h) || b.equalsIgnoreCase(h) || c.equalsIgnoreCase(h)) return true;
+            }
+            return false;
+        }
+
+        /** A file named in a spreadsheet cell: as written, else next to the spreadsheet. */
+        private static File resolveSheetFile(String cell, File baseDir) {
+            String p = cell.trim();
+            if (p.length() >= 2 && (p.startsWith("\"") && p.endsWith("\"") || p.startsWith("'") && p.endsWith("'"))) {
+                p = p.substring(1, p.length() - 1).trim();
+            }
+            if (p.isEmpty()) return null;
+            File f = new File(p);
+            if (f.isFile()) return f;
+            if (baseDir != null) {
+                File rel = new File(baseDir, p);
+                if (rel.isFile()) return rel;
+                File byName = new File(baseDir, f.getName());
+                if (byName.isFile()) return byName;
+            }
+            return null;
+        }
+
+        /** Column D of the card sheet: a picture file, a #RRGGBB colour, or a short letter/symbol. */
+        private static void applyCarouselIconCell(SlideCarousel.Item it, String d, File baseDir) {
+            if (d == null || d.isEmpty()) return;
+            if (d.matches("#?[0-9A-Fa-f]{6}")) {
+                it.iconKind = SlideCarousel.ICON_DOT;
+                it.iconColor = Color.decode(d.startsWith("#") ? d : "#" + d);
+                return;
+            }
+            File pic = resolveSheetFile(d, baseDir);
+            if (pic != null && SlideCarousel.loadIcon(pic.getAbsolutePath(), 64) != null) {
+                it.iconKind = SlideCarousel.ICON_IMAGE;
+                it.iconPath = pic.getAbsolutePath();
+                return;
+            }
+            if (d.codePointCount(0, d.length()) <= 3) {
+                it.iconKind = SlideCarousel.ICON_TEXT;
+                it.iconText = d;
+            }
+        }
+
+        /** Converted copies of sounds Java cannot play itself (MP3 etc.), by source path. */
+        private static final java.util.Map<String, File> CAROUSEL_PREVIEW_WAVS =
+                new java.util.concurrent.ConcurrentHashMap<>();
+
+        /**
+         * Play a card's sound in the editor. WAV plays directly; anything else is
+         * converted to WAV once with ffmpeg (in the background) and then played.
+         * Best effort: a sound that cannot be played is simply skipped here — the
+         * export mixes it with ffmpeg either way.
+         */
+        private static void playCarouselPreviewSound(File f) {
+            if (f == null || !f.isFile()) return;
+            File cached = CAROUSEL_PREVIEW_WAVS.get(f.getAbsolutePath());
+            if (cached != null && cached.isFile()) { SlideTimer.playFilePreview(cached); return; }
+            if (SlideTimer.playFilePreview(f)) return;
+            Thread t = new Thread(() -> {
+                try {
+                    File wav = File.createTempFile("carousel_preview_", ".wav");
+                    wav.deleteOnExit();
+                    Process p = new ProcessBuilder("ffmpeg", "-y", "-v", "error", "-i", f.getAbsolutePath(),
+                            "-ac", "2", "-ar", "44100", "-sample_fmt", "s16", wav.getAbsolutePath())
+                            .redirectErrorStream(true).start();
+                    try (InputStream in = p.getInputStream()) { while (in.read() >= 0) { /* drain */ } }
+                    if (p.waitFor() == 0 && wav.length() > 44) {
+                        CAROUSEL_PREVIEW_WAVS.put(f.getAbsolutePath(), wav);
+                        SlideTimer.playFilePreview(wav);
+                    }
+                } catch (Exception ignored) { }
+            }, "carousel-sound-preview");
+            t.setDaemon(true);
+            t.start();
+        }
+
         /** Format ms as seconds for an editable field ("1.6"). */
         private static String carouselSecs(int ms) {
             return String.format(java.util.Locale.US, "%.2f", ms / 1000.0).replaceAll("0$", "");
@@ -36563,6 +36693,17 @@ public class GifSlideShowApp extends JFrame {
             iconBrowse.setToolTipText("PNG (with transparency) works best — e.g. an emoji or an icon.");
             final JButton iconAllColors = new JButton("Colour → all cards");
             iconAllColors.setToolTipText("Give every card this card's icon colour.");
+            final JLabel soundLbl = new JLabel(" ");
+            soundLbl.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            final JButton soundBrowse = new JButton("Choose sound…");
+            soundBrowse.setToolTipText("Played the moment this card turns into the centre. The card "
+                    + "stays in the centre until its sound has finished.");
+            final JButton soundPlay = new JButton("▶");
+            soundPlay.setToolTipText("Listen");
+            soundPlay.setMargin(new Insets(1, 6, 1, 6));
+            final JButton soundClear = new JButton("✕");
+            soundClear.setToolTipText("Remove this card's sound");
+            soundClear.setMargin(new Insets(1, 6, 1, 6));
 
             afterCardEdit[0] = () -> {
                 SlideCarousel.Item it = selItem.get();
@@ -36603,6 +36744,12 @@ public class GifSlideShowApp extends JFrame {
                     String path = has && it.iconPath != null ? it.iconPath.trim() : "";
                     iconPathLbl.setText(path.isEmpty() ? "(no picture chosen)" : new File(path).getName());
                     iconPathLbl.setToolTipText(path.isEmpty() ? null : path);
+                    boolean snd = has && it.hasAudio();
+                    soundLbl.setText(!snd ? "(no sound)" : carouselSoundLabel(it));
+                    soundLbl.setToolTipText(snd ? it.audioPath : null);
+                    soundBrowse.setEnabled(has);
+                    soundPlay.setEnabled(snd);
+                    soundClear.setEnabled(snd);
                 } finally {
                     loadingCard[0] = false;
                 }
@@ -36660,6 +36807,36 @@ public class GifSlideShowApp extends JFrame {
                 refresh.run();
             });
 
+            soundBrowse.addActionListener(e -> {
+                SlideCarousel.Item it = selItem.get();
+                if (it == null) return;
+                JFileChooser fc = new JFileChooser();
+                fc.setFileFilter(new FileNameExtensionFilter("Audio (mp3, wav, m4a, aac, ogg, flac)",
+                        "mp3", "wav", "m4a", "aac", "ogg", "flac", "wma", "opus"));
+                if (it.hasAudio()) fc.setSelectedFile(new File(it.audioPath.trim()));
+                if (fc.showOpenDialog(dlg) != JFileChooser.APPROVE_OPTION) return;
+                it.audioPath = fc.getSelectedFile().getAbsolutePath();
+                it.audioMs = 0;
+                dlg.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+                try { probeCarouselAudio(it); } finally { dlg.setCursor(Cursor.getDefaultCursor()); }
+                reloadList.run();
+                loadCard.run();
+                refresh.run();
+            });
+            soundPlay.addActionListener(e -> {
+                SlideCarousel.Item it = selItem.get();
+                if (it != null && it.hasAudio()) playCarouselPreviewSound(new File(it.audioPath.trim()));
+            });
+            soundClear.addActionListener(e -> {
+                SlideCarousel.Item it = selItem.get();
+                if (it == null) return;
+                it.audioPath = "";
+                it.audioMs = 0;
+                reloadList.run();
+                loadCard.run();
+                refresh.run();
+            });
+
             int er = 0;
             addTimerRow(cardEd, er++, "Title:", titleField);
             addTimerRow(cardEd, er++, "Subtitle:", subField);
@@ -36675,6 +36852,13 @@ public class GifSlideShowApp extends JFrame {
             picRow.add(iconBrowse, BorderLayout.WEST);
             picRow.add(iconPathLbl, BorderLayout.CENTER);
             addTimerRow(cardEd, er++, "Picture:", picRow);
+            JPanel soundRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+            soundRow.setOpaque(false);
+            soundRow.add(soundBrowse);
+            soundRow.add(soundPlay);
+            soundRow.add(soundClear);
+            soundRow.add(soundLbl);
+            addTimerRow(cardEd, er++, "Sound:", soundRow);
 
             // Card list buttons.
             final java.util.function.IntConsumer selectCard = i -> {
@@ -36695,6 +36879,8 @@ public class GifSlideShowApp extends JFrame {
                 titleField.requestFocusInWindow();
                 titleField.selectAll();
             });
+            // Spreadsheet import; set up below, also reachable from "Add many".
+            final Runnable[] excelImport = new Runnable[1];
             JButton addManyBtn = new JButton("+ Add many…");
             addManyBtn.setToolTipText("Type or paste many cards at once — one per line, \"Title | Subtitle\".");
             addManyBtn.addActionListener(e -> {
@@ -36704,8 +36890,21 @@ public class GifSlideShowApp extends JFrame {
                 ask.add(new JLabel("<html>One card per line. Put a <b>|</b> between the title and the "
                         + "subtitle, e.g. <code>Whale | Unicode: U+1F40B</code></html>"), BorderLayout.NORTH);
                 ask.add(new JScrollPane(ta), BorderLayout.CENTER);
+                // Or take the cards straight from a spreadsheet (with their sounds).
+                final boolean[] wantsExcel = { false };
+                JButton fromExcel = new JButton("📄 Import from an Excel / CSV file instead…");
+                fromExcel.setToolTipText("Column A = title, B = subtitle, C = sound file, D = icon (optional).");
+                fromExcel.addActionListener(ev -> {
+                    wantsExcel[0] = true;
+                    Window w = SwingUtilities.getWindowAncestor(fromExcel);
+                    if (w != null) w.dispose();
+                });
+                JPanel excelRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+                excelRow.add(fromExcel);
+                ask.add(excelRow, BorderLayout.SOUTH);
                 int ok = JOptionPane.showConfirmDialog(dlg, ask, "Add many cards",
                         JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+                if (wantsExcel[0]) { excelImport[0].run(); return; }
                 if (ok != JOptionPane.OK_OPTION) return;
                 int added = 0;
                 for (String line : ta.getText().split("\\r?\\n")) {
@@ -36790,6 +36989,108 @@ public class GifSlideShowApp extends JFrame {
                 }
                 selectCard.accept(live.items.size() - made.size());
             });
+            JButton excelBtn = new JButton("📄 Import Excel / CSV…");
+            excelBtn.setToolTipText("<html>Make cards from a spreadsheet, one row per card:<br>"
+                    + "column A = title, B = subtitle, C = sound file (played when the card arrives),<br>"
+                    + "D (optional) = icon: a picture file, a colour like #FF6633, or a letter.</html>");
+            excelBtn.addActionListener(e -> excelImport[0].run());
+            excelImport[0] = () -> {
+                JFileChooser fc = new JFileChooser();
+                fc.setFileFilter(new FileNameExtensionFilter("Excel / CSV ("
+                        + String.join(", ", SpreadsheetReader.EXTENSIONS) + ")", SpreadsheetReader.EXTENSIONS));
+                if (fc.showOpenDialog(dlg) != JFileChooser.APPROVE_OPTION) return;
+                File file = fc.getSelectedFile();
+                java.util.List<SpreadsheetReader.Sheet> sheets;
+                try {
+                    sheets = SpreadsheetReader.read(file);
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(dlg, "Could not read the file:\n" + ex.getMessage(),
+                            "Import cards", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                java.util.List<SpreadsheetReader.Sheet> usable = new java.util.ArrayList<>();
+                for (SpreadsheetReader.Sheet sh : sheets) if (!sh.isBlank()) usable.add(sh);
+                if (usable.isEmpty()) {
+                    JOptionPane.showMessageDialog(dlg, "The file has no rows.", "Import cards",
+                            JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+                JComboBox<SpreadsheetReader.Sheet> sheetCombo = new JComboBox<>(
+                        usable.toArray(new SpreadsheetReader.Sheet[0]));
+                JRadioButton replaceRb = new JRadioButton("Replace the current cards", true);
+                JRadioButton appendRb = new JRadioButton("Add after the current cards");
+                ButtonGroup grp = new ButtonGroup();
+                grp.add(replaceRb);
+                grp.add(appendRb);
+                JPanel ask = new JPanel(new GridLayout(0, 1, 0, 4));
+                ask.add(new JLabel("<html>One card per row: <b>A</b> = title, <b>B</b> = subtitle, "
+                        + "<b>C</b> = sound file, <b>D</b> = icon (optional).<br>"
+                        + "A first row of headings (Title / Subtitle / Audio) is skipped.</html>"));
+                if (usable.size() > 1) {
+                    ask.add(new JLabel("Sheet:"));
+                    ask.add(sheetCombo);
+                }
+                ask.add(replaceRb);
+                ask.add(appendRb);
+                int ok = JOptionPane.showConfirmDialog(dlg, ask, "Import cards from " + file.getName(),
+                        JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+                if (ok != JOptionPane.OK_OPTION) return;
+                SpreadsheetReader.Sheet sheet = (SpreadsheetReader.Sheet) sheetCombo.getSelectedItem();
+                File baseDir = file.getAbsoluteFile().getParentFile();
+                java.util.List<SlideCarousel.Item> made = new java.util.ArrayList<>();
+                java.util.List<String> missing = new java.util.ArrayList<>();
+                int startNo = replaceRb.isSelected() ? 0 : live.items.size();
+                dlg.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+                try {
+                    boolean first = true;
+                    for (int ri = 0; ri < sheet.rows.size(); ri++) {
+                        java.util.List<String> row = sheet.rows.get(ri);
+                        String a = carouselCell(row, 0), b = carouselCell(row, 1);
+                        String c = carouselCell(row, 2), d = carouselCell(row, 3);
+                        if (a.isEmpty() && b.isEmpty() && c.isEmpty()) continue;
+                        if (first) {
+                            first = false;
+                            if (isCarouselHeaderRow(a, b, c)) continue;
+                        }
+                        SlideCarousel.Item it = new SlideCarousel.Item(a, b,
+                                SlideCarousel.paletteColor(startNo + made.size()));
+                        if (!c.isEmpty()) {
+                            File af = resolveSheetFile(c, baseDir);
+                            if (af != null) {
+                                it.audioPath = af.getAbsolutePath();
+                                probeCarouselAudio(it);
+                            } else {
+                                missing.add("row " + (ri + 1) + ": " + c);
+                            }
+                        }
+                        applyCarouselIconCell(it, d, baseDir);
+                        made.add(it);
+                    }
+                } finally {
+                    dlg.setCursor(Cursor.getDefaultCursor());
+                }
+                if (made.isEmpty()) {
+                    JOptionPane.showMessageDialog(dlg, "No card rows were found in that sheet.",
+                            "Import cards", JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+                if (replaceRb.isSelected()) live.items.clear();
+                live.items.addAll(made);
+                selectCard.accept(live.items.size() - made.size());
+                int withSound = 0;
+                for (SlideCarousel.Item it : made) if (it.hasAudio()) withSound++;
+                StringBuilder msg = new StringBuilder("Imported " + made.size() + " card(s)");
+                msg.append(withSound > 0 ? ", " + withSound + " with a sound." : ".");
+                if (!missing.isEmpty()) {
+                    msg.append("\n\nThese sound files were not found (the cards were added without sound):");
+                    for (int i = 0; i < missing.size() && i < 12; i++) msg.append("\n  • ").append(missing.get(i));
+                    if (missing.size() > 12) msg.append("\n  … and ").append(missing.size() - 12).append(" more");
+                    msg.append("\n\nTip: write the full path, or just the file name with the "
+                            + "sound files kept in the same folder as the spreadsheet.");
+                }
+                JOptionPane.showMessageDialog(dlg, msg.toString(), "Import cards",
+                        missing.isEmpty() ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+            };
             JButton dupBtn = new JButton("Duplicate");
             dupBtn.addActionListener(e -> {
                 int i = cardList.getSelectedIndex();
@@ -36838,7 +37139,10 @@ public class GifSlideShowApp extends JFrame {
             listBtns.add(downBtn);
             listBtns.add(clearBtn);
             JPanel listTop = new JPanel(new BorderLayout(0, 4));
-            listTop.add(importBtn, BorderLayout.NORTH);
+            JPanel importRow = new JPanel(new GridLayout(1, 2, 4, 0));
+            importRow.add(importBtn);
+            importRow.add(excelBtn);
+            listTop.add(importRow, BorderLayout.NORTH);
             JScrollPane listScroll = new JScrollPane(cardList);
             listScroll.setPreferredSize(new Dimension(360, 150));
             listTop.add(listScroll, BorderLayout.CENTER);
@@ -37031,6 +37335,8 @@ public class GifSlideShowApp extends JFrame {
             stretchCheck.setOpaque(false);
             stretchCheck.addActionListener(e -> { live.stretchSlide = stretchCheck.isSelected(); refresh.run(); });
             addTimerRow(motion, r++, null, stretchCheck);
+            addTimerSlider(motion, r++, "Card sound volume:", 0, 100, live.audioVolume, "%",
+                    v -> live.audioVolume = v, () -> { });
             final Runnable syncMode = () -> {
                 boolean fixed = !SlideCarousel.TIMING_AUDIO.equals(live.timingMode);
                 holdField.setEnabled(fixed);
@@ -37087,13 +37393,25 @@ public class GifSlideShowApp extends JFrame {
             // ---------- preview transport ----------
             final javax.swing.Timer anim = new javax.swing.Timer(33, null);
             final JButton playBtn = new JButton("▶ Play");
+            // While playing, each card's sound starts as the card reaches the centre.
+            final JCheckBox soundOnPlay = new JCheckBox("♪", true);
+            soundOnPlay.setToolTipText("Play the cards' sounds while the preview plays");
             anim.addActionListener(e -> {
+                long before = scrub[0];
                 scrub[0] += 33;
                 if (scrub[0] > scrubSlider.getMaximum()) scrub[0] = 0;
+                if (soundOnPlay.isSelected() && scrub[0] > before) {
+                    for (int[] ev : live.audioEvents(scrubSlider.getMaximum() + 1)) {
+                        if (ev[0] > before && ev[0] <= scrub[0]
+                                || (before == 0 && ev[0] == 0)) {
+                            playCarouselPreviewSound(new File(live.items.get(ev[1]).audioPath.trim()));
+                        }
+                    }
+                }
                 scrubSlider.setValue((int) scrub[0]);
             });
             playBtn.addActionListener(e -> {
-                if (anim.isRunning()) { anim.stop(); playBtn.setText("▶ Play"); }
+                if (anim.isRunning()) { anim.stop(); SlideTimer.stopPreview(); playBtn.setText("▶ Play"); }
                 else { anim.start(); playBtn.setText("❚❚ Pause"); }
             });
             final JLabel clock = new JLabel("0.0s");
@@ -37108,7 +37426,10 @@ public class GifSlideShowApp extends JFrame {
             JPanel transport = new JPanel(new BorderLayout(6, 0));
             transport.add(playBtn, BorderLayout.WEST);
             transport.add(scrubSlider, BorderLayout.CENTER);
-            transport.add(clock, BorderLayout.EAST);
+            JPanel transportEast = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+            transportEast.add(soundOnPlay);
+            transportEast.add(clock);
+            transport.add(transportEast, BorderLayout.EAST);
 
             final JCheckBox onCheck = new JCheckBox("Show a card carousel on this slide", live.enabled);
             onCheck.setFont(new Font("Segoe UI", Font.BOLD, 13));
@@ -37139,6 +37460,7 @@ public class GifSlideShowApp extends JFrame {
             resetBtn.setToolTipText("Back to the stock look, placement and timing. Your cards are kept.");
             final Runnable close = () -> {
                 anim.stop();
+                SlideTimer.stopPreview();
                 carouselDialogOpen = false;
                 carouselPreviewBase = null;
                 carouselScrubMs = -1;
@@ -41817,9 +42139,21 @@ public class GifSlideShowApp extends JFrame {
             slideCarousel.audioCues = slideCarousel.resolveAudioCues(tl[0]);
         }
 
+        /** Measure a card's sound (once): sets its audioMs, 0 when there is no readable file. */
+        private static void probeCarouselAudio(SlideCarousel.Item it) {
+            if (it == null) return;
+            if (!it.hasAudio()) { it.audioMs = 0; return; }
+            if (it.audioMs > 0) return;
+            File f = new File(it.audioPath.trim());
+            it.audioMs = f.isFile() ? Math.max(0, probeAudioDurationMs(f)) : 0;
+        }
+
         /** Export snapshot of the carousel with its turn times resolved, or null when it is off. */
         SlideCarousel resolvedCarouselSnapshot() {
             if (slideCarousel == null || !slideCarousel.isActive()) return null;
+            // Cards keep their sound's length so they can stay until it ends;
+            // measure any that were not measured yet (e.g. ffprobe was busy).
+            for (SlideCarousel.Item it : slideCarousel.items) probeCarouselAudio(it);
             refreshCarouselCues();
             return slideCarousel.copy();
         }
