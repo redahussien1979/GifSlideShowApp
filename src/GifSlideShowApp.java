@@ -15155,6 +15155,11 @@ public class GifSlideShowApp extends JFrame {
                     sd.slideTimerEndAudioMs = Math.max(0, ms);
                 }
             }
+            // Card carousel: copy the snapshot with its "follow the text audio"
+            // turn times resolved against THIS slide's audio, exactly as the
+            // editor preview resolves them.
+            SlideData carouselSd = slides.get(slides.size() - 1);
+            carouselSd.slideCarousel = row.resolvedCarouselSnapshot();
             slides.get(slides.size() - 1).slideNumberStyle = row.getSlideNumberStyle();
             slides.get(slides.size() - 1).slideNumberEffect = row.getSlideNumberEffect();
             slides.get(slides.size() - 1).sourceVideoVolume = row.getSourceVideoVolume();
@@ -15337,6 +15342,11 @@ public class GifSlideShowApp extends JFrame {
                         zero + Math.max(0, s.slideTimer.endAudioDelayMs) + s.slideTimerEndAudioMs);
             }
             if (actionsEnd > dur) dur = actionsEnd;
+        }
+        // A carousel set to "stretch the slide" must get to show every card.
+        if (s.slideCarousel != null && s.slideCarousel.isActive() && s.slideCarousel.stretchSlide) {
+            int carouselEnd = s.slideCarousel.requiredSlideMs();
+            if (carouselEnd > dur) dur = carouselEnd;
         }
         if (isQuizSlide(s)) {
             long quizMs = s.quiz.revealAtMs();
@@ -16263,15 +16273,26 @@ public class GifSlideShowApp extends JFrame {
                             int fCount = 0;
                             for (int i = 0; i < slides.size(); i++) {
                                 BufferedImage dwellImg = renderedSlides.get(i);
-                                for (int df = 0; df < dwellGif[i]; df++) {
-                                    frames.add(dwellImg);
-                                    frameDelays.add(gifDelayMs);
-                                    fCount++;
+                                if (hasCarousel(slides.get(i))) {
+                                    // The cards turn during the dwell: one frame per
+                                    // distinct carousel state, resting cards merged into
+                                    // a single long frame.
+                                    appendCarouselGifFrames(frames, frameDelays, dwellImg, slides.get(i),
+                                            dwellGif[i] * gifDelayMs, gifDelayMs);
+                                    fCount += dwellGif[i];
+                                } else {
+                                    for (int df = 0; df < dwellGif[i]; df++) {
+                                        frames.add(dwellImg);
+                                        frameDelays.add(gifDelayMs);
+                                        fCount++;
+                                    }
                                 }
                                 if (i < slides.size() - 1) {
+                                    List<BufferedImage> transPair = carouselTransitionPair(
+                                            renderedSlides, slides, i, dwellGif[i], gifFps);
                                     for (int tf = 0; tf < transFrames; tf++) {
                                         double t = (tf + 1.0) / (transFrames + 1.0);
-                                        frames.add(renderTransitionFrame(renderedSlides, i, i + 1, t,
+                                        frames.add(renderTransitionFrame(transPair, 0, 1, t,
                                                 gifScrollDir, finalGifTransEffect, w, h));
                                         frameDelays.add(gifDelayMs);
                                         fCount++;
@@ -16282,10 +16303,21 @@ public class GifSlideShowApp extends JFrame {
                                 SwingUtilities.invokeLater(() -> progressBar.setValue(p));
                             }
                         } else {
-                            frames = renderAllFrames(slides, w, h, progressBar, 60);
+                            List<BufferedImage> stills = renderAllFrames(slides, w, h, progressBar, 60);
+                            frames = new ArrayList<>();
                             frameDelays = new ArrayList<>();
-                            for (SlideData s : slides) {
+                            for (int i = 0; i < slides.size(); i++) {
+                                SlideData s = slides.get(i);
+                                if (hasCarousel(s)) {
+                                    // A turning carousel needs its own frames (60 ms — a
+                                    // whole number of GIF centiseconds), for as long as the
+                                    // slide lasts with the cards' turns.
+                                    appendCarouselGifFrames(frames, frameDelays, stills.get(i), s,
+                                            computeSlideDuration(s, duration), 60);
+                                    continue;
+                                }
                                 int delay = (s.totalAudioDurationMs > 0) ? Math.max(s.totalAudioDurationMs, duration) : duration;
+                                frames.add(stills.get(i));
                                 frameDelays.add(delay);
                             }
                         }
@@ -17588,11 +17620,11 @@ public class GifSlideShowApp extends JFrame {
                                 boolean hasAudioAnim = anyAudioHlAnimates(s.audioHlEffects) || anyKaraokeTimings(s.audioWordTimings) || anyBulkPicAudioEffect(s.slidePictures);
                                 boolean hasTextTimer = anySlideTextTimer(s);
                                 boolean hasAnno = hasAnnotations(s);
-                                // A countdown changes every frame, so it must force the
-                                // per-frame path — otherwise the slide takes the static
-                                // "render once, hard-copy the dwell" branch below and the
-                                // timer never reaches the video.
-                                boolean hasTimer = hasSlideTimer(s);
+                                // A countdown (or a turning card carousel) changes every
+                                // frame, so it must force the per-frame path — otherwise the
+                                // slide takes the static "render once, hard-copy the dwell"
+                                // branch below and it never reaches the video.
+                                boolean hasTimer = hasSlideTimer(s) || hasCarousel(s);
                                 boolean needsAnimatedFx = hasAudioAnim || isQuizSlide(s) || hasTextTimer
                                         || hasAnno || hasTimer;
 
@@ -17646,6 +17678,7 @@ public class GifSlideShowApp extends JFrame {
                                                     s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, df,
                                                     s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures, s.bgTransparency);
                                             paintQuizOverlay(frame, s, elapsedMs);
+                                            paintCarouselOverlay(frame, s, elapsedMs);
                                             paintAnnotationsOverlay(frame, s, elapsedMs);
                                             paintTimerOverlay(frame, s, elapsedMs);
                                             ImageIO.write(frame, "png", frameFile);
@@ -17680,6 +17713,7 @@ public class GifSlideShowApp extends JFrame {
                                                         s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures, s.bgTransparency);
                                             }
                                             paintQuizOverlay(frame, s, elapsedMs);
+                                            paintCarouselOverlay(frame, s, elapsedMs);
                                             paintAnnotationsOverlay(frame, s, elapsedMs);
                                             paintTimerOverlay(frame, s, elapsedMs);
                                             ImageIO.write(frame, "png", frameFile);
@@ -17714,10 +17748,14 @@ public class GifSlideShowApp extends JFrame {
 
                                 // Transition to next slide (skip after last)
                                 if (i < slides.size() - 1) {
+                                    // A carousel leaves on the card its last dwell frame
+                                    // showed and the next slide's arrives on its first.
+                                    List<BufferedImage> transPair = carouselTransitionPair(
+                                            renderedSlides, slides, i, dwellFrames[i], fps);
                                     for (int tf = 0; tf < transFrames; tf++) {
                                         double t = (tf + 1.0) / (transFrames + 1.0); // (0,1)
                                         BufferedImage transImg = renderTransitionFrame(
-                                                renderedSlides, i, i + 1, t,
+                                                transPair, 0, 1, t,
                                                 finalScrollDir, finalTransEffect, videoW, videoH);
                                         ImageIO.write(transImg, "png",
                                                 new File(tempDir, String.format("frame_%05d.png", f)));
@@ -17762,6 +17800,9 @@ public class GifSlideShowApp extends JFrame {
                                 if (isQuizSlide(s)) { anyAnimatedFx = true; break; }
                                 // Annotations animate per-frame → force the ANIMATED PATH.
                                 if (hasAnnotations(s)) { anyAnimatedFx = true; break; }
+                                // So do a countdown and a card carousel: the FAST PATH below
+                                // writes one still per slide and would drop them.
+                                if (hasSlideTimer(s) || hasCarousel(s)) { anyAnimatedFx = true; break; }
                             }
 
                             if (!anyAnimatedFx) {
@@ -18032,6 +18073,7 @@ public class GifSlideShowApp extends JFrame {
                                                     s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
                                                     s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures, s.bgTransparency);
                                             paintQuizOverlay(frame, s, elapsedMs);
+                                            paintCarouselOverlay(frame, s, elapsedMs);
                                             paintAnnotationsOverlay(frame, s, elapsedMs);
                                             paintTimerOverlay(frame, s, elapsedMs);
                                             writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
@@ -18065,7 +18107,7 @@ public class GifSlideShowApp extends JFrame {
 
                                     // A countdown redraws every frame, so it has to keep the
                                     // slide on a per-frame path instead of the cached/static ones.
-                                    if (hasSlideTimer(s)) hasAnimatedText = true;
+                                    if (hasSlideTimer(s) || hasCarousel(s)) hasAnimatedText = true;
 
                                     // Check for multi-audio (2+ valid audio files)
                                     int vaCount = 0;
@@ -18116,6 +18158,7 @@ public class GifSlideShowApp extends JFrame {
                                             // Same post-passes as every other per-frame writer —
                                             // without them shapes and the countdown never reach the
                                             // video on this (no-transition) export path.
+                                            paintCarouselOverlay(frame, s, elapsedMs);
                                             paintAnnotationsOverlay(frame, s, elapsedMs);
                                             paintTimerOverlay(frame, s, elapsedMs);
                                             writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
@@ -18302,6 +18345,7 @@ public class GifSlideShowApp extends JFrame {
                                                     s.overlayEnabled,
                                                     s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
                                                     s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures, s.bgTransparency);
+                                            paintCarouselOverlay(frame, s, elapsedMs);
                                             paintAnnotationsOverlay(frame, s, elapsedMs);
                                             paintTimerOverlay(frame, s, elapsedMs);
                                             writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
@@ -19452,7 +19496,7 @@ public class GifSlideShowApp extends JFrame {
                             if (isQuizSlide(s)) hasAnimatedText = true;
                             // Same reason as the slideshow export: a countdown has to be
                             // drawn per frame, so it can't take the single-PNG concat path.
-                            if (hasSlideTimer(s)) hasAnimatedText = true;
+                            if (hasSlideTimer(s) || hasCarousel(s)) hasAnimatedText = true;
 
                             if (!hasAnimatedFx && !hasAnimatedText) {
                                 // Static slide — use concat demuxer
@@ -19711,6 +19755,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
                                                 s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures, s.bgTransparency);
                                         paintQuizOverlay(frame, s, elapsedMs);
+                                        paintCarouselOverlay(frame, s, elapsedMs);
                                         paintAnnotationsOverlay(frame, s, elapsedMs);
                                         paintTimerOverlay(frame, s, elapsedMs);
                                         writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
@@ -19792,6 +19837,7 @@ public class GifSlideShowApp extends JFrame {
                                                 s.overlayShape, s.overlayBgMode, s.overlayBgColor, s.overlayX, s.overlayY, s.overlaySize, d,
                                                 s.textJustify, s.textWidthPct, s.highlightText, s.highlightColor, s.textShiftX, s.slidePictures, s.bgTransparency);
                                         paintQuizOverlay(frame, s, elapsedMs);
+                                        paintCarouselOverlay(frame, s, elapsedMs);
                                         paintAnnotationsOverlay(frame, s, elapsedMs);
                                         paintTimerOverlay(frame, s, elapsedMs);
                                         writeRawRGB(frame, videoW, videoH, rgbBytes, ffmpegStdin);
@@ -21903,6 +21949,79 @@ public class GifSlideShowApp extends JFrame {
     /** True when this slide carries a countdown timer that has to be drawn. */
     private static boolean hasSlideTimer(SlideData s) {
         return s != null && s.slideTimer != null && s.slideTimer.enabled;
+    }
+
+    /**
+     * The two pictures a slide-to-slide transition blends: slide {@code i} as its
+     * last dwell frame left it and slide {@code i + 1} as its first will show it,
+     * each with its carousel drawn at that moment (plain pre-rendered slides
+     * when neither has one).
+     */
+    private static List<BufferedImage> carouselTransitionPair(List<BufferedImage> rendered,
+                                                              List<SlideData> slides, int i,
+                                                              int dwellFramesA, double fps) {
+        long lastMs = (long) (Math.max(0, dwellFramesA - 1) * 1000.0 / fps);
+        List<BufferedImage> pair = new ArrayList<>(2);
+        pair.add(withCarousel(rendered.get(i), slides.get(i), lastMs));
+        pair.add(withCarousel(rendered.get(i + 1), slides.get(i + 1), 0));
+        return pair;
+    }
+
+    /**
+     * Append a carousel slide's GIF frames: {@code totalMs} of it sampled every
+     * {@code stepMs}, where consecutive samples that look the same (a card at
+     * rest) become ONE frame with their delays summed. Keeps memory and file
+     * size down to the turns themselves.
+     */
+    private static void appendCarouselGifFrames(List<BufferedImage> frames, List<Integer> delays,
+                                                BufferedImage still, SlideData s,
+                                                int totalMs, int stepMs) {
+        stepMs = Math.max(20, stepMs);
+        totalMs = Math.max(stepMs, totalMs);
+        String lastKey = null;
+        for (int t = 0; t < totalMs; t += stepMs) {
+            int d = Math.min(stepMs, totalMs - t);
+            String key = s.slideCarousel.stateKey(t);
+            if (key.equals(lastKey) && !delays.isEmpty()) {
+                delays.set(delays.size() - 1, delays.get(delays.size() - 1) + d);
+            } else {
+                frames.add(withCarousel(still, s, t));
+                delays.add(d);
+                lastKey = key;
+            }
+        }
+    }
+
+    /** True when this slide carries a card carousel that has to be drawn. */
+    private static boolean hasCarousel(SlideData s) {
+        return s != null && s.slideCarousel != null && s.slideCarousel.isActive();
+    }
+
+    /**
+     * Composite this slide's card carousel onto an already rendered frame.
+     * No-op when the slide has none. Drawn before the shapes and the countdown,
+     * so arrows and the timer can sit on top of the cards.
+     */
+    private static void paintCarouselOverlay(BufferedImage frame, SlideData s, long elapsedMs) {
+        if (frame == null || !hasCarousel(s)) return;
+        SlideCarousel.paint(frame, s.slideCarousel, elapsedMs, false);
+    }
+
+    /**
+     * {@code base} with the slide's carousel drawn at {@code elapsedMs} — a fresh
+     * copy, so the cached slide image stays clean — or {@code base} itself when
+     * the slide has no carousel. Used by the paths that otherwise reuse one
+     * static picture of the slide (slide-to-slide transitions, the GIF export).
+     */
+    private static BufferedImage withCarousel(BufferedImage base, SlideData s, long elapsedMs) {
+        if (base == null || !hasCarousel(s)) return base;
+        int type = base.getType() == BufferedImage.TYPE_CUSTOM ? BufferedImage.TYPE_INT_ARGB : base.getType();
+        BufferedImage out = new BufferedImage(base.getWidth(), base.getHeight(), type);
+        Graphics2D g = out.createGraphics();
+        g.drawImage(base, 0, 0, null);
+        g.dispose();
+        SlideCarousel.paint(out, s.slideCarousel, elapsedMs, false);
+        return out;
     }
 
     /** True when this slide carries any animated vector annotations. */
@@ -24562,6 +24681,7 @@ public class GifSlideShowApp extends JFrame {
     private static boolean hasAnimatedDecoration(SlideData s) {
         if (hasAnnotations(s)) return true;
         if (hasSlideTimer(s)) return true;
+        if (hasCarousel(s)) return true;
         if (anyBulkPicAudioEffect(s.slidePictures)) return true;
         if (s.slideTexts != null) {
             for (SlideTextData stx : s.slideTexts) {
@@ -24695,6 +24815,7 @@ public class GifSlideShowApp extends JFrame {
             // Bake the quiz countdown timer into the decoration overlay so
             // it appears over the source video (no-op for non-quiz slides).
             paintQuizOverlay(img, s, elapsedMs);
+            paintCarouselOverlay(img, s, elapsedMs);
             paintAnnotationsOverlay(img, s, elapsedMs);
             paintTimerOverlay(img, s, elapsedMs);
             File out = new File(outDir, String.format("%05d.png", f + 1));
@@ -28128,6 +28249,10 @@ public class GifSlideShowApp extends JFrame {
         int slideTimerStartMs;
         /** Length of the timer's "play this when it finishes" file, ms (0 = none). */
         int slideTimerEndAudioMs;
+        // Card carousel (the "🎠 Carousel" toolbar button). A snapshot set externally
+        // after construction like slideTimer; its audio-synced turn times are
+        // already resolved against this slide's audio timeline.
+        SlideCarousel slideCarousel;
         // Video "repeat part" ranges — each entry is {startMs, endMs} (relative to
         // the start of this slide). During export the finished, fully-composited
         // slide video has each range duplicated back-to-back so that part plays
@@ -28681,6 +28806,9 @@ public class GifSlideShowApp extends JFrame {
         // On-slide countdown timer, edited in the "⏳ Slide Timer" dialog. Always
         // present so the dialog can pre-fill; disabled until the user ticks it on.
         private SlideTimer slideTimer = new SlideTimer();
+        // Card carousel, edited in the "🎠 Carousel" dialog. Always present so the
+        // dialog can pre-fill; disabled until the user switches it on.
+        private SlideCarousel slideCarousel = new SlideCarousel();
         private int currentSlidePictureIndex = 0;
         private boolean isLoadingSlidePicture = false;
         private final JComboBox<String> slidePicSelector;
@@ -29612,6 +29740,24 @@ public class GifSlideShowApp extends JFrame {
             toolbar4lg.add(shapesBtn);
             toolbar4lg.add(shapesTimerBtn);
             toolbar4lg.add(slideTimerBtn);
+
+            // "Carousel" — a vertical stack of cards (round icon badge + title +
+            // subtitle) that turns one card at a time: the centre card large and
+            // solid, the ones above and below smaller and see-through.
+            JButton carouselBtn = new JButton("🎠 Carousel…");
+            carouselBtn.setFont(new Font("Segoe UI", Font.BOLD, 10));
+            carouselBtn.setMargin(new Insets(1, 7, 1, 7));
+            carouselBtn.setFocusPainted(false);
+            carouselBtn.setOpaque(true);
+            carouselBtn.setBackground(new Color(120, 190, 255));
+            carouselBtn.setForeground(new Color(12, 24, 48));
+            carouselBtn.setBorder(BorderFactory.createLineBorder(new Color(190, 225, 255), 1, true));
+            carouselBtn.setToolTipText("<html>Add a turning card carousel to this slide — as many cards as you "
+                    + "like, each with a title, a subtitle and a round icon (a coloured dot, a letter or a "
+                    + "picture).<br>Set its colours, size and position with a live preview, turn the slide's "
+                    + "own texts into cards, and let the cards turn on a timer or with each text's audio.</html>");
+            carouselBtn.addActionListener(e -> openCarouselDialog());
+            toolbar4lg.add(carouselBtn);
 
             // ===== Toolbar 4b2: BG Fill (opacity / color / padding / round / fill paint) =====
             final Color bgRowFg = new Color(140, 210, 160);
@@ -36260,6 +36406,843 @@ public class GifSlideShowApp extends JFrame {
             dlg.setVisible(true);
         }
 
+        /** Format ms as seconds for an editable field ("1.6"). */
+        private static String carouselSecs(int ms) {
+            return String.format(java.util.Locale.US, "%.2f", ms / 1000.0).replaceAll("0$", "");
+        }
+
+        /** A text field that runs {@code onChange} on every keystroke. */
+        private static JTextField carouselField(String text, int cols, Runnable onChange) {
+            JTextField f = new JTextField(text == null ? "" : text, cols);
+            f.getDocument().addDocumentListener(new DocumentListener() {
+                public void insertUpdate(DocumentEvent e) { onChange.run(); }
+                public void removeUpdate(DocumentEvent e) { onChange.run(); }
+                public void changedUpdate(DocumentEvent e) { onChange.run(); }
+            });
+            return f;
+        }
+
+        /**
+         * Open the Carousel dialog: a vertical stack of cards (round icon badge,
+         * title, subtitle) that turns one card at a time over this slide. The
+         * carousel is edited in place so the dialog's canvas and the row's own
+         * live preview follow every change; Cancel — or the window's X — puts
+         * back the opening snapshot (and any texts an import hid).
+         */
+        private void openCarouselDialog() {
+            if (isTitleGridSlide) {
+                JOptionPane.showMessageDialog(panel,
+                        "Title grid slides don't carry a carousel.",
+                        "Carousel", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            saveCurrentSlideTextToItem();
+            if (slideCarousel == null) slideCarousel = new SlideCarousel();
+            final SlideCarousel snapshot = slideCarousel.copy();
+            final boolean[] showSnapshot = new boolean[slideTextItems.size()];
+            for (int i = 0; i < showSnapshot.length; i++) showSnapshot[i] = slideTextItems.get(i).show;
+            final SlideCarousel live = slideCarousel;
+            // Opening this box IS the request for a carousel: switch it on, and give
+            // a brand-new one the sample cards so the design shows straight away.
+            live.enabled = true;
+            if (live.items.isEmpty()) live.items.addAll(SlideCarousel.withSampleItems().items);
+            // The stock font (Montserrat) ships next to the app; fall back to the
+            // first bundled font when it has been removed.
+            boolean stockFontMissing = "Montserrat".equals(live.fontName)
+                    && !java.util.Arrays.asList(loadedFontNames).contains("Montserrat");
+            if (live.fontName == null || live.fontName.isEmpty() || stockFontMissing) {
+                live.fontName = loadedFontNames.length > 0 ? loadedFontNames[0] : "SansSerif";
+            }
+
+            final Window owner = SwingUtilities.getWindowAncestor(panel);
+            final JDialog dlg = new JDialog(owner, "Carousel", Dialog.ModalityType.APPLICATION_MODAL);
+            dlg.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+
+            // ---------- live preview canvas ----------
+            final long[] scrub = { Math.max(0, live.startMs) + 500L };
+            final JSlider scrubSlider = new JSlider(0, Math.max(2000, live.requiredSlideMs() + 1000),
+                    (int) scrub[0]);
+            final JPanel canvas = new JPanel() {
+                @Override protected void paintComponent(Graphics g) {
+                    super.paintComponent(g);
+                    BufferedImage base = carouselPreviewBase;
+                    int cw = getWidth(), chh = getHeight();
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                            RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                    g2.setColor(new Color(24, 26, 32));
+                    g2.fillRect(0, 0, cw, chh);
+                    int bw = base != null ? base.getWidth() : getPreviewWidth();
+                    int bh = base != null ? base.getHeight() : getPreviewHeight();
+                    BufferedImage shot = new BufferedImage(bw, bh, BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D sg = shot.createGraphics();
+                    if (base != null) {
+                        sg.drawImage(base, 0, 0, null);
+                    } else {
+                        sg.setPaint(new GradientPaint(0, 0, new Color(46, 52, 64),
+                                0, bh, new Color(24, 27, 34)));
+                        sg.fillRect(0, 0, bw, bh);
+                    }
+                    sg.dispose();
+                    refreshCarouselCues();
+                    SlideCarousel.paint(shot, live, scrub[0], true);
+                    double sc = Math.min(cw / (double) bw, chh / (double) bh);
+                    int dw = Math.max(1, (int) (bw * sc)), dh = Math.max(1, (int) (bh * sc));
+                    g2.drawImage(shot, (cw - dw) / 2, (chh - dh) / 2, dw, dh, null);
+                    g2.setColor(new Color(255, 255, 255, 40));
+                    g2.drawRect((cw - dw) / 2, (chh - dh) / 2, dw - 1, dh - 1);
+                    g2.dispose();
+                }
+            };
+            canvas.setPreferredSize(new Dimension(560, 320));
+            canvas.setBackground(new Color(24, 26, 32));
+
+            final JLabel timingInfo = new JLabel(" ");
+            timingInfo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            final Runnable[] refreshHolder = new Runnable[1];
+            final Runnable refresh = () -> refreshHolder[0].run();
+
+            final JTabbedPane tabs = new JTabbedPane();
+            tabs.setFont(new Font("Segoe UI", Font.BOLD, 12));
+
+            // ===== Cards =====
+            final JPanel cards = new JPanel(new BorderLayout(6, 6));
+            cards.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
+            final DefaultListModel<String> listModel = new DefaultListModel<>();
+            final JList<String> cardList = new JList<>(listModel);
+            cardList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+            cardList.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+            cardList.setVisibleRowCount(7);
+            final Runnable reloadList = () -> {
+                int sel = cardList.getSelectedIndex();
+                listModel.clear();
+                for (int i = 0; i < live.items.size(); i++) {
+                    listModel.addElement((i + 1) + ".  " + live.items.get(i).label());
+                }
+                if (!live.items.isEmpty()) {
+                    cardList.setSelectedIndex(Math.max(0, Math.min(live.items.size() - 1, sel)));
+                }
+            };
+
+            // Editor for the selected card.
+            final JPanel cardEd = new JPanel(new GridBagLayout());
+            cardEd.setBorder(BorderFactory.createTitledBorder("Selected card"));
+            final boolean[] loadingCard = { false };
+            final java.util.function.Supplier<SlideCarousel.Item> selItem = () -> {
+                int i = cardList.getSelectedIndex();
+                return i >= 0 && i < live.items.size() ? live.items.get(i) : null;
+            };
+            final Runnable[] afterCardEdit = new Runnable[1];
+            final JTextField titleField = carouselField("", 22, () -> {
+                if (loadingCard[0]) return;
+                SlideCarousel.Item it = selItem.get();
+                if (it == null) return;
+                afterCardEdit[0].run();
+            });
+            final JTextField subField = carouselField("", 22, () -> {
+                if (loadingCard[0]) return;
+                if (selItem.get() == null) return;
+                afterCardEdit[0].run();
+            });
+            final JComboBox<String> iconKindCombo = new JComboBox<>(SlideCarousel.iconKinds());
+            final JButton iconColorBtn = new JButton();
+            iconColorBtn.setPreferredSize(new Dimension(58, 20));
+            iconColorBtn.setFocusPainted(false);
+            iconColorBtn.setOpaque(true);
+            iconColorBtn.setToolTipText("Colour of this card's dot / letter");
+            final JTextField iconTextField = carouselField("", 4, () -> {
+                if (loadingCard[0]) return;
+                if (selItem.get() == null) return;
+                afterCardEdit[0].run();
+            });
+            iconTextField.setToolTipText("A letter, number or symbol shown in the badge, e.g. A, 1, ★, ✓. "
+                    + "For a colour emoji or a logo, use an Image instead.");
+            final JLabel iconPathLbl = new JLabel(" ");
+            iconPathLbl.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            final JButton iconBrowse = new JButton("Choose picture…");
+            iconBrowse.setToolTipText("PNG (with transparency) works best — e.g. an emoji or an icon.");
+            final JButton iconAllColors = new JButton("Colour → all cards");
+            iconAllColors.setToolTipText("Give every card this card's icon colour.");
+
+            afterCardEdit[0] = () -> {
+                SlideCarousel.Item it = selItem.get();
+                if (it == null) return;
+                it.title = titleField.getText();
+                it.subtitle = subField.getText();
+                it.iconText = iconTextField.getText();
+                int sel = cardList.getSelectedIndex();
+                if (sel >= 0 && sel < listModel.size()) {
+                    listModel.set(sel, (sel + 1) + ".  " + it.label());
+                }
+                refresh.run();
+            };
+            final Runnable syncIconEnable = () -> {
+                String k = (String) iconKindCombo.getSelectedItem();
+                boolean img = SlideCarousel.ICON_IMAGE.equals(k);
+                boolean txt = SlideCarousel.ICON_TEXT.equals(k);
+                boolean none = SlideCarousel.ICON_NONE.equals(k);
+                iconColorBtn.setEnabled(!img && !none);
+                iconAllColors.setEnabled(!img && !none);
+                iconTextField.setEnabled(txt);
+                iconBrowse.setEnabled(img);
+                iconPathLbl.setEnabled(img);
+            };
+            final Runnable loadCard = () -> {
+                SlideCarousel.Item it = selItem.get();
+                loadingCard[0] = true;
+                try {
+                    boolean has = it != null;
+                    titleField.setEnabled(has);
+                    subField.setEnabled(has);
+                    iconKindCombo.setEnabled(has);
+                    titleField.setText(has ? it.title : "");
+                    subField.setText(has ? it.subtitle : "");
+                    iconTextField.setText(has ? it.iconText : "");
+                    iconKindCombo.setSelectedItem(has && it.iconKind != null ? it.iconKind : SlideCarousel.ICON_DOT);
+                    iconColorBtn.setBackground(has && it.iconColor != null ? it.iconColor : Color.WHITE);
+                    String path = has && it.iconPath != null ? it.iconPath.trim() : "";
+                    iconPathLbl.setText(path.isEmpty() ? "(no picture chosen)" : new File(path).getName());
+                    iconPathLbl.setToolTipText(path.isEmpty() ? null : path);
+                } finally {
+                    loadingCard[0] = false;
+                }
+                syncIconEnable.run();
+                if (it == null) {
+                    iconColorBtn.setEnabled(false);
+                    iconTextField.setEnabled(false);
+                    iconBrowse.setEnabled(false);
+                    iconAllColors.setEnabled(false);
+                }
+            };
+            cardList.addListSelectionListener(e -> { if (!e.getValueIsAdjusting()) loadCard.run(); });
+            iconKindCombo.addActionListener(e -> {
+                if (loadingCard[0]) return;
+                SlideCarousel.Item it = selItem.get();
+                if (it == null) return;
+                it.iconKind = (String) iconKindCombo.getSelectedItem();
+                syncIconEnable.run();
+                refresh.run();
+            });
+            iconColorBtn.addActionListener(e -> {
+                SlideCarousel.Item it = selItem.get();
+                if (it == null) return;
+                pickColorLive(dlg, "Icon colour", it.iconColor, c -> {
+                    it.iconColor = c;
+                    iconColorBtn.setBackground(c);
+                    refresh.run();
+                });
+            });
+            iconAllColors.addActionListener(e -> {
+                SlideCarousel.Item it = selItem.get();
+                if (it == null) return;
+                for (SlideCarousel.Item o : live.items) o.iconColor = it.iconColor;
+                refresh.run();
+            });
+            iconBrowse.addActionListener(e -> {
+                SlideCarousel.Item it = selItem.get();
+                if (it == null) return;
+                JFileChooser fc = new JFileChooser();
+                fc.setFileFilter(new FileNameExtensionFilter("Pictures (png, jpg, gif, bmp)",
+                        "png", "jpg", "jpeg", "gif", "bmp"));
+                if (it.iconPath != null && !it.iconPath.trim().isEmpty()) {
+                    fc.setSelectedFile(new File(it.iconPath.trim()));
+                }
+                if (fc.showOpenDialog(dlg) != JFileChooser.APPROVE_OPTION) return;
+                File f = fc.getSelectedFile();
+                if (SlideCarousel.loadIcon(f.getAbsolutePath(), 64) == null) {
+                    JOptionPane.showMessageDialog(dlg, "That file could not be read as a picture.",
+                            "Carousel", JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+                it.iconPath = f.getAbsolutePath();
+                it.iconKind = SlideCarousel.ICON_IMAGE;
+                loadCard.run();
+                refresh.run();
+            });
+
+            int er = 0;
+            addTimerRow(cardEd, er++, "Title:", titleField);
+            addTimerRow(cardEd, er++, "Subtitle:", subField);
+            addTimerRow(cardEd, er++, "Icon:", iconKindCombo);
+            JPanel colorRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            colorRow.setOpaque(false);
+            colorRow.add(iconColorBtn);
+            colorRow.add(iconAllColors);
+            addTimerRow(cardEd, er++, "Dot / letter colour:", colorRow);
+            addTimerRow(cardEd, er++, "Letter / symbol:", iconTextField);
+            JPanel picRow = new JPanel(new BorderLayout(6, 0));
+            picRow.setOpaque(false);
+            picRow.add(iconBrowse, BorderLayout.WEST);
+            picRow.add(iconPathLbl, BorderLayout.CENTER);
+            addTimerRow(cardEd, er++, "Picture:", picRow);
+
+            // Card list buttons.
+            final java.util.function.IntConsumer selectCard = i -> {
+                reloadList.run();
+                if (i >= 0 && i < listModel.size()) cardList.setSelectedIndex(i);
+                loadCard.run();
+                refresh.run();
+            };
+            JButton addBtn = new JButton("+ Add");
+            addBtn.setToolTipText("Add a new card after the selected one.");
+            addBtn.addActionListener(e -> {
+                int at = cardList.getSelectedIndex() + 1;
+                if (at <= 0 || at > live.items.size()) at = live.items.size();
+                SlideCarousel.Item it = new SlideCarousel.Item("New card", "",
+                        SlideCarousel.paletteColor(live.items.size()));
+                live.items.add(at, it);
+                selectCard.accept(at);
+                titleField.requestFocusInWindow();
+                titleField.selectAll();
+            });
+            JButton addManyBtn = new JButton("+ Add many…");
+            addManyBtn.setToolTipText("Type or paste many cards at once — one per line, \"Title | Subtitle\".");
+            addManyBtn.addActionListener(e -> {
+                JTextArea ta = new JTextArea(12, 42);
+                ta.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+                JPanel ask = new JPanel(new BorderLayout(0, 6));
+                ask.add(new JLabel("<html>One card per line. Put a <b>|</b> between the title and the "
+                        + "subtitle, e.g. <code>Whale | Unicode: U+1F40B</code></html>"), BorderLayout.NORTH);
+                ask.add(new JScrollPane(ta), BorderLayout.CENTER);
+                int ok = JOptionPane.showConfirmDialog(dlg, ask, "Add many cards",
+                        JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+                if (ok != JOptionPane.OK_OPTION) return;
+                int added = 0;
+                for (String line : ta.getText().split("\\r?\\n")) {
+                    if (line.trim().isEmpty()) continue;
+                    int bar = line.indexOf('|');
+                    String t = bar >= 0 ? line.substring(0, bar).trim() : line.trim();
+                    String sb = bar >= 0 ? line.substring(bar + 1).trim() : "";
+                    live.items.add(new SlideCarousel.Item(t, sb, SlideCarousel.paletteColor(live.items.size())));
+                    added++;
+                }
+                if (added > 0) selectCard.accept(live.items.size() - added);
+            });
+            JButton importBtn = new JButton("⤓ Use this slide's texts…");
+            importBtn.setToolTipText("Turn the texts of this slide into cards — one card per text.");
+            importBtn.addActionListener(e -> {
+                if (slideTextItems.isEmpty()) {
+                    JOptionPane.showMessageDialog(dlg, "This slide has no texts yet.",
+                            "Carousel", JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+                JPanel rows = new JPanel(new GridLayout(0, 1, 0, 2));
+                java.util.List<JCheckBox> checks = new java.util.ArrayList<>();
+                for (int i = 0; i < slideTextItems.size(); i++) {
+                    SlideTextData st = slideTextItems.get(i);
+                    String content = st.text == null ? "" : st.text.replace('\n', ' ').trim();
+                    if (content.length() > 60) content = content.substring(0, 57) + "…";
+                    JCheckBox cb = new JCheckBox("Text " + (i + 1) + ":  " + (content.isEmpty() ? "(empty)" : content),
+                            st.text != null && !st.text.trim().isEmpty());
+                    checks.add(cb);
+                    rows.add(cb);
+                }
+                JScrollPane rs = new JScrollPane(rows);
+                rs.setPreferredSize(new Dimension(460, Math.min(300, 30 + checks.size() * 26)));
+                JRadioButton replaceRb = new JRadioButton("Replace the current cards", true);
+                JRadioButton appendRb = new JRadioButton("Add after the current cards");
+                ButtonGroup bg = new ButtonGroup();
+                bg.add(replaceRb);
+                bg.add(appendRb);
+                JCheckBox splitCb = new JCheckBox("First line = title, the next lines = subtitle", true);
+                JCheckBox hideCb = new JCheckBox("Hide these texts on the slide (show them only in the carousel)", true);
+                JPanel opts = new JPanel(new GridLayout(0, 1, 0, 2));
+                opts.add(replaceRb);
+                opts.add(appendRb);
+                opts.add(splitCb);
+                opts.add(hideCb);
+                JPanel ask = new JPanel(new BorderLayout(0, 8));
+                ask.add(new JLabel("Pick the texts that become cards (in this order):"), BorderLayout.NORTH);
+                ask.add(rs, BorderLayout.CENTER);
+                ask.add(opts, BorderLayout.SOUTH);
+                int ok = JOptionPane.showConfirmDialog(dlg, ask, "Use this slide's texts",
+                        JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+                if (ok != JOptionPane.OK_OPTION) return;
+                java.util.List<SlideCarousel.Item> made = new java.util.ArrayList<>();
+                int base = replaceRb.isSelected() ? 0 : live.items.size();
+                for (int i = 0; i < checks.size(); i++) {
+                    if (!checks.get(i).isSelected()) continue;
+                    String txt = slideTextItems.get(i).text == null ? "" : slideTextItems.get(i).text.trim();
+                    String t = txt, sb = "";
+                    if (splitCb.isSelected()) {
+                        int nl = txt.indexOf('\n');
+                        if (nl >= 0) {
+                            t = txt.substring(0, nl).trim();
+                            sb = txt.substring(nl + 1).replace('\n', ' ').trim();
+                        }
+                    }
+                    SlideCarousel.Item it = new SlideCarousel.Item(t, sb,
+                            SlideCarousel.paletteColor(base + made.size()));
+                    it.sourceTextIndex = i + 1;
+                    made.add(it);
+                }
+                if (made.isEmpty()) return;
+                if (replaceRb.isSelected()) live.items.clear();
+                live.items.addAll(made);
+                if (hideCb.isSelected()) {
+                    for (int i = 0; i < checks.size(); i++) {
+                        if (checks.get(i).isSelected()) slideTextItems.get(i).show = false;
+                    }
+                    if (currentSlideTextIndex >= 0 && currentSlideTextIndex < slideTextItems.size()) {
+                        loadSlideTextFromItem(currentSlideTextIndex);
+                    }
+                    updateLivePreview();
+                }
+                selectCard.accept(live.items.size() - made.size());
+            });
+            JButton dupBtn = new JButton("Duplicate");
+            dupBtn.addActionListener(e -> {
+                int i = cardList.getSelectedIndex();
+                if (i < 0 || i >= live.items.size()) return;
+                live.items.add(i + 1, live.items.get(i).copy());
+                selectCard.accept(i + 1);
+            });
+            JButton delBtn = new JButton("Remove");
+            delBtn.addActionListener(e -> {
+                int i = cardList.getSelectedIndex();
+                if (i < 0 || i >= live.items.size()) return;
+                live.items.remove(i);
+                selectCard.accept(Math.min(i, live.items.size() - 1));
+            });
+            JButton clearBtn = new JButton("Remove all");
+            clearBtn.addActionListener(e -> {
+                if (live.items.isEmpty()) return;
+                int ok = JOptionPane.showConfirmDialog(dlg, "Remove every card?", "Carousel",
+                        JOptionPane.OK_CANCEL_OPTION);
+                if (ok != JOptionPane.OK_OPTION) return;
+                live.items.clear();
+                selectCard.accept(-1);
+            });
+            JButton upBtn = new JButton("▲");
+            upBtn.setToolTipText("Move the selected card up (earlier)");
+            upBtn.addActionListener(e -> {
+                int i = cardList.getSelectedIndex();
+                if (i <= 0 || i >= live.items.size()) return;
+                java.util.Collections.swap(live.items, i, i - 1);
+                selectCard.accept(i - 1);
+            });
+            JButton downBtn = new JButton("▼");
+            downBtn.setToolTipText("Move the selected card down (later)");
+            downBtn.addActionListener(e -> {
+                int i = cardList.getSelectedIndex();
+                if (i < 0 || i >= live.items.size() - 1) return;
+                java.util.Collections.swap(live.items, i, i + 1);
+                selectCard.accept(i + 1);
+            });
+            JPanel listBtns = new JPanel(new GridLayout(0, 4, 4, 4));
+            listBtns.add(addBtn);
+            listBtns.add(addManyBtn);
+            listBtns.add(dupBtn);
+            listBtns.add(delBtn);
+            listBtns.add(upBtn);
+            listBtns.add(downBtn);
+            listBtns.add(clearBtn);
+            JPanel listTop = new JPanel(new BorderLayout(0, 4));
+            listTop.add(importBtn, BorderLayout.NORTH);
+            JScrollPane listScroll = new JScrollPane(cardList);
+            listScroll.setPreferredSize(new Dimension(360, 150));
+            listTop.add(listScroll, BorderLayout.CENTER);
+            listTop.add(listBtns, BorderLayout.SOUTH);
+            cards.add(listTop, BorderLayout.NORTH);
+            cards.add(cardEd, BorderLayout.CENTER);
+            tabs.addTab("Cards", wrapTimerTab(cards));
+
+            // ===== Look =====
+            final JPanel look = new JPanel(new GridBagLayout());
+            int r = 0;
+            JPanel cardColors = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            cardColors.setOpaque(false);
+            cardColors.add(new JLabel("centre"));
+            cardColors.add(timerColorButton(dlg, "Centre card colour",
+                    () -> live.cardColor, c -> live.cardColor = c, refresh));
+            cardColors.add(new JLabel("  sides"));
+            cardColors.add(timerColorButton(dlg, "Side cards colour",
+                    () -> live.sideCardColor, c -> live.sideCardColor = c, refresh));
+            addTimerRow(look, r++, "Card colours:", cardColors);
+            addTimerSlider(look, r++, "Side cards see-through:", 0, 100, 100 - live.sideOpacity, "%",
+                    v -> live.sideOpacity = 100 - v, refresh);
+            addTimerSlider(look, r++, "Side cards' text:", 0, 100, live.sideTextOpacity, "%",
+                    v -> live.sideTextOpacity = v, refresh);
+            addTimerSlider(look, r++, "Side cards' icons:", 0, 100, live.sideIconOpacity, "%",
+                    v -> live.sideIconOpacity = v, refresh);
+            final JCheckBox haloCheck = new JCheckBox("Round badge behind the icon", live.showHalo);
+            haloCheck.setOpaque(false);
+            haloCheck.addActionListener(e -> { live.showHalo = haloCheck.isSelected(); refresh.run(); });
+            JPanel haloRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            haloRow.setOpaque(false);
+            haloRow.add(haloCheck);
+            haloRow.add(timerColorButton(dlg, "Badge colour",
+                    () -> live.haloColor, c -> live.haloColor = c, refresh));
+            addTimerRow(look, r++, "Badge:", haloRow);
+            addTimerSlider(look, r++, "Badge size:", 40, 200, live.haloSizePct, "%",
+                    v -> live.haloSizePct = v, refresh);
+            addTimerSlider(look, r++, "Icon / dot size:", 20, 160, live.iconSizePct, "%",
+                    v -> live.iconSizePct = v, refresh);
+            final JComboBox<String> fontCombo = new JComboBox<>(allFontNames());
+            fontCombo.setSelectedItem(live.fontName);
+            fontCombo.addActionListener(e -> {
+                live.fontName = (String) fontCombo.getSelectedItem();
+                refresh.run();
+            });
+            addTimerRow(look, r++, "Font:", fontCombo);
+            JPanel titleRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            titleRow.setOpaque(false);
+            titleRow.add(timerColorButton(dlg, "Title colour",
+                    () -> live.titleColor, c -> live.titleColor = c, refresh));
+            final JCheckBox boldCheck = new JCheckBox("Bold", live.titleBold);
+            boldCheck.setOpaque(false);
+            boldCheck.addActionListener(e -> { live.titleBold = boldCheck.isSelected(); refresh.run(); });
+            final JCheckBox upperCheck = new JCheckBox("CAPITALS", live.titleUpper);
+            upperCheck.setOpaque(false);
+            upperCheck.addActionListener(e -> { live.titleUpper = upperCheck.isSelected(); refresh.run(); });
+            titleRow.add(boldCheck);
+            titleRow.add(upperCheck);
+            addTimerRow(look, r++, "Title:", titleRow);
+            addTimerSlider(look, r++, "Title size:", 40, 220, live.titleSizePct, "%",
+                    v -> live.titleSizePct = v, refresh);
+            JPanel subRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            subRow.setOpaque(false);
+            subRow.add(timerColorButton(dlg, "Subtitle colour",
+                    () -> live.subtitleColor, c -> live.subtitleColor = c, refresh));
+            final JCheckBox subBoldCheck = new JCheckBox("Bold", live.subtitleBold);
+            subBoldCheck.setOpaque(false);
+            subBoldCheck.addActionListener(e -> { live.subtitleBold = subBoldCheck.isSelected(); refresh.run(); });
+            subRow.add(subBoldCheck);
+            addTimerRow(look, r++, "Subtitle:", subRow);
+            addTimerSlider(look, r++, "Subtitle size:", 40, 220, live.subtitleSizePct, "%",
+                    v -> live.subtitleSizePct = v, refresh);
+            addTimerSlider(look, r++, "Corner roundness:", 0, 400, live.cornerPct, "%",
+                    v -> live.cornerPct = v, refresh);
+            final JCheckBox shadowCheck = new JCheckBox("Soft shadow under the centre card", live.shadow);
+            shadowCheck.setOpaque(false);
+            shadowCheck.addActionListener(e -> { live.shadow = shadowCheck.isSelected(); refresh.run(); });
+            addTimerRow(look, r++, null, shadowCheck);
+            tabs.addTab("Look", wrapTimerTab(look));
+
+            // ===== Position & Size =====
+            final JPanel place = new JPanel(new GridBagLayout());
+            r = 0;
+            final JSlider xSlider = addTimerSlider(place, r++, "Across (X):", 0, 100, (int) Math.round(live.xPct), "%",
+                    v -> live.xPct = v, refresh);
+            final JSlider ySlider = addTimerSlider(place, r++, "Down (Y):", 0, 100, (int) Math.round(live.yPct), "%",
+                    v -> live.yPct = v, refresh);
+            addTimerSlider(place, r++, "Card width:", 10, 95, (int) Math.round(live.widthPct), "%",
+                    v -> live.widthPct = v, refresh);
+            addTimerSlider(place, r++, "Card height:", 12, 80, (int) Math.round(live.heightPct), "%",
+                    v -> live.heightPct = v, refresh);
+            final JComboBox<String> sideCombo = new JComboBox<>(new String[] {
+                    "1 above + 1 below", "2 above + 2 below", "3 above + 3 below" });
+            sideCombo.setSelectedIndex(Math.max(0, Math.min(2, live.sideCards - 1)));
+            sideCombo.addActionListener(e -> {
+                live.sideCards = sideCombo.getSelectedIndex() + 1;
+                refresh.run();
+            });
+            addTimerRow(place, r++, "Cards around the centre:", sideCombo);
+            addTimerSlider(place, r++, "Side card size:", 30, 100, live.sideScalePct, "%",
+                    v -> live.sideScalePct = v, refresh);
+            addTimerSlider(place, r++, "Gap between cards:", 0, 400, live.gapPct, "%",
+                    v -> live.gapPct = v, refresh);
+            addTimerSlider(place, r++, "Opacity:", 5, 100, live.opacity, "%",
+                    v -> live.opacity = v, refresh);
+            JPanel snap = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+            snap.setOpaque(false);
+            String[][] spots = { {"Centre", "50", "50"}, {"Left", "28", "50"}, {"Right", "72", "50"},
+                    {"Top", "50", "28"}, {"Bottom", "50", "72"} };
+            for (String[] sp : spots) {
+                JButton b = new JButton(sp[0]);
+                b.setMargin(new Insets(1, 6, 1, 6));
+                b.addActionListener(e -> {
+                    xSlider.setValue(Integer.parseInt(sp[1]));
+                    ySlider.setValue(Integer.parseInt(sp[2]));
+                });
+                snap.add(b);
+            }
+            addTimerRow(place, r++, "Snap to:", snap);
+            JLabel placeHint = new JLabel("<html><body style='width:300px'><i>Tip: click or drag on the "
+                    + "preview to move the carousel there.</i></body></html>");
+            placeHint.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            placeHint.setForeground(new Color(90, 90, 100));
+            addTimerRow(place, r++, null, placeHint);
+            tabs.addTab("Position & Size", wrapTimerTab(place));
+
+            MouseAdapter placer = new MouseAdapter() {
+                private void put(java.awt.event.MouseEvent ev) {
+                    BufferedImage base = carouselPreviewBase;
+                    int bw = base != null ? base.getWidth() : getPreviewWidth();
+                    int bh = base != null ? base.getHeight() : getPreviewHeight();
+                    double sc = Math.min(canvas.getWidth() / (double) bw, canvas.getHeight() / (double) bh);
+                    int dw = (int) (bw * sc), dh = (int) (bh * sc);
+                    int ox = (canvas.getWidth() - dw) / 2, oy = (canvas.getHeight() - dh) / 2;
+                    if (dw <= 0 || dh <= 0) return;
+                    xSlider.setValue(Math.max(0, Math.min(100, (int) Math.round((ev.getX() - ox) * 100.0 / dw))));
+                    ySlider.setValue(Math.max(0, Math.min(100, (int) Math.round((ev.getY() - oy) * 100.0 / dh))));
+                }
+                @Override public void mousePressed(java.awt.event.MouseEvent ev) { put(ev); }
+                @Override public void mouseDragged(java.awt.event.MouseEvent ev) { put(ev); }
+            };
+            canvas.addMouseListener(placer);
+            canvas.addMouseMotionListener(placer);
+
+            // ===== Motion =====
+            final JPanel motion = new JPanel(new GridBagLayout());
+            r = 0;
+            final JComboBox<String> modeCombo = new JComboBox<>(SlideCarousel.timingModes());
+            modeCombo.setSelectedItem(live.timingMode);
+            modeCombo.setToolTipText("<html>Fixed timing: every card rests for the same time.<br>"
+                    + "Follow the audio: a card turns to the centre the moment the audio of its slide "
+                    + "text starts (cards made with “Use this slide's texts” follow their own text; "
+                    + "typed cards follow Text 1, Text 2, … in order).</html>");
+            addTimerRow(motion, r++, "Turn the cards:", modeCombo);
+            final JComboBox<String> dirCombo = new JComboBox<>(SlideCarousel.directions());
+            dirCombo.setSelectedItem(live.direction);
+            dirCombo.addActionListener(e -> { live.direction = (String) dirCombo.getSelectedItem(); refresh.run(); });
+            addTimerRow(motion, r++, "Direction:", dirCombo);
+            final JTextField startField = carouselField(carouselSecs(live.startMs), 6, () -> { });
+            final JTextField holdField = carouselField(carouselSecs(live.holdMs), 6, () -> { });
+            final JTextField moveField = carouselField(carouselSecs(live.moveMs), 6, () -> { });
+            final Runnable readTimes = () -> {
+                live.startMs = Math.max(0, secStrToMs(startField.getText(), live.startMs));
+                live.holdMs = Math.max(0, secStrToMs(holdField.getText(), live.holdMs));
+                live.moveMs = Math.max(50, secStrToMs(moveField.getText(), live.moveMs));
+                refresh.run();
+            };
+            for (JTextField f : new JTextField[] { startField, holdField, moveField }) {
+                f.getDocument().addDocumentListener(new DocumentListener() {
+                    public void insertUpdate(DocumentEvent e) { readTimes.run(); }
+                    public void removeUpdate(DocumentEvent e) { readTimes.run(); }
+                    public void changedUpdate(DocumentEvent e) { readTimes.run(); }
+                });
+            }
+            startField.setToolTipText("When the carousel appears, seconds after the slide starts.");
+            holdField.setToolTipText("How long each card rests in the centre (fixed timing).");
+            moveField.setToolTipText("How long one turn takes.");
+            addTimerRow(motion, r++, "Appears at (s):", startField);
+            addTimerRow(motion, r++, "Each card stays (s):", holdField);
+            addTimerRow(motion, r++, "One turn takes (s):", moveField);
+            final JCheckBox loopCheck = new JCheckBox("Loop — after the last card comes the first again", live.loop);
+            loopCheck.setOpaque(false);
+            loopCheck.addActionListener(e -> { live.loop = loopCheck.isSelected(); refresh.run(); });
+            addTimerRow(motion, r++, null, loopCheck);
+            final JCheckBox fadeCheck = new JCheckBox("Fade in when it appears", live.fadeIn);
+            fadeCheck.setOpaque(false);
+            fadeCheck.addActionListener(e -> { live.fadeIn = fadeCheck.isSelected(); refresh.run(); });
+            addTimerRow(motion, r++, null, fadeCheck);
+            final JCheckBox stretchCheck = new JCheckBox("Make the slide long enough for every card", live.stretchSlide);
+            stretchCheck.setOpaque(false);
+            stretchCheck.addActionListener(e -> { live.stretchSlide = stretchCheck.isSelected(); refresh.run(); });
+            addTimerRow(motion, r++, null, stretchCheck);
+            final Runnable syncMode = () -> {
+                boolean fixed = !SlideCarousel.TIMING_AUDIO.equals(live.timingMode);
+                holdField.setEnabled(fixed);
+                loopCheck.setEnabled(fixed);
+            };
+            modeCombo.addActionListener(e -> {
+                live.timingMode = (String) modeCombo.getSelectedItem();
+                syncMode.run();
+                refresh.run();
+            });
+            syncMode.run();
+            addTimerRow(motion, r++, null, timingInfo);
+            tabs.addTab("Motion", wrapTimerTab(motion));
+
+            // ===== Backdrop =====
+            final JPanel back = new JPanel(new GridBagLayout());
+            r = 0;
+            final JCheckBox backCheck = new JCheckBox("Fill the slide with a gradient behind the cards", live.backdrop);
+            backCheck.setOpaque(false);
+            backCheck.addActionListener(e -> { live.backdrop = backCheck.isSelected(); refresh.run(); });
+            addTimerRow(back, r++, null, backCheck);
+            final JButton bc1 = timerColorButton(dlg, "Gradient colour 1",
+                    () -> live.backdropColor1, c -> live.backdropColor1 = c, refresh);
+            final JButton bc2 = timerColorButton(dlg, "Gradient colour 2",
+                    () -> live.backdropColor2, c -> live.backdropColor2 = c, refresh);
+            JPanel bcRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            bcRow.setOpaque(false);
+            bcRow.add(bc1);
+            bcRow.add(new JLabel("→"));
+            bcRow.add(bc2);
+            addTimerRow(back, r++, "Colours:", bcRow);
+            final JSlider angleSlider = addTimerSlider(back, r++, "Angle:", 0, 359, live.backdropAngle, "°",
+                    v -> live.backdropAngle = v, refresh);
+            JButton sampleBack = new JButton("Purple → teal (the sample's colours)");
+            sampleBack.addActionListener(e -> {
+                SlideCarousel d = new SlideCarousel();
+                live.backdropColor1 = d.backdropColor1;
+                live.backdropColor2 = d.backdropColor2;
+                bc1.setBackground(d.backdropColor1);
+                bc2.setBackground(d.backdropColor2);
+                angleSlider.setValue(d.backdropAngle);
+                live.backdrop = true;
+                backCheck.setSelected(true);
+                refresh.run();
+            });
+            addTimerRow(back, r++, null, sampleBack);
+            JLabel backNote = new JLabel("<html><body style='width:300px'><i>The gradient covers the slide "
+                    + "picture (and the slide's own texts) — handy when the carousel IS the slide.</i></body></html>");
+            backNote.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            backNote.setForeground(new Color(90, 90, 100));
+            addTimerRow(back, r++, null, backNote);
+            tabs.addTab("Backdrop", wrapTimerTab(back));
+
+            // ---------- preview transport ----------
+            final javax.swing.Timer anim = new javax.swing.Timer(33, null);
+            final JButton playBtn = new JButton("▶ Play");
+            anim.addActionListener(e -> {
+                scrub[0] += 33;
+                if (scrub[0] > scrubSlider.getMaximum()) scrub[0] = 0;
+                scrubSlider.setValue((int) scrub[0]);
+            });
+            playBtn.addActionListener(e -> {
+                if (anim.isRunning()) { anim.stop(); playBtn.setText("▶ Play"); }
+                else { anim.start(); playBtn.setText("❚❚ Pause"); }
+            });
+            final JLabel clock = new JLabel("0.0s");
+            clock.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            clock.setPreferredSize(new Dimension(48, 18));
+            scrubSlider.addChangeListener(e -> {
+                scrub[0] = scrubSlider.getValue();
+                carouselScrubMs = scrub[0];
+                clock.setText(timerSecs(scrub[0]));
+                canvas.repaint();
+            });
+            JPanel transport = new JPanel(new BorderLayout(6, 0));
+            transport.add(playBtn, BorderLayout.WEST);
+            transport.add(scrubSlider, BorderLayout.CENTER);
+            transport.add(clock, BorderLayout.EAST);
+
+            final JCheckBox onCheck = new JCheckBox("Show a card carousel on this slide", live.enabled);
+            onCheck.setFont(new Font("Segoe UI", Font.BOLD, 13));
+            onCheck.addActionListener(e -> {
+                live.enabled = onCheck.isSelected();
+                refresh.run();
+            });
+
+            refreshHolder[0] = () -> {
+                refreshCarouselCues();
+                int need = live.requiredSlideMs();
+                scrubSlider.setMaximum(Math.max(2000, need + 1000));
+                canvas.repaint();
+                int n = live.items.size();
+                String how = SlideCarousel.TIMING_AUDIO.equals(live.timingMode)
+                        ? "turns with the slide's text audio" : (live.loop ? "loops" : "stops on the last card");
+                timingInfo.setText("<html><body style='width:300px'><b>" + n + " card" + (n == 1 ? "" : "s")
+                        + "</b> · " + how + " · every card has had its turn by <b>" + timerSecs(need)
+                        + "</b>" + (live.stretchSlide ? "<br>The slide is stretched automatically if it is shorter."
+                        : "<br>The slide is NOT stretched — cards past its end are not shown.")
+                        + "</body></html>");
+                schedulePreview();
+            };
+
+            JButton applyBtn = new JButton("Apply");
+            JButton cancelBtn = new JButton("Cancel");
+            JButton resetBtn = new JButton("Reset design");
+            resetBtn.setToolTipText("Back to the stock look, placement and timing. Your cards are kept.");
+            final Runnable close = () -> {
+                anim.stop();
+                carouselDialogOpen = false;
+                carouselPreviewBase = null;
+                carouselScrubMs = -1;
+                schedulePreview();
+                dlg.dispose();
+            };
+            final Runnable revert = () -> {
+                slideCarousel = snapshot;
+                for (int i = 0; i < showSnapshot.length && i < slideTextItems.size(); i++) {
+                    slideTextItems.get(i).show = showSnapshot[i];
+                }
+                if (currentSlideTextIndex >= 0 && currentSlideTextIndex < slideTextItems.size()) {
+                    loadSlideTextFromItem(currentSlideTextIndex);
+                }
+                onFormatChanged();
+            };
+            applyBtn.addActionListener(e -> {
+                if (live.enabled && live.items.isEmpty()) live.enabled = false;
+                onFormatChanged();
+                close.run();
+            });
+            cancelBtn.addActionListener(e -> { revert.run(); close.run(); });
+            resetBtn.addActionListener(e -> {
+                SlideCarousel def = new SlideCarousel();
+                def.enabled = live.enabled;
+                for (SlideCarousel.Item it : live.items) def.items.add(it.copy());
+                slideCarousel = def;
+                close.run();
+                openCarouselDialog();
+            });
+            JButton allSlidesBtn = new JButton("→ Apply design to all slides");
+            allSlidesBtn.setToolTipText("Copy this carousel's look, placement and timing to every slide "
+                    + "that has a carousel. Each slide keeps its own cards.");
+            allSlidesBtn.addActionListener(e -> {
+                int applied = 0, locked = 0;
+                for (SlideRow row : slideRows) {
+                    if (row == SlideRow.this || row.isTitleGridSlide) continue;
+                    SlideCarousel other = row.getSlideCarousel();
+                    if (other == null || other.items.isEmpty()) continue;
+                    if (row.isLocked()) { locked++; continue; }
+                    other.copyDesignFrom(live);
+                    row.schedulePreview();
+                    applied++;
+                }
+                String msg = applied == 0
+                        ? "No other slide has a carousel yet — open Carousel on a slide to add its cards."
+                        : "Copied this carousel's design to " + applied + " slide(s). Each kept its own cards.";
+                if (locked > 0) msg += "\n" + locked + " locked slide(s) were left alone.";
+                JOptionPane.showMessageDialog(dlg, msg, "Apply design to all slides",
+                        JOptionPane.INFORMATION_MESSAGE);
+            });
+            dlg.addWindowListener(new WindowAdapter() {
+                @Override public void windowClosing(WindowEvent e) { revert.run(); close.run(); }
+            });
+
+            JPanel south = new JPanel(new BorderLayout(8, 0));
+            south.setBorder(BorderFactory.createEmptyBorder(6, 8, 8, 8));
+            JPanel leftBtns = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            leftBtns.add(resetBtn);
+            leftBtns.add(allSlidesBtn);
+            south.add(leftBtns, BorderLayout.WEST);
+            JPanel okCancel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+            okCancel.add(cancelBtn);
+            okCancel.add(applyBtn);
+            south.add(okCancel, BorderLayout.EAST);
+
+            JPanel north = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 5));
+            north.setBackground(new Color(222, 236, 255));
+            north.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(160, 190, 235)));
+            onCheck.setOpaque(false);
+            north.add(onCheck);
+
+            JPanel right = new JPanel(new BorderLayout(6, 6));
+            right.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 8));
+            right.add(canvas, BorderLayout.CENTER);
+            right.add(transport, BorderLayout.SOUTH);
+
+            JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, tabs, right);
+            split.setResizeWeight(0.44);
+            split.setBorder(null);
+
+            JPanel main = new JPanel(new BorderLayout());
+            main.add(north, BorderLayout.NORTH);
+            main.add(split, BorderLayout.CENTER);
+            main.add(south, BorderLayout.SOUTH);
+
+            dlg.setContentPane(main);
+            dlg.setSize(1120, 660);
+            dlg.setMinimumSize(new Dimension(900, 540));
+            dlg.setLocationRelativeTo(owner);
+
+            reloadList.run();
+            if (!live.items.isEmpty()) cardList.setSelectedIndex(0);
+            loadCard.run();
+            // Prime the preview base (the slide as rendered WITHOUT the carousel).
+            carouselDialogOpen = true;
+            carouselScrubMs = scrub[0];
+            updateLivePreview();
+            refresh.run();
+            anim.start();
+            playBtn.setText("❚❚ Pause");
+            dlg.setVisible(true);
+        }
+
         /** Put a settings tab in a scroll pane with a bit of breathing room. */
         private static JComponent wrapTimerTab(JPanel p) {
             JPanel pad = new JPanel(new BorderLayout());
@@ -40805,6 +41788,42 @@ public class GifSlideShowApp extends JFrame {
         /** This slide's countdown timer (live object — the dialog edits it in place). */
         SlideTimer getSlideTimer() { return slideTimer; }
 
+        /** True while the Carousel dialog is open — turns on the preview-base cache. */
+        private boolean carouselDialogOpen = false;
+        /** Latest live-preview frame WITHOUT the carousel, for the dialog's own canvas. */
+        private BufferedImage carouselPreviewBase = null;
+        /** Moment (ms into the slide) the Carousel dialog is showing; -1 = auto. */
+        private long carouselScrubMs = -1;
+
+        /** Slide moment the editor preview freezes the carousel at: the first card at rest. */
+        private long carouselPreviewTimeMs() {
+            if (carouselScrubMs >= 0) return carouselScrubMs;
+            if (slideCarousel == null) return 0;
+            return Math.max(0, slideCarousel.startMs) + 500L;
+        }
+
+        /** This slide's card carousel (live object — the dialog edits it in place). */
+        SlideCarousel getSlideCarousel() { return slideCarousel; }
+
+        /**
+         * Resolve the "follow the text audio" turn times against THIS slide's
+         * audio timeline — the same resolution the exporter uses, so the preview
+         * and the video turn the cards at the same moments.
+         */
+        private void refreshCarouselCues() {
+            if (slideCarousel == null) return;
+            int[][] tl = audioTimeline(getSlideAudioDurationsMsList(),
+                    getSlideAudioFilesList(), getAudioGapMs());
+            slideCarousel.audioCues = slideCarousel.resolveAudioCues(tl[0]);
+        }
+
+        /** Export snapshot of the carousel with its turn times resolved, or null when it is off. */
+        SlideCarousel resolvedCarouselSnapshot() {
+            if (slideCarousel == null || !slideCarousel.isActive()) return null;
+            refreshCarouselCues();
+            return slideCarousel.copy();
+        }
+
         /** Replace this slide's timer with a copy of {@code src} (used by Load Preset). */
         void applySlideTimer(SlideTimer src) {
             if (src == null) return;
@@ -41398,6 +42417,29 @@ public class GifSlideShowApp extends JFrame {
                 int ty = ovPxY + (ovH + fm.getAscent()) / 2;
                 pg.drawString(voText, tx, ty);
                 pg.dispose();
+            }
+
+            // Card carousel preview: drawn under the countdown, frozen at the moment
+            // the Carousel dialog is showing (or the first card at rest).
+            if (carouselDialogOpen) {
+                BufferedImage base = new BufferedImage(
+                        preview.getWidth(), preview.getHeight(), BufferedImage.TYPE_INT_ARGB);
+                Graphics2D bg2 = base.createGraphics();
+                bg2.drawImage(preview, 0, 0, null);
+                bg2.dispose();
+                carouselPreviewBase = base;
+            }
+            if (slideCarousel != null && slideCarousel.enabled) {
+                if (preview.getType() != BufferedImage.TYPE_INT_ARGB) {
+                    BufferedImage argbPreview = new BufferedImage(
+                            preview.getWidth(), preview.getHeight(), BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D copyG = argbPreview.createGraphics();
+                    copyG.drawImage(preview, 0, 0, null);
+                    copyG.dispose();
+                    preview = argbPreview;
+                }
+                refreshCarouselCues();
+                SlideCarousel.paint(preview, slideCarousel, carouselPreviewTimeMs(), true);
             }
 
             // Countdown timer preview: drawn last so it sits on top of everything,
