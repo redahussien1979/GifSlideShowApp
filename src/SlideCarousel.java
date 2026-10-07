@@ -77,7 +77,30 @@ public class SlideCarousel {
     // ---- effects -----------------------------------------------------------
     public static final String LAYOUT_VERTICAL   = "Vertical (cards stacked)";
     public static final String LAYOUT_HORIZONTAL = "Horizontal (cards side by side)";
-    public static String[] layouts() { return new String[] { LAYOUT_VERTICAL, LAYOUT_HORIZONTAL }; }
+    /** Every card in the same place, one replacing the other with a change effect. */
+    public static final String LAYOUT_SINGLE     = "One card at a time (same place)";
+    public static String[] layouts() { return new String[] { LAYOUT_VERTICAL, LAYOUT_HORIZONTAL, LAYOUT_SINGLE }; }
+
+    // ---- card-change effects for LAYOUT_SINGLE --------------------------------
+    public static final String TR_FADE        = "Cross-fade";
+    public static final String TR_SLIDE_LEFT  = "Slide left";
+    public static final String TR_SLIDE_RIGHT = "Slide right";
+    public static final String TR_SLIDE_UP    = "Slide up";
+    public static final String TR_SLIDE_DOWN  = "Slide down";
+    public static final String TR_PUSH        = "Push (the new card pushes the old one out)";
+    public static final String TR_ZOOM        = "Zoom through";
+    public static final String TR_POP         = "Pop in (bounce)";
+    public static final String TR_FLIP        = "Flip over";
+    public static final String TR_SWING       = "Swing";
+    public static final String TR_DROP        = "Drop in (bounce)";
+    public static final String TR_MIX         = "Mix — a different effect for each card";
+    public static String[] transitions() {
+        return new String[] { TR_FADE, TR_SLIDE_LEFT, TR_SLIDE_RIGHT, TR_SLIDE_UP, TR_SLIDE_DOWN, TR_PUSH,
+                TR_ZOOM, TR_POP, TR_FLIP, TR_SWING, TR_DROP, TR_MIX };
+    }
+    /** The order "Mix" walks through — neighbours differ in direction and character. */
+    private static final String[] MIX_ORDER = { TR_SLIDE_LEFT, TR_ZOOM, TR_FLIP, TR_SLIDE_UP, TR_POP,
+            TR_SWING, TR_FADE, TR_DROP, TR_PUSH, TR_SLIDE_DOWN };
 
     public static final String KARAOKE_OFF   = "Off";
     public static final String KARAOKE_TITLE = "Title";
@@ -274,6 +297,8 @@ public class SlideCarousel {
 
     // effects
     public String layout = LAYOUT_VERTICAL;
+    /** How one card changes into the next in {@link #LAYOUT_SINGLE}. */
+    public String transition = TR_SLIDE_LEFT;
     /** Springy pop when a card lands in the centre. */
     public boolean popOn = false;
     /** A shine sweeps across the centre card as it lands. */
@@ -366,7 +391,7 @@ public class SlideCarousel {
         backdropAngle = s.backdropAngle;
         backdropAnimate = s.backdropAnimate; particles = s.particles; particleCount = s.particleCount;
         particleColor = s.particleColor; kenBurns = s.kenBurns;
-        layout = s.layout; popOn = s.popOn; shineOn = s.shineOn; glow = s.glow; glowColor = s.glowColor;
+        layout = s.layout; transition = s.transition; popOn = s.popOn; shineOn = s.shineOn; glow = s.glow; glowColor = s.glowColor;
         glowUseIcon = s.glowUseIcon; karaoke = s.karaoke; karaokeColor = s.karaokeColor;
         revealOn = s.revealOn; revealStyle = s.revealStyle; revealDelayMs = s.revealDelayMs;
         progressStyle = s.progressStyle; progressColor = s.progressColor;
@@ -621,7 +646,10 @@ public class SlideCarousel {
     }
 
     /** Index (fractional while turning) of the card at the centre, {@code t} ms after start. */
-    private double progress(long t) {
+    private double progress(long t) { return progress(t, true); }
+
+    /** As {@link #progress(long)}; {@code eased} false gives the turn's plain linear share. */
+    private double progress(long t, boolean eased) {
         int n = items.size();
         if (n <= 1 || t <= 0) return 0;
         if (audioMode()) {
@@ -632,7 +660,8 @@ public class SlideCarousel {
                 if (t >= arrive) return k;
                 if (t > leave) {
                     double span = Math.max(1, arrive - leave);
-                    return (k - 1) + easeInOut((t - leave) / span);
+                    double x = (t - leave) / span;
+                    return (k - 1) + (eased ? easeInOut(x) : Math.max(0, Math.min(1, x)));
                 }
             }
             return 0;
@@ -651,7 +680,8 @@ public class SlideCarousel {
             if (r < at[k + 1]) {
                 long into = r - at[k];
                 int hold = holdOf(k);
-                double frac = into < hold ? 0 : easeInOut((into - hold) / (double) move());
+                double x = (into - hold) / (double) move();
+                double frac = into < hold ? 0 : (eased ? easeInOut(x) : Math.max(0, Math.min(1, x)));
                 return cycles * n + k + frac;
             }
         }
@@ -898,6 +928,16 @@ public class SlideCarousel {
         double unit = horizontal() ? (W + R) : H;
         double p = progress(t);
         long[] rest = centreRest(t);
+        Font titleBase = resolveFont(fontName, titleBold ? Font.BOLD : Font.PLAIN);
+        Font subBase = resolveFont(fontName, subtitleBold ? Font.BOLD : Font.PLAIN);
+
+        if (LAYOUT_SINGLE.equals(layout)) {
+            paintSingle(g, t, elapsedMs, p, rest, cx, cy, W, H, R, master, titleBase, subBase);
+            if (PROGRESS_DOTS.equals(progressStyle) || PROGRESS_COUNTER.equals(progressStyle)) {
+                paintIndicator(g, p, n, cx, cy, W, H, R, master, titleBase);
+            }
+            return;
+        }
 
         // Build the visible slots: "tape" around the current position.
         List<Slot> slots = new ArrayList<>();
@@ -919,9 +959,6 @@ public class SlideCarousel {
         }
         // Far cards first, the centre card last (on top).
         slots.sort((a, b) -> Double.compare(Math.abs(b.pos), Math.abs(a.pos)));
-
-        Font titleBase = resolveFont(fontName, titleBold ? Font.BOLD : Font.PLAIN);
-        Font subBase = resolveFont(fontName, subtitleBold ? Font.BOLD : Font.PLAIN);
 
         for (Slot s : slots) {
             double d = Math.abs(s.pos);
@@ -945,6 +982,169 @@ public class SlideCarousel {
         if (PROGRESS_DOTS.equals(progressStyle) || PROGRESS_COUNTER.equals(progressStyle)) {
             paintIndicator(g, p, n, cx, cy, W, H, R, master, titleBase);
         }
+    }
+
+    /**
+     * {@link #LAYOUT_SINGLE}: one card in one place. At rest the current card
+     * shows with all its landing effects; while turning, the leaving and the
+     * arriving card play the chosen change effect against each other.
+     */
+    private void paintSingle(Graphics2D g, long t, long elapsedMs, double p, long[] rest,
+                             double cx, double cy, double W, double H, double R, double master,
+                             Font titleBase, Font subBase) {
+        int n = items.size();
+        int base = (int) Math.floor(p);
+        double frac = p - base;
+        Item cur = items.get(Math.floorMod(base, n));
+        if (frac <= 1e-9 || n == 1) {
+            Slot s = new Slot(cur, 0);
+            if (rest != null) { s.since = Math.max(0, t - rest[1]); s.hold = (int) rest[2]; }
+            double scale = popOn && s.since >= 0 ? popScale(s.since) : 1;
+            drawSingle(g, s, cx, cy, 0, 0, scale, 1, 0, 1, W, H, R, master, titleBase, subBase, elapsedMs);
+            return;
+        }
+        Item next = items.get(Math.floorMod(base + 1, n));
+        String tr = transition == null ? TR_SLIDE_LEFT : transition;
+        if (TR_MIX.equals(tr)) tr = MIX_ORDER[Math.floorMod(base, MIX_ORDER.length)];
+        double f = frac;                                   // eased share of the change
+        double lin = progress(t, false) - base;            // plain share, for springy curves
+        lin = Math.max(0, Math.min(1, lin));
+        Slot out = new Slot(cur, -Math.max(1e-6, f));      // "has been in the centre"
+        Slot in = new Slot(next, Math.max(1e-6, 1 - f));   // "still to come"
+        double span = (W + R) * 0.55, rise = H * 0.75;
+        double big = (W + R) * 1.15;                       // a full card width: push / slide clean off
+        // Hand-over in two beats with a short overlap: the old card is mostly gone
+        // before the new one is mostly there, so two half-faded texts never mix.
+        double fo = easeInOut(Math.min(1, lin / 0.58));          // leaving
+        double fi = easeInOut(Math.max(0, (lin - 0.42) / 0.58)); // arriving
+        switch (tr) {
+            case TR_FADE:
+                drawSingle(g, out, cx, cy, 0, 0, 1 - 0.03 * fo, 1, 0, 1 - fo, W, H, R, master, titleBase, subBase, elapsedMs);
+                drawSingle(g, in, cx, cy, 0, 0, 0.97 + 0.03 * fi, 1, 0, fi, W, H, R, master, titleBase, subBase, elapsedMs);
+                break;
+            case TR_SLIDE_LEFT: case TR_SLIDE_RIGHT: case TR_SLIDE_UP: case TR_SLIDE_DOWN: {
+                double dx = TR_SLIDE_LEFT.equals(tr) ? -1 : TR_SLIDE_RIGHT.equals(tr) ? 1 : 0;
+                double dy = TR_SLIDE_UP.equals(tr) ? -1 : TR_SLIDE_DOWN.equals(tr) ? 1 : 0;
+                double d = dx != 0 ? span : rise;
+                drawSingle(g, out, cx, cy, dx * d * fo, dy * d * fo, 1 - 0.06 * fo, 1, 0, 1 - fo,
+                        W, H, R, master, titleBase, subBase, elapsedMs);
+                drawSingle(g, in, cx, cy, -dx * d * (1 - fi), -dy * d * (1 - fi), 0.94 + 0.06 * fi, 1, 0, fi,
+                        W, H, R, master, titleBase, subBase, elapsedMs);
+                break;
+            }
+            case TR_PUSH:
+                drawSingle(g, out, cx, cy, -big * f, 0, 1, 1, 0, 1 - 0.6 * f,
+                        W, H, R, master, titleBase, subBase, elapsedMs);
+                drawSingle(g, in, cx, cy, big * (1 - f), 0, 1, 1, 0, 0.4 + 0.6 * f,
+                        W, H, R, master, titleBase, subBase, elapsedMs);
+                break;
+            case TR_ZOOM:
+                // The old card rushes towards the viewer and dissolves; the new
+                // one comes up from the distance.
+                drawSingle(g, in, cx, cy, 0, 0, 0.7 + 0.3 * fi, 1, 0, fi,
+                        W, H, R, master, titleBase, subBase, elapsedMs);
+                drawSingle(g, out, cx, cy, 0, 0, 1 + 0.35 * fo, 1, 0, 1 - fo,
+                        W, H, R, master, titleBase, subBase, elapsedMs);
+                break;
+            case TR_POP: {
+                double outF = Math.min(1, lin * 2.2);
+                drawSingle(g, out, cx, cy, 0, 0, 1 - 0.25 * easeInOut(outF), 1, 0, 1 - outF,
+                        W, H, R, master, titleBase, subBase, elapsedMs);
+                double inF = Math.max(0, (lin - 0.25) / 0.75);
+                drawSingle(g, in, cx, cy, 0, 0, 0.55 + 0.45 * easeOutBack(inF), 1, 0, Math.min(1, inF * 2.5),
+                        W, H, R, master, titleBase, subBase, elapsedMs);
+                break;
+            }
+            case TR_FLIP: {
+                // Turn about the vertical axis: the old face closes to an edge,
+                // the new face opens from it, shaded a little edge-on.
+                double sx = Math.abs(Math.cos(Math.PI * f));
+                boolean second = f >= 0.5;
+                drawSingle(g, second ? in : out, cx, cy, 0, 0, 1, Math.max(0.001, sx), 0, 1,
+                        W, H, R, master, titleBase, subBase, elapsedMs);
+                double shade = Math.sin(Math.PI * f) * 0.10;
+                if (shade > 0.003) {
+                    Composite c0 = g.getComposite();
+                    AffineTransform t0 = g.getTransform();
+                    g.translate(cx, cy);
+                    g.scale(Math.max(0.001, sx), 1);
+                    setAlpha(g, master * shade);
+                    g.setColor(Color.BLACK);
+                    g.fill(cardBody(W, H, R));
+                    g.setTransform(t0);
+                    g.setComposite(c0);
+                }
+                break;
+            }
+            case TR_SWING: {
+                // Hinged at the top: the old card swings away and fades, the new
+                // one swings in from the other side and settles.
+                double a = Math.toRadians(14);
+                drawSingle(g, out, cx, cy, -span * 0.35 * fo, H * 0.25 * fo, 1 - 0.08 * fo, 1, -a * fo, 1 - fo,
+                        W, H, R, master, titleBase, subBase, elapsedMs);
+                drawSingle(g, in, cx, cy, span * 0.35 * (1 - fi), H * 0.25 * (1 - fi), 0.92 + 0.08 * fi, 1,
+                        a * (1 - fi), fi, W, H, R, master, titleBase, subBase, elapsedMs);
+                break;
+            }
+            case TR_DROP: {
+                double outF = Math.min(1, lin * 1.8);
+                drawSingle(g, out, cx, cy, 0, rise * 0.9 * easeInOut(outF), 1, 1, 0, 1 - outF,
+                        W, H, R, master, titleBase, subBase, elapsedMs);
+                double inF = Math.max(0, (lin - 0.15) / 0.85);
+                double fall = easeOutBounce(inF);
+                drawSingle(g, in, cx, cy, 0, -rise * 1.4 * (1 - fall), 1, 1, 0, Math.min(1, inF * 3),
+                        W, H, R, master, titleBase, subBase, elapsedMs);
+                break;
+            }
+            default:
+                drawSingle(g, in, cx, cy, 0, 0, 1, 1, 0, f, W, H, R, master, titleBase, subBase, elapsedMs);
+        }
+    }
+
+    /** Draw one card in the single-card layout, moved / scaled / turned / faded as asked. */
+    private void drawSingle(Graphics2D g, Slot s, double cx, double cy, double dx, double dy,
+                            double scale, double scaleX, double rot, double alpha,
+                            double W, double H, double R, double master,
+                            Font titleBase, Font subBase, long elapsedMs) {
+        if (alpha <= 0.002) return;
+        AffineTransform saved = g.getTransform();
+        Composite savedComp = g.getComposite();
+        g.translate(cx + dx, cy + dy);
+        if (rot != 0) {
+            // Swing hangs from the top centre of the card.
+            g.translate(0, -H / 2);
+            g.rotate(rot);
+            g.translate(0, H / 2);
+        }
+        g.scale(scale * scaleX, scale);
+        paintCard(g, s, W, H, R, 0, master * Math.max(0, Math.min(1, alpha)), titleBase, subBase, elapsedMs);
+        g.setTransform(saved);
+        g.setComposite(savedComp);
+    }
+
+    /** The card + badge outline, centred on (0,0) like paintCard draws it. */
+    private Area cardBody(double W, double H, double R) {
+        double left = -(W - R) / 2.0, top = -H / 2.0;
+        double arc = 2 * 0.065 * H * Math.max(0, cornerPct) / 100.0;
+        Area body = new Area(new RoundRectangle2D.Double(left, top, W, H, arc, arc));
+        body.add(new Area(new Ellipse2D.Double(left - R, -R, 2 * R, 2 * R)));
+        return body;
+    }
+
+    private static double easeOutBack(double x) {
+        x = Math.max(0, Math.min(1, x));
+        double c1 = 1.70158, c3 = c1 + 1;
+        return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+    }
+
+    private static double easeOutBounce(double x) {
+        x = Math.max(0, Math.min(1, x));
+        double n1 = 7.5625, d1 = 2.75;
+        if (x < 1 / d1) return n1 * x * x;
+        if (x < 2 / d1) { x -= 1.5 / d1; return n1 * x * x + 0.75; }
+        if (x < 2.5 / d1) { x -= 2.25 / d1; return n1 * x * x + 0.9375; }
+        x -= 2.625 / d1;
+        return n1 * x * x + 0.984375;
     }
 
     /** Springy "pop" when a card lands: a quick swell that settles with a small wobble. */

@@ -37400,15 +37400,27 @@ public class GifSlideShowApp extends JFrame {
             final JComboBox<String> layoutCombo = new JComboBox<>(SlideCarousel.layouts());
             layoutCombo.setSelectedItem(live.layout);
             layoutCombo.setToolTipText("Stack the cards top-to-bottom, or line them up side by side.");
+            final JComboBox<String> trCombo = new JComboBox<>(SlideCarousel.transitions());
+            trCombo.setSelectedItem(live.transition);
+            trCombo.setPrototypeDisplayValue("Mix — a different effect for e");
+            trCombo.setToolTipText("<html>How one card changes into the next when they all appear in the "
+                    + "same place.<br>“Mix” uses a different effect for each card. The change takes "
+                    + "“One turn takes” on the Motion tab — 0.8 s suits most effects.</html>");
+            trCombo.setEnabled(SlideCarousel.LAYOUT_SINGLE.equals(live.layout));
+            trCombo.addActionListener(e -> { live.transition = (String) trCombo.getSelectedItem(); refresh.run(); });
             layoutCombo.addActionListener(e -> {
                 String lay = (String) layoutCombo.getSelectedItem();
                 if (lay.equals(live.layout)) return;
                 live.layout = lay;
+                trCombo.setEnabled(SlideCarousel.LAYOUT_SINGLE.equals(lay));
                 // Side by side, three cards must fit across the frame: start from
                 // narrower, taller cards (still free to change below).
                 if (SlideCarousel.LAYOUT_HORIZONTAL.equals(lay)) {
                     if (live.widthPct > 30) widthSlider.setValue(26);
                     if (live.heightPct < 36) heightSlider.setValue(40);
+                } else if (SlideCarousel.LAYOUT_SINGLE.equals(lay)) {
+                    // One card alone can be bigger.
+                    if (live.widthPct < 40) widthSlider.setValue(44);
                 } else {
                     if (live.widthPct < 30) widthSlider.setValue(34);
                     if (live.heightPct > 32) heightSlider.setValue(28);
@@ -37416,6 +37428,7 @@ public class GifSlideShowApp extends JFrame {
                 refresh.run();
             });
             addTimerRow(place, r++, "Layout:", layoutCombo);
+            addTimerRow(place, r++, "Card change effect:", trCombo);
             addTimerSlider(place, r++, "Side card size:", 30, 100, live.sideScalePct, "%",
                     v -> live.sideScalePct = v, refresh);
             addTimerSlider(place, r++, "Gap between cards:", 0, 400, live.gapPct, "%",
