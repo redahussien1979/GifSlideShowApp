@@ -252,6 +252,8 @@ public class SlideCarousel {
     public int sideIconOpacity = 82;
     public Color haloColor     = new Color(215, 244, 253);
     public boolean showHalo    = true;
+    /** False = plain rectangular cards: no round badge on the left, no icon. */
+    public boolean showBadge   = true;
     /** Badge radius, % of the stock size. */
     public int haloSizePct = 100;
     /** Icon size inside the badge, % of the stock size. */
@@ -377,7 +379,7 @@ public class SlideCarousel {
         opacity = s.opacity;
         cardColor = s.cardColor; sideCardColor = s.sideCardColor;
         sideOpacity = s.sideOpacity; sideTextOpacity = s.sideTextOpacity; sideIconOpacity = s.sideIconOpacity;
-        haloColor = s.haloColor; showHalo = s.showHalo; haloSizePct = s.haloSizePct; iconSizePct = s.iconSizePct;
+        haloColor = s.haloColor; showHalo = s.showHalo; showBadge = s.showBadge; haloSizePct = s.haloSizePct; iconSizePct = s.iconSizePct;
         titleColor = s.titleColor; subtitleColor = s.subtitleColor; fontName = s.fontName;
         titleBold = s.titleBold; titleUpper = s.titleUpper; subtitleBold = s.subtitleBold;
         titleAlign = s.titleAlign; subtitleAlign = s.subtitleAlign;
@@ -921,7 +923,8 @@ public class SlideCarousel {
         int depth = Math.max(1, Math.min(3, sideCards));
         double W = Math.max(8, widthPct / 100.0 * fw);
         double H = Math.max(4, W * Math.max(5, heightPct) / 100.0);
-        double R = 0.371 * H * Math.max(10, haloSizePct) / 100.0;
+        // No badge: R = 0 makes the card a plain rectangle, centred on its own.
+        double R = showBadge ? 0.371 * H * Math.max(10, haloSizePct) / 100.0 : 0;
         double cx = xPct / 100.0 * fw;
         double cy = yPct / 100.0 * fh;
         double dirSign = DIR_DOWN.equals(direction) ? -1 : 1;
@@ -1127,7 +1130,7 @@ public class SlideCarousel {
         double left = -(W - R) / 2.0, top = -H / 2.0;
         double arc = 2 * 0.065 * H * Math.max(0, cornerPct) / 100.0;
         Area body = new Area(new RoundRectangle2D.Double(left, top, W, H, arc, arc));
-        body.add(new Area(new Ellipse2D.Double(left - R, -R, 2 * R, 2 * R)));
+        if (R > 0) body.add(new Area(new Ellipse2D.Double(left - R, -R, 2 * R, 2 * R)));
         return body;
     }
 
@@ -1213,7 +1216,7 @@ public class SlideCarousel {
         Shape card = new RoundRectangle2D.Double(left, top, W, H, arc, arc);
         Shape badge = new Ellipse2D.Double(left - R, -R, 2 * R, 2 * R);
         Area body = new Area(card);
-        body.add(new Area(badge));
+        if (R > 0) body.add(new Area(badge));
         double centre = 1 - m;                 // how "centre card" this card is right now
 
         // Glow / neon halo around the centre card (drawn first, so it sits behind).
@@ -1264,7 +1267,7 @@ public class SlideCarousel {
         g.fill(body);
 
         // Badge: its own pale colour on the centre card, melting into the card at the sides.
-        if (showHalo && haloColor != null && m < 1) {
+        if (R > 0 && showHalo && haloColor != null && m < 1) {
             g.setColor(withAlpha(haloColor, centre));
             g.fill(badge);
         }
@@ -1281,7 +1284,7 @@ public class SlideCarousel {
 
         // Icon inside the badge.
         double iconAlpha = alpha * (centre + m * sideIconOpacity / 100.0);
-        paintIcon(g, it, left, 0, R, iconAlpha, titleBase);
+        if (R > 0) paintIcon(g, it, left, 0, R, iconAlpha, titleBase);
 
         // Texts.
         double textAlpha = alpha * (centre + m * sideTextOpacity / 100.0);
@@ -1290,7 +1293,7 @@ public class SlideCarousel {
         // Progress bar along the bottom of the resting centre card.
         if (PROGRESS_BAR.equals(progressStyle) && s.since >= 0 && s.hold > 0) {
             Color pc = progressColor != null ? progressColor : new Color(57, 182, 234);
-            double x0 = left + R + 0.21 * H, x1 = left + W - 0.10 * H;
+            double x0 = textLeft(left, R, H), x1 = textRight(left, W, R, H);
             double bh = Math.max(1.5, H * 0.036), by = top + H - H * 0.10;
             double f = Math.max(0, Math.min(1, s.since / (double) s.hold));
             setAlpha(g, alpha);
@@ -1437,8 +1440,8 @@ public class SlideCarousel {
         }
         if (title.isEmpty() && sub.isEmpty()) return;
 
-        double textX = left + R + 0.21 * H;
-        double maxW = left + W - 0.10 * H - textX;
+        double textX = textLeft(left, R, H);
+        double maxW = textRight(left, W, R, H) - textX;
         if (maxW <= 4) return;
         float titleSize = (float) (0.155 * H * Math.max(10, titleSizePct) / 100.0);
         float subSize = (float) (0.145 * H * Math.max(10, subtitleSizePct) / 100.0);
@@ -1482,6 +1485,16 @@ public class SlideCarousel {
             drawFitted(g, sub, subBase.deriveFont(subSize), textX, capMid, maxW, sc,
                     subtitleBold ? 0.055 : 0.022, subtitleAlign, k[1], kc);
         }
+    }
+
+    /** Where the text area starts: beside the badge, or just inside a plain card's edge. */
+    private static double textLeft(double left, double R, double H) {
+        return R > 0 ? left + R + 0.21 * H : left + 0.16 * H;
+    }
+
+    /** Where the text area ends: a plain card gets the same margin on both sides. */
+    private static double textRight(double left, double W, double R, double H) {
+        return left + W - (R > 0 ? 0.10 : 0.16) * H;
     }
 
     /** Dots (one per card, the current one long and coloured) or a "3 / 12" counter pill. */

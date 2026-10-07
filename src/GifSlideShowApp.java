@@ -37292,6 +37292,11 @@ public class GifSlideShowApp extends JFrame {
                     v -> live.sideTextOpacity = v, refresh);
             addTimerSlider(look, r++, "Side cards' icons:", 0, 100, live.sideIconOpacity, "%",
                     v -> live.sideIconOpacity = v, refresh);
+            final JCheckBox badgeCheck = new JCheckBox("Round icon badge on the left of each card", live.showBadge);
+            badgeCheck.setOpaque(false);
+            badgeCheck.setToolTipText("Untick for plain rectangular cards — no round badge and no icon; "
+                    + "the text uses the whole card.");
+            addTimerRow(look, r++, "Card shape:", badgeCheck);
             final JCheckBox haloCheck = new JCheckBox("Round badge behind the icon", live.showHalo);
             haloCheck.setOpaque(false);
             haloCheck.addActionListener(e -> { live.showHalo = haloCheck.isSelected(); refresh.run(); });
@@ -37301,10 +37306,23 @@ public class GifSlideShowApp extends JFrame {
             haloRow.add(timerColorButton(dlg, "Badge colour",
                     () -> live.haloColor, c -> live.haloColor = c, refresh));
             addTimerRow(look, r++, "Badge:", haloRow);
-            addTimerSlider(look, r++, "Badge size:", 40, 200, live.haloSizePct, "%",
+            final JSlider badgeSizeSl = addTimerSlider(look, r++, "Badge size:", 40, 200, live.haloSizePct, "%",
                     v -> live.haloSizePct = v, refresh);
-            addTimerSlider(look, r++, "Icon / dot size:", 20, 160, live.iconSizePct, "%",
+            final JSlider iconSizeSl = addTimerSlider(look, r++, "Icon / dot size:", 20, 160, live.iconSizePct, "%",
                     v -> live.iconSizePct = v, refresh);
+            final Runnable syncBadge = () -> {
+                boolean on = live.showBadge;
+                haloCheck.setEnabled(on);
+                for (Component c : haloRow.getComponents()) c.setEnabled(on);
+                badgeSizeSl.setEnabled(on);
+                iconSizeSl.setEnabled(on);
+            };
+            badgeCheck.addActionListener(e -> {
+                live.showBadge = badgeCheck.isSelected();
+                syncBadge.run();
+                refresh.run();
+            });
+            syncBadge.run();
             final JComboBox<String> fontCombo = new JComboBox<>(allFontNames());
             fontCombo.setSelectedItem(live.fontName);
             fontCombo.addActionListener(e -> {
