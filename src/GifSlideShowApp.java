@@ -19160,7 +19160,7 @@ public class GifSlideShowApp extends JFrame {
                                 // Carousel cards' own sounds, each dropped the moment its
                                 // card arrives in the centre.
                                 timerCues.addAll(carouselSoundCues(s, slideStartMs,
-                                        computeSlideDuration(s, duration)));
+                                        computeSlideDuration(s, duration), tempDir));
                                 offT += computeSlideDuration(s, duration) / 1000.0;
                                 if (scrollEnabled && i < slides.size() - 1) offT += transSecT;
                             }
@@ -19949,7 +19949,7 @@ public class GifSlideShowApp extends JFrame {
                             if (slideOutFile.exists() && hasCarousel(s)) {
                                 try {
                                     java.util.List<TimerSoundCue> cues =
-                                            carouselSoundCues(s, 0, computeSlideDuration(s, duration));
+                                            carouselSoundCues(s, 0, computeSlideDuration(s, duration), tempDir);
                                     if (!cues.isEmpty()) {
                                         publish("Adding carousel sound to slide " + (si + 1) + "...");
                                         overlayTimerSounds(slideOutFile, cues, tempDir);
@@ -21995,6 +21995,9 @@ public class GifSlideShowApp extends JFrame {
                                                 BufferedImage still, SlideData s,
                                                 int totalMs, int stepMs) {
         stepMs = Math.max(20, stepMs);
+        // Backgrounds that never stop moving make every frame unique; 100 ms
+        // frames keep such a GIF's memory and size in check.
+        if (s.slideCarousel.animatesContinuously()) stepMs = Math.max(stepMs, 100);
         totalMs = Math.max(stepMs, totalMs);
         String lastKey = null;
         for (int t = 0; t < totalMs; t += stepMs) {
@@ -22016,7 +22019,7 @@ public class GifSlideShowApp extends JFrame {
      * the slide-relative moment). Empty when the slide has no carousel sound.
      */
     private static java.util.List<TimerSoundCue> carouselSoundCues(SlideData s, long slideStartMs,
-                                                                   int slideMs) {
+                                                                   int slideMs, File tempDir) {
         java.util.List<TimerSoundCue> out = new java.util.ArrayList<>();
         if (!hasCarousel(s)) return out;
         SlideCarousel c = s.slideCarousel;
@@ -22025,7 +22028,32 @@ public class GifSlideShowApp extends JFrame {
             File f = new File(c.items.get(ev[1]).audioPath.trim());
             if (f.isFile()) out.add(new TimerSoundCue(slideStartMs + ev[0], f, gain));
         }
+        // Effect sounds: whoosh as a turn starts, tick as a card lands, chime on the reveal.
+        double fxGain = Math.max(0, Math.min(1.0, c.fxVolume / 100.0));
+        File[] fxFiles = new File[3];
+        String[][] choice = { { c.turnSound, c.turnSoundPath }, { c.arriveSound, c.arriveSoundPath },
+                { c.revealSound, c.revealSoundPath } };
+        for (int[] ev : c.fxEvents(slideMs)) {
+            int kind = ev[1];
+            if (fxFiles[kind] == null) {
+                fxFiles[kind] = carouselFxFile(choice[kind][0], choice[kind][1], tempDir);
+            }
+            if (fxFiles[kind] != null && fxFiles[kind].isFile()) {
+                out.add(new TimerSoundCue(slideStartMs + ev[0], fxFiles[kind], fxGain));
+            }
+        }
         return out;
+    }
+
+    /** The audio file behind a carousel effect-sound choice (built-in cues are written to {@code tempDir}). */
+    private static File carouselFxFile(String choice, String path, File tempDir) {
+        if (!SlideCarousel.hasSound(choice, path)) return null;
+        if (SlideCarousel.SOUND_FILE.equals(choice)) return new File(path.trim());
+        try {
+            return MotionSound.isBuiltIn(choice) ? MotionSound.writeWav(tempDir, choice) : null;
+        } catch (IOException ex) {
+            return null;
+        }
     }
 
     /** True when this slide carries a card carousel that has to be drawn. */
@@ -36536,6 +36564,101 @@ public class GifSlideShowApp extends JFrame {
             t.start();
         }
 
+        /**
+         * Play an effect sound in the editor on its own line, so it never cuts off
+         * a card's sound that starts at the same moment.
+         */
+        private static void playCarouselFxPreview(String choice, String path) {
+            if (!SlideCarousel.hasSound(choice, path)) return;
+            if (!SlideCarousel.SOUND_FILE.equals(choice)) { MotionSound.play(choice); return; }
+            File f = new File(path.trim());
+            if (!f.isFile()) return;
+            Thread t = new Thread(() -> {
+                try {
+                    File wav = CAROUSEL_PREVIEW_WAVS.get(f.getAbsolutePath());
+                    if (wav == null || !wav.isFile()) {
+                        if (f.getName().toLowerCase().endsWith(".wav")) {
+                            wav = f;
+                        } else {
+                            wav = File.createTempFile("carousel_fx_", ".wav");
+                            wav.deleteOnExit();
+                            Process p = new ProcessBuilder("ffmpeg", "-y", "-v", "error", "-i",
+                                    f.getAbsolutePath(), "-ac", "2", "-ar", "44100", "-sample_fmt", "s16",
+                                    wav.getAbsolutePath()).redirectErrorStream(true).start();
+                            try (InputStream in = p.getInputStream()) { while (in.read() >= 0) { /* drain */ } }
+                            if (p.waitFor() != 0) return;
+                        }
+                        CAROUSEL_PREVIEW_WAVS.put(f.getAbsolutePath(), wav);
+                    }
+                    try (javax.sound.sampled.AudioInputStream in =
+                                 javax.sound.sampled.AudioSystem.getAudioInputStream(wav)) {
+                        javax.sound.sampled.Clip clip = javax.sound.sampled.AudioSystem.getClip();
+                        clip.open(in);
+                        clip.addLineListener(ev -> {
+                            if (ev.getType() == javax.sound.sampled.LineEvent.Type.STOP) ev.getLine().close();
+                        });
+                        clip.start();
+                    }
+                } catch (Exception ignored) { }
+            }, "carousel-fx-preview");
+            t.setDaemon(true);
+            t.start();
+        }
+
+        /**
+         * A sound picker row: built-in cues, "None" and "Your own file…", with a
+         * listen button. {@code get}/{@code set} read and write {choice, path}.
+         */
+        private JPanel carouselSoundPicker(Window parent, java.util.function.Supplier<String[]> get,
+                                           java.util.function.BiConsumer<String, String> set) {
+            java.util.List<String> names = new java.util.ArrayList<>();
+            names.add(SlideCarousel.SOUND_NONE);
+            names.addAll(java.util.Arrays.asList(MotionSound.NAMES));
+            names.add(SlideCarousel.SOUND_FILE);
+            final JComboBox<String> combo = new JComboBox<>(names.toArray(new String[0]));
+            combo.setPrototypeDisplayValue("Your own file…  ");
+            final JLabel fileLbl = new JLabel(" ");
+            fileLbl.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            final JButton listen = new JButton("▶");
+            listen.setMargin(new Insets(1, 6, 1, 6));
+            listen.setToolTipText("Listen");
+            String[] cur = get.get();
+            combo.setSelectedItem(cur[0] == null || !names.contains(cur[0]) ? SlideCarousel.SOUND_NONE : cur[0]);
+            final Runnable showFile = () -> {
+                String[] c = get.get();
+                boolean file = SlideCarousel.SOUND_FILE.equals(c[0]);
+                fileLbl.setText(file && c[1] != null && !c[1].trim().isEmpty() ? new File(c[1].trim()).getName() : "");
+                listen.setEnabled(SlideCarousel.hasSound(c[0], c[1]));
+            };
+            combo.addActionListener(e -> {
+                String ch = (String) combo.getSelectedItem();
+                String path = get.get()[1];
+                if (SlideCarousel.SOUND_FILE.equals(ch)) {
+                    JFileChooser fc = new JFileChooser();
+                    fc.setFileFilter(new FileNameExtensionFilter("Audio (mp3, wav, m4a, aac, ogg, flac)",
+                            "mp3", "wav", "m4a", "aac", "ogg", "flac", "wma", "opus"));
+                    if (path != null && !path.trim().isEmpty()) fc.setSelectedFile(new File(path.trim()));
+                    if (fc.showOpenDialog(parent) != JFileChooser.APPROVE_OPTION) {
+                        String[] old = get.get();
+                        combo.setSelectedItem(SlideCarousel.hasSound(old[0], old[1]) ? old[0] : SlideCarousel.SOUND_NONE);
+                        return;
+                    }
+                    path = fc.getSelectedFile().getAbsolutePath();
+                }
+                set.accept(ch, path == null ? "" : path);
+                showFile.run();
+                if (!SlideCarousel.SOUND_FILE.equals(ch)) playCarouselFxPreview(ch, path);
+            });
+            listen.addActionListener(e -> { String[] c = get.get(); playCarouselFxPreview(c[0], c[1]); });
+            showFile.run();
+            JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+            row.setOpaque(false);
+            row.add(combo);
+            row.add(listen);
+            row.add(fileLbl);
+            return row;
+        }
+
         /** Format ms as seconds for an editable field ("1.6"). */
         private static String carouselSecs(int ms) {
             return String.format(java.util.Locale.US, "%.2f", ms / 1000.0).replaceAll("0$", "");
@@ -37262,10 +37385,10 @@ public class GifSlideShowApp extends JFrame {
                     v -> live.xPct = v, refresh);
             final JSlider ySlider = addTimerSlider(place, r++, "Down (Y):", 0, 100, (int) Math.round(live.yPct), "%",
                     v -> live.yPct = v, refresh);
-            addTimerSlider(place, r++, "Card width:", 10, 95, (int) Math.round(live.widthPct), "%",
-                    v -> live.widthPct = v, refresh);
-            addTimerSlider(place, r++, "Card height:", 12, 80, (int) Math.round(live.heightPct), "%",
-                    v -> live.heightPct = v, refresh);
+            final JSlider widthSlider = addTimerSlider(place, r++, "Card width:", 10, 95,
+                    (int) Math.round(live.widthPct), "%", v -> live.widthPct = v, refresh);
+            final JSlider heightSlider = addTimerSlider(place, r++, "Card height:", 12, 80,
+                    (int) Math.round(live.heightPct), "%", v -> live.heightPct = v, refresh);
             final JComboBox<String> sideCombo = new JComboBox<>(new String[] {
                     "1 above + 1 below", "2 above + 2 below", "3 above + 3 below" });
             sideCombo.setSelectedIndex(Math.max(0, Math.min(2, live.sideCards - 1)));
@@ -37274,6 +37397,25 @@ public class GifSlideShowApp extends JFrame {
                 refresh.run();
             });
             addTimerRow(place, r++, "Cards around the centre:", sideCombo);
+            final JComboBox<String> layoutCombo = new JComboBox<>(SlideCarousel.layouts());
+            layoutCombo.setSelectedItem(live.layout);
+            layoutCombo.setToolTipText("Stack the cards top-to-bottom, or line them up side by side.");
+            layoutCombo.addActionListener(e -> {
+                String lay = (String) layoutCombo.getSelectedItem();
+                if (lay.equals(live.layout)) return;
+                live.layout = lay;
+                // Side by side, three cards must fit across the frame: start from
+                // narrower, taller cards (still free to change below).
+                if (SlideCarousel.LAYOUT_HORIZONTAL.equals(lay)) {
+                    if (live.widthPct > 30) widthSlider.setValue(26);
+                    if (live.heightPct < 36) heightSlider.setValue(40);
+                } else {
+                    if (live.widthPct < 30) widthSlider.setValue(34);
+                    if (live.heightPct > 32) heightSlider.setValue(28);
+                }
+                refresh.run();
+            });
+            addTimerRow(place, r++, "Layout:", layoutCombo);
             addTimerSlider(place, r++, "Side card size:", 30, 100, live.sideScalePct, "%",
                     v -> live.sideScalePct = v, refresh);
             addTimerSlider(place, r++, "Gap between cards:", 0, 400, live.gapPct, "%",
@@ -37330,6 +37472,7 @@ public class GifSlideShowApp extends JFrame {
                     + "typed cards follow Text 1, Text 2, … in order).</html>");
             addTimerRow(motion, r++, "Turn the cards:", modeCombo);
             final JComboBox<String> dirCombo = new JComboBox<>(SlideCarousel.directions());
+            dirCombo.setPrototypeDisplayValue("Next card comes from below (or…");
             dirCombo.setSelectedItem(live.direction);
             dirCombo.addActionListener(e -> { live.direction = (String) dirCombo.getSelectedItem(); refresh.run(); });
             addTimerRow(motion, r++, "Direction:", dirCombo);
@@ -37369,6 +37512,26 @@ public class GifSlideShowApp extends JFrame {
             addTimerRow(motion, r++, null, stretchCheck);
             addTimerSlider(motion, r++, "Card sound volume:", 0, 100, live.audioVolume, "%",
                     v -> live.audioVolume = v, () -> { });
+            JLabel fxHead = new JLabel("Effect sounds");
+            fxHead.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            addTimerRow(motion, r++, null, fxHead);
+            addTimerRow(motion, r++, "As a turn starts:", carouselSoundPicker(dlg,
+                    () -> new String[] { live.turnSound, live.turnSoundPath },
+                    (ch, pth) -> { live.turnSound = ch; live.turnSoundPath = pth; }));
+            addTimerRow(motion, r++, "As a card lands:", carouselSoundPicker(dlg,
+                    () -> new String[] { live.arriveSound, live.arriveSoundPath },
+                    (ch, pth) -> { live.arriveSound = ch; live.arriveSoundPath = pth; }));
+            addTimerRow(motion, r++, "On the reveal:", carouselSoundPicker(dlg,
+                    () -> new String[] { live.revealSound, live.revealSoundPath },
+                    (ch, pth) -> { live.revealSound = ch; live.revealSoundPath = pth; }));
+            addTimerSlider(motion, r++, "Effect sound volume:", 0, 100, live.fxVolume, "%",
+                    v -> live.fxVolume = v, () -> { });
+            JLabel fxNote = new JLabel("<html><body style='width:300px'><i>Good pairs: “Soft Swoosh” as a "
+                    + "turn starts, “Click” or “Pop” as a card lands, “Magic Chime” on the reveal. "
+                    + "“Your own file…” takes any recorded sound.</i></body></html>");
+            fxNote.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            fxNote.setForeground(new Color(90, 90, 100));
+            addTimerRow(motion, r++, null, fxNote);
             final Runnable syncMode = () -> {
                 boolean fixed = !SlideCarousel.TIMING_AUDIO.equals(live.timingMode);
                 holdField.setEnabled(fixed);
@@ -37382,6 +37545,117 @@ public class GifSlideShowApp extends JFrame {
             syncMode.run();
             addTimerRow(motion, r++, null, timingInfo);
             tabs.addTab("Motion", wrapTimerTab(motion));
+
+            // ===== Effects =====
+            final JPanel fx = new JPanel(new GridBagLayout());
+            r = 0;
+            JLabel landHead = new JLabel("When a card lands in the centre");
+            landHead.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            addTimerRow(fx, r++, null, landHead);
+            final JCheckBox popCheck = new JCheckBox("Pop — the card swells a little and settles with a spring",
+                    live.popOn);
+            popCheck.setOpaque(false);
+            popCheck.addActionListener(e -> { live.popOn = popCheck.isSelected(); refresh.run(); });
+            addTimerRow(fx, r++, null, popCheck);
+            final JCheckBox shineCheck = new JCheckBox("Highlight sweep — a shine glides across the card",
+                    live.shineOn);
+            shineCheck.setOpaque(false);
+            shineCheck.addActionListener(e -> { live.shineOn = shineCheck.isSelected(); refresh.run(); });
+            addTimerRow(fx, r++, null, shineCheck);
+
+            final JComboBox<String> glowCombo = new JComboBox<>(SlideCarousel.glowStyles());
+            glowCombo.setSelectedItem(live.glow);
+            glowCombo.setPrototypeDisplayValue("Neon (bright rim, gentle pul");
+            final JCheckBox glowIconCheck = new JCheckBox("in each card's icon colour", live.glowUseIcon);
+            glowIconCheck.setOpaque(false);
+            final JButton glowColorBtn = timerColorButton(dlg, "Glow colour",
+                    () -> live.glowColor, c -> live.glowColor = c, refresh);
+            final Runnable syncGlow = () -> {
+                boolean on = !SlideCarousel.GLOW_OFF.equals(live.glow);
+                glowIconCheck.setEnabled(on);
+                glowColorBtn.setEnabled(on && !live.glowUseIcon);
+            };
+            glowCombo.addActionListener(e -> { live.glow = (String) glowCombo.getSelectedItem(); syncGlow.run(); refresh.run(); });
+            glowIconCheck.addActionListener(e -> { live.glowUseIcon = glowIconCheck.isSelected(); syncGlow.run(); refresh.run(); });
+            JPanel glowRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            glowRow.setOpaque(false);
+            glowRow.add(glowIconCheck);
+            glowRow.add(new JLabel("or"));
+            glowRow.add(glowColorBtn);
+            syncGlow.run();
+            addTimerRow(fx, r++, "Glow around the card:", glowCombo);
+            addTimerRow(fx, r++, "Glow colour:", glowRow);
+
+            JLabel textHead = new JLabel("Text");
+            textHead.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            addTimerRow(fx, r++, null, textHead);
+            final JComboBox<String> karaokeCombo = new JComboBox<>(SlideCarousel.karaokeModes());
+            karaokeCombo.setSelectedItem(live.karaoke);
+            karaokeCombo.setToolTipText("The words fill with colour as they are read: with the card's own "
+                    + "sound when it has one, otherwise over the card's time. Arabic fills right to left.");
+            karaokeCombo.addActionListener(e -> { live.karaoke = (String) karaokeCombo.getSelectedItem(); refresh.run(); });
+            JPanel karaokeRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            karaokeRow.setOpaque(false);
+            karaokeRow.add(karaokeCombo);
+            karaokeRow.add(timerColorButton(dlg, "Karaoke fill colour",
+                    () -> live.karaokeColor, c -> live.karaokeColor = c, refresh));
+            addTimerRow(fx, r++, "Karaoke fill:", karaokeRow);
+
+            final JCheckBox revealCheck = new JCheckBox("Reveal — show the title first, the subtitle after a pause",
+                    live.revealOn);
+            revealCheck.setOpaque(false);
+            revealCheck.setToolTipText("Quiz style: viewers see the word, think, then the meaning appears. "
+                    + "Cards still to come keep their subtitle hidden. Each card stays long enough for the reveal.");
+            final JComboBox<String> revealCombo = new JComboBox<>(SlideCarousel.revealStyles());
+            revealCombo.setSelectedItem(live.revealStyle);
+            revealCombo.setPrototypeDisplayValue("Flip the card (flash ca");
+            final JTextField revealDelayField = carouselField(carouselSecs(live.revealDelayMs), 5, () -> { });
+            revealDelayField.setToolTipText("Seconds after the card lands before the subtitle appears.");
+            final Runnable syncReveal = () -> {
+                revealCombo.setEnabled(live.revealOn);
+                revealDelayField.setEnabled(live.revealOn);
+            };
+            revealCheck.addActionListener(e -> { live.revealOn = revealCheck.isSelected(); syncReveal.run(); refresh.run(); });
+            revealCombo.addActionListener(e -> { live.revealStyle = (String) revealCombo.getSelectedItem(); refresh.run(); });
+            revealDelayField.getDocument().addDocumentListener(new DocumentListener() {
+                private void ch() {
+                    live.revealDelayMs = Math.max(0, secStrToMs(revealDelayField.getText(), live.revealDelayMs));
+                    refresh.run();
+                }
+                public void insertUpdate(DocumentEvent e) { ch(); }
+                public void removeUpdate(DocumentEvent e) { ch(); }
+                public void changedUpdate(DocumentEvent e) { ch(); }
+            });
+            addTimerRow(fx, r++, null, revealCheck);
+            JPanel revealRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            revealRow.setOpaque(false);
+            revealRow.add(revealCombo);
+            revealRow.add(new JLabel("after (s):"));
+            revealRow.add(revealDelayField);
+            addTimerRow(fx, r++, "Reveal style:", revealRow);
+            syncReveal.run();
+
+            JLabel progHead = new JLabel("Progress");
+            progHead.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            addTimerRow(fx, r++, null, progHead);
+            final JComboBox<String> progCombo = new JComboBox<>(SlideCarousel.progressStyles());
+            progCombo.setSelectedItem(live.progressStyle);
+            progCombo.setToolTipText("Bar: fills while the card is in the centre. Dots: one per card "
+                    + "(up to 20; more show as a counter). Counter: \"3 / 12\".");
+            progCombo.addActionListener(e -> { live.progressStyle = (String) progCombo.getSelectedItem(); refresh.run(); });
+            JPanel progRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            progRow.setOpaque(false);
+            progRow.add(progCombo);
+            progRow.add(timerColorButton(dlg, "Progress colour",
+                    () -> live.progressColor, c -> live.progressColor = c, refresh));
+            addTimerRow(fx, r++, "Show progress:", progRow);
+            JLabel fxTip = new JLabel("<html><body style='width:300px'><i>Effect sounds (whoosh, tick, "
+                    + "reveal chime) are on the Motion tab. A strong combination: Pop + Highlight sweep + "
+                    + "Karaoke fill + Reveal + Dots.</i></body></html>");
+            fxTip.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            fxTip.setForeground(new Color(90, 90, 100));
+            addTimerRow(fx, r++, null, fxTip);
+            tabs.addTab("Effects", wrapTimerTab(fx));
 
             // ===== Backdrop =====
             final JPanel back = new JPanel(new GridBagLayout());
@@ -37420,7 +37694,38 @@ public class GifSlideShowApp extends JFrame {
             backNote.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             backNote.setForeground(new Color(90, 90, 100));
             addTimerRow(back, r++, null, backNote);
-            tabs.addTab("Backdrop", wrapTimerTab(back));
+            final JCheckBox animCheck = new JCheckBox("Living gradient — the colours sway slowly with a soft drifting light",
+                    live.backdropAnimate);
+            animCheck.setOpaque(false);
+            animCheck.addActionListener(e -> { live.backdropAnimate = animCheck.isSelected(); refresh.run(); });
+            addTimerRow(back, r++, null, animCheck);
+            JLabel moreHead = new JLabel("Behind the cards");
+            moreHead.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            addTimerRow(back, r++, null, moreHead);
+            final JComboBox<String> partCombo = new JComboBox<>(SlideCarousel.particleStyles());
+            partCombo.setSelectedItem(live.particles);
+            partCombo.addActionListener(e -> { live.particles = (String) partCombo.getSelectedItem(); refresh.run(); });
+            JPanel partRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            partRow.setOpaque(false);
+            partRow.add(partCombo);
+            partRow.add(timerColorButton(dlg, "Particle colour",
+                    () -> live.particleColor, c -> live.particleColor = c, refresh));
+            addTimerRow(back, r++, "Floating particles:", partRow);
+            addTimerSlider(back, r++, "How many:", 5, 120, live.particleCount, "",
+                    v -> live.particleCount = v, refresh);
+            final JComboBox<String> kbCombo = new JComboBox<>(SlideCarousel.kenBurnsModes());
+            kbCombo.setSelectedItem(live.kenBurns);
+            kbCombo.setToolTipText("A slow, cinematic zoom or pan of the slide picture behind the cards. "
+                    + "(Not used while the gradient fill above is on — there is no picture to move.)");
+            kbCombo.addActionListener(e -> { live.kenBurns = (String) kbCombo.getSelectedItem(); refresh.run(); });
+            addTimerRow(back, r++, "Ken Burns (picture):", kbCombo);
+            JLabel gifNote = new JLabel("<html><body style='width:300px'><i>The living gradient, particles "
+                    + "and Ken Burns move on every frame — perfect in MP4; in a GIF they make the file "
+                    + "much bigger.</i></body></html>");
+            gifNote.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            gifNote.setForeground(new Color(90, 90, 100));
+            addTimerRow(back, r++, null, gifNote);
+            tabs.addTab("Background", wrapTimerTab(back));
 
             // ---------- preview transport ----------
             final javax.swing.Timer anim = new javax.swing.Timer(33, null);
@@ -37433,6 +37738,16 @@ public class GifSlideShowApp extends JFrame {
                 scrub[0] += 33;
                 if (scrub[0] > scrubSlider.getMaximum()) scrub[0] = 0;
                 if (soundOnPlay.isSelected() && scrub[0] > before) {
+                    for (int[] ev : live.fxEvents(scrubSlider.getMaximum() + 1)) {
+                        if (ev[0] > before && ev[0] <= scrub[0]) {
+                            String[] ch = ev[1] == SlideCarousel.FX_TURN
+                                    ? new String[] { live.turnSound, live.turnSoundPath }
+                                    : ev[1] == SlideCarousel.FX_ARRIVE
+                                    ? new String[] { live.arriveSound, live.arriveSoundPath }
+                                    : new String[] { live.revealSound, live.revealSoundPath };
+                            playCarouselFxPreview(ch[0], ch[1]);
+                        }
+                    }
                     for (int[] ev : live.audioEvents(scrubSlider.getMaximum() + 1)) {
                         if (ev[0] > before && ev[0] <= scrub[0]
                                 || (before == 0 && ev[0] == 0)) {
@@ -37573,6 +37888,7 @@ public class GifSlideShowApp extends JFrame {
             JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, tabs, right);
             split.setResizeWeight(0.44);
             split.setBorder(null);
+            split.setDividerLocation(540);
 
             JPanel main = new JPanel(new BorderLayout());
             main.add(north, BorderLayout.NORTH);
@@ -37580,7 +37896,7 @@ public class GifSlideShowApp extends JFrame {
             main.add(south, BorderLayout.SOUTH);
 
             dlg.setContentPane(main);
-            dlg.setSize(1120, 660);
+            dlg.setSize(1200, 700);
             dlg.setMinimumSize(new Dimension(900, 540));
             dlg.setLocationRelativeTo(owner);
 

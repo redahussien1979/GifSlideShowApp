@@ -74,8 +74,58 @@ public class SlideCarousel {
         return new String[] { ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT, ALIGN_AUTO };
     }
 
-    public static final String DIR_UP   = "Up (next card rises from below)";
-    public static final String DIR_DOWN = "Down (next card drops from above)";
+    // ---- effects -----------------------------------------------------------
+    public static final String LAYOUT_VERTICAL   = "Vertical (cards stacked)";
+    public static final String LAYOUT_HORIZONTAL = "Horizontal (cards side by side)";
+    public static String[] layouts() { return new String[] { LAYOUT_VERTICAL, LAYOUT_HORIZONTAL }; }
+
+    public static final String KARAOKE_OFF   = "Off";
+    public static final String KARAOKE_TITLE = "Title";
+    public static final String KARAOKE_BOTH  = "Title, then subtitle";
+    public static String[] karaokeModes() { return new String[] { KARAOKE_OFF, KARAOKE_TITLE, KARAOKE_BOTH }; }
+
+    public static final String PROGRESS_NONE    = "None";
+    public static final String PROGRESS_BAR     = "Bar inside the card";
+    public static final String PROGRESS_DOTS    = "Dots beside the cards";
+    public static final String PROGRESS_COUNTER = "Counter (3 / 12)";
+    public static String[] progressStyles() {
+        return new String[] { PROGRESS_NONE, PROGRESS_BAR, PROGRESS_DOTS, PROGRESS_COUNTER };
+    }
+
+    public static final String REVEAL_FADE  = "Fade in";
+    public static final String REVEAL_SLIDE = "Slide up";
+    public static final String REVEAL_FLIP  = "Flip the card (flash card)";
+    public static String[] revealStyles() { return new String[] { REVEAL_FADE, REVEAL_SLIDE, REVEAL_FLIP }; }
+    /** How long the reveal animation itself takes, ms. */
+    static final int REVEAL_MS = 520;
+
+    public static final String GLOW_OFF  = "Off";
+    public static final String GLOW_SOFT = "Soft glow";
+    public static final String GLOW_NEON = "Neon (bright rim, gentle pulse)";
+    public static String[] glowStyles() { return new String[] { GLOW_OFF, GLOW_SOFT, GLOW_NEON }; }
+
+    public static final String PARTICLES_OFF      = "Off";
+    public static final String PARTICLES_BOKEH    = "Bokeh lights";
+    public static final String PARTICLES_SPARKLES = "Sparkles";
+    public static String[] particleStyles() {
+        return new String[] { PARTICLES_OFF, PARTICLES_BOKEH, PARTICLES_SPARKLES };
+    }
+
+    public static final String KB_OFF       = "Off";
+    public static final String KB_ZOOM_IN   = "Slow zoom in";
+    public static final String KB_ZOOM_OUT  = "Slow zoom out";
+    public static final String KB_PAN_LEFT  = "Slow pan left";
+    public static final String KB_PAN_RIGHT = "Slow pan right";
+    public static String[] kenBurnsModes() {
+        return new String[] { KB_OFF, KB_ZOOM_IN, KB_ZOOM_OUT, KB_PAN_LEFT, KB_PAN_RIGHT };
+    }
+
+    /** Sound choice meaning "a file the user picked" (its path is kept beside it). */
+    public static final String SOUND_NONE = "None";
+    public static final String SOUND_FILE = "Your own file…";
+
+    public static final String DIR_UP   = "Next card comes from below (or from the right)";
+    public static final String DIR_DOWN = "Next card comes from above (or from the left)";
 
     public static String[] directions() {
         return new String[] { DIR_UP, DIR_DOWN };
@@ -222,6 +272,34 @@ public class SlideCarousel {
     /** Volume of the cards' own sounds, 0..100. */
     public int audioVolume = 100;
 
+    // effects
+    public String layout = LAYOUT_VERTICAL;
+    /** Springy pop when a card lands in the centre. */
+    public boolean popOn = false;
+    /** A shine sweeps across the centre card as it lands. */
+    public boolean shineOn = false;
+    public String glow = GLOW_OFF;
+    public Color glowColor = new Color(57, 182, 234);
+    /** Glow in each card's own icon colour instead of {@link #glowColor}. */
+    public boolean glowUseIcon = true;
+    public String karaoke = KARAOKE_OFF;
+    public Color karaokeColor = new Color(255, 122, 69);
+    /** Show the title first and reveal the subtitle (the answer) after a pause. */
+    public boolean revealOn = false;
+    public String revealStyle = REVEAL_FADE;
+    /** Pause before the reveal, ms after the card lands. */
+    public int revealDelayMs = 1500;
+    public String progressStyle = PROGRESS_NONE;
+    public Color progressColor = new Color(57, 182, 234);
+    /** Effect sounds: a built-in name, {@link #SOUND_NONE} or {@link #SOUND_FILE} (+ path). */
+    public String turnSound = SOUND_NONE;
+    public String turnSoundPath = "";
+    public String arriveSound = SOUND_NONE;
+    public String arriveSoundPath = "";
+    public String revealSound = SOUND_NONE;
+    public String revealSoundPath = "";
+    public int fxVolume = 70;
+
     // optional backdrop
     /** Paint a full-frame gradient behind the cards (covers the slide picture). */
     public boolean backdrop = false;
@@ -229,6 +307,13 @@ public class SlideCarousel {
     public Color backdropColor2 = new Color(12, 184, 187);
     /** Gradient direction, degrees counter-clockwise from "left to right". */
     public int backdropAngle = 31;
+    /** Let the gradient sway slowly with a soft drifting light. */
+    public boolean backdropAnimate = false;
+    public String particles = PARTICLES_OFF;
+    public int particleCount = 28;
+    public Color particleColor = Color.WHITE;
+    /** Slow zoom / pan of the slide picture behind the cards (ignored under the backdrop). */
+    public String kenBurns = KB_OFF;
 
     /**
      * Per-card turn times on the slide's timeline, ms — resolved from the
@@ -279,6 +364,15 @@ public class SlideCarousel {
         stretchSlide = s.stretchSlide; audioVolume = s.audioVolume;
         backdrop = s.backdrop; backdropColor1 = s.backdropColor1; backdropColor2 = s.backdropColor2;
         backdropAngle = s.backdropAngle;
+        backdropAnimate = s.backdropAnimate; particles = s.particles; particleCount = s.particleCount;
+        particleColor = s.particleColor; kenBurns = s.kenBurns;
+        layout = s.layout; popOn = s.popOn; shineOn = s.shineOn; glow = s.glow; glowColor = s.glowColor;
+        glowUseIcon = s.glowUseIcon; karaoke = s.karaoke; karaokeColor = s.karaokeColor;
+        revealOn = s.revealOn; revealStyle = s.revealStyle; revealDelayMs = s.revealDelayMs;
+        progressStyle = s.progressStyle; progressColor = s.progressColor;
+        turnSound = s.turnSound; turnSoundPath = s.turnSoundPath;
+        arriveSound = s.arriveSound; arriveSoundPath = s.arriveSoundPath;
+        revealSound = s.revealSound; revealSoundPath = s.revealSoundPath; fxVolume = s.fxVolume;
     }
 
     // ======================================================================
@@ -297,6 +391,8 @@ public class SlideCarousel {
         int hold = Math.max(0, holdMs);
         Item it = k >= 0 && k < items.size() ? items.get(k) : null;
         if (it != null && it.hasAudio() && it.audioMs > 0) hold = Math.max(hold, it.audioMs + AUDIO_TAIL_MS);
+        // A reveal needs its pause, the animation, and time to read the answer.
+        if (revealOn) hold = Math.max(hold, Math.max(0, revealDelayMs) + REVEAL_MS + 1300);
         return hold;
     }
 
@@ -360,28 +456,80 @@ public class SlideCarousel {
     }
 
     /**
-     * Every moment a card with a sound arrives in the centre while the slide is
-     * on screen: {slide-relative ms, card index}. A loop replays a card's sound
-     * each time it comes back, as long as the sound fits before the slide ends.
+     * Every card arrival while the slide runs, slide-relative ms:
+     * {arrives, card index, its turn started (-1 = it opens the carousel), first pass 1/0}.
      */
-    public List<int[]> audioEvents(int slideMs) {
+    public List<int[]> arrivals(int slideMs) {
         List<int[]> out = new ArrayList<>();
         if (!isActive()) return out;
         int n = items.size();
         int base = Math.max(0, startMs);
         if (audioMode() || n <= 1 || !loop) {
             int[] at = audioMode() ? audioCues : fixedArrivals();
-            for (int k = 0; k < n; k++) addEvent(out, k, base + (k == 0 ? 0 : at[k]), slideMs, true);
+            for (int k = 0; k < n; k++) {
+                int a = base + (k == 0 ? 0 : at[k]);
+                if (a >= slideMs) break;
+                int turn = k == 0 ? -1 : (audioMode()
+                        ? base + Math.max(audioCues[k - 1], audioCues[k] - move())
+                        : a - move());
+                out.add(new int[] { a, k, turn, 1 });
+            }
             return out;
         }
         int[] at = fixedArrivals();
         int period = Math.max(1, at[n]);
         for (long cycle = 0; base + cycle * period < slideMs; cycle++) {
             for (int k = 0; k < n; k++) {
-                addEvent(out, k, (int) (base + cycle * period + at[k]), slideMs, cycle == 0);
+                long a = base + cycle * period + at[k];
+                if (a >= slideMs) break;
+                boolean opening = cycle == 0 && k == 0;
+                out.add(new int[] { (int) a, k, opening ? -1 : (int) (a - move()), cycle == 0 ? 1 : 0 });
             }
         }
         return out;
+    }
+
+    /**
+     * Every moment a card with a sound arrives in the centre while the slide is
+     * on screen: {slide-relative ms, card index}. A loop replays a card's sound
+     * each time it comes back, as long as the sound fits before the slide ends.
+     */
+    public List<int[]> audioEvents(int slideMs) {
+        List<int[]> out = new ArrayList<>();
+        for (int[] a : arrivals(slideMs)) addEvent(out, a[1], a[0], slideMs, a[3] == 1);
+        return out;
+    }
+
+    /** Effect-sound kinds returned by {@link #fxEvents}. */
+    public static final int FX_TURN = 0, FX_ARRIVE = 1, FX_REVEAL = 2;
+
+    /**
+     * When the effect sounds fire, slide-relative ms: {at, kind}. The whoosh as
+     * each turn starts, the tick as the card lands, the reveal chime as the
+     * answer appears. Only kinds that have a sound chosen are listed.
+     */
+    public List<int[]> fxEvents(int slideMs) {
+        List<int[]> out = new ArrayList<>();
+        boolean turn = hasSound(turnSound, turnSoundPath);
+        boolean arrive = hasSound(arriveSound, arriveSoundPath);
+        boolean rev = revealOn && hasSound(revealSound, revealSoundPath);
+        if (!turn && !arrive && !rev) return out;
+        for (int[] a : arrivals(slideMs)) {
+            if (turn && a[2] >= 0) out.add(new int[] { a[2], FX_TURN });
+            if (arrive && a[2] >= 0) out.add(new int[] { a[0], FX_ARRIVE });
+            if (rev) {
+                int at = a[0] + Math.max(0, revealDelayMs);
+                if (at < slideMs) out.add(new int[] { at, FX_REVEAL });
+            }
+        }
+        return out;
+    }
+
+    /** True when a sound choice actually names something to play. */
+    public static boolean hasSound(String choice, String path) {
+        if (choice == null || SOUND_NONE.equals(choice) || choice.isEmpty()) return false;
+        if (SOUND_FILE.equals(choice)) return path != null && !path.trim().isEmpty();
+        return true;
     }
 
     private void addEvent(List<int[]> out, int k, int atMs, int slideMs, boolean always) {
@@ -393,6 +541,51 @@ public class SlideCarousel {
     }
 
     /**
+     * The card resting in the centre {@code t} ms after the carousel started:
+     * {card index, the moment it arrived (same clock as t), how long it rests},
+     * or null while the cards are turning.
+     */
+    private long[] centreRest(long t) {
+        int n = items.size();
+        if (n <= 1) return new long[] { 0, 0, holdOf(0) };
+        if (audioMode()) {
+            for (int k = n - 1; k >= 0; k--) {
+                long arrive = k == 0 ? 0 : audioCues[k];
+                if (t < arrive) continue;
+                long leave = k < n - 1 ? Math.max(audioCues[k], audioCues[k + 1] - move()) : Long.MAX_VALUE;
+                if (t >= leave) return null;
+                return new long[] { k, arrive, k < n - 1 ? leave - arrive : holdOf(k) };
+            }
+            return null;
+        }
+        int[] at = fixedArrivals();
+        long cycles = 0, r = t;
+        if (loop) {
+            int period = Math.max(1, at[n]);
+            cycles = t / period;
+            r = t - cycles * period;
+        } else if (t >= at[n - 1]) {
+            return new long[] { n - 1, at[n - 1], holdOf(n - 1) };
+        }
+        for (int k = 0; k < n; k++) {
+            if (r < at[k + 1]) {
+                long into = r - at[k];
+                int hold = holdOf(k);
+                return into < hold ? new long[] { k, t - into, hold } : null;
+            }
+        }
+        return null;
+    }
+
+    /** True when something on screen moves on every frame (living gradient, particles, Ken Burns, neon). */
+    public boolean animatesContinuously() {
+        return (backdrop && backdropAnimate)
+                || (particles != null && !PARTICLES_OFF.equals(particles))
+                || (!backdrop && kenBurns != null && !KB_OFF.equals(kenBurns))
+                || GLOW_NEON.equals(glow);
+    }
+
+    /**
      * A key that is equal for two moments exactly when the carousel looks the
      * same at both (same turn position, same fade). Lets the GIF export merge a
      * card's resting frames into one long frame instead of storing each copy.
@@ -401,8 +594,25 @@ public class SlideCarousel {
         if (!isActive()) return "off";
         long t = elapsedMs - Math.max(0, startMs);
         if (t < 0) return "before";
+        // Effects that never stop moving make every moment unique.
+        if (backdrop && backdropAnimate) return "e" + elapsedMs;
+        if (particles != null && !PARTICLES_OFF.equals(particles)) return "e" + elapsedMs;
+        if (!backdrop && kenBurns != null && !KB_OFF.equals(kenBurns)) return "e" + elapsedMs;
+        if (GLOW_NEON.equals(glow)) return "e" + elapsedMs;
         double a = fadeIn ? Math.min(1.0, t / FADE_IN_MS) : 1.0;
-        return String.format(java.util.Locale.US, "%.4f|%.3f", progress(t), a);
+        String key = String.format(java.util.Locale.US, "%.4f|%.3f", progress(t), a);
+        // While a card rests, its landing effects run for a while, then it is still.
+        long[] rest = centreRest(t);
+        if (rest != null) {
+            long since = t - rest[1];
+            boolean busy = (popOn && since < 1200) || (shineOn && since < 1000)
+                    || (revealOn && since >= revealDelayMs && since < revealDelayMs + REVEAL_MS)
+                    || (!KARAOKE_OFF.equals(karaoke) && karaoke != null && since < rest[2])
+                    || (PROGRESS_BAR.equals(progressStyle) && since < rest[2]);
+            if (busy) key += "|s" + since;
+            else if (revealOn) key += since >= revealDelayMs ? "|r" : "|h";
+        }
+        return key;
     }
 
     private static double easeInOut(double t) {
@@ -459,19 +669,28 @@ public class SlideCarousel {
         return s1 * Math.pow(0.74, k - 1);
     }
 
-    /** Distance (in H) from the centre card's centre to slot {@code k}'s centre. */
-    private double offsetAtSlot(int k) {
-        double g = 0.153 * Math.max(0, gapPct) / 100.0;
+    /**
+     * Distance from the centre card's centre to slot {@code k}'s centre, in px:
+     * half of each neighbouring card's extent ({@code unit} = card height when
+     * stacked vertically, card + badge width side by side) plus the gap.
+     */
+    private double offsetAtSlot(int k, double unit, double H) {
+        double g = 0.153 * H * Math.max(0, gapPct) / 100.0;
         double off = 0;
-        for (int i = 1; i <= k; i++) off += (scaleAtSlot(i - 1) + scaleAtSlot(i)) * 0.5 + g;
+        for (int i = 1; i <= k; i++) off += (scaleAtSlot(i - 1) + scaleAtSlot(i)) * 0.5 * unit + g;
         return off;
     }
 
-    private double lerpSlot(double d, boolean offset) {
+    private double lerpScale(double d) {
         int k = (int) Math.floor(d);
         double f = d - k;
-        double a = offset ? offsetAtSlot(k) : scaleAtSlot(k);
-        double b = offset ? offsetAtSlot(k + 1) : scaleAtSlot(k + 1);
+        return scaleAtSlot(k) + (scaleAtSlot(k + 1) - scaleAtSlot(k)) * f;
+    }
+
+    private double lerpOffset(double d, double unit, double H) {
+        int k = (int) Math.floor(d);
+        double f = d - k;
+        double a = offsetAtSlot(k, unit, H), b = offsetAtSlot(k + 1, unit, H);
         return a + (b - a) * f;
     }
 
@@ -488,6 +707,10 @@ public class SlideCarousel {
     public static void paint(BufferedImage frame, SlideCarousel c, long elapsedMs, boolean preview) {
         if (frame == null || c == null || !c.enabled) return;
         int fw = frame.getWidth(), fh = frame.getHeight();
+        // Ken Burns moves the picture underneath, so it goes first, on its own copy.
+        if (!c.backdrop && !KB_OFF.equals(c.kenBurns) && c.kenBurns != null) {
+            paintKenBurns(frame, c, elapsedMs);
+        }
         Graphics2D g = frame.createGraphics();
         try {
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -497,8 +720,12 @@ public class SlideCarousel {
             g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
             g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
             g.setRenderingHint(RenderingHints.KEY_ALPHA_INTERPOLATION, RenderingHints.VALUE_ALPHA_INTERPOLATION_QUALITY);
+            g.setRenderingHint(RenderingHints.KEY_COLOR_RENDERING, RenderingHints.VALUE_COLOR_RENDER_QUALITY);
 
-            if (c.backdrop) paintBackdrop(g, c, fw, fh);
+            if (c.backdrop) paintBackdrop(g, c, fw, fh, elapsedMs);
+            if (c.particles != null && !PARTICLES_OFF.equals(c.particles)) {
+                paintParticles(g, c, fw, fh, elapsedMs);
+            }
             if (c.items == null || c.items.isEmpty()) {
                 if (preview) {
                     g.setColor(new Color(255, 255, 255, 170));
@@ -514,14 +741,20 @@ public class SlideCarousel {
             double master = Math.max(0, Math.min(100, c.opacity)) / 100.0;
             if (c.fadeIn) master *= Math.min(1.0, t / FADE_IN_MS);
             if (master <= 0.001) return;
-            c.paintCards(g, fw, fh, c.progress(t), master);
+            c.paintCards(g, fw, fh, t, elapsedMs, master);
         } finally {
             g.dispose();
         }
     }
 
-    private static void paintBackdrop(Graphics2D g, SlideCarousel c, int fw, int fh) {
-        double a = Math.toRadians(c.backdropAngle);
+    // ---- background ---------------------------------------------------------
+
+    private static void paintBackdrop(Graphics2D g, SlideCarousel c, int fw, int fh, long elapsedMs) {
+        double deg = c.backdropAngle;
+        // "Living" gradient: the direction sways slowly and a soft light drifts
+        // across, so a still slide never looks frozen. Both loop seamlessly.
+        if (c.backdropAnimate) deg += 22 * Math.sin(2 * Math.PI * elapsedMs / 9000.0);
+        double a = Math.toRadians(deg);
         double dx = Math.cos(a), dy = -Math.sin(a);
         // Project the four corners on the direction so the gradient spans the
         // whole frame exactly, whatever the angle.
@@ -532,18 +765,128 @@ public class SlideCarousel {
         if (p1.distance(p2) < 1) p2 = new Point2D.Double(p1.getX() + 1, p1.getY());
         Color c1 = c.backdropColor1 != null ? c.backdropColor1 : new Color(68, 7, 135);
         Color c2 = c.backdropColor2 != null ? c.backdropColor2 : new Color(12, 184, 187);
+        g.setComposite(AlphaComposite.SrcOver);
         g.setPaint(new LinearGradientPaint(p1, p2, new float[] { 0f, 1f }, new Color[] { c1, c2 },
                 MultipleGradientPaint.CycleMethod.NO_CYCLE));
         g.fillRect(0, 0, fw, fh);
+        if (c.backdropAnimate) {
+            double e = elapsedMs / 1000.0;
+            double lx = fw * (0.5 + 0.32 * Math.sin(e * 2 * Math.PI / 11.0));
+            double ly = fh * (0.45 + 0.28 * Math.cos(e * 2 * Math.PI / 8.5));
+            float rad = (float) (0.62 * Math.max(fw, fh));
+            g.setPaint(new java.awt.RadialGradientPaint(new Point2D.Double(lx, ly), rad,
+                    new float[] { 0f, 0.55f, 1f },
+                    new Color[] { new Color(255, 255, 255, 46), new Color(255, 255, 255, 14),
+                            new Color(255, 255, 255, 0) }));
+            g.fillRect(0, 0, fw, fh);
+        }
     }
 
-    /** One card to draw: which item, and its signed distance from the centre. */
+    /**
+     * Floating bokeh lights or twinkling sparkles. Every particle's path is a
+     * pure function of time (fixed seeds), so each exported frame is exact and
+     * the preview matches the video.
+     */
+    private static void paintParticles(Graphics2D g, SlideCarousel c, int fw, int fh, long elapsedMs) {
+        boolean bokeh = PARTICLES_BOKEH.equals(c.particles);
+        int count = Math.max(1, Math.min(150, c.particleCount));
+        Color pc = c.particleColor != null ? c.particleColor : Color.WHITE;
+        double e = elapsedMs / 1000.0;
+        java.util.Random rnd = new java.util.Random(0x5EED_CA20L);
+        g.setComposite(AlphaComposite.SrcOver);
+        for (int i = 0; i < count; i++) {
+            double x0 = rnd.nextDouble(), y0 = rnd.nextDouble();
+            double size = rnd.nextDouble(), speed = rnd.nextDouble(), ph = rnd.nextDouble() * 2 * Math.PI;
+            double alpha0 = rnd.nextDouble();
+            if (bokeh) {
+                double r = fh * (0.014 + 0.040 * size);
+                double v = fh * (0.010 + 0.028 * speed);              // px / s, upwards
+                double span = fh + 4 * r;
+                double y = (y0 * span - v * e) % span;
+                if (y < 0) y += span;
+                y -= 2 * r;
+                double x = x0 * fw + fh * 0.03 * Math.sin(e * (0.25 + 0.3 * speed) + ph);
+                double a = 0.05 + 0.15 * alpha0;
+                a *= 0.75 + 0.25 * Math.sin(e * (0.6 + speed) + ph);
+                java.awt.RadialGradientPaint rp = new java.awt.RadialGradientPaint(
+                        new Point2D.Double(x, y), (float) r, new float[] { 0f, 0.7f, 1f },
+                        new Color[] { withAlpha(pc, a), withAlpha(pc, a * 0.75), withAlpha(pc, 0) });
+                g.setPaint(rp);
+                g.fill(new Ellipse2D.Double(x - r, y - r, 2 * r, 2 * r));
+            } else {
+                double r = fh * (0.0025 + 0.0045 * size);
+                double v = fh * (0.004 + 0.012 * speed);
+                double span = fh + 10 * r;
+                double y = (y0 * span - v * e) % span;
+                if (y < 0) y += span;
+                y -= 5 * r;
+                double x = x0 * fw + fh * 0.01 * Math.sin(e * 0.5 + ph);
+                double tw = 0.5 + 0.5 * Math.sin(e * (2.2 + 3 * speed) + ph);   // twinkle
+                double a = (0.25 + 0.65 * alpha0) * tw;
+                double gr = r * 4;
+                g.setPaint(new java.awt.RadialGradientPaint(new Point2D.Double(x, y), (float) gr,
+                        new float[] { 0f, 1f }, new Color[] { withAlpha(pc, a * 0.35), withAlpha(pc, 0) }));
+                g.fill(new Ellipse2D.Double(x - gr, y - gr, 2 * gr, 2 * gr));
+                g.setColor(withAlpha(pc, a));
+                g.fill(new Ellipse2D.Double(x - r, y - r, 2 * r, 2 * r));
+                // A small four-point glint on the brightest ones.
+                if (alpha0 > 0.7 && tw > 0.6) {
+                    g.setStroke(new BasicStroke((float) Math.max(0.6, r * 0.35), BasicStroke.CAP_ROUND,
+                            BasicStroke.JOIN_ROUND));
+                    g.setColor(withAlpha(pc, a * 0.8));
+                    double L = r * 3.2 * tw;
+                    g.draw(new java.awt.geom.Line2D.Double(x - L, y, x + L, y));
+                    g.draw(new java.awt.geom.Line2D.Double(x, y - L, x, y + L));
+                }
+            }
+        }
+    }
+
+    /** Slow zoom / pan of everything under the carousel, across the carousel's run. */
+    private static void paintKenBurns(BufferedImage frame, SlideCarousel c, long elapsedMs) {
+        int fw = frame.getWidth(), fh = frame.getHeight();
+        double span = Math.max(4000, c.isActive() ? c.requiredSlideMs() : 8000);
+        double u = Math.max(0, Math.min(1, elapsedMs / span));
+        u = 0.5 - 0.5 * Math.cos(Math.PI * u);                       // gentle in and out
+        double z = 0.12;
+        double s, ox = 0;
+        switch (c.kenBurns) {
+            case KB_ZOOM_OUT:  s = 1 + z * (1 - u); break;
+            case KB_PAN_LEFT:  s = 1 + z * 0.75; ox = (0.5 - u) * fw * 0.08; break;
+            case KB_PAN_RIGHT: s = 1 + z * 0.75; ox = (u - 0.5) * fw * 0.08; break;
+            case KB_ZOOM_IN:
+            default:           s = 1 + z * u;
+        }
+        BufferedImage src = new BufferedImage(fw, fh,
+                frame.getType() == BufferedImage.TYPE_CUSTOM ? BufferedImage.TYPE_INT_ARGB : frame.getType());
+        Graphics2D cg = src.createGraphics();
+        cg.drawImage(frame, 0, 0, null);
+        cg.dispose();
+        Graphics2D g = frame.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+        g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        AffineTransform at = new AffineTransform();
+        at.translate(fw / 2.0 + ox, fh / 2.0);
+        at.scale(s, s);
+        at.translate(-fw / 2.0, -fh / 2.0);
+        g.setComposite(AlphaComposite.Src);
+        g.drawImage(src, at, null);
+        g.dispose();
+    }
+
+    // ---- cards -----------------------------------------------------------------
+
+    /** One card to draw: which item, its signed distance from the centre, and its rest timing. */
     private static final class Slot {
         final Item item; final double pos;
+        /** ms since this card arrived in the centre and its rest length; -1 = not resting there. */
+        long since = -1; int hold = 0;
         Slot(Item item, double pos) { this.item = item; this.pos = pos; }
     }
 
-    private void paintCards(Graphics2D g, int fw, int fh, double p, double master) {
+    private boolean horizontal() { return LAYOUT_HORIZONTAL.equals(layout); }
+
+    private void paintCards(Graphics2D g, int fw, int fh, long t, long elapsedMs, double master) {
         int n = items.size();
         int depth = Math.max(1, Math.min(3, sideCards));
         double W = Math.max(8, widthPct / 100.0 * fw);
@@ -552,6 +895,9 @@ public class SlideCarousel {
         double cx = xPct / 100.0 * fw;
         double cy = yPct / 100.0 * fh;
         double dirSign = DIR_DOWN.equals(direction) ? -1 : 1;
+        double unit = horizontal() ? (W + R) : H;
+        double p = progress(t);
+        long[] rest = centreRest(t);
 
         // Build the visible slots: "tape" around the current position.
         List<Slot> slots = new ArrayList<>();
@@ -564,7 +910,12 @@ public class SlideCarousel {
             if (loop && n > 1) idx = Math.floorMod(idx, n);
             else if (idx < 0 || idx >= n) continue;
             if (n == 1 && k != 0) continue;
-            slots.add(new Slot(items.get(idx), pos));
+            Slot s = new Slot(items.get(idx), pos);
+            if (k == 0 && frac == 0 && rest != null) {
+                s.since = Math.max(0, t - rest[1]);
+                s.hold = (int) rest[2];
+            }
+            slots.add(s);
         }
         // Far cards first, the centre card last (on top).
         slots.sort((a, b) -> Double.compare(Math.abs(b.pos), Math.abs(a.pos)));
@@ -576,18 +927,30 @@ public class SlideCarousel {
             double d = Math.abs(s.pos);
             double vis = d <= depth ? 1.0 : Math.max(0, 1.0 - (d - depth));
             if (vis <= 0.001) continue;
-            double scale = lerpSlot(d, false);
-            double off = Math.signum(s.pos) * lerpSlot(d, true) * H * dirSign;
+            double scale = lerpScale(d);
+            double off = Math.signum(s.pos) * lerpOffset(d, unit, H) * dirSign;
             double m = Math.min(1.0, d);          // 0 = centre look, 1 = side look
+            if (popOn && s.since >= 0) scale *= popScale(s.since);
 
             AffineTransform saved = g.getTransform();
             Composite savedComp = g.getComposite();
-            g.translate(cx, cy + off);
+            if (horizontal()) g.translate(cx + off, cy);
+            else              g.translate(cx, cy + off);
             g.scale(scale, scale);
-            paintCard(g, s.item, W, H, R, m, master * vis, titleBase, subBase);
+            paintCard(g, s, W, H, R, m, master * vis, titleBase, subBase, elapsedMs);
             g.setTransform(saved);
             g.setComposite(savedComp);
         }
+
+        if (PROGRESS_DOTS.equals(progressStyle) || PROGRESS_COUNTER.equals(progressStyle)) {
+            paintIndicator(g, p, n, cx, cy, W, H, R, master, titleBase);
+        }
+    }
+
+    /** Springy "pop" when a card lands: a quick swell that settles with a small wobble. */
+    private static double popScale(long since) {
+        double t = since / 1000.0;
+        return 1 + 0.085 * Math.exp(-t / 0.16) * Math.sin(2 * Math.PI * t / 0.42);
     }
 
     private static Color mix(Color a, Color b, double t) {
@@ -609,6 +972,19 @@ public class SlideCarousel {
                 (float) Math.max(0, Math.min(1, a))));
     }
 
+    private static double luminance(Color c) {
+        return (0.299 * c.getRed() + 0.587 * c.getGreen() + 0.114 * c.getBlue()) / 255.0;
+    }
+
+    /** 0 = only the front shows, 1 = fully revealed (subtitle shown / card flipped). */
+    private double revealOf(Slot s) {
+        if (!revealOn) return 1;
+        if (s.pos < -1e-9) return 1;          // already been in the centre
+        if (s.pos > 1e-9) return 0;           // still to come — don't give the answer away
+        if (s.since < 0) return 0;
+        return Math.max(0, Math.min(1, (s.since - Math.max(0, revealDelayMs)) / (double) REVEAL_MS));
+    }
+
     /**
      * Draw one card centred on (0,0) of the current transform (the card + its
      * badge together are centred, so the stack scales around the same axis).
@@ -616,8 +992,21 @@ public class SlideCarousel {
      * @param m     0 = centre-card look, 1 = side-card look (blended in between)
      * @param alpha overall opacity of this card
      */
-    private void paintCard(Graphics2D g, Item it, double W, double H, double R, double m,
-                           double alpha, Font titleBase, Font subBase) {
+    private void paintCard(Graphics2D g, Slot s, double W, double H, double R, double m,
+                           double alpha, Font titleBase, Font subBase, long elapsedMs) {
+        Item it = s.item;
+        double reveal = revealOf(s);
+        boolean flip = revealOn && REVEAL_FLIP.equals(revealStyle);
+        boolean backFace = false;
+        if (flip) {
+            // Turn the whole card about its vertical axis: squeeze to an edge,
+            // swap to the back face, open out again.
+            double f = easeInOut(reveal);
+            double sx = Math.abs(Math.cos(Math.PI * f));
+            backFace = f >= 0.5;
+            g.scale(Math.max(0.001, sx), 1);
+        }
+
         double left = -(W - R) / 2.0;          // card's left edge = the badge's centre
         double top = -H / 2.0;
         double arc = 2 * 0.065 * H * Math.max(0, cornerPct) / 100.0;
@@ -625,10 +1014,30 @@ public class SlideCarousel {
         Shape badge = new Ellipse2D.Double(left - R, -R, 2 * R, 2 * R);
         Area body = new Area(card);
         body.add(new Area(badge));
+        double centre = 1 - m;                 // how "centre card" this card is right now
+
+        // Glow / neon halo around the centre card (drawn first, so it sits behind).
+        if (!GLOW_OFF.equals(glow) && glow != null && centre > 0) {
+            Color gc = glowUseIcon && it != null && it.iconColor != null ? it.iconColor
+                    : (glowColor != null ? glowColor : new Color(57, 182, 234));
+            double pulse = GLOW_NEON.equals(glow)
+                    ? 0.78 + 0.22 * Math.sin(2 * Math.PI * elapsedMs / 1500.0) : 1.0;
+            double ga = (GLOW_NEON.equals(glow) ? 0.55 : 0.38) * centre * alpha * pulse;
+            setAlpha(g, 1);
+            int layers = 12;
+            double reach = H * (GLOW_NEON.equals(glow) ? 0.42 : 0.34);
+            for (int i = layers; i >= 1; i--) {
+                double f = i / (double) layers;
+                g.setStroke(new BasicStroke((float) (reach * f * 2), BasicStroke.CAP_ROUND,
+                        BasicStroke.JOIN_ROUND));
+                g.setColor(withAlpha(gc, ga * (1 - f) * (1 - f) * 0.55 + ga * 0.02));
+                g.draw(body);
+            }
+        }
 
         // Soft drop shadow under the centre card only.
         if (shadow && m < 1) {
-            double sa = 0.15 * (1 - m) * alpha;
+            double sa = 0.15 * centre * alpha;
             AffineTransform t0 = g.getTransform();
             g.translate(0, H * 0.05);
             setAlpha(g, 1);
@@ -656,17 +1065,75 @@ public class SlideCarousel {
 
         // Badge: its own pale colour on the centre card, melting into the card at the sides.
         if (showHalo && haloColor != null && m < 1) {
-            g.setColor(withAlpha(haloColor, 1 - m));
+            g.setColor(withAlpha(haloColor, centre));
             g.fill(badge);
         }
 
+        // Neon: a crisp bright rim on top of the soft glow.
+        if (GLOW_NEON.equals(glow) && centre > 0) {
+            Color gc = glowUseIcon && it != null && it.iconColor != null ? it.iconColor
+                    : (glowColor != null ? glowColor : new Color(57, 182, 234));
+            setAlpha(g, alpha * centre);
+            g.setStroke(new BasicStroke((float) (H * 0.028), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g.setColor(gc);
+            g.draw(body);
+        }
+
         // Icon inside the badge.
-        double iconAlpha = alpha * (1 - m + m * sideIconOpacity / 100.0);
+        double iconAlpha = alpha * (centre + m * sideIconOpacity / 100.0);
         paintIcon(g, it, left, 0, R, iconAlpha, titleBase);
 
         // Texts.
-        double textAlpha = alpha * (1 - m + m * sideTextOpacity / 100.0);
-        paintTexts(g, it, left, top, W, H, R, textAlpha, titleBase, subBase);
+        double textAlpha = alpha * (centre + m * sideTextOpacity / 100.0);
+        paintTexts(g, s, left, top, W, H, R, textAlpha, titleBase, subBase, reveal, flip, backFace);
+
+        // Progress bar along the bottom of the resting centre card.
+        if (PROGRESS_BAR.equals(progressStyle) && s.since >= 0 && s.hold > 0) {
+            Color pc = progressColor != null ? progressColor : new Color(57, 182, 234);
+            double x0 = left + R + 0.21 * H, x1 = left + W - 0.10 * H;
+            double bh = Math.max(1.5, H * 0.036), by = top + H - H * 0.10;
+            double f = Math.max(0, Math.min(1, s.since / (double) s.hold));
+            setAlpha(g, alpha);
+            g.setColor(withAlpha(pc, 0.18));
+            g.fill(new RoundRectangle2D.Double(x0, by, x1 - x0, bh, bh, bh));
+            g.setColor(pc);
+            g.fill(new RoundRectangle2D.Double(x0, by, Math.max(bh, (x1 - x0) * f), bh, bh, bh));
+        }
+
+        // Highlight sweep: one shine glides across the card as it lands.
+        if (shineOn && s.since >= 0) {
+            double u = (s.since - 120) / 780.0;
+            if (u > 0 && u < 1) {
+                u = easeInOut(u);
+                double bw = W * 0.30;
+                double xL = left - R - bw, xR = left + W + bw;
+                double bx = xL + (xR - xL) * u;
+                Color shine = luminance(fill) > 0.82
+                        ? new Color(150, 200, 255)     // a cool sheen reads on a white card
+                        : Color.WHITE;
+                double peak = luminance(fill) > 0.82 ? 0.40 : 0.45;
+                Shape oldClip = g.getClip();
+                g.clip(body);
+                AffineTransform t0 = g.getTransform();
+                g.shear(-0.35, 0);
+                setAlpha(g, alpha);
+                g.setPaint(new LinearGradientPaint(
+                        new Point2D.Double(bx - bw / 2, 0), new Point2D.Double(bx + bw / 2, 0),
+                        new float[] { 0f, 0.5f, 1f },
+                        new Color[] { withAlpha(shine, 0), withAlpha(shine, peak), withAlpha(shine, 0) }));
+                g.fill(new Rectangle2D.Double(bx - bw / 2, top - H, bw, H * 3));
+                g.setTransform(t0);
+                g.setClip(oldClip);
+            }
+        }
+
+        // Flip shading: the card darkens a little as it turns edge-on.
+        if (flip && reveal > 0 && reveal < 1) {
+            double sh = Math.sin(Math.PI * easeInOut(reveal)) * 0.10;
+            setAlpha(g, alpha * sh);
+            g.setColor(Color.BLACK);
+            g.fill(body);
+        }
     }
 
     private void paintIcon(Graphics2D g, Item it, double bx, double by, double R, double alpha,
@@ -695,7 +1162,7 @@ public class SlideCarousel {
                 String s = it.iconText == null ? "" : it.iconText.trim();
                 if (s.isEmpty()) { paintDot(g, bx, by, size, col); return; }
                 Font f = titleBase.deriveFont(Font.BOLD, (float) (size * 0.82));
-                java.awt.font.TextLayout gv = shapedLayout(s, f, g.getFontRenderContext());
+                java.awt.font.TextLayout gv = shapedLayout(s, f, STABLE_FRC);
                 Rectangle2D vb = gv.getOutline(null).getBounds2D();
                 double fit = Math.min(1.0, Math.min(size / Math.max(1e-3, vb.getWidth()),
                         size / Math.max(1e-3, vb.getHeight())));
@@ -719,12 +1186,55 @@ public class SlideCarousel {
         g.fill(new Ellipse2D.Double(cx - d / 2, cy - d / 2, d, d));
     }
 
-    private void paintTexts(Graphics2D g, Item it, double left, double top, double W, double H,
-                            double R, double alpha, Font titleBase, Font subBase) {
+    /**
+     * Karaoke fill fractions for the resting centre card: {title, subtitle}, each
+     * 0..1 (or -1 = no fill). The fill runs with the card's own sound when it has
+     * one; otherwise over the time before the reveal, or most of the rest.
+     */
+    private double[] karaokeOf(Slot s, boolean showsTitle, boolean showsSub) {
+        double[] out = { -1, -1 };
+        if (KARAOKE_OFF.equals(karaoke) || karaoke == null || s.since < 0) return out;
+        Item it = s.item;
+        long start = 150;
+        double span;
+        if (it != null && it.hasAudio() && it.audioMs > 0) span = it.audioMs;
+        else if (revealOn) span = Math.max(400, revealDelayMs - 250);
+        else span = Math.max(400, s.hold * 0.8);
+        double f = Math.max(0, Math.min(1, (s.since - start) / span));
+        boolean both = KARAOKE_BOTH.equals(karaoke);
+        if (revealOn) {
+            // Title fills before the reveal; the subtitle (if wanted) after it.
+            out[0] = showsTitle ? f : -1;
+            if (both && showsSub) {
+                long subStart = Math.max(0, revealDelayMs) + REVEAL_MS;
+                double subSpan = Math.max(500, s.hold - subStart - 300);
+                out[1] = Math.max(0, Math.min(1, (s.since - subStart) / subSpan));
+            }
+            return out;
+        }
+        if (both && showsTitle && showsSub) {
+            out[0] = Math.min(1, f * 2);       // title first, then the subtitle
+            out[1] = Math.max(0, f * 2 - 1);
+        } else {
+            if (showsTitle) out[0] = f;
+            else if (showsSub && both) out[1] = f;
+        }
+        return out;
+    }
+
+    private void paintTexts(Graphics2D g, Slot s, double left, double top, double W, double H,
+                            double R, double alpha, Font titleBase, Font subBase,
+                            double reveal, boolean flip, boolean backFace) {
+        Item it = s.item;
         if (it == null || alpha <= 0.001) return;
         String title = it.title == null ? "" : it.title.replace('\n', ' ').trim();
         String sub = it.subtitle == null ? "" : it.subtitle.replace('\n', ' ').trim();
         if (titleUpper) title = title.toUpperCase();
+        if (flip) {
+            // Flash-card: the front carries the title, the back the subtitle,
+            // each centred on its face in the title's size.
+            if (backFace) { title = ""; } else { sub = ""; }
+        }
         if (title.isEmpty() && sub.isEmpty()) return;
 
         double textX = left + R + 0.21 * H;
@@ -732,21 +1242,87 @@ public class SlideCarousel {
         if (maxW <= 4) return;
         float titleSize = (float) (0.155 * H * Math.max(10, titleSizePct) / 100.0);
         float subSize = (float) (0.145 * H * Math.max(10, subtitleSizePct) / 100.0);
-        setAlpha(g, alpha);
+        if (flip && backFace) subSize = Math.max(subSize, titleSize);
 
+        // Reveal (fade / slide-up): the subtitle waits, then eases in.
+        boolean slideReveal = revealOn && REVEAL_SLIDE.equals(revealStyle);
+        double subAlpha = flip ? 1 : reveal;
+        double subLift = slideReveal ? (1 - easeInOut(reveal)) * H * 0.16 : 0;
+        boolean subShown = !sub.isEmpty() && subAlpha > 0.001;
+
+        // With a reveal, the title waits centred on its own and glides up to its
+        // place as the subtitle arrives — the card is never half empty.
         boolean both = !title.isEmpty() && !sub.isEmpty();
+        double titleMid = both ? 0.335 : 0.5;
+        if (both && revealOn && !flip) titleMid = 0.5 + (0.335 - 0.5) * easeInOut(reveal);
+        double[] k = karaokeOf(s, !title.isEmpty(), subShown);
+        Color kc = karaokeColor != null ? karaokeColor : new Color(255, 122, 69);
+        // The card that just had its turn keeps its fill as it leaves, the colour
+        // easing back to normal on the way, instead of snapping off.
+        if (!KARAOKE_OFF.equals(karaoke) && karaoke != null && s.pos < 0 && s.pos > -1) {
+            double keep = 1 + s.pos;                       // 1 at the centre → 0 one place away
+            Color base = titleColor != null ? titleColor : new Color(69, 71, 77);
+            kc = mix(base, kc, keep);
+            k[0] = title.isEmpty() ? -1 : 1;
+            if (KARAOKE_BOTH.equals(karaoke) && subShown) k[1] = 1;
+        }
+
         if (!title.isEmpty()) {
-            double capMid = top + H * (both ? 0.335 : 0.5);
+            setAlpha(g, alpha);
+            double capMid = top + H * titleMid;
             drawFitted(g, title, titleBase.deriveFont(titleSize), textX, capMid, maxW,
                     titleColor != null ? titleColor : new Color(69, 71, 77),
-                    titleBold ? 0.055 : 0.018, titleAlign);
+                    titleBold ? 0.055 : 0.018, titleAlign, k[0], kc);
         }
-        if (!sub.isEmpty()) {
-            double capMid = top + H * (both ? 0.655 : 0.5);
-            drawFitted(g, sub, subBase.deriveFont(subSize), textX, capMid, maxW,
-                    subtitleColor != null ? subtitleColor : new Color(92, 95, 103),
-                    subtitleBold ? 0.055 : 0.022, subtitleAlign);
+        if (subShown) {
+            setAlpha(g, alpha * subAlpha);
+            double capMid = top + H * (both ? 0.655 : 0.5) + subLift;
+            Color sc = subtitleColor != null ? subtitleColor : new Color(92, 95, 103);
+            if (flip && backFace && titleColor != null) sc = titleColor;
+            drawFitted(g, sub, subBase.deriveFont(subSize), textX, capMid, maxW, sc,
+                    subtitleBold ? 0.055 : 0.022, subtitleAlign, k[1], kc);
         }
+    }
+
+    /** Dots (one per card, the current one long and coloured) or a "3 / 12" counter pill. */
+    private void paintIndicator(Graphics2D g, double p, int n, double cx, double cy, double W, double H,
+                                double R, double master, Font titleBase) {
+        Color pc = progressColor != null ? progressColor : new Color(57, 182, 234);
+        boolean horiz = horizontal();
+        // Beside the stack: right of the cards when vertical, under them when side by side.
+        double ax = horiz ? cx : cx + (W + R) / 2.0 + H * 0.45;
+        double ay = horiz ? cy + H / 2.0 + H * 0.42 : cy;
+        int cur = Math.floorMod((int) Math.round(p), Math.max(1, n));
+        setAlpha(g, master);
+        if (PROGRESS_DOTS.equals(progressStyle) && n <= 20) {
+            double r = H * 0.050, gap = H * 0.20;
+            double len = (n - 1) * gap;
+            double frac = p - Math.floor(p);
+            int from = Math.floorMod((int) Math.floor(p), n);
+            for (int i = 0; i < n; i++) {
+                double c = i * gap - len / 2.0;
+                double x = horiz ? ax + c : ax, y = horiz ? ay : ay + c;
+                // The active "pill" glides from dot to dot as the cards turn.
+                double w = (i == from) ? 1 - frac : (i == (from + 1) % n ? frac : 0);
+                double rr = r * (1 + 0.45 * w);
+                g.setColor(mix(withAlpha(pc, 0.35), pc, w));
+                g.fill(new Ellipse2D.Double(x - rr, y - rr, 2 * rr, 2 * rr));
+            }
+            return;
+        }
+        // Counter pill.
+        String txt = (cur + 1) + " / " + n;
+        Font f = titleBase.deriveFont(Font.BOLD, (float) (H * 0.17));
+        java.awt.font.FontRenderContext frc = STABLE_FRC;
+        Rectangle2D sb = f.getStringBounds(txt, frc);
+        double capH = f.createGlyphVector(frc, "8").getVisualBounds().getHeight();
+        double pw = sb.getWidth() + H * 0.30, ph = capH + H * 0.20;
+        double px = horiz ? ax - pw / 2 : ax - H * 0.05, py = ay - ph / 2;
+        g.setColor(pc);
+        g.fill(new RoundRectangle2D.Double(px, py, pw, ph, ph, ph));
+        g.setColor(luminance(pc) > 0.7 ? new Color(30, 30, 36) : Color.WHITE);
+        g.setFont(f);
+        g.drawString(txt, (float) (px + (pw - sb.getWidth()) / 2), (float) (py + ph / 2 + capH / 2));
     }
 
     /**
@@ -755,10 +1331,13 @@ public class SlideCarousel {
      * fonts bundled with the app ship a single (regular) face, and Java's "bold"
      * on such a font is no bolder, so {@code weightEm} (of the font size) is
      * stroked around the glyphs when the font has no real bold face of its own.
+     * {@code karaoke} (0..1, or -1 for none) repaints that share of the line in
+     * {@code karaokeCol}, in reading order (right to left for Arabic).
      */
     private static void drawFitted(Graphics2D g, String s, Font f, double x, double capMid,
-                                   double maxW, Color col, double weightEm, String align) {
-        java.awt.font.FontRenderContext frc = g.getFontRenderContext();
+                                   double maxW, Color col, double weightEm, String align,
+                                   double karaoke, Color karaokeCol) {
+        java.awt.font.FontRenderContext frc = STABLE_FRC;
         java.awt.font.TextLayout tl = shapedLayout(s, f, frc);
         Font use = f;
         if (tl.getAdvance() > maxW) {
@@ -766,7 +1345,7 @@ public class SlideCarousel {
             use = f.deriveFont(shrunk);
             tl = shapedLayout(s, use, frc);
             if (tl.getAdvance() > maxW) {
-                String ell = "\u2026";
+                String ell = "…";
                 String cut = s;
                 while (cut.length() > 1 && shapedLayout(cut + ell, use, frc).getAdvance() > maxW) {
                     cut = cut.substring(0, cut.length() - 1);
@@ -782,12 +1361,36 @@ public class SlideCarousel {
         if (ALIGN_CENTER.equals(a))     x += free / 2.0;
         else if (ALIGN_RIGHT.equals(a)) x += free;
         Shape outline = tl.getOutline(AffineTransform.getTranslateInstance(x, capMid + capH / 2.0));
-        g.setColor(col);
-        g.fill(outline);
         boolean realBold = use.isBold() && !use.getFontName().equals(use.deriveFont(Font.PLAIN).getFontName());
         double sw = realBold ? 0 : weightEm * use.getSize2D();
-        if (sw > 0.01) {
-            g.setStroke(new BasicStroke((float) sw, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        fillText(g, outline, col, sw);
+        if (karaoke > 0 && karaokeCol != null) {
+            Rectangle2D b = outline.getBounds2D();
+            double pad = sw + 1;
+            double w = (b.getWidth() + 2 * pad) * Math.min(1, karaoke);
+            Rectangle2D part = tl.isLeftToRight()
+                    ? new Rectangle2D.Double(b.getX() - pad, b.getY() - pad, w, b.getHeight() + 2 * pad)
+                    : new Rectangle2D.Double(b.getMaxX() + pad - w, b.getY() - pad, w, b.getHeight() + 2 * pad);
+            Shape oldClip = g.getClip();
+            g.clip(part);
+            fillText(g, outline, karaokeCol, sw);
+            g.setClip(oldClip);
+        }
+    }
+
+    /**
+     * Text is measured and laid out at a fixed, unscaled resolution and drawn as
+     * outlines, so a line fits (or shrinks) the same way at every card size — a
+     * card that pops or turns never flickers between a full and a shortened title.
+     */
+    private static final java.awt.font.FontRenderContext STABLE_FRC =
+            new java.awt.font.FontRenderContext(null, true, true);
+
+    private static void fillText(Graphics2D g, Shape outline, Color col, double strokeW) {
+        g.setColor(col);
+        g.fill(outline);
+        if (strokeW > 0.01) {
+            g.setStroke(new BasicStroke((float) strokeW, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
             g.draw(outline);
         }
     }
