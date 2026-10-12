@@ -3079,6 +3079,13 @@ public class GifSlideShowApp extends JFrame {
         return hasExtension(f, BULK_MEDIA_EXTS);
     }
 
+    /** File types a slide text's audio takes, from its file chooser or dropped on its buttons. */
+    private static final String[] SLIDE_AUDIO_EXTS = {"mp3", "wav", "aac", "ogg", "m4a", "flac", "wma"};
+
+    private static boolean isSlideAudioFile(File f) {
+        return hasExtension(f, SLIDE_AUDIO_EXTS);
+    }
+
     private void bulkImport() {
         JFileChooser fc = new JFileChooser();
         fc.setMultiSelectionEnabled(true);
@@ -31816,6 +31823,19 @@ public class GifSlideShowApp extends JFrame {
             audioClearBtn2.addActionListener(e -> clearSlideAudio2());
             audioClearBtn2.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
 
+            // Drag & drop: audio files dropped on Browse / +2nd attach as if picked
+            // in their file choosers (two files on Browse fill both slots).
+            String audioWanted = "an audio file (" + String.join(", ", SLIDE_AUDIO_EXTS) + ")";
+            audioBtn.setToolTipText(audioBtn.getToolTipText()
+                    + ". Tip: drop an audio file here (or two: the 2nd fills +2nd).");
+            installFileDrop(audioBtn, "Slide Audio", GifSlideShowApp::isSlideAudioFile,
+                    audioWanted, this::dropSlideAudio);
+            showDropHover(audioBtn);
+            audioBtn2.setToolTipText(audioBtn2.getToolTipText() + " Tip: drop an audio file here.");
+            installFileDrop(audioBtn2, "Second Audio", GifSlideShowApp::isSlideAudioFile,
+                    audioWanted, files -> { if (hasPrimaryAudioFor2nd()) attachSlideAudio2(files.get(0)); });
+            showDropHover(audioBtn2);
+
             toolbar7.add(audioLabel);
             toolbar7.add(audioBtn);
             toolbar7.add(audioFileLabel);
@@ -44112,25 +44132,63 @@ public class GifSlideShowApp extends JFrame {
 
         private void browseSlideAudio() {
             JFileChooser chooser = new JFileChooser();
-            chooser.setFileFilter(new FileNameExtensionFilter(
-                    "Audio Files", "mp3", "wav", "aac", "ogg", "m4a", "flac", "wma"));
+            chooser.setFileFilter(new FileNameExtensionFilter("Audio Files", SLIDE_AUDIO_EXTS));
             if (chooser.showOpenDialog(panel) == JFileChooser.APPROVE_OPTION) {
-                File file = chooser.getSelectedFile();
-                int durationMs = probeAudioDurationMs(file);
-                if (durationMs <= 0) {
-                    JOptionPane.showMessageDialog(panel,
-                            "Could not read audio duration.\nMake sure ffprobe is installed.",
-                            "Audio Error", JOptionPane.ERROR_MESSAGE);
-                    return;
-                }
-                slideAudioFiles.put(currentSlideTextIndex, file);
-                slideAudioDurationsMs.put(currentSlideTextIndex, durationMs);
-                // Auto-load karaoke timings if a sidecar exists from a previous sync.
-                List<WordTiming> existing = WordTimingFile.readSidecar(file);
-                if (existing != null) slideAudioWordTimingsMap.put(currentSlideTextIndex, existing);
-                else slideAudioWordTimingsMap.remove(currentSlideTextIndex);
-                updateAudioUI();
+                attachSlideAudio(chooser.getSelectedFile());
             }
+        }
+
+        /**
+         * Make {@code file} the current text's (first) audio. Returns false, after
+         * telling the user, when its duration can't be read.
+         */
+        private boolean attachSlideAudio(File file) {
+            int durationMs = probeAudioDurationMs(file);
+            if (durationMs <= 0) {
+                showAudioDurationError(file);
+                return false;
+            }
+            slideAudioFiles.put(currentSlideTextIndex, file);
+            slideAudioDurationsMs.put(currentSlideTextIndex, durationMs);
+            // Auto-load karaoke timings if a sidecar exists from a previous sync.
+            List<WordTiming> existing = WordTimingFile.readSidecar(file);
+            if (existing != null) slideAudioWordTimingsMap.put(currentSlideTextIndex, existing);
+            else slideAudioWordTimingsMap.remove(currentSlideTextIndex);
+            updateAudioUI();
+            return true;
+        }
+
+        private void showAudioDurationError(File file) {
+            JOptionPane.showMessageDialog(panel,
+                    "Could not read audio duration of " + file.getName() + ".\nMake sure ffprobe is installed.",
+                    "Audio Error", JOptionPane.ERROR_MESSAGE);
+        }
+
+        /**
+         * Audio files dropped on the Browse button: the first becomes this text's
+         * audio and, when a second file comes along, it fills the "+2nd" slot —
+         * the same as Browse followed by +2nd. Any further files are ignored.
+         */
+        private void dropSlideAudio(List<File> files) {
+            if (!attachSlideAudio(files.get(0))) return;
+            if (files.size() > 1) attachSlideAudio2(files.get(1));
+        }
+
+        /**
+         * Show a dashed outline on the plain (non-styled) audio button {@code b}
+         * while files are dragged over it; {@link #installFileDrop} flags the hover
+         * through {@link #DROP_HOVER_KEY}. The padding is trimmed by the outline's
+         * extra thickness so the label doesn't shift.
+         */
+        private void showDropHover(JButton b) {
+            javax.swing.border.Border normal = b.getBorder();
+            Insets in = normal.getBorderInsets(b);
+            javax.swing.border.Border hover = BorderFactory.createCompoundBorder(
+                    BorderFactory.createDashedBorder(Color.WHITE, 2f, 5f, 3f, false),
+                    BorderFactory.createEmptyBorder(Math.max(0, in.top - 2), Math.max(0, in.left - 2),
+                            Math.max(0, in.bottom - 2), Math.max(0, in.right - 2)));
+            b.addPropertyChangeListener(DROP_HOVER_KEY,
+                    ev -> b.setBorder(Boolean.TRUE.equals(ev.getNewValue()) ? hover : normal));
         }
 
         private void clearSlideAudio() {
@@ -44144,28 +44202,33 @@ public class GifSlideShowApp extends JFrame {
         }
 
         private void browseSlideAudio2() {
-            if (slideAudioFiles.get(currentSlideTextIndex) == null) {
-                JOptionPane.showMessageDialog(panel,
-                        "Add the first audio (Browse) before adding a second one.",
-                        "Second Audio", JOptionPane.INFORMATION_MESSAGE);
+            if (!hasPrimaryAudioFor2nd()) return;
+            JFileChooser chooser = new JFileChooser();
+            chooser.setFileFilter(new FileNameExtensionFilter("Audio Files", SLIDE_AUDIO_EXTS));
+            if (chooser.showOpenDialog(panel) == JFileChooser.APPROVE_OPTION) {
+                attachSlideAudio2(chooser.getSelectedFile());
+            }
+        }
+
+        /** True when the current text has a first audio; otherwise tells the user to add one. */
+        private boolean hasPrimaryAudioFor2nd() {
+            if (slideAudioFiles.get(currentSlideTextIndex) != null) return true;
+            JOptionPane.showMessageDialog(panel,
+                    "Add the first audio (Browse) before adding a second one.",
+                    "Second Audio", JOptionPane.INFORMATION_MESSAGE);
+            return false;
+        }
+
+        /** Make {@code file} the current text's second audio (the caller has checked a first one exists). */
+        private void attachSlideAudio2(File file) {
+            int durationMs = probeAudioDurationMs(file);
+            if (durationMs <= 0) {
+                showAudioDurationError(file);
                 return;
             }
-            JFileChooser chooser = new JFileChooser();
-            chooser.setFileFilter(new FileNameExtensionFilter(
-                    "Audio Files", "mp3", "wav", "aac", "ogg", "m4a", "flac", "wma"));
-            if (chooser.showOpenDialog(panel) == JFileChooser.APPROVE_OPTION) {
-                File file = chooser.getSelectedFile();
-                int durationMs = probeAudioDurationMs(file);
-                if (durationMs <= 0) {
-                    JOptionPane.showMessageDialog(panel,
-                            "Could not read audio duration.\nMake sure ffprobe is installed.",
-                            "Audio Error", JOptionPane.ERROR_MESSAGE);
-                    return;
-                }
-                slideAudioFiles2.put(currentSlideTextIndex, file);
-                slideAudioDurationsMs2.put(currentSlideTextIndex, durationMs);
-                updateAudioUI();
-            }
+            slideAudioFiles2.put(currentSlideTextIndex, file);
+            slideAudioDurationsMs2.put(currentSlideTextIndex, durationMs);
+            updateAudioUI();
         }
 
         private void clearSlideAudio2() {
