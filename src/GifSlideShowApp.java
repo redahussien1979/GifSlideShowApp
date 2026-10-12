@@ -619,6 +619,7 @@ public class GifSlideShowApp extends JFrame {
         java.util.List<Color>   karaokeColorList   = source.getSlideAudioKaraokeColorList();
         java.util.List<Integer> karaokeIntensityList = source.getSlideAudioKaraokeIntensityList();
         java.util.List<Integer> karaokeTightList     = source.getSlideAudioKaraokeTightList();
+        java.util.List<String>  soundFxList          = source.getSoundFxList();
         for (int i = 0; i < texts.size(); i++) {
             String p = "slideText." + i + ".";
             String  fx    = i < audioHlEffectsList.size() ? audioHlEffectsList.get(i) : DEFAULT_AUDIO_HL_EFFECTS;
@@ -635,6 +636,8 @@ public class GifSlideShowApp extends JFrame {
             Integer kTight = i < karaokeTightList.size()     ? karaokeTightList.get(i)     : DEFAULT_KARAOKE_TIGHT;
             props.setProperty(p + "karaokeIntensity", String.valueOf(kInt   != null ? kInt   : DEFAULT_KARAOKE_INTENSITY));
             props.setProperty(p + "karaokeTight",     String.valueOf(kTight != null ? kTight : DEFAULT_KARAOKE_TIGHT));
+            String sfx = i < soundFxList.size() ? soundFxList.get(i) : "";
+            props.setProperty(p + "soundFx", sfx != null ? sfx : "");
         }
 
         // Orientation
@@ -1139,6 +1142,7 @@ public class GifSlideShowApp extends JFrame {
         List<Color>   karaokeColorList   = new ArrayList<>();
         List<Integer> karaokeIntensityList = new ArrayList<>();
         List<Integer> karaokeTightList     = new ArrayList<>();
+        List<String>  soundFxList          = new ArrayList<>();
         for (int i = 0; i < slideTextCount; i++) {
             String p = "slideText." + i + ".";
             audioHlEffectsList.add(props.getProperty(p + "audioHlEffects", DEFAULT_AUDIO_HL_EFFECTS));
@@ -1151,6 +1155,8 @@ public class GifSlideShowApp extends JFrame {
                     colorToHex(DEFAULT_KARAOKE_COLOR))));
             karaokeIntensityList.add(parseIntOr(props.getProperty(p + "karaokeIntensity"), DEFAULT_KARAOKE_INTENSITY));
             karaokeTightList.add(parseIntOr(props.getProperty(p + "karaokeTight"), DEFAULT_KARAOKE_TIGHT));
+            // A preset saved before the Sound row existed has no key: no effects.
+            soundFxList.add(props.getProperty(p + "soundFx", ""));
         }
 
         // Slide picture overlays. A preset written before pictures were saved has
@@ -1456,6 +1462,7 @@ public class GifSlideShowApp extends JFrame {
                 // restore the picture itself. clearMissingImages stays false so a
                 // preset saved without a picture leaves each slide's own alone.
                 row.applySlidePictureFormats(slidePictureFormats, true, false);
+                row.applySoundFxListFromMaster(soundFxList);
                 row.getQuiz().copyVisualSettingsFrom(tmpl);
                 row.refreshQuizToolbarFromState();
                 row.applyLayoutGroupPanelState(lgCols, lgAnchorX, lgAnchorY,
@@ -6977,6 +6984,8 @@ public class GifSlideShowApp extends JFrame {
         List<Color>   karaokeColorList   = source.getSlideAudioKaraokeColorList();
         List<Integer> karaokeIntensityList = source.getSlideAudioKaraokeIntensityList();
         List<Integer> karaokeTightList     = source.getSlideAudioKaraokeTightList();
+        // Sound FX follow the master the same way (the audio files themselves don't).
+        List<String>  soundFxList          = source.getSoundFxList();
 
         isSyncingFormat = true;
         try {
@@ -7000,6 +7009,7 @@ public class GifSlideShowApp extends JFrame {
                         audioGapSeconds, audioHlColorList, audioHlEffectsList, audioGlowSizeList,
                         karaokeStyleList, karaokeColorList,
                         karaokeIntensityList, karaokeTightList);
+                row.applySoundFxListFromMaster(soundFxList);
                 // Broadcast the master row's quiz visual / shared settings
                 // (everything except the per-slide enabled flag, correct
                 // answer index, and question/generated audio files).
@@ -15083,6 +15093,38 @@ public class GifSlideShowApp extends JFrame {
 
     // ==================== Collect Slides & Ask Duration ====================
 
+    /** True when any of {@code slides} still has 🔊 Sound FX to render. */
+    private static boolean hasSoundFx(List<SlideData> slides) {
+        for (SlideData s : slides) {
+            if (s == null || s.soundFx == null) continue;
+            for (String spec : s.soundFx) if (SoundFx.isActive(spec)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Render each slide's 🔊 Sound FX into its audio files. The MP4 exports call
+     * this from their background work. Effects keep every clip's exact length,
+     * so durations and all timing stay as they are; a clip that fails to render
+     * keeps its original audio. A slide's specs are cleared once applied, so a
+     * slide reached twice is never processed twice.
+     */
+    private static void applySoundFx(List<SlideData> slides) {
+        for (SlideData s : slides) {
+            if (s == null || s.soundFx == null) continue;
+            for (int i = 0; i < s.soundFx.size() && i < s.audioFiles.size()
+                    && i < s.audioDurationsMs.size(); i++) {
+                String spec = s.soundFx.get(i);
+                File f = s.audioFiles.get(i);
+                Integer d = s.audioDurationsMs.get(i);
+                if (f != null && f.exists() && d != null && d > 0 && SoundFx.isActive(spec)) {
+                    s.audioFiles.set(i, SoundFx.apply(f, spec, d));
+                }
+            }
+            s.soundFx = null;
+        }
+    }
+
     private List<SlideData> collectSlides() {
         List<SlideData> slides = new ArrayList<>();
         for (int i = 0; i < slideRows.size(); i++) {
@@ -15144,6 +15186,9 @@ public class GifSlideShowApp extends JFrame {
             slides.get(slides.size() - 1).quiz = row.getQuiz() != null
                     ? row.getQuiz().copy() : null;
             slides.get(slides.size() - 1).slideAnnotations = row.getSlideAnnotationList();
+            // Sound FX ride along unrendered; the MP4 exports apply them in the
+            // background (applySoundFx), and the GIF / image exports never need them.
+            slides.get(slides.size() - 1).soundFx = row.getSoundFxForAudioList();
             // Countdown timer: copy the snapshot and resolve its start against
             // THIS slide's audio timeline, so "after text 2's audio" (or the
             // default "after all audio + 1s") becomes one plain ms offset the
@@ -17527,6 +17572,12 @@ public class GifSlideShowApp extends JFrame {
                 File tempDir = null;
                 StringBuilder finalInfoBuilder = new StringBuilder();
                 try {
+                    for (List<SlideData> chunk : slideChunks) {
+                        if (hasSoundFx(chunk)) {
+                            publish("Applying sound effects...");
+                            applySoundFx(chunk);
+                        }
+                    }
                     for (int __chunkIdx = 0; __chunkIdx < slideChunks.size(); __chunkIdx++) {
                         final List<SlideData> slides = slideChunks.get(__chunkIdx);
                         final File finalOut = chunkOutFiles.get(__chunkIdx);
@@ -19431,6 +19482,10 @@ public class GifSlideShowApp extends JFrame {
             @Override
             protected Void doInBackground() {
                 try {
+                    if (hasSoundFx(slides)) {
+                        publish("Applying sound effects...");
+                        applySoundFx(slides);
+                    }
                     int fps = 30;
                     int totalSlides = slides.size();
                     String perSlideTimestamp = new java.text.SimpleDateFormat("mmss").format(new java.util.Date());
@@ -28309,6 +28364,11 @@ public class GifSlideShowApp extends JFrame {
         // Quiz config snapshot (timer + reveal). Set externally after construction
         // so we don't have to thread another arg through the giant ctor.
         QuizSlide quiz;
+        // Per-text 🔊 Sound FX in SoundFx's "Echo,Reverb@6" form, parallel to the
+        // per-text entries of audioFiles (null = none). Set externally after
+        // construction (like quiz); applySoundFx renders them into audioFiles
+        // and then clears this.
+        List<String> soundFx;
         // Animated vector annotations (Lines / Arrows). Set externally after
         // construction (like quiz) so no arg is threaded through the giant ctor.
         // Composited per-frame by paintAnnotationsOverlay(...).
@@ -28712,6 +28772,18 @@ public class GifSlideShowApp extends JFrame {
         private final java.util.Map<Integer, Color>  slideKaraokeColorMap = new java.util.HashMap<>();
         private final java.util.Map<Integer, Integer> slideKaraokeIntensityMap = new java.util.HashMap<>();
         private final java.util.Map<Integer, Integer> slideKaraokeTightMap = new java.util.HashMap<>();
+        // Per-text-row Sound FX (the 🔊 Sound row) in SoundFx's "Echo,Reverb@6"
+        // form; a missing entry means that text's audio plays as recorded.
+        private final java.util.Map<Integer, String> slideSoundFxMap = new java.util.HashMap<>();
+        // 🔊 Sound row widgets — the editable view of slideSoundFxMap for
+        // currentSlideTextIndex, repopulated by loadSoundFxForCurrentText().
+        private final java.util.LinkedHashMap<String, JToggleButton> soundFxToggles = new java.util.LinkedHashMap<>();
+        private final java.util.LinkedHashMap<String, JCheckBox> soundFxMoreChecks = new java.util.LinkedHashMap<>();
+        private JToggleButton soundFxNone;
+        private JButton soundFxMoreBtn;
+        private JSpinner soundFxAmountSp;
+        private JButton soundFxPreviewBtn;
+        private boolean isLoadingSoundFx = false;
         // toolbar7d (karaoke row) — refreshed whenever currentSlideTextIndex changes.
         private JLabel karaokeStatusLabel;
         private JButton karaokeSyncBtn;
@@ -29413,6 +29485,7 @@ public class GifSlideShowApp extends JFrame {
                 slideAudioHlEffectsMap.put(newIdx, slideAudioHlEffectsMap.getOrDefault(0, DEFAULT_AUDIO_HL_EFFECTS));
                 slideAudioHlColorMap.put(newIdx, slideAudioHlColorMap.getOrDefault(0, DEFAULT_AUDIO_HL_COLOR));
                 slideAudioHlGlowSizeMap.put(newIdx, slideAudioHlGlowSizeMap.getOrDefault(0, DEFAULT_AUDIO_GLOW_SIZE));
+                seedSoundFxFromText0(newIdx);
                 currentSlideTextIndex = newIdx;
                 isLoadingSlideText = true;
                 try {
@@ -29448,6 +29521,7 @@ public class GifSlideShowApp extends JFrame {
                 slideKaraokeColorMap.remove(removedIdx);
                 slideKaraokeIntensityMap.remove(removedIdx);
                 slideKaraokeTightMap.remove(removedIdx);
+                slideSoundFxMap.remove(removedIdx);
                 java.util.Map<Integer, File> shiftedFiles = new java.util.HashMap<>();
                 java.util.Map<Integer, Integer> shiftedDurations = new java.util.HashMap<>();
                 java.util.Map<Integer, File> shiftedFiles2 = new java.util.HashMap<>();
@@ -29532,6 +29606,13 @@ public class GifSlideShowApp extends JFrame {
                 slideKaraokeIntensityMap.putAll(shiftedKaraokeIntensity);
                 slideKaraokeTightMap.clear();
                 slideKaraokeTightMap.putAll(shiftedKaraokeTight);
+                java.util.Map<Integer, String> shiftedSoundFx = new java.util.HashMap<>();
+                for (java.util.Map.Entry<Integer, String> entry : slideSoundFxMap.entrySet()) {
+                    int key = entry.getKey();
+                    shiftedSoundFx.put(key > removedIdx ? key - 1 : key, entry.getValue());
+                }
+                slideSoundFxMap.clear();
+                slideSoundFxMap.putAll(shiftedSoundFx);
                 if (currentSlideTextIndex >= slideTextItems.size()) {
                     currentSlideTextIndex = slideTextItems.size() - 1;
                 }
@@ -32130,6 +32211,12 @@ public class GifSlideShowApp extends JFrame {
             toolbar7b2.add(audioFxOthersBtn);
             refreshAudioFxOthersBtnAppearance();
 
+            // ===== Toolbar Row 7b3: Sound FX on this text's audio =====
+            JPanel toolbar7b3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            toolbar7b3.setBackground(new Color(35, 42, 58));
+            toolbar7b3.setBorder(BorderFactory.createEmptyBorder(0, 4, 3, 4));
+            buildSoundFxRow(toolbar7b3, fxBtnFont);
+
             // ===== Toolbar Row 7d: Karaoke (per-word highlight via ElevenLabs Scribe) =====
             JPanel toolbar7d = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
             toolbar7d.setBackground(new Color(30, 50, 50));
@@ -33003,6 +33090,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(toolbar7);
             toolbarsPanel.add(toolbar7b);
             toolbarsPanel.add(toolbar7b2);
+            toolbarsPanel.add(toolbar7b3);
             toolbarsPanel.add(toolbar7d);
             toolbarsPanel.add(toolbar7c);
             toolbarsPanel.add(toolbar7cB);
@@ -34880,6 +34968,7 @@ public class GifSlideShowApp extends JFrame {
                 slideAudioHlEffectsMap.put(newIdx, slideAudioHlEffectsMap.getOrDefault(0, DEFAULT_AUDIO_HL_EFFECTS));
                 slideAudioHlColorMap.put(newIdx, slideAudioHlColorMap.getOrDefault(0, DEFAULT_AUDIO_HL_COLOR));
                 slideAudioHlGlowSizeMap.put(newIdx, slideAudioHlGlowSizeMap.getOrDefault(0, DEFAULT_AUDIO_GLOW_SIZE));
+                seedSoundFxFromText0(newIdx);
 
                 // Commit as the new baseline so live-preview ticks start here.
                 openSnapshot.clear();
@@ -41713,6 +41802,7 @@ public class GifSlideShowApp extends JFrame {
             dropTextKeysFrom(slideKaraokeColorMap, count);
             dropTextKeysFrom(slideKaraokeIntensityMap, count);
             dropTextKeysFrom(slideKaraokeTightMap, count);
+            dropTextKeysFrom(slideSoundFxMap, count);
             if (currentSlideTextIndex >= slideTextItems.size()) {
                 currentSlideTextIndex = slideTextItems.size() - 1;
             }
@@ -43567,6 +43657,23 @@ public class GifSlideShowApp extends JFrame {
 
         int getAudioGapMs() { return (int)(((Number) audioGapSpinner.getValue()).doubleValue() * 1000); }
 
+        /**
+         * Each text's 🔊 Sound FX, parallel to the per-text entries at the start of
+         * getSlideAudioFilesList() (null = none). Sized to those entries only, so
+         * the bulk-grid picture audio appended after them never picks up a text's
+         * effects.
+         */
+        java.util.List<String> getSoundFxForAudioList() {
+            int textCount = 0;
+            for (int k : slideAudioFiles.keySet()) textCount = Math.max(textCount, k + 1);
+            java.util.List<String> out = new java.util.ArrayList<>(textCount);
+            for (int i = 0; i < textCount; i++) {
+                String spec = slideSoundFxMap.get(i);
+                out.add(SoundFx.isActive(spec) ? spec : null);
+            }
+            return out;
+        }
+
         /** Parallel to getSlideAudioFilesList() — element N is the word-timing
          *  list for audioFiles[N], or null when that audio hasn't been synced. */
         java.util.List<java.util.List<WordTiming>> getSlideAudioWordTimingsList() {
@@ -43895,6 +44002,301 @@ public class GifSlideShowApp extends JFrame {
             return "";
         }
 
+        // ---------- 🔊 Sound row (per-text sound effects) ----------
+
+        /** Chip accent per sound effect, in the row-7b palette family. */
+        private static Color soundFxAccent(String name) {
+            switch (name) {
+                case "Echo":    return new Color( 60, 135, 215);
+                case "Reverb":  return new Color(115,  95, 210);
+                case "Radio":   return new Color(210, 140,  45);
+                case "Phone":   return new Color( 40, 160, 165);
+                case "Deep":    return new Color( 75, 100, 185);
+                case "High":    return new Color(210, 105, 160);
+                case "Robot":   return new Color(125, 140, 160);
+                case "Chorus":  return new Color( 80, 165, 100);
+                case "Clarity": return new Color( 50, 175, 215);
+                default:        return new Color(175, 120,  60);   // "More" popup
+            }
+        }
+
+        private static final Color SOUND_FX_MORE_ACCENT = soundFxAccent("");
+        private static final String SOUND_FX_PLAY = "\u25B6";
+        private static final String SOUND_FX_STOP = "\u25A0";
+
+        /** Build the 🔊 Sound row: None, one chip per main effect, More ▾, Amt, ▶ Preview. */
+        private void buildSoundFxRow(JPanel row, Font chipFont) {
+            JLabel lbl = styledLabel("  \uD83D\uDD0A Sound:");
+            lbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            lbl.setForeground(new Color(140, 170, 220));
+            lbl.setToolTipText("Sound effects on this text's audio. Heard with \u25B6 (preview) and in the "
+                    + "exported video; the audio keeps its length, so slide timing doesn't change.");
+
+            soundFxNone = new JToggleButton("None", true);
+            styleSoundFxChip(soundFxNone, FX_ACC_NONE, chipFont,
+                    "Play this text's audio as recorded (no sound effects)");
+            soundFxNone.addActionListener(e -> {
+                // None turns everything off; it can't be clicked off itself.
+                for (JToggleButton b : soundFxToggles.values()) b.setSelected(false);
+                for (JCheckBox cb : soundFxMoreChecks.values()) cb.setSelected(false);
+                onSoundFxUiChanged();
+            });
+
+            for (SoundFx.Effect fx : SoundFx.MAIN) {
+                JToggleButton b = new JToggleButton(fx.name);
+                styleSoundFxChip(b, soundFxAccent(fx.name), chipFont, fx.tip);
+                b.addActionListener(e -> {
+                    if (b.isSelected()) deselectExclusiveSoundFx(fx.name);
+                    onSoundFxUiChanged();
+                });
+                soundFxToggles.put(fx.name, b);
+            }
+
+            // "More ▾": the rest of the catalogue as a multi-select popup, like Others.
+            soundFxMoreBtn = new JButton("More \u25BE");
+            soundFxMoreBtn.setFont(chipFont);
+            soundFxMoreBtn.setPreferredSize(new Dimension(72, 24));
+            soundFxMoreBtn.setFocusPainted(false);
+            soundFxMoreBtn.setFocusable(false);
+            soundFxMoreBtn.setToolTipText("More sound effects (multi-select)");
+            soundFxMoreBtn.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+            soundFxMoreBtn.setContentAreaFilled(false);
+            soundFxMoreBtn.setOpaque(true);
+            JPopupMenu morePopup = new JPopupMenu();
+            morePopup.setBackground(new Color(40, 44, 56));
+            morePopup.setBorder(BorderFactory.createLineBorder(FX_CHROME_BORDER, 1));
+            JPanel morePanel = new JPanel(new GridLayout(0, 2, 8, 0));
+            morePanel.setBackground(new Color(40, 44, 56));
+            morePanel.setBorder(BorderFactory.createEmptyBorder(4, 6, 2, 6));
+            for (SoundFx.Effect fx : SoundFx.MORE) {
+                JCheckBox cb = new JCheckBox(fx.name);
+                cb.setBackground(new Color(40, 44, 56));
+                cb.setForeground(new Color(220, 225, 235));
+                cb.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+                cb.setFocusPainted(false);
+                cb.setToolTipText(fx.tip);
+                cb.addActionListener(e -> {
+                    if (cb.isSelected()) deselectExclusiveSoundFx(fx.name);
+                    onSoundFxUiChanged();
+                });
+                soundFxMoreChecks.put(fx.name, cb);
+                morePanel.add(cb);
+            }
+            JPanel moreFooter = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 2));
+            moreFooter.setBackground(new Color(40, 44, 56));
+            JButton moreClear = new JButton("Clear");
+            moreClear.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+            moreClear.setMargin(new Insets(2, 6, 2, 6));
+            moreClear.setFocusPainted(false);
+            moreClear.addActionListener(e -> {
+                boolean changed = false;
+                for (JCheckBox cb : soundFxMoreChecks.values()) {
+                    if (cb.isSelected()) { cb.setSelected(false); changed = true; }
+                }
+                if (changed) onSoundFxUiChanged();
+            });
+            JButton moreOk = new JButton("OK");
+            moreOk.setFont(new Font("Segoe UI", Font.BOLD, 10));
+            moreOk.setMargin(new Insets(2, 8, 2, 8));
+            moreOk.setFocusPainted(false);
+            moreOk.addActionListener(e -> morePopup.setVisible(false));
+            moreFooter.add(moreClear);
+            moreFooter.add(moreOk);
+            JPanel moreWrap = new JPanel(new BorderLayout());
+            moreWrap.setBackground(new Color(40, 44, 56));
+            moreWrap.add(morePanel, BorderLayout.CENTER);
+            moreWrap.add(moreFooter, BorderLayout.SOUTH);
+            morePopup.add(moreWrap);
+            soundFxMoreBtn.addActionListener(e -> morePopup.show(soundFxMoreBtn, 0, soundFxMoreBtn.getHeight()));
+
+            JLabel amtLbl = styledLabel("  Amt:");
+            amtLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            amtLbl.setForeground(new Color(140, 170, 220));
+            soundFxAmountSp = new JSpinner(new SpinnerNumberModel(SoundFx.DEFAULT_AMOUNT,
+                    SoundFx.AMOUNT_MIN, SoundFx.AMOUNT_MAX, 1));
+            soundFxAmountSp.setPreferredSize(new Dimension(48, 24));
+            soundFxAmountSp.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            soundFxAmountSp.setToolTipText("Effect amount: 1 = subtle, 5 = normal, 10 = strong");
+            soundFxAmountSp.addChangeListener(e -> onSoundFxUiChanged());
+
+            soundFxPreviewBtn = new JButton(SOUND_FX_PLAY);
+            soundFxPreviewBtn.setFont(new Font("Segoe UI Symbol", Font.BOLD, 12));
+            soundFxPreviewBtn.setPreferredSize(new Dimension(34, 24));
+            soundFxPreviewBtn.setFocusPainted(false);
+            soundFxPreviewBtn.setBackground(new Color(45, 100, 170));
+            soundFxPreviewBtn.setForeground(Color.WHITE);
+            soundFxPreviewBtn.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(new Color(70, 130, 200), 1),
+                    BorderFactory.createEmptyBorder(2, 6, 2, 6)));
+            soundFxPreviewBtn.setToolTipText("Preview: listen to this text's audio with the chosen sound "
+                    + "effects (click again to stop)");
+            soundFxPreviewBtn.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+            soundFxPreviewBtn.addActionListener(e -> toggleSoundFxPreview());
+
+            row.add(styledLabel("   "));
+            row.add(lbl);
+            row.add(soundFxNone);
+            for (JToggleButton b : soundFxToggles.values()) row.add(b);
+            row.add(soundFxMoreBtn);
+            row.add(amtLbl);
+            row.add(soundFxAmountSp);
+            row.add(soundFxPreviewBtn);
+            refreshSoundFxChrome();
+        }
+
+        /** Size a Sound chip to its label and paint it like the row-7b toggles. */
+        private static void styleSoundFxChip(JToggleButton b, Color accent, Font font, String tip) {
+            b.setFont(font);
+            int w = b.getFontMetrics(font).stringWidth(b.getText()) + 20;
+            b.setPreferredSize(new Dimension(Math.max(40, w), 24));
+            b.setFocusPainted(false);
+            b.setToolTipText(tip);
+            b.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+            styleFxToggle(b, accent);
+        }
+
+        /** Switch off the effects that can't be combined with {@code name} (see SoundFx.EXCLUSIVE). */
+        private void deselectExclusiveSoundFx(String name) {
+            for (java.util.Set<String> group : SoundFx.EXCLUSIVE) {
+                if (!group.contains(name)) continue;
+                for (String other : group) {
+                    if (other.equals(name)) continue;
+                    JToggleButton b = soundFxToggles.get(other);
+                    if (b != null) b.setSelected(false);
+                    JCheckBox cb = soundFxMoreChecks.get(other);
+                    if (cb != null) cb.setSelected(false);
+                }
+            }
+        }
+
+        /** The Sound row's current choice, in SoundFx's stored form ("" = none). */
+        private String soundFxSpecFromUi() {
+            java.util.Set<String> on = new java.util.LinkedHashSet<>();
+            for (java.util.Map.Entry<String, JToggleButton> e : soundFxToggles.entrySet())
+                if (e.getValue().isSelected()) on.add(e.getKey());
+            for (java.util.Map.Entry<String, JCheckBox> e : soundFxMoreChecks.entrySet())
+                if (e.getValue().isSelected()) on.add(e.getKey());
+            return SoundFx.format(on, ((Number) soundFxAmountSp.getValue()).intValue());
+        }
+
+        /** A Sound control changed: store it for the current text and refresh. */
+        private void onSoundFxUiChanged() {
+            refreshSoundFxChrome();
+            if (isLoadingSoundFx) return;
+            String spec = soundFxSpecFromUi();
+            if (spec.isEmpty()) slideSoundFxMap.remove(currentSlideTextIndex);
+            else slideSoundFxMap.put(currentSlideTextIndex, spec);
+            onFormatChanged();
+        }
+
+        /** None lights up exactly when nothing is chosen; More shows its count; Amt only matters with an effect. */
+        private void refreshSoundFxChrome() {
+            if (soundFxNone == null) return;
+            boolean any = false;
+            for (JToggleButton b : soundFxToggles.values()) any |= b.isSelected();
+            int more = 0;
+            for (JCheckBox cb : soundFxMoreChecks.values()) if (cb.isSelected()) more++;
+            any |= more > 0;
+            soundFxNone.setSelected(!any);
+            soundFxAmountSp.setEnabled(any);
+            soundFxMoreBtn.setText(more == 0 ? "More \u25BE" : "More (" + more + ") \u25BE");
+            Color acc = SOUND_FX_MORE_ACCENT;
+            if (more > 0) {
+                soundFxMoreBtn.setBackground(acc);
+                soundFxMoreBtn.setForeground(fxLabelOn(acc));
+                soundFxMoreBtn.setBorder(BorderFactory.createLineBorder(fxMix(acc, Color.WHITE, 0.30), 1));
+            } else {
+                soundFxMoreBtn.setBackground(fxMix(FX_CHROME_BG, acc, 0.12));
+                soundFxMoreBtn.setForeground(fxMix(FX_CHROME_FG, acc, 0.55));
+                soundFxMoreBtn.setBorder(BorderFactory.createLineBorder(fxMix(FX_CHROME_BORDER, acc, 0.45), 1));
+            }
+        }
+
+        /** Show the current text's stored Sound FX on the row. */
+        private void loadSoundFxForCurrentText() {
+            if (soundFxNone == null) return;
+            String spec = slideSoundFxMap.get(currentSlideTextIndex);
+            java.util.Set<String> on = SoundFx.effectsOf(spec);
+            isLoadingSoundFx = true;
+            try {
+                for (java.util.Map.Entry<String, JToggleButton> e : soundFxToggles.entrySet())
+                    e.getValue().setSelected(on.contains(e.getKey()));
+                for (java.util.Map.Entry<String, JCheckBox> e : soundFxMoreChecks.entrySet())
+                    e.getValue().setSelected(on.contains(e.getKey()));
+                soundFxAmountSp.setValue(SoundFx.amountOf(spec));
+            } finally {
+                isLoadingSoundFx = false;
+            }
+            refreshSoundFxChrome();
+        }
+
+        /** A newly added text row starts with text 1's Sound FX, as it does with the highlight. */
+        private void seedSoundFxFromText0(int newIdx) {
+            String spec = slideSoundFxMap.get(0);
+            if (spec != null) slideSoundFxMap.put(newIdx, spec);
+            else slideSoundFxMap.remove(newIdx);
+        }
+
+        /** One entry per text row ("" = no effects), for presets and the master broadcast. */
+        java.util.List<String> getSoundFxList() {
+            int n = slideTextItems.size();
+            java.util.List<String> out = new java.util.ArrayList<>(n);
+            for (int i = 0; i < n; i++) out.add(slideSoundFxMap.getOrDefault(i, ""));
+            return out;
+        }
+
+        /** Take the master slide's per-text Sound FX (master[i], else master[0]) — like the HL lists. */
+        void applySoundFxListFromMaster(java.util.List<String> master) {
+            slideSoundFxMap.clear();
+            int n = slideTextItems.size();
+            for (int i = 0; i < n; i++) {
+                String spec = pickFromMaster(master, i, "");
+                if (SoundFx.isActive(spec)) slideSoundFxMap.put(i, spec);
+            }
+            loadSoundFxForCurrentText();
+        }
+
+        /** ▶ Preview: render (off the Swing thread) and play this text's audio with its Sound FX; click again to stop. */
+        private void toggleSoundFxPreview() {
+            if (SoundFx.isPlaying(this)) {
+                SoundFx.stop();
+                return;
+            }
+            int idx = currentSlideTextIndex;
+            java.util.List<File> files = getSlideAudioFilesList();
+            java.util.List<Integer> durs = getSlideAudioDurationsMsList();
+            File src = idx >= 0 && idx < files.size() ? files.get(idx) : null;
+            int dur = idx >= 0 && idx < durs.size() && durs.get(idx) != null ? durs.get(idx) : 0;
+            if (src == null || !src.isFile() || dur <= 0) {
+                JOptionPane.showMessageDialog(panel,
+                        "Add audio to Text " + (idx + 1) + " (\uD83D\uDCC2 Browse) to preview its sound.",
+                        "Sound Preview", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            String spec = slideSoundFxMap.getOrDefault(idx, "");
+            soundFxPreviewBtn.setEnabled(false);
+            soundFxPreviewBtn.setText("\u2026");
+            new SwingWorker<File, Void>() {
+                @Override protected File doInBackground() {
+                    return SoundFx.previewFile(src, spec, dur);
+                }
+                @Override protected void done() {
+                    File wav = null;
+                    try { wav = get(); } catch (Exception ignored) { }
+                    soundFxPreviewBtn.setEnabled(true);
+                    if (wav == null) {
+                        soundFxPreviewBtn.setText(SOUND_FX_PLAY);
+                        JOptionPane.showMessageDialog(panel,
+                                "Could not prepare the preview.\nMake sure ffmpeg is installed.",
+                                "Sound Preview", JOptionPane.ERROR_MESSAGE);
+                        return;
+                    }
+                    soundFxPreviewBtn.setText(SOUND_FX_STOP);
+                    SoundFx.play(wav, SlideRow.this, () -> soundFxPreviewBtn.setText(SOUND_FX_PLAY));
+                }
+            }.execute();
+        }
+
         // ---------- Per-text audio highlight: storage helpers ----------
 
         /** Read the current toolbar UI's effects toggles into a single comma-separated string. */
@@ -43986,6 +44388,7 @@ public class GifSlideShowApp extends JFrame {
             } finally {
                 isLoadingAudioHl = false;
             }
+            loadSoundFxForCurrentText();
         }
 
         /**
