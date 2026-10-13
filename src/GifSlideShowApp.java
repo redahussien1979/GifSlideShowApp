@@ -7069,6 +7069,59 @@ public class GifSlideShowApp extends JFrame {
         return Integer.MAX_VALUE;
     }
 
+    /**
+     * Small toolbar glyphs painted with Java2D instead of taken from a font:
+     * Segoe UI on Windows has no ▶ ■ ▾ glyphs, so as text they came out as
+     * empty boxes. Painted in the button's foreground colour (dimmed when the
+     * button is disabled).
+     */
+    private static final class GlyphIcon implements Icon {
+        enum Kind { PLAY, STOP, BUSY, DROP_DOWN }
+        private final Kind kind;
+        private final int size;
+        GlyphIcon(Kind kind, int size) { this.kind = kind; this.size = size; }
+        @Override public int getIconWidth()  { return size; }
+        @Override public int getIconHeight() { return size; }
+        @Override public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            Color fg = c.getForeground();
+            g2.setColor(c.isEnabled() ? fg : new Color(fg.getRed(), fg.getGreen(), fg.getBlue(), 110));
+            double s = size;
+            switch (kind) {
+                case PLAY: {
+                    Path2D.Double p = new Path2D.Double();
+                    p.moveTo(x + s * 0.22, y + s * 0.12);
+                    p.lineTo(x + s * 0.88, y + s * 0.50);
+                    p.lineTo(x + s * 0.22, y + s * 0.88);
+                    p.closePath();
+                    g2.fill(p);
+                    break;
+                }
+                case STOP:
+                    g2.fill(new RoundRectangle2D.Double(x + s * 0.18, y + s * 0.18, s * 0.64, s * 0.64, 3, 3));
+                    break;
+                case BUSY: {
+                    double d = s * 0.2;
+                    for (int i = 0; i < 3; i++) {
+                        g2.fill(new Ellipse2D.Double(x + s * 0.06 + i * s * 0.32, y + (s - d) / 2, d, d));
+                    }
+                    break;
+                }
+                case DROP_DOWN: {
+                    Path2D.Double p = new Path2D.Double();
+                    p.moveTo(x, y + s * 0.30);
+                    p.lineTo(x + s, y + s * 0.30);
+                    p.lineTo(x + s * 0.5, y + s * 0.80);
+                    p.closePath();
+                    g2.fill(p);
+                    break;
+                }
+            }
+            g2.dispose();
+        }
+    }
+
     /** Client property set on a styled button while a file is dragged over it. */
     private static final String DROP_HOVER_KEY = "gifSlideShow.dropHover";
 
@@ -28783,6 +28836,10 @@ public class GifSlideShowApp extends JFrame {
         private JButton soundFxMoreBtn;
         private JSpinner soundFxAmountSp;
         private JButton soundFxPreviewBtn;
+        private Timer soundFxLiveTimer;
+        // Bumped by every preview start / stop: a render that finishes after a
+        // newer request (or after Stop) is dropped instead of played.
+        private int soundFxPreviewGen = 0;
         private boolean isLoadingSoundFx = false;
         // toolbar7d (karaoke row) — refreshed whenever currentSlideTextIndex changes.
         private JLabel karaokeStatusLabel;
@@ -32083,7 +32140,10 @@ public class GifSlideShowApp extends JFrame {
             // "Others" button + checkbox popup. Acts like an extra FX toggle that
             // lights up when ≥1 effect is selected; clicking it pops up a vertical
             // list of checkboxes that stays open while the user multi-selects.
-            audioFxOthersBtn = new JButton("Others ▾");
+            audioFxOthersBtn = new JButton("Others");
+            audioFxOthersBtn.setIcon(new GlyphIcon(GlyphIcon.Kind.DROP_DOWN, 7));
+            audioFxOthersBtn.setHorizontalTextPosition(SwingConstants.LEFT);
+            audioFxOthersBtn.setIconTextGap(5);
             audioFxOthersBtn.setFont(fxBtnFont);
             audioFxOthersBtn.setPreferredSize(new Dimension(78, 24));
             audioFxOthersBtn.setFocusPainted(false);
@@ -44021,8 +44081,9 @@ public class GifSlideShowApp extends JFrame {
         }
 
         private static final Color SOUND_FX_MORE_ACCENT = soundFxAccent("");
-        private static final String SOUND_FX_PLAY = "\u25B6";
-        private static final String SOUND_FX_STOP = "\u25A0";
+        private static final Icon SOUND_FX_PLAY = new GlyphIcon(GlyphIcon.Kind.PLAY, 12);
+        private static final Icon SOUND_FX_STOP = new GlyphIcon(GlyphIcon.Kind.STOP, 12);
+        private static final Icon SOUND_FX_BUSY = new GlyphIcon(GlyphIcon.Kind.BUSY, 14);
 
         /** Build the 🔊 Sound row: None, one chip per main effect, More ▾, Amt, ▶ Preview. */
         private void buildSoundFxRow(JPanel row, Font chipFont) {
@@ -44053,7 +44114,10 @@ public class GifSlideShowApp extends JFrame {
             }
 
             // "More ▾": the rest of the catalogue as a multi-select popup, like Others.
-            soundFxMoreBtn = new JButton("More \u25BE");
+            soundFxMoreBtn = new JButton("More");
+            soundFxMoreBtn.setIcon(new GlyphIcon(GlyphIcon.Kind.DROP_DOWN, 7));
+            soundFxMoreBtn.setHorizontalTextPosition(SwingConstants.LEFT);
+            soundFxMoreBtn.setIconTextGap(5);
             soundFxMoreBtn.setFont(chipFont);
             soundFxMoreBtn.setPreferredSize(new Dimension(72, 24));
             soundFxMoreBtn.setFocusPainted(false);
@@ -44120,18 +44184,26 @@ public class GifSlideShowApp extends JFrame {
             soundFxAmountSp.addChangeListener(e -> onSoundFxUiChanged());
 
             soundFxPreviewBtn = new JButton(SOUND_FX_PLAY);
-            soundFxPreviewBtn.setFont(new Font("Segoe UI Symbol", Font.BOLD, 12));
             soundFxPreviewBtn.setPreferredSize(new Dimension(34, 24));
             soundFxPreviewBtn.setFocusPainted(false);
+            // Opt out of the look-and-feel fill (as styleFxToggle does): the
+            // Windows L&F otherwise paints a white face over the blue, and the
+            // white glyph disappears into it.
+            soundFxPreviewBtn.setContentAreaFilled(false);
+            soundFxPreviewBtn.setOpaque(true);
             soundFxPreviewBtn.setBackground(new Color(45, 100, 170));
             soundFxPreviewBtn.setForeground(Color.WHITE);
             soundFxPreviewBtn.setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createLineBorder(new Color(70, 130, 200), 1),
                     BorderFactory.createEmptyBorder(2, 6, 2, 6)));
-            soundFxPreviewBtn.setToolTipText("Preview: listen to this text's audio with the chosen sound "
-                    + "effects (click again to stop)");
+            soundFxPreviewBtn.setToolTipText("<html>Listen live: plays this text's audio with the chosen sound "
+                    + "effects, on a loop.<br>While it plays, change any effect or Amt and you hear the change "
+                    + "straight away.<br>Click again to stop.</html>");
             soundFxPreviewBtn.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
             soundFxPreviewBtn.addActionListener(e -> toggleSoundFxPreview());
+            // Live changes are batched briefly, so spinning Amt renders once, not per step.
+            soundFxLiveTimer = new Timer(200, e -> startSoundFxPreview(true));
+            soundFxLiveTimer.setRepeats(false);
 
             row.add(styledLabel("   "));
             row.add(lbl);
@@ -44186,6 +44258,8 @@ public class GifSlideShowApp extends JFrame {
             String spec = soundFxSpecFromUi();
             if (spec.isEmpty()) slideSoundFxMap.remove(currentSlideTextIndex);
             else slideSoundFxMap.put(currentSlideTextIndex, spec);
+            // Previewing: re-render with the new setting and carry on from the same spot.
+            if (SoundFx.isPlaying(this)) soundFxLiveTimer.restart();
             onFormatChanged();
         }
 
@@ -44199,7 +44273,7 @@ public class GifSlideShowApp extends JFrame {
             any |= more > 0;
             soundFxNone.setSelected(!any);
             soundFxAmountSp.setEnabled(any);
-            soundFxMoreBtn.setText(more == 0 ? "More \u25BE" : "More (" + more + ") \u25BE");
+            soundFxMoreBtn.setText(more == 0 ? "More" : "More (" + more + ")");
             Color acc = SOUND_FX_MORE_ACCENT;
             if (more > 0) {
                 soundFxMoreBtn.setBackground(acc);
@@ -44256,26 +44330,44 @@ public class GifSlideShowApp extends JFrame {
             loadSoundFxForCurrentText();
         }
 
-        /** ▶ Preview: render (off the Swing thread) and play this text's audio with its Sound FX; click again to stop. */
+        /** ▶ / ■: start the live preview of this text's sound, or stop it. */
         private void toggleSoundFxPreview() {
             if (SoundFx.isPlaying(this)) {
+                soundFxPreviewGen++;          // drop any live re-render still in flight
+                soundFxLiveTimer.stop();
                 SoundFx.stop();
                 return;
             }
+            startSoundFxPreview(false);
+        }
+
+        /**
+         * Render (off the Swing thread) this text's audio with its current Sound FX
+         * and play it on a loop. {@code live}: a setting changed while previewing —
+         * keep the old version playing until the new one is ready, then switch at
+         * the same position, so the change is heard in place.
+         */
+        private void startSoundFxPreview(boolean live) {
+            if (live && !SoundFx.isPlaying(this)) return;
             int idx = currentSlideTextIndex;
             java.util.List<File> files = getSlideAudioFilesList();
             java.util.List<Integer> durs = getSlideAudioDurationsMsList();
             File src = idx >= 0 && idx < files.size() ? files.get(idx) : null;
             int dur = idx >= 0 && idx < durs.size() && durs.get(idx) != null ? durs.get(idx) : 0;
             if (src == null || !src.isFile() || dur <= 0) {
-                JOptionPane.showMessageDialog(panel,
-                        "Add audio to Text " + (idx + 1) + " (\uD83D\uDCC2 Browse) to preview its sound.",
-                        "Sound Preview", JOptionPane.INFORMATION_MESSAGE);
+                if (!live) {
+                    JOptionPane.showMessageDialog(panel,
+                            "Add audio to Text " + (idx + 1) + " (\uD83D\uDCC2 Browse) to preview its sound.",
+                            "Sound Preview", JOptionPane.INFORMATION_MESSAGE);
+                }
                 return;
             }
             String spec = slideSoundFxMap.getOrDefault(idx, "");
-            soundFxPreviewBtn.setEnabled(false);
-            soundFxPreviewBtn.setText("\u2026");
+            final int gen = ++soundFxPreviewGen;
+            if (!live) {
+                soundFxPreviewBtn.setEnabled(false);
+                soundFxPreviewBtn.setIcon(SOUND_FX_BUSY);
+            }
             new SwingWorker<File, Void>() {
                 @Override protected File doInBackground() {
                     return SoundFx.previewFile(src, spec, dur);
@@ -44283,16 +44375,24 @@ public class GifSlideShowApp extends JFrame {
                 @Override protected void done() {
                     File wav = null;
                     try { wav = get(); } catch (Exception ignored) { }
-                    soundFxPreviewBtn.setEnabled(true);
+                    if (!live) soundFxPreviewBtn.setEnabled(true);
+                    if (gen != soundFxPreviewGen) return;          // superseded or stopped
                     if (wav == null) {
-                        soundFxPreviewBtn.setText(SOUND_FX_PLAY);
-                        JOptionPane.showMessageDialog(panel,
-                                "Could not prepare the preview.\nMake sure ffmpeg is installed.",
-                                "Sound Preview", JOptionPane.ERROR_MESSAGE);
+                        if (!live) {
+                            soundFxPreviewBtn.setIcon(SOUND_FX_PLAY);
+                            JOptionPane.showMessageDialog(panel,
+                                    "Could not prepare the preview.\nMake sure ffmpeg is installed.",
+                                    "Sound Preview", JOptionPane.ERROR_MESSAGE);
+                        }
                         return;
                     }
-                    soundFxPreviewBtn.setText(SOUND_FX_STOP);
-                    SoundFx.play(wav, SlideRow.this, () -> soundFxPreviewBtn.setText(SOUND_FX_PLAY));
+                    if (live && !SoundFx.isPlaying(SlideRow.this)) return;   // stopped meanwhile
+                    long at = live ? SoundFx.positionMs(SlideRow.this) : 0;
+                    soundFxPreviewBtn.setIcon(SOUND_FX_STOP);
+                    SoundFx.play(wav, SlideRow.this, at, () -> {
+                        // A live switch ends the old playback too: only reset when nothing of ours plays.
+                        if (!SoundFx.isPlaying(SlideRow.this)) soundFxPreviewBtn.setIcon(SOUND_FX_PLAY);
+                    });
                 }
             }.execute();
         }
@@ -44332,7 +44432,7 @@ public class GifSlideShowApp extends JFrame {
             if (audioFxOthersBtn == null) return;
             int n = 0;
             for (JCheckBox cb : audioFxOthersChecks.values()) if (cb.isSelected()) n++;
-            audioFxOthersBtn.setText(n == 0 ? "Others ▾" : ("Others (" + n + ") ▾"));
+            audioFxOthersBtn.setText(n == 0 ? "Others" : ("Others (" + n + ")"));
             if (n > 0) {
                 audioFxOthersBtn.setBackground(FX_ACC_OTHERS);
                 audioFxOthersBtn.setForeground(fxLabelOn(FX_ACC_OTHERS));

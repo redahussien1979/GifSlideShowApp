@@ -417,54 +417,110 @@ final class SoundFx {
 
     // ---------- preview playback ----------
 
-    private static Thread player;
-    private static Object playerOwner;
-    private static volatile boolean stopRequested;
+    /** One preview playback: its thread, who started it, and where it is. */
+    private static final class Playback {
+        final Object owner;
+        final java.util.concurrent.atomic.AtomicBoolean stop = new java.util.concurrent.atomic.AtomicBoolean();
+        Thread thread;
+        volatile javax.sound.sampled.SourceDataLine line;
+        volatile long startFrame;     // clip frame the line started at
+        volatile long totalFrames;    // clip length in frames (0 = unknown)
+        volatile float frameRate;
+        Playback(Object owner) { this.owner = owner; }
+    }
+
+    // Lock-free so a finishing playback thread never waits on stop(), which
+    // joins that very thread while holding the class lock.
+    private static final java.util.concurrent.atomic.AtomicReference<Playback> current =
+            new java.util.concurrent.atomic.AtomicReference<>();
 
     /**
-     * Play a PCM WAV on a background thread for {@code owner} (the toolbar asking),
-     * replacing whatever preview is playing. {@code onEnd} runs on the Swing
-     * thread when it finishes or is stopped — also when another owner's preview
-     * takes over. Streams the file, so long clips don't have to fit in memory.
+     * Loop a PCM WAV for {@code owner} (the toolbar asking) from {@code startMs},
+     * replacing whatever preview is playing, until {@link #stop()} or another
+     * preview takes over. {@code onEnd} runs on the Swing thread when this
+     * playback ends. Streams the file, so long clips don't have to fit in memory.
      */
-    static synchronized void play(File wav, Object owner, Runnable onEnd) {
+    static synchronized void play(File wav, Object owner, long startMs, Runnable onEnd) {
         stop();
-        stopRequested = false;
+        Playback pb = new Playback(owner);
         Thread t = new Thread(() -> {
-            try (javax.sound.sampled.AudioInputStream in = javax.sound.sampled.AudioSystem.getAudioInputStream(wav)) {
+            javax.sound.sampled.SourceDataLine line = null;
+            try {
+                javax.sound.sampled.AudioInputStream in = javax.sound.sampled.AudioSystem.getAudioInputStream(wav);
                 javax.sound.sampled.AudioFormat fmt = in.getFormat();
-                javax.sound.sampled.SourceDataLine line = javax.sound.sampled.AudioSystem.getSourceDataLine(fmt);
+                int frameSize = fmt.getFrameSize();
+                long total = in.getFrameLength() > 0 ? in.getFrameLength() : 0;
+                long start = Math.max(0, Math.round(startMs / 1000.0 * fmt.getFrameRate()));
+                if (total > 0 && start >= total) start = 0;
+                skipFully(in, start * frameSize);
+                line = javax.sound.sampled.AudioSystem.getSourceDataLine(fmt);
                 line.open(fmt);
+                pb.frameRate = fmt.getFrameRate();
+                pb.totalFrames = total;
+                pb.startFrame = start;
+                pb.line = line;
                 line.start();
-                byte[] buf = new byte[fmt.getFrameSize() * 2048];
-                int n;
-                while (!stopRequested && (n = in.read(buf, 0, buf.length)) > 0) line.write(buf, 0, n);
-                if (stopRequested) line.flush(); else line.drain();
-                line.close();
+                byte[] buf = new byte[frameSize * 2048];
+                while (!pb.stop.get()) {
+                    int n = in.read(buf, 0, buf.length);
+                    if (n > 0) { line.write(buf, 0, n); continue; }
+                    // End of the clip: loop seamlessly from the top.
+                    in.close();
+                    in = javax.sound.sampled.AudioSystem.getAudioInputStream(wav);
+                    if (total == 0) break;   // unknown length: can't keep position, play once
+                }
+                in.close();
+                if (pb.stop.get()) line.flush(); else line.drain();
             } catch (Exception e) {
+                System.err.println("[SoundFx] preview: " + e);
                 java.awt.Toolkit.getDefaultToolkit().beep();
             } finally {
+                if (line != null) line.close();
+                current.compareAndSet(pb, null);
                 if (onEnd != null) javax.swing.SwingUtilities.invokeLater(onEnd);
             }
         }, "SoundFx-preview");
         t.setDaemon(true);
-        player = t;
-        playerOwner = owner;
+        pb.thread = t;
+        current.set(pb);
         t.start();
+    }
+
+    private static void skipFully(java.io.InputStream in, long bytes) throws java.io.IOException {
+        while (bytes > 0) {
+            long k = in.skip(bytes);
+            if (k <= 0) break;
+            bytes -= k;
+        }
     }
 
     /** Stop the preview, if one is playing (its {@code onEnd} still runs). */
     static synchronized void stop() {
-        if (player == null) return;
-        stopRequested = true;
-        try { player.join(500); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
-        player = null;
-        playerOwner = null;
+        Playback pb = current.getAndSet(null);
+        if (pb == null) return;
+        pb.stop.set(true);
+        javax.sound.sampled.SourceDataLine line = pb.line;
+        if (line != null) line.flush();   // unblock a pending write
+        try { pb.thread.join(500); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
     }
 
-    /** True while a preview started by {@code owner} is still playing. */
-    static synchronized boolean isPlaying(Object owner) {
-        return player != null && player.isAlive() && playerOwner == owner;
+    /** True while a preview started by {@code owner} is playing. */
+    static boolean isPlaying(Object owner) {
+        Playback pb = current.get();
+        return pb != null && pb.owner == owner;
+    }
+
+    /**
+     * Where {@code owner}'s preview is in its clip, in ms (0 when it isn't
+     * playing). Every effect keeps the clip's length, so a re-rendered version
+     * can resume from here and the switch sounds live.
+     */
+    static long positionMs(Object owner) {
+        Playback pb = current.get();
+        if (pb == null || pb.owner != owner || pb.line == null || pb.frameRate <= 0) return 0;
+        long f = pb.startFrame + pb.line.getLongFramePosition();
+        if (pb.totalFrames > 0) f %= pb.totalFrames;
+        return Math.round(f * 1000.0 / pb.frameRate);
     }
 
     private static File render(File src, String filter) {
