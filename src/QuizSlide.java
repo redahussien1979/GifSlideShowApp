@@ -1117,6 +1117,24 @@ public class QuizSlide {
                 else if (x < 2.5 / d1) return n1 * (x -= 2.25 / d1) * x + 0.9375;
                 else                  return n1 * (x -= 2.625 / d1) * x + 0.984375;
             }
+            // Exponential ease-out: a fast start and a long, silky landing — the
+            // curve most modern UI and title motion is built on.
+            case "Expo Out":    return t >= 1 ? 1 : 1 - Math.pow(2, -10 * t);
+            // easeOutBack: runs slightly past the target (~10 %) and settles back.
+            case "Overshoot": {
+                double c1 = 1.70158, c3 = c1 + 1;
+                return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+            }
+            // easeOutElastic: a springy landing that wobbles once or twice and
+            // settles. Never dips below 0, peaks ~1.37 on the first swing.
+            case "Elastic": {
+                if (t <= 0) return 0;
+                if (t >= 1) return 1;
+                double c4 = (2 * Math.PI) / 3;
+                return Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * c4) + 1;
+            }
+            // Sine in-out: the gentlest symmetric curve, softer than Ease In Out.
+            case "Smooth":      return -(Math.cos(Math.PI * t) - 1) / 2.0;
             case "Ease Out":
             default:            return 1 - (1 - t) * (1 - t);
         }
