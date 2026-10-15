@@ -7645,6 +7645,12 @@ public class GifSlideShowApp extends JFrame {
         g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_LCD_HRGB);
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
         g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_SPEED);
+        // A layered-entrance layer is a see-through picture that gets blurred or
+        // masked and composited afterwards: sub-pixel (LCD) coverage has no
+        // meaning on a transparent canvas, so its glyphs use plain grayscale AA.
+        if (IN_TEXT_LAYER.get()) {
+            g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        }
 
         if (!transparentBase) {
             g.setColor(new Color(21, 32, 43));
@@ -8043,21 +8049,36 @@ public class GifSlideShowApp extends JFrame {
 
         // ========== SLIDE TEXT OVERLAY(S) ==========
         if (slideTexts != null) {
+            // A layered-entrance pass (see drawLayeredTextEntrance) re-enters here to
+            // draw ONE text into its own layer. It shares the caller's bounds board
+            // and slot numbers, and draws exactly the entry it was handed — the
+            // caller has already expanded ghosts / alternates.
+            final boolean layerPass = IN_TEXT_LAYER.get();
             // Stamp each text with its slot and start a fresh bounds board, so the
             // rectangle every text ends up occupying on THIS frame is available to
             // the post-passes that run right after renderFrame returns.
             java.util.Map<Integer, int[]> boundsBoard = TEXT_BOUNDS.get();
-            boundsBoard.clear();
-            for (int bi = 0; bi < slideTexts.size(); bi++) {
-                SlideTextData bst = slideTexts.get(bi);
-                if (bst != null) bst.slideTextIndex = bi;
+            if (!layerPass) {
+                boundsBoard.clear();
+                for (int bi = 0; bi < slideTexts.size(); bi++) {
+                    SlideTextData bst = slideTexts.get(bi);
+                    if (bst != null) bst.slideTextIndex = bi;
+                }
             }
             // Expand any active alternating-text copies and "Move Copy" ghosts into
             // extra render entries (the original list is returned unchanged when
             // none are active).
-            for (SlideTextData st : expandActionGhosts(expandAlternateTexts(slideTexts))) {
+            List<SlideTextData> drawList = layerPass ? slideTexts
+                    : expandActionGhosts(expandAlternateTexts(slideTexts));
+            for (SlideTextData st : drawList) {
                 // forceShow lets a fired trigger reveal a text marked hidden (show=false).
                 if ((!st.show && !st.forceShow) || st.quizHidden || st.text == null || st.text.isEmpty()) continue;
+                // Blur In / Wipe Reveal / Word by Word: draw this text alone into a
+                // layer through this very loop, then composite it with the effect.
+                if (!layerPass && st.layerFxKind != LAYER_FX_NONE) {
+                    drawLayeredTextEntrance(g, st, targetW, targetH, animFrameIndex);
+                    continue;
+                }
                 float stScaleFactor = Math.max(targetW, targetH) / 1920.0f;
                 // A landed Move can re-typeface the text (Motion → Format on landing,
                 // including "Same as trigger"). Everything left on its sentinel keeps
@@ -8377,6 +8398,33 @@ public class GifSlideShowApp extends JFrame {
                     // the erase-and-redraw pass below.
                     stFnSegments.add(setupFnG != null && setupFnG.hasOverride()
                             ? computeWrapSegments(stWrapped, setupFnG.words) : null);
+                }
+
+                // ----- Word by Word: record where every word was laid out -----
+                // Only the layer pass needs it (the compositor cuts the layer into
+                // these word boxes). Captured with the live transform, so a text
+                // that is also moving or tilted still gets boxes that sit on it.
+                if (layerPass && st.layerFxKind == LAYER_FX_WORDS) {
+                    int wbFirstBaseline = stCenterY - totalTextHeight / 2 + stAscent;
+                    java.util.List<WordPlacement> wbWords = locateAllWordPlacements(stWrapped, stFm,
+                            st.alignment, stAlignLeft, stAlignWidth, stCenterX,
+                            wbFirstBaseline, stLineHeight, st.justify, stBlockLeft, stMaxLineWidth);
+                    java.awt.geom.AffineTransform wbTx = g.getTransform();
+                    double wbPadX = Math.max(1.0, stFm.stringWidth(" ") * 0.5);
+                    double wbPadY = Math.max(2.0, stAscent * 0.30);
+                    double wbH = stAscent + stFm.getDescent() + wbPadY * 2;
+                    java.util.List<java.util.List<Shape>> wbShapes = new java.util.ArrayList<>();
+                    for (WordPlacement wp : wbWords) {
+                        java.util.List<Shape> pieces = new java.util.ArrayList<>();
+                        for (WordFragment fr : wp.fragments) {
+                            pieces.add(wbTx.createTransformedShape(new java.awt.geom.Rectangle2D.Double(
+                                    fr.cx - fr.width / 2.0 - wbPadX,
+                                    fr.cy - wbH / 2.0, fr.width + wbPadX * 2, wbH)));
+                        }
+                        if (!pieces.isEmpty()) wbShapes.add(pieces);
+                    }
+                    st.layerWordShapes = wbShapes;
+                    st.layerRisePx = stAscent * 0.30;
                 }
 
                 // ----- Hide the original word for in-place word effects -----
@@ -11696,6 +11744,256 @@ public class GifSlideShowApp extends JFrame {
         return frame;
     }
 
+    // ==================== Layered text entrances ====================
+
+    /**
+     * Draw one text whose entrance needs the finished text as a picture — Blur In,
+     * Wipe Reveal, Word by Word. The text is rendered alone onto a transparent
+     * layer through renderFrame's own per-text loop (so background box, shadow,
+     * glow, highlight and every word style come out exactly as they will once the
+     * entrance ends), then composited onto {@code g} with the effect applied.
+     */
+    private static void drawLayeredTextEntrance(Graphics2D g, SlideTextData st,
+                                                int targetW, int targetH, int animFrameIndex) {
+        if (targetW <= 0 || targetH <= 0) return;
+        int kind = st.layerFxKind;
+        BufferedImage layer;
+        st.layerWordShapes = null;
+        IN_TEXT_LAYER.set(Boolean.TRUE);
+        try {
+            layer = renderFrame(null, "", "SansSerif", 12, Font.PLAIN, Color.WHITE,
+                    SwingConstants.CENTER, false, targetW, targetH, null, 0, 0,
+                    false, null, null, 0, 0, 0, null, null, null,
+                    java.util.Collections.singletonList(st),
+                    false, 0, 0, 0, 0, 0, 0, 0, 0, 0, null, 0,
+                    false, null, null, null, 0, 0, 0,
+                    animFrameIndex, false, 100, "", null, 0, null, 0, true);
+        } finally {
+            IN_TEXT_LAYER.set(Boolean.FALSE);
+        }
+        java.awt.Rectangle ink = layerInkBounds(layer);
+        if (ink == null) { st.layerWordShapes = null; return; }
+
+        Graphics2D lg = (Graphics2D) g.create();
+        try {
+            lg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            lg.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+            lg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            switch (kind) {
+                case LAYER_FX_BLUR:
+                    drawLayerBlurred(lg, layer, ink, st.layerFxAmount, targetW, targetH);
+                    break;
+                case LAYER_FX_WIPE:
+                    drawLayerWiped(lg, layer, ink, st.layerFxAmount, containsRtl(st.text), targetW, targetH);
+                    break;
+                case LAYER_FX_WORDS:
+                    drawLayerByWords(lg, layer, st, targetW, targetH);
+                    break;
+                default:
+                    lg.drawImage(layer, 0, 0, null);
+                    break;
+            }
+        } finally {
+            lg.dispose();
+            // The word boxes were only for this frame's composite.
+            st.layerWordShapes = null;
+        }
+    }
+
+    /** The tight box around every non-transparent pixel of a layer, or null when
+     *  the layer is empty. */
+    private static java.awt.Rectangle layerInkBounds(BufferedImage layer) {
+        if (layer == null) return null;
+        int w = layer.getWidth(), h = layer.getHeight();
+        int[] px = ((java.awt.image.DataBufferInt) layer.getRaster().getDataBuffer()).getData();
+        int minX = w, minY = h, maxX = -1, maxY = -1;
+        for (int y = 0; y < h; y++) {
+            int row = y * w;
+            int x0 = -1;
+            for (int x = 0; x < w; x++) {
+                if ((px[row + x] >>> 24) != 0) { x0 = x; break; }
+            }
+            if (x0 < 0) continue;
+            int x1 = x0;
+            for (int x = w - 1; x > x0; x--) {
+                if ((px[row + x] >>> 24) != 0) { x1 = x; break; }
+            }
+            if (x0 < minX) minX = x0;
+            if (x1 > maxX) maxX = x1;
+            if (y < minY) minY = y;
+            maxY = y;
+        }
+        if (maxX < 0) return null;
+        return new java.awt.Rectangle(minX, minY, maxX - minX + 1, maxY - minY + 1);
+    }
+
+    /**
+     * Blur In: the layer through a near-Gaussian blur (three box passes on
+     * premultiplied pixels, so edges fade to clear rather than to a dark fringe).
+     * {@code amount} 0..1 maps to a radius of up to ~2.2 % of the frame height.
+     * Large radii are blurred at half resolution — indistinguishable, 4× cheaper.
+     * The last fraction of a pixel is cross-faded, so the text eases into perfect
+     * focus instead of snapping sharp on the final frame.
+     */
+    private static void drawLayerBlurred(Graphics2D g, BufferedImage layer, java.awt.Rectangle ink,
+                                         double amount, int targetW, int targetH) {
+        double r = clamp01(amount) * Math.max(3.0, targetH * 0.022);
+        if (r < 0.15) { g.drawImage(layer, 0, 0, null); return; }
+        int margin = (int) Math.ceil(r * 2.5) + 2;
+        java.awt.Rectangle crop = new java.awt.Rectangle(ink.x - margin, ink.y - margin,
+                ink.width + margin * 2, ink.height + margin * 2)
+                .intersection(new java.awt.Rectangle(0, 0, targetW, targetH));
+        if (crop.isEmpty()) return;
+        int ds = r >= 6.0 ? 2 : 1;
+        int ww = Math.max(1, crop.width / ds), wh = Math.max(1, crop.height / ds);
+        BufferedImage work = new BufferedImage(ww, wh, BufferedImage.TYPE_INT_ARGB_PRE);
+        Graphics2D wg = work.createGraphics();
+        wg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        wg.drawImage(layer, 0, 0, ww, wh, crop.x, crop.y, crop.x + crop.width, crop.y + crop.height, null);
+        wg.dispose();
+        int[] px = ((java.awt.image.DataBufferInt) work.getRaster().getDataBuffer()).getData();
+        double rb = r / ds / 2.0;                    // three box passes of ~r/2 ≈ a Gaussian of σ ≈ r/2
+        int box = Math.max(1, (int) Math.ceil(rb));
+        double mix = Math.min(1.0, rb / box);        // fractional radius → cross-fade with the sharp copy
+        int[] sharp = mix < 1.0 ? px.clone() : null;
+        int[] tmp = new int[px.length];
+        for (int pass = 0; pass < 3; pass++) {
+            boxBlurPremul(px, tmp, ww, wh, box, true);
+            boxBlurPremul(tmp, px, ww, wh, box, false);
+        }
+        if (sharp != null) {
+            int m = (int) Math.round(mix * 256);
+            for (int i = 0; i < px.length; i++) {
+                int b = px[i], s0 = sharp[i];
+                int a  = (((s0 >>> 24) * (256 - m)) + ((b >>> 24) * m)) >> 8;
+                int rr = ((((s0 >> 16) & 0xFF) * (256 - m)) + (((b >> 16) & 0xFF) * m)) >> 8;
+                int gg = ((((s0 >> 8) & 0xFF) * (256 - m)) + (((b >> 8) & 0xFF) * m)) >> 8;
+                int bb = (((s0 & 0xFF) * (256 - m)) + ((b & 0xFF) * m)) >> 8;
+                px[i] = (a << 24) | (rr << 16) | (gg << 8) | bb;
+            }
+        }
+        g.drawImage(work, crop.x, crop.y, crop.width, crop.height, null);
+    }
+
+    /** One box-blur pass (horizontal or vertical) over premultiplied ARGB pixels,
+     *  with edge pixels treated as transparent. Sliding-window, O(pixels). */
+    private static void boxBlurPremul(int[] src, int[] dst, int w, int h, int radius, boolean horizontal) {
+        int len = horizontal ? w : h;
+        int lines = horizontal ? h : w;
+        int step = horizontal ? 1 : w;
+        int div = radius * 2 + 1;
+        for (int line = 0; line < lines; line++) {
+            int base = horizontal ? line * w : line;
+            int sa = 0, sr = 0, sg = 0, sb = 0;
+            for (int k = 0; k <= radius && k < len; k++) {
+                int c = src[base + k * step];
+                sa += c >>> 24; sr += (c >> 16) & 0xFF; sg += (c >> 8) & 0xFF; sb += c & 0xFF;
+            }
+            for (int i = 0; i < len; i++) {
+                dst[base + i * step] = ((sa / div) << 24) | ((sr / div) << 16) | ((sg / div) << 8) | (sb / div);
+                int in = i + radius + 1, out = i - radius;
+                if (in < len) {
+                    int c = src[base + in * step];
+                    sa += c >>> 24; sr += (c >> 16) & 0xFF; sg += (c >> 8) & 0xFF; sb += c & 0xFF;
+                }
+                if (out >= 0) {
+                    int c = src[base + out * step];
+                    sa -= c >>> 24; sr -= (c >> 16) & 0xFF; sg -= (c >> 8) & 0xFF; sb -= c & 0xFF;
+                }
+            }
+        }
+    }
+
+    /**
+     * Wipe Reveal: a soft-edged mask sweeps across the text in reading order —
+     * left → right, or right → left for Arabic / Hebrew. Every line is wiped in
+     * parallel; the feather is ~22 % of the text's width so the edge reads as light
+     * moving over the type, never as a hard cut.
+     */
+    private static void drawLayerWiped(Graphics2D g, BufferedImage layer, java.awt.Rectangle ink,
+                                       double progress, boolean rtl, int targetW, int targetH) {
+        double p = clamp01(progress);
+        if (p >= 1.0) { g.drawImage(layer, 0, 0, null); return; }
+        if (p <= 0.0) return;
+        BufferedImage sub = new BufferedImage(ink.width, ink.height, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D mg = sub.createGraphics();
+        mg.drawImage(layer, -ink.x, -ink.y, null);
+        float feather = (float) Math.max(ink.width * 0.22, targetH * 0.03);
+        float edge = (float) (-feather + (ink.width + 2.0 * feather) * p);
+        float opaque, clear;
+        if (rtl) {
+            opaque = ink.width - edge + feather / 2f;
+            clear  = ink.width - edge - feather / 2f;
+        } else {
+            opaque = edge - feather / 2f;
+            clear  = edge + feather / 2f;
+        }
+        mg.setComposite(AlphaComposite.DstIn);
+        mg.setPaint(new java.awt.GradientPaint(opaque, 0f, new Color(0, 0, 0, 255),
+                clear, 0f, new Color(0, 0, 0, 0)));
+        mg.fillRect(0, 0, ink.width, ink.height);
+        mg.dispose();
+        g.drawImage(sub, ink.x, ink.y, null);
+    }
+
+    /**
+     * Word by Word: the words rise a little and fade in one after another in
+     * reading order (right → left for Arabic), each playing the row's easing
+     * curve; neighbouring words overlap in time so the line flows rather than
+     * ticks. Whatever lies outside the word boxes — a background box, a soft
+     * shadow — fades in over the first 30 % so the words land on it.
+     */
+    private static void drawLayerByWords(Graphics2D g, BufferedImage layer, SlideTextData st,
+                                         int targetW, int targetH) {
+        double t = clamp01(st.layerFxAmount);
+        java.util.List<java.util.List<Shape>> words = st.layerWordShapes;
+        String easing = st.layerFxEasing;
+        if (words == null || words.isEmpty()) {
+            float a = (float) clamp01(QuizSlide.easeNamed(easing, t));
+            if (a > 0f) {
+                g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, a));
+                g.drawImage(layer, 0, 0, null);
+            }
+            return;
+        }
+        int n = words.size();
+        java.awt.geom.Area all = new java.awt.geom.Area();
+        for (java.util.List<Shape> pieces : words) {
+            for (Shape sh : pieces) all.add(new java.awt.geom.Area(sh));
+        }
+        // Everything that is not a word: background box, shadow / glow spill.
+        double bgA = clamp01(QuizSlide.easeNamed(easing, clamp01(t / 0.30)));
+        if (bgA > 0.0) {
+            java.awt.geom.Area rest = new java.awt.geom.Area(new java.awt.Rectangle(0, 0, targetW, targetH));
+            rest.subtract(all);
+            Graphics2D bg = (Graphics2D) g.create();
+            bg.clip(rest);
+            bg.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) bgA));
+            bg.drawImage(layer, 0, 0, null);
+            bg.dispose();
+        }
+        // Each word's own window: a third or so of the whole run, staggered so
+        // the last word finishes exactly as the entrance ends.
+        double win = n <= 1 ? 1.0 : Math.max(0.18, Math.min(0.60, 3.0 / (n + 2)));
+        double stagger = n <= 1 ? 0.0 : (1.0 - win) / (n - 1);
+        for (int i = 0; i < n; i++) {
+            double u = clamp01((t - i * stagger) / win);
+            if (u <= 0.0) continue;
+            double e = QuizSlide.easeNamed(easing, u);
+            float a = (float) clamp01(e);
+            if (a <= 0f) continue;
+            Graphics2D wg = (Graphics2D) g.create();
+            // The box travels with its word, so the rise never crops the glyphs.
+            wg.translate(0.0, st.layerRisePx * (1.0 - e));
+            java.awt.geom.Area box = new java.awt.geom.Area();
+            for (Shape sh : words.get(i)) box.add(new java.awt.geom.Area(sh));
+            wg.clip(box);
+            wg.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, a));
+            wg.drawImage(layer, 0, 0, null);
+            wg.dispose();
+        }
+    }
+
     // ==================== Slide picture rendering + Image FX ====================
 
     /**
@@ -13952,28 +14250,13 @@ public class GifSlideShowApp extends JFrame {
                                              int firstBaseline, int lineHeight,
                                              boolean justify, int blockLeft, int blockWidth) {
         if (wrapped == null || wrapped.lines.isEmpty() || word == null) return null;
-        List<String> lines = wrapped.lines;
         // Collapse the target's own inner whitespace: the lines below are flattened
         // with exactly one space between them, so an expression typed with a double
         // space ("clash  with") still has to match as "clash with".
         String needle = word.trim().replaceAll("\\s+", " ").toLowerCase();
         if (needle.isEmpty()) return null;
-        int n = lines.size();
-        int[] lineStart = new int[n];
-        int[] lineLen = new int[n];   // flattened length: one short on a hyphenated line
-        StringBuilder flat = new StringBuilder();
-        for (int i = 0; i < n; i++) {
-            // Mirrors computeWrapSegments: a hyphenated line joins the next with
-            // neither the hyphen nor a space, so a word split across the break is
-            // still findable and still gets its motion.
-            if (i > 0 && !wrapped.wordContinues(i - 1)) flat.append(' ');
-            String ln = lines.get(i);
-            if (wrapped.hyphenAdded(i) && !ln.isEmpty()) ln = ln.substring(0, ln.length() - 1);
-            lineStart[i] = flat.length();
-            lineLen[i] = ln.length();
-            flat.append(ln);
-        }
-        String hay = flat.toString();
+        FlatLines flat = new FlatLines(wrapped);
+        String hay = flat.hay;
         String hayLower = hay.toLowerCase();
         // Collect every whole-word match start, then pick the requested occurrence.
         java.util.List<Integer> matches = new java.util.ArrayList<>();
@@ -14005,7 +14288,80 @@ public class GifSlideShowApp extends JFrame {
         int want = Math.max(1, occ);
         int idx = matches.get(Math.min(want, matches.size()) - 1);
         int end = idx + needle.length();
+        return placeFlatSpan(wrapped, fm, flat, idx, end, alignment, alignLeft, alignWidth, centerX,
+                firstBaseline, lineHeight, justify, blockLeft, blockWidth);
+    }
 
+    /**
+     * A wrapped paragraph flattened back into the string the reader reads: lines
+     * joined by one space, or by nothing where the wrapper hyphenated a word
+     * across the break (that hyphen is dropped). Mirrors computeWrapSegments, so a
+     * phrase split over two lines is still one run of characters here.
+     */
+    private static final class FlatLines {
+        final String hay;
+        final int[] lineStart;
+        final int[] lineLen;   // flattened length: one short on a hyphenated line
+
+        FlatLines(WrappedText wrapped) {
+            List<String> lines = wrapped.lines;
+            int n = lines.size();
+            lineStart = new int[n];
+            lineLen = new int[n];
+            StringBuilder flat = new StringBuilder();
+            for (int i = 0; i < n; i++) {
+                if (i > 0 && !wrapped.wordContinues(i - 1)) flat.append(' ');
+                String ln = lines.get(i);
+                if (wrapped.hyphenAdded(i) && !ln.isEmpty()) ln = ln.substring(0, ln.length() - 1);
+                lineStart[i] = flat.length();
+                lineLen[i] = ln.length();
+                flat.append(ln);
+            }
+            hay = flat.toString();
+        }
+    }
+
+    /**
+     * Every word of a wrapped paragraph, in reading order, with where each piece
+     * of it was drawn — the geometry Word by Word reveals one word at a time.
+     * Uses the same placement maths as {@link #locateWordPlacement}, so a word's
+     * box sits exactly on the glyphs the render loop drew (RTL and justified
+     * lines included).
+     */
+    private static java.util.List<WordPlacement> locateAllWordPlacements(WrappedText wrapped, FontMetrics fm,
+                                             int alignment, int alignLeft, int alignWidth, int centerX,
+                                             int firstBaseline, int lineHeight,
+                                             boolean justify, int blockLeft, int blockWidth) {
+        java.util.List<WordPlacement> out = new java.util.ArrayList<>();
+        if (wrapped == null || wrapped.lines.isEmpty()) return out;
+        FlatLines flat = new FlatLines(wrapped);
+        String hay = flat.hay;
+        int len = hay.length();
+        int i = 0;
+        while (i < len) {
+            while (i < len && Character.isWhitespace(hay.charAt(i))) i++;
+            if (i >= len) break;
+            int start = i;
+            while (i < len && !Character.isWhitespace(hay.charAt(i))) i++;
+            WordPlacement wp = placeFlatSpan(wrapped, fm, flat, start, i, alignment, alignLeft,
+                    alignWidth, centerX, firstBaseline, lineHeight, justify, blockLeft, blockWidth);
+            if (wp != null) out.add(wp);
+        }
+        return out;
+    }
+
+    /** Place the flattened character span [idx, end) on screen: one fragment per
+     *  line it touches, plus how many words come before it. */
+    private static WordPlacement placeFlatSpan(WrappedText wrapped, FontMetrics fm, FlatLines flat,
+                                               int idx, int end,
+                                               int alignment, int alignLeft, int alignWidth, int centerX,
+                                               int firstBaseline, int lineHeight,
+                                               boolean justify, int blockLeft, int blockWidth) {
+        List<String> lines = wrapped.lines;
+        int n = lines.size();
+        String hay = flat.hay;
+        int[] lineStart = flat.lineStart;
+        int[] lineLen = flat.lineLen;
         WordPlacement out = new WordPlacement();
         // How many words of the paragraph come before this one, counted over the
         // same flattened text the word-by-word reveal counts over, so a caller can
@@ -22070,6 +22426,11 @@ public class GifSlideShowApp extends JFrame {
      * worker (and on the EDT for the editor preview), so a thread-local board is
      * enough to hand the geometry to the post-passes that composite on top.
      */
+    /** True while renderFrame is drawing one text into its layered-entrance
+     *  layer (see drawLayeredTextEntrance), so the re-entered loop draws just that
+     *  text and never layers it a second time. */
+    private static final ThreadLocal<Boolean> IN_TEXT_LAYER = ThreadLocal.withInitial(() -> Boolean.FALSE);
+
     private static final ThreadLocal<java.util.Map<Integer, int[]>> TEXT_BOUNDS =
             ThreadLocal.withInitial(java.util.HashMap::new);
 
@@ -22385,7 +22746,7 @@ public class GifSlideShowApp extends JFrame {
                 if (quiz.isInRevealAnimWindow(i, elapsedMs, size)) {
                     double t = quiz.revealAnimProgress(elapsedMs);
                     double eased = QuizSlide.easeNamed(quiz.hideRevealEasing, t);
-                    applyRevealAnimFields(st, quiz.hideRevealAnimation, t, eased);
+                    applyRevealAnimFields(st, quiz.hideRevealAnimation, t, eased, quiz.hideRevealEasing);
                     quizAnimating = true;
                 }
             }
@@ -22397,7 +22758,7 @@ public class GifSlideShowApp extends JFrame {
                 if (applyTimer && !hidden && textTimerEntranceActive(st, elapsedMs, effAppear)) {
                     double t = textTimerEntranceProgress(st, elapsedMs, effAppear);
                     double eased = QuizSlide.easeNamed(st.timerAppearEasing, t);
-                    applyRevealAnimFields(st, st.timerAppearEffect, t, eased);
+                    applyRevealAnimFields(st, st.timerAppearEffect, t, eased, st.timerAppearEasing);
                 } else {
                     resetQuizRevealAnim(st);
                 }
@@ -23911,10 +24272,131 @@ public class GifSlideShowApp extends JFrame {
         st.ghostGlowColor = null;
         st.altRendersThisFrame = null;
         if (st.wordMotionsRender != null) st.wordMotionsRender.clear();
+        st.layerFxKind = LAYER_FX_NONE;
+        st.layerFxAmount = 0.0;
+        st.layerFxEasing = null;
+        st.layerWordShapes = null;
+        st.layerRisePx = 0.0;
     }
 
-    /** Map an animation name + per-frame easing to the transient render fields. */
-    private static void applyRevealAnimFields(SlideTextData st, String anim, double t, double eased) {
+    /** Texts Timer → Effect. Saved projects store the name, so an entry is never
+     *  renamed; new ones join their group. */
+    static final String[] TIMER_APPEAR_EFFECTS = {
+            "None",
+            // Classic
+            "Fade", "Slide In Top", "Slide In Bottom", "Slide In Left", "Slide In Right",
+            "Scale Up", "Zoom Out", "Bounce", "Rotate In", "Pop",
+            // Elegant / cinematic
+            "Fade Up", "Soft Zoom", "Blur In", "Glow In", "Light Sweep", "Wipe Reveal", "Word by Word",
+            // Dynamic / modern
+            "Flip In", "Unfold", "Elastic Pop", "Swing In", "Drop In", "Stamp" };
+
+    /** Texts Timer → Ease. Every name is a curve QuizSlide.easeNamed knows. */
+    static final String[] TIMER_APPEAR_EASINGS = {
+            "Linear", "Ease In", "Ease Out", "Ease In Out", "Bounce",
+            "Expo Out", "Overshoot", "Elastic", "Smooth" };
+
+    /** One-line descriptions shown as each Effect is hovered in the list. */
+    static final java.util.Map<String, String> TIMER_EFFECT_TIPS = new java.util.LinkedHashMap<>();
+    static {
+        java.util.Map<String, String> m = TIMER_EFFECT_TIPS;
+        m.put("None", "Appears instantly, no transition.");
+        m.put("Fade", "Fades in where it stands.");
+        m.put("Slide In Top", "Slides down into place while fading in.");
+        m.put("Slide In Bottom", "Rises into place while fading in.");
+        m.put("Slide In Left", "Slides in from the left while fading in.");
+        m.put("Slide In Right", "Slides in from the right while fading in.");
+        m.put("Scale Up", "Grows from small to full size.");
+        m.put("Zoom Out", "Shrinks from very large to full size.");
+        m.put("Bounce", "Grows in with a bouncing settle.");
+        m.put("Rotate In", "Spins half a turn into place.");
+        m.put("Pop", "Pops in, slightly past full size, and settles.");
+        m.put("Fade Up", "Elegant: rises a little while it fades in — the subtitle-house standard.");
+        m.put("Soft Zoom", "Elegant: settles from 108 % to full size — a gentle camera push.");
+        m.put("Blur In", "Cinematic: comes into sharp focus from a soft blur.");
+        m.put("Glow In", "Elegant: arrives in a soft halo of its own colour that melts away.");
+        m.put("Light Sweep", "Elegant: fades in as one shine runs across the letters, in reading order.");
+        m.put("Wipe Reveal", "Cinematic: a soft-edged wipe uncovers it in reading order (right → left for Arabic).");
+        m.put("Word by Word", "Elegant: the words rise and fade in one after another, in reading order. "
+                + "Give it 1200–2500 ms.");
+        m.put("Flip In", "Modern: flips open like a card turning to face you.");
+        m.put("Unfold", "Modern: opens vertically from its centre line, like a blind.");
+        m.put("Elastic Pop", "Lively: springs in past full size and settles with a soft wobble.");
+        m.put("Swing In", "Lively: slides in leaning into the move, then swings upright.");
+        m.put("Drop In", "Lively: drops from above and lands with a small rebound.");
+        m.put("Stamp", "Bold: slams down from large with a short impact shake — best for one key word.");
+    }
+
+    /** One-line descriptions shown as each Ease is hovered in the list. */
+    static final java.util.Map<String, String> TIMER_EASING_TIPS = new java.util.LinkedHashMap<>();
+    static {
+        java.util.Map<String, String> m = TIMER_EASING_TIPS;
+        m.put("Linear", "Constant speed — mechanical; best for fades only.");
+        m.put("Ease In", "Starts slow, ends fast.");
+        m.put("Ease Out", "Starts fast, lands softly — the natural default.");
+        m.put("Ease In Out", "Slow start, slow landing.");
+        m.put("Bounce", "Lands with a few bounces.");
+        m.put("Expo Out", "Very fast start, long silky landing — the modern premium feel.");
+        m.put("Overshoot", "Goes slightly past the target, then settles back.");
+        m.put("Elastic", "Springy landing that wobbles and settles.");
+        m.put("Smooth", "The gentlest in-and-out curve — calm and soft.");
+    }
+
+    /** The description for a list value, or {@code fallback} when it has none. */
+    static String timerTipFor(java.util.Map<String, String> tips, Object value, String fallback) {
+        String tip = value == null ? null : tips.get(value.toString());
+        return tip != null ? tip : fallback;
+    }
+
+    /** A combo renderer that shows each entry's description as its tooltip. */
+    static ListCellRenderer<Object> timerTipRenderer(java.util.Map<String, String> tips) {
+        DefaultListCellRenderer base = new DefaultListCellRenderer();
+        return (list, value, index, selected, focused) -> {
+            Component c = base.getListCellRendererComponent(list, value, index, selected, focused);
+            if (c instanceof JComponent) {
+                ((JComponent) c).setToolTipText(timerTipFor(tips, value, null));
+            }
+            return c;
+        };
+    }
+
+    /** Parse a typed number scaled to ms (1000 for seconds, 1 for ms); an empty
+     *  or not-yet-valid value gives {@code fallbackMs}. */
+    static int parseFieldMs(String text, double scaleToMs, int fallbackMs) {
+        if (text == null) return fallbackMs;
+        String t = text.trim();
+        if (t.isEmpty()) return fallbackMs;
+        try {
+            double v = Double.parseDouble(t);
+            if (Double.isNaN(v) || Double.isInfinite(v)) return fallbackMs;
+            return (int) Math.round(v * scaleToMs);
+        } catch (NumberFormatException ex) {
+            return fallbackMs;
+        }
+    }
+
+    /** Whether the Texts Timer shows its live preview (remembered per session). */
+    static final boolean[] timerPreviewVisible = { true };
+
+    /** Layered entrance kinds carried in {@link SlideTextData#layerFxKind}. */
+    static final int LAYER_FX_NONE  = 0;
+    static final int LAYER_FX_BLUR  = 1;   // Blur In: soft focus pull
+    static final int LAYER_FX_WIPE  = 2;   // Wipe Reveal: feathered mask in reading order
+    static final int LAYER_FX_WORDS = 3;   // Word by Word: staggered per-word rise + fade
+
+    private static double clamp01(double v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
+
+    /**
+     * Map an animation name + per-frame easing to the transient render fields.
+     * {@code easing} is the curve's name: Word by Word replays that curve on every
+     * word in turn, so it needs the curve itself, not just this frame's value.
+     *
+     * <p>Effects built on a physical motion (Bounce, Pop, Elastic Pop, Swing In,
+     * Drop In, Stamp) carry their own curve, because that motion IS the effect;
+     * the chosen easing still shapes their fade where they have one.
+     */
+    private static void applyRevealAnimFields(SlideTextData st, String anim, double t, double eased,
+                                              String easing) {
         resetQuizRevealAnim(st);
         if (anim == null) return;
         double inv = 1.0 - eased;
@@ -23964,6 +24446,130 @@ public class GifSlideShowApp extends JFrame {
                 if (t < 0.6) st.pulseRenderScale = 1.15 * (t / 0.6);
                 else        st.pulseRenderScale = 1.15 - 0.15 * ((t - 0.6) / 0.4);
                 break;
+
+            // ===== Elegant / cinematic =====
+            case "Fade Up":
+                // The subtitle-house standard: a short rise while it fades in.
+                st.audioOtherAlpha   = clamp01(eased);
+                st.shakeRenderDyFrac = 0.035 * inv;
+                break;
+            case "Soft Zoom":
+                // A gentle camera push: settles from 108 % to 100 %.
+                st.audioOtherAlpha  = clamp01(eased * 1.2);
+                st.pulseRenderScale = 1.0 + 0.08 * inv;
+                break;
+            case "Blur In":
+                // Focus pull: starts soft and slightly large, sharpens into place.
+                st.audioOtherAlpha  = clamp01(eased * 1.25);
+                st.pulseRenderScale = 1.0 + 0.04 * inv;
+                st.layerFxKind   = LAYER_FX_BLUR;
+                st.layerFxAmount = clamp01(inv);
+                break;
+            case "Glow In": {
+                // Arrives wrapped in a soft halo of its own colour, lifted toward
+                // white, that melts away as the letters settle.
+                st.audioOtherAlpha = clamp01(eased * 1.5);
+                double gl = clamp01(inv);
+                if (gl > 0.002) {
+                    Color base = st.color != null ? st.color : Color.WHITE;
+                    int r = (int) Math.round(base.getRed()   + (255 - base.getRed())   * 0.45);
+                    int gn = (int) Math.round(base.getGreen() + (255 - base.getGreen()) * 0.45);
+                    int b = (int) Math.round(base.getBlue()  + (255 - base.getBlue())  * 0.45);
+                    st.fxGlowSize  = (int) Math.round(4 + 14 * gl);
+                    st.fxGlowColor = new Color(r, gn, b, (int) Math.round(255 * Math.pow(gl, 0.7)));
+                }
+                break;
+            }
+            case "Light Sweep": {
+                // Fades in over the first ~45 %, while one shine runs across the
+                // letters in reading order (right → left for Arabic / Hebrew).
+                st.audioOtherAlpha = clamp01(t * 2.2);
+                double u = clamp01((t - 0.15) / 0.85);
+                double sp = -(Math.cos(Math.PI * u) - 1) / 2.0;   // sine in-out: constant-feel speed
+                st.fxSheenKind  = 2;                              // Shine Sweep
+                st.fxSheenPos   = containsRtl(st.text) ? 1.0 - sp : sp;
+                st.fxSheenColor = null;
+                // A faint halo swells while the shine crosses and is gone by the
+                // end, so the sweep also reads on white or very pale type.
+                double k = Math.sin(Math.PI * u);
+                if (k > 0.01) {
+                    st.fxGlowSize  = (int) Math.round(3 + 5 * k);
+                    st.fxGlowColor = new Color(255, 250, 235, (int) Math.round(150 * k));
+                }
+                break;
+            }
+            case "Wipe Reveal":
+                st.layerFxKind   = LAYER_FX_WIPE;
+                st.layerFxAmount = eased;
+                break;
+            case "Word by Word":
+                st.layerFxKind   = LAYER_FX_WORDS;
+                st.layerFxAmount = clamp01(t);
+                st.layerFxEasing = easing;
+                break;
+
+            // ===== Dynamic / modern =====
+            case "Flip In":
+                // Card flip about the vertical axis: opens from a sliver.
+                st.audioOtherAlpha = clamp01(eased * 2.0);
+                st.fxScaleX = Math.max(0.02, eased);
+                break;
+            case "Unfold":
+                // Opens vertically from its centre line, like a blind.
+                st.audioOtherAlpha = clamp01(eased * 2.0);
+                st.fxScaleY = Math.max(0.02, eased);
+                break;
+            case "Elastic Pop": {
+                // A damped spring: grows from 30 %, swings ~11 % past full size,
+                // dips under once, settles — lively without looking like a toy.
+                double spring = Math.exp(-6.0 * t) * Math.cos(2 * Math.PI * 1.6 * t);
+                st.audioOtherAlpha  = clamp01(t * 4.0);
+                st.pulseRenderScale = Math.max(0.02, 1.0 - 0.7 * spring);
+                break;
+            }
+            case "Swing In": {
+                // Slides in from the side the line is read from, leaning into the
+                // move; the overshoot swings the lean back through upright.
+                double dir = containsRtl(st.text) ? -1.0 : 1.0;
+                double b = easeOutBack(clamp01(t));
+                st.audioOtherAlpha  = clamp01(eased * 1.6);
+                st.audioOtherDxFrac = -dir * 0.12 * (1.0 - b);
+                st.fxSkewX          = -dir * 0.38 * (1.0 - b);
+                break;
+            }
+            case "Drop In": {
+                // Falls with gravity, squashes a touch on landing, one small rebound.
+                double off;
+                if (t < 0.60) {
+                    double u = t / 0.60;
+                    off = 1.0 - u * u;
+                } else if (t < 0.75) {
+                    off = 0.0;
+                    double k = Math.sin(Math.PI * (t - 0.60) / 0.15);
+                    st.fxScaleY = 1.0 - 0.08 * k;
+                    st.fxScaleX = 1.0 + 0.05 * k;
+                } else {
+                    off = 0.06 * Math.sin(Math.PI * (t - 0.75) / 0.25);
+                }
+                st.audioOtherAlpha   = clamp01(t * 3.0);
+                st.shakeRenderDyFrac = -0.12 * off;
+                break;
+            }
+            case "Stamp": {
+                // Slams down from 160 %, then a short, damped impact shake.
+                if (t < 0.40) {
+                    double u = t / 0.40;
+                    st.pulseRenderScale = 1.6 - 0.6 * u * u;
+                    st.audioOtherAlpha  = clamp01(u * 1.4);
+                } else {
+                    double v = (t - 0.40) / 0.60;
+                    double damp = (1.0 - v) * (1.0 - v);
+                    st.pulseRenderScale  = 1.0 - 0.04 * Math.sin(Math.PI * v * 2.5) * damp;
+                    st.audioOtherDxFrac  = 0.006 * Math.sin(2 * Math.PI * v * 5.0) * damp;
+                    st.shakeRenderDyFrac = 0.004 * Math.cos(2 * Math.PI * v * 4.0) * damp;
+                }
+                break;
+            }
             case "None":
             default:
                 break;
@@ -24711,6 +25317,11 @@ public class GifSlideShowApp extends JFrame {
                 hl.wordMotionsRender = st.wordMotionsRender;
                 hl.altRendersThisFrame = st.altRendersThisFrame;
                 hl.forceShow = st.forceShow;
+                // Layered entrance (Blur In / Wipe Reveal / Word by Word), so a text
+                // that is speaking as it arrives still plays its entrance.
+                hl.layerFxKind   = st.layerFxKind;
+                hl.layerFxAmount = st.layerFxAmount;
+                hl.layerFxEasing = st.layerFxEasing;
                 result.add(hl);
             } else {
                 result.add(st);
@@ -25551,6 +26162,24 @@ public class GifSlideShowApp extends JFrame {
         double ghostSheenPos = -1.0;
         int    ghostSheenKind = 0;
         Color  ghostSheenColor = null;
+
+        // ---- Layered entrance hooks (transient, not persisted) ----
+        // Blur In, Wipe Reveal and Word by Word cannot be expressed as a transform
+        // or an alpha on the shared Graphics2D: they need the finished text as a
+        // picture so it can be blurred, masked, or cut into words. When
+        // layerFxKind is set, renderFrame draws this text alone into an offscreen
+        // layer (the very same per-text pipeline) and composites that layer with
+        // the effect — see drawLayeredTextEntrance. Set by applyRevealAnimFields,
+        // cleared by resetQuizRevealAnim, so it only lives for the entrance window.
+        int    layerFxKind   = LAYER_FX_NONE;
+        double layerFxAmount = 0.0;   // Blur: strength 0..1 · Wipe / Words: progress 0..1
+        String layerFxEasing = null;  // Word by Word: the easing each word plays with
+        // Word by Word geometry, filled in by the layer pass itself (it is the only
+        // place that knows where each word was laid out): one list of shapes per
+        // word in reading order (a word the wrapper hyphenated has two pieces), in
+        // frame pixels, plus how far each word rises as it fades in.
+        java.util.List<java.util.List<Shape>> layerWordShapes = null;
+        double layerRisePx = 0.0;
 
         /** The halo spread to draw this frame: the larger of the audio-FX glow the
          *  text is configured with and the transient glow a motion effect asks for,
@@ -38604,6 +39233,216 @@ public class GifSlideShowApp extends JFrame {
             return buildFormatMerged(s, s, all);
         }
 
+        /**
+         * The Texts Timer's live preview: this slide played on its own timeline
+         * with the dialog's UNSAVED values, through the export's render path
+         * ({@link #renderTimelineFrame}), so what plays here is what the video
+         * will show. It reads the dialog through {@code source} whenever
+         * {@link #markDirty()} says something changed, and never writes anything
+         * back — Cancel still discards every edit.
+         */
+        private final class TimerLivePreview {
+            private final java.util.function.Supplier<java.util.List<SlideTextData>> source;
+            private final BufferedImage bg;
+            private java.util.List<SlideTextData> texts = java.util.Collections.emptyList();
+            private BufferedImage frame;
+            private boolean dirty = true;
+            private boolean needsRender = true;
+            private boolean playing = false;
+            private long totalMs = 3000;
+            private long tMs = 0;
+            private long stopAtMs = -1;          // ≥ 0: a single-row replay pauses here
+            private long lastNanos = 0;
+            private boolean syncingSlider = false;
+            private final javax.swing.Timer ticker;
+            private final JPanel root = new JPanel(new BorderLayout(0, 6));
+            private final JPanel screen;
+            private final JButton playBtn = new JButton("\u25B6 Play");
+            private final JButton restartBtn = new JButton("Restart");
+            private final JCheckBox loopBox = new JCheckBox("Loop", true);
+            private final JSlider slider = new JSlider(0, 3000, 0);
+            private final JLabel timeLbl = new JLabel(" ", SwingConstants.RIGHT);
+
+            TimerLivePreview(java.util.function.Supplier<java.util.List<SlideTextData>> source) {
+                this.source = source;
+                final int pw = getPreviewWidth(), ph = getPreviewHeight();
+                BufferedImage b = timelineBackground();
+                if (b == null) {
+                    // No picture yet: preview the texts over a neutral dark stage.
+                    b = new BufferedImage(pw, ph, BufferedImage.TYPE_INT_RGB);
+                    Graphics2D bgG = b.createGraphics();
+                    bgG.setPaint(new GradientPaint(0, 0, new Color(28, 34, 46), pw, ph, new Color(46, 40, 58)));
+                    bgG.fillRect(0, 0, pw, ph);
+                    bgG.dispose();
+                }
+                this.bg = b;
+                double fit = Math.min(480.0 / pw, 360.0 / ph);
+                final Dimension view = new Dimension((int) Math.round(pw * fit), (int) Math.round(ph * fit));
+                screen = new JPanel() {
+                    @Override protected void paintComponent(Graphics g0) {
+                        super.paintComponent(g0);
+                        if (frame == null) return;
+                        Graphics2D g2 = (Graphics2D) g0.create();
+                        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                                RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                        g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+                        double sc = Math.min(getWidth() / (double) frame.getWidth(),
+                                getHeight() / (double) frame.getHeight());
+                        int dw = (int) Math.round(frame.getWidth() * sc);
+                        int dh = (int) Math.round(frame.getHeight() * sc);
+                        g2.drawImage(frame, (getWidth() - dw) / 2, (getHeight() - dh) / 2, dw, dh, null);
+                        g2.dispose();
+                    }
+                };
+                screen.setBackground(Color.BLACK);
+                screen.setPreferredSize(view);
+                screen.setMinimumSize(view);
+                screen.setBorder(BorderFactory.createLineBorder(new Color(60, 63, 68)));
+
+                JLabel title = new JLabel("Live preview");
+                title.setFont(new Font("Segoe UI", Font.BOLD, 12));
+                JLabel sub = new JLabel("<html>Plays your changes as you make them — exactly as the "
+                        + "video will show them. Nothing is saved until you press <b>Apply</b>.</html>");
+                sub.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+                sub.setForeground(new Color(90, 96, 104));
+                sub.setPreferredSize(new Dimension(view.width, 30));
+                JPanel head = new JPanel(new BorderLayout(0, 2));
+                head.setOpaque(false);
+                head.add(title, BorderLayout.NORTH);
+                head.add(sub, BorderLayout.CENTER);
+
+                Font ctl = new Font("Segoe UI", Font.PLAIN, 12);
+                playBtn.setFont(ctl);
+                playBtn.setToolTipText("Play / pause this slide's timeline.");
+                restartBtn.setFont(ctl);
+                restartBtn.setToolTipText("Back to the start of the slide.");
+                loopBox.setFont(ctl);
+                loopBox.setOpaque(false);
+                loopBox.setToolTipText("Start again from the beginning when the timeline ends.");
+                timeLbl.setFont(new Font("Consolas", Font.PLAIN, 12));
+                slider.setOpaque(false);
+                slider.setToolTipText("Drag to any moment of the slide.");
+                slider.setPreferredSize(new Dimension(view.width, slider.getPreferredSize().height));
+
+                playBtn.addActionListener(e -> { stopAtMs = -1; setPlaying(!playing); });
+                restartBtn.addActionListener(e -> { stopAtMs = -1; seek(0); });
+                slider.addChangeListener(e -> {
+                    if (syncingSlider) return;
+                    stopAtMs = -1;
+                    tMs = slider.getValue();
+                    needsRender = true;
+                });
+
+                JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+                buttons.setOpaque(false);
+                buttons.add(playBtn);
+                buttons.add(restartBtn);
+                buttons.add(loopBox);
+                JPanel transport = new JPanel(new BorderLayout(4, 2));
+                transport.setOpaque(false);
+                transport.add(slider, BorderLayout.NORTH);
+                transport.add(buttons, BorderLayout.WEST);
+                transport.add(timeLbl, BorderLayout.EAST);
+
+                JPanel stack = new JPanel(new BorderLayout(0, 6));
+                stack.setOpaque(false);
+                stack.add(screen, BorderLayout.NORTH);
+                stack.add(transport, BorderLayout.CENTER);
+                root.add(head, BorderLayout.NORTH);
+                root.add(stack, BorderLayout.CENTER);
+                root.setBorder(BorderFactory.createEmptyBorder(0, 12, 0, 0));
+
+                // ~30 fps, the export rate. Time advances by the real clock, so a
+                // slow frame never makes the preview run slower than the video.
+                ticker = new javax.swing.Timer(33, e -> tick());
+                ticker.start();
+            }
+
+            JComponent component() { return root; }
+
+            /** Something in the dialog changed: re-read it before the next frame. */
+            void markDirty() { dirty = true; needsRender = true; }
+
+            /** Replay one text's entrance: from just before it appears to just
+             *  after its entrance (and any trigger) settles, then pause there. */
+            void playRow(int row) {
+                refreshIfDirty();
+                if (row < 0 || row >= texts.size()) return;
+                SlideTextData st = texts.get(row);
+                long at = Math.max(0, st.timerAppearMs);
+                seek(Math.max(0, at - 400));
+                stopAtMs = Math.min(totalMs, at + Math.max(0, st.timerAppearDurMs) + 800);
+                setPlaying(true);
+            }
+
+            void setPlaying(boolean on) {
+                playing = on;
+                if (on) {
+                    if (tMs >= totalMs) tMs = 0;
+                    lastNanos = System.nanoTime();
+                }
+                playBtn.setText(on ? "Pause" : "\u25B6 Play");
+                needsRender = true;
+            }
+
+            void togglePlay() { stopAtMs = -1; setPlaying(!playing); }
+
+            void seek(long ms) {
+                tMs = Math.max(0, Math.min(totalMs, ms));
+                needsRender = true;
+            }
+
+            void dispose() { ticker.stop(); }
+
+            private void refreshIfDirty() {
+                if (!dirty) return;
+                dirty = false;
+                texts = source.get();
+                totalMs = timelineLengthMs(texts);
+                if (tMs > totalMs) tMs = totalMs;
+                syncingSlider = true;
+                slider.setMaximum((int) Math.min(Integer.MAX_VALUE, totalMs));
+                syncingSlider = false;
+            }
+
+            private void tick() {
+                if (!root.isShowing()) { lastNanos = System.nanoTime(); return; }
+                if (playing) {
+                    long now = System.nanoTime();
+                    tMs += Math.max(0, (now - lastNanos) / 1_000_000L);
+                    lastNanos = now;
+                    if (stopAtMs >= 0 && tMs >= stopAtMs) {
+                        tMs = stopAtMs;
+                        stopAtMs = -1;
+                        setPlaying(false);
+                    } else if (tMs >= totalMs) {
+                        if (loopBox.isSelected()) {
+                            tMs = 0;
+                        } else {
+                            tMs = totalMs;
+                            setPlaying(false);
+                        }
+                    }
+                    needsRender = true;
+                }
+                if (!needsRender) return;
+                needsRender = false;
+                refreshIfDirty();
+                try {
+                    frame = renderTimelineFrame(bg, texts, tMs);
+                } catch (RuntimeException ex) {
+                    // A half-typed value must never take the dialog down; the
+                    // last good frame stays up until the input makes sense again.
+                    return;
+                }
+                syncingSlider = true;
+                slider.setValue((int) Math.min(Integer.MAX_VALUE, tMs));
+                syncingSlider = false;
+                timeLbl.setText(String.format("%.2f / %.2f s", tMs / 1000.0, totalMs / 1000.0));
+                screen.repaint();
+            }
+        }
+
         private void openTextsTimerDialog() {
             if (isTitleGridSlide) return;
             saveCurrentSlideTextToItem();
@@ -38655,14 +39494,55 @@ public class GifSlideShowApp extends JFrame {
                 textPositions[li] = new int[]{ sx.x, sx.y };
             }
 
-            // Entrance-effect choices — same set the Quiz reveal already renders,
-            // so applyRevealAnimFields knows how to draw every one.
-            final String[] APPEAR_EFFECTS = {
-                    "None", "Fade", "Slide In Top", "Slide In Bottom",
-                    "Slide In Left", "Slide In Right",
-                    "Scale Up", "Zoom Out", "Bounce", "Rotate In", "Pop" };
-            final String[] APPEAR_EASINGS = {
-                    "Linear", "Ease In", "Ease Out", "Ease In Out", "Bounce" };
+            // Entrance-effect choices. applyRevealAnimFields draws every one (the
+            // layered ones — Blur In, Wipe Reveal, Word by Word — through
+            // drawLayeredTextEntrance). Saved projects store the name, so new
+            // entries only ever go on the end of their group.
+            final String[] APPEAR_EFFECTS = TIMER_APPEAR_EFFECTS;
+            final String[] APPEAR_EASINGS = TIMER_APPEAR_EASINGS;
+
+            // Live preview of this dialog's unsaved values. Each text is a deep
+            // copy carrying the row's current Appear / Go / Effect / Ease / Anim,
+            // Motion and Alternate settings; a value that does not parse yet keeps
+            // the text's saved one, so typing never blanks the preview.
+            final TimerLivePreview preview = new TimerLivePreview(() -> {
+                java.util.List<SlideTextData> out = new java.util.ArrayList<>();
+                for (int pi = 0; pi < slideTextItems.size(); pi++) {
+                    SlideTextData src = slideTextItems.get(pi);
+                    SlideTextData cp = deepCopySlideText(src);
+                    if (pi < appearFields.size()) {
+                        String aTxt = appearFields.get(pi).getText().trim();
+                        int aMs = aTxt.isEmpty() ? 0                       // empty = 0, as Apply
+                                : Math.max(0, parseFieldMs(aTxt, 1000.0, src.timerAppearMs));
+                        String goTxt = goFields.get(pi).getText().trim();
+                        int gMs = goTxt.isEmpty() ? -1 : parseFieldMs(goTxt, 1000.0, src.timerDisappearMs);
+                        cp.timerAppearMs = aMs;
+                        cp.timerDisappearMs = (gMs >= 0 && gMs <= aMs) ? -1 : gMs;
+                    }
+                    if (pi < effectCombos.size()) {
+                        Object eff = effectCombos.get(pi).getSelectedItem();
+                        Object ease = easeCombos.get(pi).getSelectedItem();
+                        cp.timerAppearEffect = eff == null ? "None" : eff.toString();
+                        cp.timerAppearEasing = ease == null ? "Ease Out" : ease.toString();
+                        int dMs = parseFieldMs(durFields.get(pi).getText(), 1.0, 500);   // empty = 500, as Apply
+                        cp.timerAppearDurMs = Math.max(100, Math.min(3000, dMs));
+                    }
+                    if (pi < rowActions.size()) {
+                        cp.actions = new java.util.ArrayList<>();
+                        for (SlideTextData.Action a : rowActions.get(pi)) if (a != null) cp.actions.add(a.copy());
+                    }
+                    if (pi < rowAlt.size()) rowAlt.get(pi).applyTo(cp);
+                    out.add(cp);
+                }
+                return out;
+            });
+            // The "Live preview" box is created further down; a row's ▶ reaches it here.
+            final JCheckBox[] timerPreviewToggle = new JCheckBox[1];
+            final javax.swing.event.DocumentListener previewDocs = new javax.swing.event.DocumentListener() {
+                @Override public void insertUpdate(javax.swing.event.DocumentEvent e)  { preview.markDirty(); }
+                @Override public void removeUpdate(javax.swing.event.DocumentEvent e)  { preview.markDirty(); }
+                @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { preview.markDirty(); }
+            };
 
             JPanel rows = new JPanel(new GridBagLayout());
             rows.setBackground(Color.WHITE);
@@ -38684,8 +39564,9 @@ public class GifSlideShowApp extends JFrame {
             gc.gridx = 4; rows.add(hdr.apply("Effect"), gc);
             gc.gridx = 5; rows.add(hdr.apply("Ease"), gc);
             gc.gridx = 6; rows.add(hdr.apply("Anim (ms)"), gc);
-            gc.gridx = 7; rows.add(hdr.apply("Motion"), gc);
-            gc.gridx = 8; rows.add(hdr.apply("Alternate"), gc);
+            gc.gridx = 7; rows.add(hdr.apply("Preview"), gc);
+            gc.gridx = 8; rows.add(hdr.apply("Motion"), gc);
+            gc.gridx = 9; rows.add(hdr.apply("Alternate"), gc);
 
             for (int i = 0; i < slideTextItems.size(); i++) {
                 SlideTextData st = slideTextItems.get(i);
@@ -38715,15 +39596,34 @@ public class GifSlideShowApp extends JFrame {
                 JComboBox<String> effectCombo = new JComboBox<>(APPEAR_EFFECTS);
                 effectCombo.setSelectedItem(st.timerAppearEffect == null ? "None" : st.timerAppearEffect);
                 effectCombo.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-                effectCombo.setToolTipText("How the text animates into view when it appears. \"None\" = instant (no transition).");
+                effectCombo.setMaximumRowCount(APPEAR_EFFECTS.length);
+                effectCombo.setRenderer(timerTipRenderer(TIMER_EFFECT_TIPS));
+                Runnable effTip = () -> effectCombo.setToolTipText(timerTipFor(TIMER_EFFECT_TIPS,
+                        effectCombo.getSelectedItem(),
+                        "How the text animates into view when it appears. \"None\" = instant (no transition)."));
+                effTip.run();
 
                 JComboBox<String> easeCombo = new JComboBox<>(APPEAR_EASINGS);
                 easeCombo.setSelectedItem(st.timerAppearEasing == null ? "Ease Out" : st.timerAppearEasing);
                 easeCombo.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-                easeCombo.setToolTipText("Easing curve for the entrance animation. \"Ease Out\" looks the most natural.");
+                easeCombo.setMaximumRowCount(APPEAR_EASINGS.length);
+                easeCombo.setRenderer(timerTipRenderer(TIMER_EASING_TIPS));
+                Runnable easeTip = () -> easeCombo.setToolTipText(timerTipFor(TIMER_EASING_TIPS,
+                        easeCombo.getSelectedItem(),
+                        "Easing curve for the entrance animation. \"Ease Out\" looks the most natural."));
+                easeTip.run();
 
                 JTextField dur = new JTextField(String.valueOf(st.timerAppearDurMs), 5);
-                dur.setToolTipText("How long the entrance animation lasts, in milliseconds (e.g. 500). Range 100–3000.");
+                dur.setToolTipText("<html>How long the entrance animation lasts, in milliseconds (e.g. 500). "
+                        + "Range 100–3000.<br><b>Word by Word</b> spreads this over the whole text — "
+                        + "give it 1200–2500 ms.</html>");
+
+                // Every edit reaches the live preview on its next frame.
+                appear.getDocument().addDocumentListener(previewDocs);
+                go.getDocument().addDocumentListener(previewDocs);
+                dur.getDocument().addDocumentListener(previewDocs);
+                effectCombo.addActionListener(ev -> { effTip.run(); preview.markDirty(); });
+                easeCombo.addActionListener(ev -> { easeTip.run(); preview.markDirty(); });
 
                 // Ease/duration only matter when an effect is chosen — grey them
                 // out for "None" so the row reads cleanly.
@@ -38763,6 +39663,7 @@ public class GifSlideShowApp extends JFrame {
                 motionBtn.addActionListener(ev -> {
                     openTextMotionEditor(dlg, rowIdx + 1, rowActions.get(rowIdx), textLabels, textPositions);
                     updMotionLbl.run();
+                    preview.markDirty();
                 });
                 motionBtns.add(motionBtn);
 
@@ -38783,8 +39684,20 @@ public class GifSlideShowApp extends JFrame {
                 altBtn.addActionListener(ev -> {
                     openTextAlternateEditor(dlg, rowIdx + 1, myAlt);
                     updAltLbl.run();
+                    preview.markDirty();
                 });
                 altBtns.add(altBtn);
+
+                // Replay just this text's entrance in the live preview.
+                JButton rowPlayBtn = new JButton("\u25B6");
+                rowPlayBtn.setFont(new Font("Segoe UI Symbol", Font.PLAIN, 12));
+                rowPlayBtn.setMargin(new Insets(2, 10, 2, 10));
+                rowPlayBtn.setToolTipText("Preview this text's entrance: plays from just before it appears "
+                        + "until it settles, then pauses.");
+                rowPlayBtn.addActionListener(ev -> {
+                    if (!timerPreviewVisible[0]) timerPreviewToggle[0].doClick();
+                    preview.playRow(rowIdx);
+                });
 
                 gc.gridy = i + 1;
                 gc.gridx = 0; rows.add(rptCheck, gc);
@@ -38794,8 +39707,9 @@ public class GifSlideShowApp extends JFrame {
                 gc.gridx = 4; rows.add(effectCombo, gc);
                 gc.gridx = 5; rows.add(easeCombo, gc);
                 gc.gridx = 6; rows.add(dur, gc);
-                gc.gridx = 7; rows.add(motionBtn, gc);
-                gc.gridx = 8; rows.add(altBtn, gc);
+                gc.gridx = 7; rows.add(rowPlayBtn, gc);
+                gc.gridx = 8; rows.add(motionBtn, gc);
+                gc.gridx = 9; rows.add(altBtn, gc);
             }
 
             JScrollPane rowsScroll = new JScrollPane(rows);
@@ -38806,7 +39720,8 @@ public class GifSlideShowApp extends JFrame {
                     + "Leave <b>Go</b> empty to keep a text on screen once it appears.<br>"
                     + "<b>Effect</b> animates the text into view when it appears — "
                     + "<b>Ease</b> and <b>Anim (ms)</b> shape that animation "
-                    + "(a subtle Fade or Slide In at ~500&nbsp;ms looks the most professional).<br>"
+                    + "(Fade Up, Soft Zoom or Blur In at ~500&nbsp;ms with Expo Out look the most professional; "
+                    + "hover an effect to see what it does). <b>\u25B6</b> replays one text in the live preview.<br>"
                     + "<b>Motion</b> makes a text (or a copy of it) move to a new spot at a chosen time, "
                     + "format on landing, and optionally trigger another text — or play an in-place effect.<br>"
                     + "<b>Alternate</b> swaps a text with one or more other strings at the same spot on a "
@@ -39461,10 +40376,36 @@ public class GifSlideShowApp extends JFrame {
             root.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
             root.add(help, BorderLayout.NORTH);
             root.add(center, BorderLayout.CENTER);
+            // The preview sits beside the rows, top-aligned so it stays in view
+            // while the repeat box below is in use.
+            final JPanel previewDock = new JPanel(new BorderLayout());
+            previewDock.add(preview.component(), BorderLayout.NORTH);
+            if (timerPreviewVisible[0]) root.add(previewDock, BorderLayout.EAST);
+
+            // Show / hide the preview; remembered for the rest of the session.
+            final JCheckBox previewToggle = new JCheckBox("Live preview", timerPreviewVisible[0]);
+            previewToggle.setToolTipText("Show or hide the live preview beside the rows.");
+            timerPreviewToggle[0] = previewToggle;
+            previewToggle.addActionListener(e -> {
+                boolean on = previewToggle.isSelected();
+                timerPreviewVisible[0] = on;
+                int dockW = previewDock.getPreferredSize().width;
+                if (on) root.add(previewDock, BorderLayout.EAST);
+                else { root.remove(previewDock); preview.setPlaying(false); }
+                root.revalidate();
+                root.repaint();
+                Rectangle screenBounds = dlg.getGraphicsConfiguration().getBounds();
+                int newW = Math.min(screenBounds.width - 20, dlg.getWidth() + (on ? dockW : -dockW));
+                dlg.setSize(Math.max(760, newW), dlg.getHeight());
+                if (on) preview.markDirty();
+            });
+            // Clear All resets the rows (and their Motion / Alternate copies).
+            clearBtn.addActionListener(e -> preview.markDirty());
 
             JPanel btnLeft = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6));
             btnLeft.add(applyAllBtn);
             btnLeft.add(effectAllSlidesBtn);
+            btnLeft.add(previewToggle);
             JPanel btnRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 6));
             btnRight.add(clearBtn);
             btnRight.add(cancelBtn);
@@ -39476,9 +40417,17 @@ public class GifSlideShowApp extends JFrame {
             dlg.setLayout(new BorderLayout());
             dlg.add(root, BorderLayout.CENTER);
             dlg.add(btnRow, BorderLayout.SOUTH);
+            dlg.addWindowListener(new java.awt.event.WindowAdapter() {
+                @Override public void windowClosed(java.awt.event.WindowEvent e) { preview.dispose(); }
+            });
             dlg.pack();
-            dlg.setSize(Math.max(1120, dlg.getPreferredSize().width), dlg.getPreferredSize().height);
+            // Never wider or taller than the screen it opens on.
+            Rectangle screenBounds = (owner != null ? owner.getGraphicsConfiguration()
+                    : dlg.getGraphicsConfiguration()).getBounds();
+            dlg.setSize(Math.min(screenBounds.width - 20, Math.max(1120, dlg.getPreferredSize().width)),
+                    Math.min(screenBounds.height - 40, dlg.getPreferredSize().height));
             dlg.setLocationRelativeTo(owner);
+            if (timerPreviewVisible[0]) preview.setPlaying(true);
             dlg.setVisible(true);
         }
 
@@ -40479,25 +41428,19 @@ public class GifSlideShowApp extends JFrame {
             pick.setVisible(true);
         }
 
-        /**
-         * Play a looping timeline preview of the given texts on this slide's image,
-         * so timed motion/effects are actually visible (the editor's static Live
-         * Preview only shows time 0). Uses the same applyQuizHideMask + renderFrame
-         * path as the export, at 30 fps, over the full length of the timeline.
-         */
-        private void playMotionPreview(Window owner, java.util.List<SlideTextData> texts) {
+        /** The picture a timeline preview draws the texts over: the slide's
+         *  image (or its composed title grid). Null when the slide has none. */
+        private BufferedImage timelineBackground() {
             BufferedImage bg = loadedImage;
             if (isTitleGridSlide && gridSourceImages != null) {
                 bg = composeTitleGridFrame(getPreviewWidth(), getPreviewHeight());
             }
-            if (bg == null) {
-                JOptionPane.showMessageDialog(owner,
-                        "Add an image to this slide first to preview the motion.",
-                        "Motion Preview", JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
-            final BufferedImage bgF = bg;
-            // Timeline length = latest of any disappear / entrance / action end, + tail.
+            return bg;
+        }
+
+        /** How long a timeline preview of these texts runs before it loops: the
+         *  latest disappear / entrance / action / alternation end, plus a tail. */
+        private static long timelineLengthMs(java.util.List<SlideTextData> texts) {
             long dur = 2500;
             for (SlideTextData st : texts) {
                 if (st == null) continue;
@@ -40516,7 +41459,60 @@ public class GifSlideShowApp extends JFrame {
                     dur = Math.max(dur, altEnd + 700);
                 }
             }
-            final long totalMs = dur + 900;
+            return dur + 900;
+        }
+
+        /**
+         * One frame of this slide at {@code elapsed} ms, at preview size, through
+         * the export's own path (applyQuizHideMask + renderFrame at 30 fps), so a
+         * preview shows exactly what the exported video will.
+         */
+        private BufferedImage renderTimelineFrame(BufferedImage bg, java.util.List<SlideTextData> texts,
+                                                  long elapsed) {
+            final int fps = 30;
+            applyQuizHideMask(texts, quiz, elapsed, true);
+            int frame = (int) (elapsed * fps / 1000);
+            return renderFrame(
+                    bg, getSubtitleText(),
+                    getSelectedFont(), getFontSize(), getFontStyle(),
+                    getFontColor(), getTextAlignment(), isShowPin(),
+                    getPreviewWidth(), getPreviewHeight(),
+                    (isTitleGridSlide && titleBgImage == null) ? "Direct" : getDisplayMode(), getSubtitleY(),
+                    getSubtitleBgOpacity(),
+                    isShowSlideNumber(), getSlideNumberText(), getSlideNumberFontName(),
+                    getSlideNumberX(), getSlideNumberY(),
+                    getSlideNumberSize(), getSlideNumberColor(),
+                    getSlideNumberStyle(), getSlideNumberEffect(),
+                    texts,
+                    isFxRoundCorners(), getFxCornerRadius(),
+                    getFxVignette(), getFxSepia(), getFxGrain(),
+                    getFxWaterRipple(), getFxGlitch(), getFxShake(),
+                    getFxScanline(), getFxRaised(),
+                    getFxOtherKind(), getFxOther(),
+                    isOverlayEnabled(),
+                    getOverlayShape(), getOverlayBgMode(), getOverlayBgColor(),
+                    getOverlayX(), getOverlayY(), getOverlaySize(), frame,
+                    isTextJustify(), getTextWidthPct(),
+                    getHighlightText(), getHighlightColor(),
+                    getTextShiftX(), getSlidePictureDataList(), getBgTransparency());
+        }
+
+        /**
+         * Play a looping timeline preview of the given texts on this slide's image,
+         * so timed motion/effects are actually visible (the editor's static Live
+         * Preview only shows time 0). Uses the same applyQuizHideMask + renderFrame
+         * path as the export, at 30 fps, over the full length of the timeline.
+         */
+        private void playMotionPreview(Window owner, java.util.List<SlideTextData> texts) {
+            BufferedImage bg = timelineBackground();
+            if (bg == null) {
+                JOptionPane.showMessageDialog(owner,
+                        "Add an image to this slide first to preview the motion.",
+                        "Motion Preview", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            final BufferedImage bgF = bg;
+            final long totalMs = timelineLengthMs(texts);
             final int fps = 30;
 
             final JDialog dlg = new JDialog(owner, "Motion Preview  (loops)",
@@ -40546,31 +41542,7 @@ public class GifSlideShowApp extends JFrame {
                         MotionSound.play(MotionSound.resolve(a));
                     }
                 }
-                applyQuizHideMask(texts, quiz, elapsed, true);
-                int frame = (int) (elapsed * fps / 1000);
-                BufferedImage img = renderFrame(
-                        bgF, getSubtitleText(),
-                        getSelectedFont(), getFontSize(), getFontStyle(),
-                        getFontColor(), getTextAlignment(), isShowPin(),
-                        getPreviewWidth(), getPreviewHeight(),
-                        (isTitleGridSlide && titleBgImage == null) ? "Direct" : getDisplayMode(), getSubtitleY(),
-                        getSubtitleBgOpacity(),
-                        isShowSlideNumber(), getSlideNumberText(), getSlideNumberFontName(),
-                        getSlideNumberX(), getSlideNumberY(),
-                        getSlideNumberSize(), getSlideNumberColor(),
-                        getSlideNumberStyle(), getSlideNumberEffect(),
-                        texts,
-                        isFxRoundCorners(), getFxCornerRadius(),
-                        getFxVignette(), getFxSepia(), getFxGrain(),
-                        getFxWaterRipple(), getFxGlitch(), getFxShake(),
-                        getFxScanline(), getFxRaised(),
-                        getFxOtherKind(), getFxOther(),
-                        isOverlayEnabled(),
-                        getOverlayShape(), getOverlayBgMode(), getOverlayBgColor(),
-                        getOverlayX(), getOverlayY(), getOverlaySize(), frame,
-                        isTextJustify(), getTextWidthPct(),
-                        getHighlightText(), getHighlightColor(),
-                        getTextShiftX(), getSlidePictureDataList(), getBgTransparency());
+                BufferedImage img = renderTimelineFrame(bgF, texts, elapsed);
                 view.setIcon(new ImageIcon(img));
                 view.setText(null);
                 status.setText(String.format("t = %.2f s   (loops at %.2f s)",
