@@ -395,6 +395,9 @@ public class GifSlideShowApp extends JFrame {
 
         // Display
         props.setProperty("displayMode", source.getDisplayMode());
+        props.setProperty("mediaX", String.valueOf(source.getMediaX()));
+        props.setProperty("mediaY", String.valueOf(source.getMediaY()));
+        props.setProperty("mediaW", String.valueOf(source.getMediaW()));
         props.setProperty("subtitleY", String.valueOf(source.getSubtitleY()));
         props.setProperty("subtitleBgOpacity", String.valueOf(source.getSubtitleBgOpacity()));
         props.setProperty("sourceVideoVolume", String.valueOf(source.getSourceVideoVolume()));
@@ -926,6 +929,9 @@ public class GifSlideShowApp extends JFrame {
         Color highlightColor = hexToColor(props.getProperty("highlightColor", "#FFFF00B4"));
 
         String displayMode = props.getProperty("displayMode", "Blur-Fit");
+        int mediaX = parseIntOr(props.getProperty("mediaX"), 50);
+        int mediaY = parseIntOr(props.getProperty("mediaY"), 50);
+        int mediaW = parseIntOr(props.getProperty("mediaW"), 80);
         int subtitleY = Integer.parseInt(props.getProperty("subtitleY", "5"));
         int subtitleBgOpacity = Integer.parseInt(props.getProperty("subtitleBgOpacity", "78"));
         int sourceVideoVolume = Integer.parseInt(props.getProperty("sourceVideoVolume", "25"));
@@ -1463,6 +1469,7 @@ public class GifSlideShowApp extends JFrame {
                 // preset saved without a picture leaves each slide's own alone.
                 row.applySlidePictureFormats(slidePictureFormats, true, false);
                 row.applySoundFxListFromMaster(soundFxList);
+                row.setMediaPlacement(mediaX, mediaY, mediaW);
                 row.getQuiz().copyVisualSettingsFrom(tmpl);
                 row.refreshQuizToolbarFromState();
                 row.applyLayoutGroupPanelState(lgCols, lgAnchorX, lgAnchorY,
@@ -7010,6 +7017,7 @@ public class GifSlideShowApp extends JFrame {
                         karaokeStyleList, karaokeColorList,
                         karaokeIntensityList, karaokeTightList);
                 row.applySoundFxListFromMaster(soundFxList);
+                row.setMediaPlacement(source.getMediaX(), source.getMediaY(), source.getMediaW());
                 // Broadcast the master row's quiz visual / shared settings
                 // (everything except the per-slide enabled flag, correct
                 // answer index, and question/generated audio files).
@@ -7464,6 +7472,51 @@ public class GifSlideShowApp extends JFrame {
         g2.dispose();
     }
 
+    // ==================== Custom media placement ====================
+
+    /** Image Display mode that places the slide's image / uploaded video freely. */
+    static final String CUSTOM_DISPLAY_MODE = "Custom";
+    private static final String CUSTOM_DISPLAY_PREFIX = CUSTOM_DISPLAY_MODE + ":";
+
+    /**
+     * Render-time form of the "Custom" display mode. The placement rides inside
+     * the display-mode string ("Custom:x:y:w") so every renderFrame call site and
+     * SlideData carry it without new parameters. x / y are the media's centre
+     * (% of frame width / height), w its width (% of frame width); the height
+     * follows the media's own aspect ratio.
+     */
+    static String customDisplayMode(int xPct, int yPct, int wPct) {
+        return CUSTOM_DISPLAY_PREFIX + xPct + ":" + yPct + ":" + wPct;
+    }
+
+    /** {x, y, w} of a "Custom:x:y:w" display mode, or null for any other mode. */
+    static int[] parseCustomPlacement(String displayMode) {
+        if (displayMode == null || !displayMode.startsWith(CUSTOM_DISPLAY_PREFIX)) return null;
+        String[] p = displayMode.substring(CUSTOM_DISPLAY_PREFIX.length()).split(":");
+        if (p.length != 3) return null;
+        try {
+            return new int[]{ Integer.parseInt(p[0]), Integer.parseInt(p[1]),
+                    Math.max(1, Integer.parseInt(p[2])) };
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Pixel rectangle {x, y, w, h} of custom-placed media of size srcW x srcH in
+     * a targetW x targetH frame. Width and height are even (ffmpeg's yuv420p
+     * overlay needs that), so the exported video lands exactly where the still
+     * preview drew it. x / y may be negative or run past the frame (partly
+     * off-screen media).
+     */
+    static int[] customMediaRect(int[] placement, int srcW, int srcH, int targetW, int targetH) {
+        int dw = Math.max(2, (int) Math.round(targetW * placement[2] / 100.0) & ~1);
+        int dh = Math.max(2, (int) Math.round(dw * (double) Math.max(1, srcH) / Math.max(1, srcW)) & ~1);
+        int cx = (int) Math.round(targetW * placement[0] / 100.0);
+        int cy = (int) Math.round(targetH * placement[1] / 100.0);
+        return new int[]{ cx - dw / 2, cy - dh / 2, dw, dh };
+    }
+
     static BufferedImage renderFrame(BufferedImage image, String text,
                                      String fontName, int fontSize, int fontStyle,
                                      Color fontColor, int alignment,
@@ -7672,6 +7725,8 @@ public class GifSlideShowApp extends JFrame {
                 image = srcRounded;
             }
 
+            int[] customPlacement = parseCustomPlacement(displayMode);
+
             // ========== IMAGE SHAPE MODE (floating shaped image on blurred background) ==========
             if (overlayEnabled && overlaySize > 0) {
                 // Draw background
@@ -7746,6 +7801,11 @@ public class GifSlideShowApp extends JFrame {
                     sg.dispose();
                     g.drawImage(rectImg, drawX, drawY, null);
                 }
+            } else if (customPlacement != null) {
+                // Custom: media at a free position / size on the plain base
+                int[] r = customMediaRect(customPlacement,
+                        image.getWidth(), image.getHeight(), targetW, targetH);
+                g.drawImage(image, r[0], r[1], r[2], r[3], null);
             } else
 
                 switch (displayMode) {
@@ -15546,7 +15606,7 @@ public class GifSlideShowApp extends JFrame {
                 return null;
             }
             BufferedImage slideImage = row.getImage();
-            String slideDisplayMode = row.getDisplayMode();
+            String slideDisplayMode = row.getRenderDisplayMode();
             if (row.isTitleGridSlide && row.gridSourceImages != null) {
                 slideImage = row.composeTitleGridFrame(getOutputWidth(), getOutputHeight());
                 if (row.titleBgImage == null) {
@@ -19221,6 +19281,9 @@ public class GifSlideShowApp extends JFrame {
                             // PNG decoration layers. Used to attenuate the source video's audio
                             // so the base slideshow audio stays dominant.
                             java.util.List<Boolean> ovTaskIsSourceVideo = new java.util.ArrayList<>();
+                            // ovTaskRect: pixel rect {x, y, w, h} of a source video placed with the
+                            // "Custom" Image Display mode; null = the task's fill / size% placement.
+                            java.util.List<int[]> ovTaskRect = new java.util.ArrayList<>();
                             int ovInIdx = 1;
 
                             // Source videos first (underneath decorations + explicit overlay), fill mode, on top of base frame
@@ -19244,6 +19307,7 @@ public class GifSlideShowApp extends JFrame {
                                     ovTaskIsPng.add(Boolean.FALSE);
                                     ovTaskIsPngSeq.add(Boolean.FALSE);
                                     ovTaskIsSourceVideo.add(Boolean.TRUE);
+                                    ovTaskRect.add(sourceVideoRect(s, videoW, videoH));
                                     ovInIdx++;
                                 }
                             }
@@ -19279,6 +19343,7 @@ public class GifSlideShowApp extends JFrame {
                                             ovTaskIsPng.add(Boolean.FALSE);
                                             ovTaskIsPngSeq.add(Boolean.TRUE);
                                             ovTaskIsSourceVideo.add(Boolean.FALSE);
+                                            ovTaskRect.add(null);
                                             ovInIdx++;
                                         } else {
                                             ovCmd.add("-loop"); ovCmd.add("1");
@@ -19294,6 +19359,7 @@ public class GifSlideShowApp extends JFrame {
                                             ovTaskIsPng.add(Boolean.TRUE);
                                             ovTaskIsPngSeq.add(Boolean.FALSE);
                                             ovTaskIsSourceVideo.add(Boolean.FALSE);
+                                            ovTaskRect.add(null);
                                             ovInIdx++;
                                         }
                                     } catch (IOException ioe) {
@@ -19317,6 +19383,7 @@ public class GifSlideShowApp extends JFrame {
                                     ovTaskIsPng.add(Boolean.FALSE);
                                     ovTaskIsPngSeq.add(Boolean.FALSE);
                                     ovTaskIsSourceVideo.add(Boolean.FALSE);
+                                    ovTaskRect.add(null);
                                     ovInIdx++;
                                 }
                             }
@@ -19334,6 +19401,7 @@ public class GifSlideShowApp extends JFrame {
                                 int py = ovTaskY.get(j);
                                 boolean isPng = ovTaskIsPng.get(j);
                                 boolean isPngSeq = ovTaskIsPngSeq.get(j);
+                                int[] rect = ovTaskRect.get(j);
 
                                 double tStart = slideStartSec[si];
                                 double tEnd = tStart + slideDurSec[si];
@@ -19369,7 +19437,13 @@ public class GifSlideShowApp extends JFrame {
                                     ptsShift = "setpts=PTS-STARTPTS,";
                                 }
 
-                                if (fill) {
+                                if (rect != null) {
+                                    // "Custom" Image Display: the exact rect the slide's preview drew
+                                    vFilter.append("[").append(ii).append(":v]").append(ptsShift).append("scale=")
+                                            .append(rect[2]).append(":").append(rect[3]).append(",setsar=1").append(scaledLbl).append(";");
+                                    vFilter.append(currentVid).append(scaledLbl).append("overlay=").append(rect[0]).append(":").append(rect[1])
+                                            .append(enableExpr).append(":eof_action=pass").append(outLbl).append(";");
+                                } else if (fill) {
                                     int fillW = videoW; if (fillW % 2 != 0) fillW++;
                                     int fillH = videoH; if (fillH % 2 != 0) fillH++;
                                     vFilter.append("[").append(ii).append(":v]").append(ptsShift).append("scale=").append(fillW).append(":").append(fillH)
@@ -20366,7 +20440,7 @@ public class GifSlideShowApp extends JFrame {
                                 }
                                 applySourceVideoAndDecoration(slideOutFile, s.sourceVideoFile,
                                         decoOut, decoIsSeq, fps, videoW, videoH, crf, tempDir,
-                                        s.sourceVideoVolume, norm);
+                                        s.sourceVideoVolume, norm, sourceVideoRect(s, videoW, videoH));
                             }
 
                             // Apply per-slide video overlay if set
@@ -20773,10 +20847,24 @@ public class GifSlideShowApp extends JFrame {
     }
 
     /**
+     * Pixel rect {x, y, w, h} of a slide's uploaded video in a videoW x videoH
+     * export when the slide uses the "Custom" Image Display mode, else null
+     * (the video fills the frame). Sized from the video's first frame — the
+     * same image the editor preview places — so preview and export agree.
+     */
+    private static int[] sourceVideoRect(SlideData s, int videoW, int videoH) {
+        int[] placement = parseCustomPlacement(s.displayMode);
+        if (placement == null || s.image == null || (s.overlayEnabled && s.overlaySize > 0)) return null;
+        return customMediaRect(placement, s.image.getWidth(), s.image.getHeight(), videoW, videoH);
+    }
+
+    /**
      * Per-slide MP4 path: overlay an uploaded source video (fill+on-top) and a
      * transparent decoration PNG (text/slide number/etc.) on top of the slide's
      * base video. Single FFmpeg pass; mixes source video audio with base audio
-     * if the source has any. The decoration PNG is optional.
+     * if the source has any. The decoration PNG is optional. A non-null
+     * mediaRect {x, y, w, h} places the source video there instead of filling
+     * the frame (the "Custom" Image Display mode).
      */
     private static void applySourceVideoAndDecoration(File baseVideo, File sourceVideo,
                                                       File decoration, boolean decorationIsSeq,
@@ -20784,7 +20872,8 @@ public class GifSlideShowApp extends JFrame {
                                                       int videoW, int videoH, int crf,
                                                       File tempDir,
                                                       int sourceVideoVolumePct,
-                                                      String audioNormFilter) throws IOException, InterruptedException {
+                                                      String audioNormFilter,
+                                                      int[] mediaRect) throws IOException, InterruptedException {
         File preOverlay = new File(tempDir, "pre_sv_" + System.currentTimeMillis() + ".mp4");
         if (!baseVideo.renameTo(preOverlay)) {
             java.nio.file.Files.copy(baseVideo.toPath(), preOverlay.toPath(),
@@ -20797,19 +20886,27 @@ public class GifSlideShowApp extends JFrame {
 
         boolean hasDeco = decoration != null && decoration.exists();
 
-        // Build video filter: source video fill over base, then (if present) decoration on top
+        // Build video filter: source video fill (or custom rect) over base, then
+        // (if present) decoration on top
         StringBuilder vf = new StringBuilder();
-        vf.append("[1:v]scale=").append(fillW).append(":").append(fillH)
-                .append(":force_original_aspect_ratio=increase,crop=")
-                .append(fillW).append(":").append(fillH).append("[sv];");
+        String svPos = "0:0";
+        if (mediaRect != null) {
+            vf.append("[1:v]scale=").append(mediaRect[2]).append(":").append(mediaRect[3])
+                    .append(",setsar=1[sv];");
+            svPos = mediaRect[0] + ":" + mediaRect[1];
+        } else {
+            vf.append("[1:v]scale=").append(fillW).append(":").append(fillH)
+                    .append(":force_original_aspect_ratio=increase,crop=")
+                    .append(fillW).append(":").append(fillH).append("[sv];");
+        }
         if (hasDeco) {
-            vf.append("[0:v][sv]overlay=0:0:eof_action=pass[tmp];");
+            vf.append("[0:v][sv]overlay=").append(svPos).append(":eof_action=pass[tmp];");
             vf.append("[2:v]scale=").append(fillW).append(":").append(fillH)
                     .append(":force_original_aspect_ratio=increase,crop=")
                     .append(fillW).append(":").append(fillH).append("[deco];");
             vf.append("[tmp][deco]overlay=0:0:eof_action=pass[outv]");
         } else {
-            vf.append("[0:v][sv]overlay=0:0:eof_action=pass[outv]");
+            vf.append("[0:v][sv]overlay=").append(svPos).append(":eof_action=pass[outv]");
         }
 
         boolean baseHasAudio = probeHasAudio(preOverlay);
@@ -29385,6 +29482,14 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner subtitleBgOpacitySpinner;
         private final JSpinner sourceVideoVolumeSpinner;
         private final JSpinner bgTransparencySpinner;
+        // "Custom" Image Display placement: centre X% / Y% and width % of the frame
+        private final JSpinner mediaXSpinner;
+        private final JSpinner mediaYSpinner;
+        private final JSpinner mediaWSpinner;
+        private final JComboBox<String> mediaSnapCombo;
+        // Set while a preview drag / snap writes the spinners, so their listeners
+        // leave the (once-per-gesture) format sync to the gesture itself.
+        private boolean isAdjustingMedia = false;
         private final JCheckBox fxRoundCornersCheck;
         private final JSpinner fxCornerRadiusSpinner;
         private final JCheckBox fxVignetteCheck;
@@ -29810,7 +29915,13 @@ public class GifSlideShowApp extends JFrame {
                 }
             });
 
-            livePreviewLabel = new JLabel("Live Preview", SwingConstants.CENTER);
+            livePreviewLabel = new JLabel("Live Preview", SwingConstants.CENTER) {
+                @Override protected void paintComponent(Graphics g) {
+                    super.paintComponent(g);
+                    paintMediaPlacementOverlay(g);
+                }
+            };
+            installMediaPlacementMouse();
             livePreviewLabel.setFont(new Font("Segoe UI", Font.ITALIC, 10));
             livePreviewLabel.setForeground(new Color(120, 130, 140));
             livePreviewLabel.setPreferredSize(new Dimension(160, 140));
@@ -29905,12 +30016,19 @@ public class GifSlideShowApp extends JFrame {
 
             displayModeCombo = new JComboBox<>(new String[]{
                     "Blur-Fit", "Fill (Crop)", "Fit (Bars)", "Original Size",
-                    "Stretch", "Top-Fit", "Bottom-Fit", "Left-Fit", "Right-Fit"
+                    "Stretch", "Top-Fit", "Bottom-Fit", "Left-Fit", "Right-Fit",
+                    CUSTOM_DISPLAY_MODE
             });
             displayModeCombo.setSelectedIndex(0);
             displayModeCombo.setPreferredSize(new Dimension(110, 28));
             displayModeCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            displayModeCombo.addActionListener(e -> onFormatChanged());
+            displayModeCombo.setToolTipText("<html>How the slide's image / video fills the frame.<br>"
+                    + "<b>Custom</b>: place it anywhere — set X% / Y% / W%, pick a Snap position,<br>"
+                    + "or drag it in the live preview (drag a corner to resize, mouse wheel = size).</html>");
+            displayModeCombo.addActionListener(e -> {
+                updateMediaPlacementControls();
+                onFormatChanged();
+            });
 
 
             toolbar1.add(styledLabel("Font:"));
@@ -30019,6 +30137,52 @@ public class GifSlideShowApp extends JFrame {
             toolbar2.add(sourceVideoVolumeSpinner);
             toolbar2.add(styledLabel("🌫 BG Tr%:"));
             toolbar2.add(bgTransparencySpinner);
+
+            // Custom placement (active when Image Display = Custom)
+            mediaXSpinner = new JSpinner(new SpinnerNumberModel(50, -50, 150, 1));
+            mediaXSpinner.setPreferredSize(new Dimension(52, 28));
+            mediaXSpinner.setToolTipText("Custom: centre of the image / video, % of frame width (0 = left edge, 100 = right edge)");
+            mediaYSpinner = new JSpinner(new SpinnerNumberModel(50, -50, 150, 1));
+            mediaYSpinner.setPreferredSize(new Dimension(52, 28));
+            mediaYSpinner.setToolTipText("Custom: centre of the image / video, % of frame height (0 = top, 100 = bottom)");
+            mediaWSpinner = new JSpinner(new SpinnerNumberModel(80, 5, 300, 1));
+            mediaWSpinner.setPreferredSize(new Dimension(52, 28));
+            mediaWSpinner.setToolTipText("Custom: width of the image / video, % of frame width (height keeps its aspect ratio)");
+            for (JSpinner sp : new JSpinner[]{ mediaXSpinner, mediaYSpinner, mediaWSpinner }) {
+                sp.addChangeListener(e -> {
+                    if (!isAdjustingMedia) onFormatChanged();
+                    livePreviewLabel.repaint();
+                });
+            }
+            mediaSnapCombo = new JComboBox<>(new String[]{
+                    "Snap…", "Top-Left", "Top", "Top-Right", "Left", "Center",
+                    "Right", "Bottom-Left", "Bottom", "Bottom-Right"
+            });
+            mediaSnapCombo.setPreferredSize(new Dimension(98, 28));
+            mediaSnapCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            mediaSnapCombo.setToolTipText("Move the image / video flush to an edge, corner or the centre (switches Image Display to Custom)");
+            mediaSnapCombo.addActionListener(e -> {
+                int idx = mediaSnapCombo.getSelectedIndex();
+                if (idx <= 0) return;
+                snapMedia((String) mediaSnapCombo.getSelectedItem());
+                mediaSnapCombo.setSelectedIndex(0);
+            });
+
+            // ===== Toolbar Row 2b: Custom placement of the image / video =====
+            JPanel toolbar2b = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            toolbar2b.setBackground(new Color(50, 95, 95));
+            toolbar2b.add(styledLabel("      Custom position   X%:"));
+            toolbar2b.add(mediaXSpinner);
+            toolbar2b.add(styledLabel("Y%:"));
+            toolbar2b.add(mediaYSpinner);
+            toolbar2b.add(styledLabel("W%:"));
+            toolbar2b.add(mediaWSpinner);
+            toolbar2b.add(mediaSnapCombo);
+            JLabel mediaDragHint = styledLabel("(or drag it in the preview: corner = resize, wheel = size)");
+            mediaDragHint.setFont(new Font("Segoe UI", Font.ITALIC, 10));
+            mediaDragHint.setForeground(new Color(150, 170, 170));
+            toolbar2b.add(mediaDragHint);
+            updateMediaPlacementControls();
 
             // ===== Toolbar Row 3: Slide number overlay =====
             JPanel toolbar3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 2));
@@ -33745,6 +33909,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(toolbar1b);
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar2);
+            toolbarsPanel.add(toolbar2b);
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar3);
             toolbarsPanel.add(createToolbarSeparator());
@@ -41477,7 +41642,7 @@ public class GifSlideShowApp extends JFrame {
                     getSelectedFont(), getFontSize(), getFontStyle(),
                     getFontColor(), getTextAlignment(), isShowPin(),
                     getPreviewWidth(), getPreviewHeight(),
-                    (isTitleGridSlide && titleBgImage == null) ? "Direct" : getDisplayMode(), getSubtitleY(),
+                    (isTitleGridSlide && titleBgImage == null) ? "Direct" : getRenderDisplayMode(), getSubtitleY(),
                     getSubtitleBgOpacity(),
                     isShowSlideNumber(), getSlideNumberText(), getSlideNumberFontName(),
                     getSlideNumberX(), getSlideNumberY(),
@@ -44192,7 +44357,7 @@ public class GifSlideShowApp extends JFrame {
                     getSelectedFont(), getFontSize(), getFontStyle(),
                     getFontColor(), getTextAlignment(), isShowPin(),
                     getPreviewWidth(), getPreviewHeight(),
-                    (isTitleGridSlide && titleBgImage == null) ? "Direct" : getDisplayMode(), getSubtitleY(),
+                    (isTitleGridSlide && titleBgImage == null) ? "Direct" : getRenderDisplayMode(), getSubtitleY(),
                     getSubtitleBgOpacity(),
                     isShowSlideNumber(), getSlideNumberText(), getSlideNumberFontName(),
                     getSlideNumberX(), getSlideNumberY(),
@@ -44516,6 +44681,234 @@ public class GifSlideShowApp extends JFrame {
         boolean isIncludedInVideo() { return includeInVideoCheck.isSelected(); }
         boolean isLocked() { return lockCheck.isSelected(); }
         String getDisplayMode() { return (String) displayModeCombo.getSelectedItem(); }
+
+        // ---------- "Custom" Image Display: free placement of the image / video ----------
+
+        boolean isCustomDisplay() { return CUSTOM_DISPLAY_MODE.equals(getDisplayMode()); }
+        int getMediaX() { return (int) mediaXSpinner.getValue(); }
+        int getMediaY() { return (int) mediaYSpinner.getValue(); }
+        int getMediaW() { return (int) mediaWSpinner.getValue(); }
+
+        void setMediaPlacement(int x, int y, int w) {
+            mediaXSpinner.setValue(clampToSpinner(mediaXSpinner, x));
+            mediaYSpinner.setValue(clampToSpinner(mediaYSpinner, y));
+            mediaWSpinner.setValue(clampToSpinner(mediaWSpinner, w));
+        }
+
+        /** Display mode handed to renderFrame / SlideData: "Custom" carries its placement. */
+        String getRenderDisplayMode() {
+            return isCustomDisplay() ? customDisplayMode(getMediaX(), getMediaY(), getMediaW()) : getDisplayMode();
+        }
+
+        private int clampToSpinner(JSpinner sp, int v) {
+            SpinnerNumberModel m = (SpinnerNumberModel) sp.getModel();
+            return Math.max(((Number) m.getMinimum()).intValue(), Math.min(((Number) m.getMaximum()).intValue(), v));
+        }
+
+        private void updateMediaPlacementControls() {
+            boolean custom = isCustomDisplay();
+            mediaXSpinner.setEnabled(custom);
+            mediaYSpinner.setEnabled(custom);
+            mediaWSpinner.setEnabled(custom);
+            livePreviewLabel.setCursor(Cursor.getDefaultCursor());
+            livePreviewLabel.repaint();
+        }
+
+        /** Width / height of the media, or 1:1 when no image is loaded yet. */
+        private double mediaAspect() {
+            return (loadedImage != null && loadedImage.getHeight() > 0)
+                    ? loadedImage.getWidth() / (double) loadedImage.getHeight() : 1.0;
+        }
+
+        /** Moves the media flush to an edge / corner ("Top-Left" … "Bottom-Right", "Center")
+         *  at its current width, and switches Image Display to Custom. */
+        private void snapMedia(String where) {
+            double frameW = getPreviewWidth(), frameH = getPreviewHeight();
+            double halfW = getMediaW() / 2.0;
+            double halfH = getMediaW() * frameW / mediaAspect() / frameH / 2.0;
+            double x = where.contains("Left") ? halfW : where.contains("Right") ? 100 - halfW : 50;
+            double y = where.startsWith("Top") ? halfH : where.startsWith("Bottom") ? 100 - halfH : 50;
+            isAdjustingMedia = true;
+            try {
+                setMediaPlacement((int) Math.round(x), (int) Math.round(y), getMediaW());
+            } finally {
+                isAdjustingMedia = false;
+            }
+            if (isCustomDisplay()) onFormatChanged();
+            else displayModeCombo.setSelectedItem(CUSTOM_DISPLAY_MODE);
+        }
+
+        /** True when the live preview should offer drag / resize of the media. */
+        private boolean canPlaceMediaInPreview() {
+            return isCustomDisplay() && loadedImage != null && !isTitleGridSlide
+                    && !(isOverlayEnabled() && getOverlaySize() > 0)
+                    && livePreviewLabel.getIcon() != null;
+        }
+
+        /** {iconX, iconY, scale}: where the preview frame sits in the label and its
+         *  frame-px → label-px scale (the icon is centred in the label). */
+        private double[] previewIconTransform() {
+            Icon icon = livePreviewLabel.getIcon();
+            Insets in = livePreviewLabel.getInsets();
+            int aw = livePreviewLabel.getWidth() - in.left - in.right;
+            int ah = livePreviewLabel.getHeight() - in.top - in.bottom;
+            return new double[]{
+                    in.left + (aw - icon.getIconWidth()) / 2,
+                    in.top + (ah - icon.getIconHeight()) / 2,
+                    icon.getIconWidth() / (double) getPreviewWidth() };
+        }
+
+        /** The media's rect {x, y, w, h} in preview-frame pixels. */
+        private int[] mediaPreviewRect() {
+            return customMediaRect(new int[]{ getMediaX(), getMediaY(), getMediaW() },
+                    loadedImage.getWidth(), loadedImage.getHeight(),
+                    getPreviewWidth(), getPreviewHeight());
+        }
+
+        /** Outline + corner handles of the custom-placed media, over the live preview. */
+        private void paintMediaPlacementOverlay(Graphics g0) {
+            if (!canPlaceMediaInPreview()) return;
+            double[] t = previewIconTransform();
+            int[] r = mediaPreviewRect();
+            int x = (int) Math.round(t[0] + r[0] * t[2]);
+            int y = (int) Math.round(t[1] + r[1] * t[2]);
+            int w = (int) Math.round(r[2] * t[2]);
+            int h = (int) Math.round(r[3] * t[2]);
+            Graphics2D g = (Graphics2D) g0.create();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            // The frame's own edge, so media running off-frame reads as such
+            Icon icon = livePreviewLabel.getIcon();
+            g.setColor(new Color(255, 255, 255, 70));
+            g.drawRect((int) t[0], (int) t[1], icon.getIconWidth() - 1, icon.getIconHeight() - 1);
+            g.setColor(new Color(0, 0, 0, 140));
+            g.setStroke(new BasicStroke(3f));
+            g.drawRect(x, y, w, h);
+            g.setColor(new Color(29, 161, 242));
+            g.setStroke(new BasicStroke(1.5f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER,
+                    10f, new float[]{ 6f, 4f }, 0f));
+            g.drawRect(x, y, w, h);
+            int hs = MEDIA_HANDLE_PX;
+            for (int[] c : new int[][]{ {x, y}, {x + w, y}, {x, y + h}, {x + w, y + h} }) {
+                g.setColor(Color.WHITE);
+                g.fillRect(c[0] - hs / 2, c[1] - hs / 2, hs, hs);
+                g.setColor(new Color(29, 161, 242));
+                g.setStroke(new BasicStroke(1.5f));
+                g.drawRect(c[0] - hs / 2, c[1] - hs / 2, hs, hs);
+            }
+            g.dispose();
+        }
+
+        private static final int MEDIA_HANDLE_PX = 8;
+
+        /** Drag the media to move it, drag a corner handle to resize it (the opposite
+         *  corner stays put), mouse wheel over it to resize around its centre.
+         *  Active only in the Custom Image Display mode. */
+        private void installMediaPlacementMouse() {
+            MouseAdapter m = new MouseAdapter() {
+                // 0 = idle, 1 = moving, 2 = resizing
+                int dragMode;
+                double grabDx, grabDy;          // move: pointer offset from the media centre (frame px)
+                double anchorX, anchorY;        // resize: the fixed opposite corner (frame px)
+                int signX, signY;               // resize: side of the grabbed corner
+
+                private double[] toFrame(MouseEvent e, double[] t) {
+                    return new double[]{ (e.getX() - t[0]) / t[2], (e.getY() - t[1]) / t[2] };
+                }
+
+                /** 1..4 = corner handle (TL, TR, BL, BR), 5 = inside the media, 0 = outside. */
+                private int hit(MouseEvent e) {
+                    double[] t = previewIconTransform();
+                    int[] r = mediaPreviewRect();
+                    double x = t[0] + r[0] * t[2], y = t[1] + r[1] * t[2];
+                    double w = r[2] * t[2], h = r[3] * t[2];
+                    double tol = MEDIA_HANDLE_PX;
+                    boolean left = Math.abs(e.getX() - x) <= tol, right = Math.abs(e.getX() - (x + w)) <= tol;
+                    boolean top = Math.abs(e.getY() - y) <= tol, bottom = Math.abs(e.getY() - (y + h)) <= tol;
+                    if (top && left) return 1;
+                    if (top && right) return 2;
+                    if (bottom && left) return 3;
+                    if (bottom && right) return 4;
+                    return (e.getX() >= x && e.getX() <= x + w && e.getY() >= y && e.getY() <= y + h) ? 5 : 0;
+                }
+
+                @Override public void mouseMoved(MouseEvent e) {
+                    int h = canPlaceMediaInPreview() ? hit(e) : 0;
+                    int cursor = h == 1 ? Cursor.NW_RESIZE_CURSOR : h == 2 ? Cursor.NE_RESIZE_CURSOR
+                            : h == 3 ? Cursor.SW_RESIZE_CURSOR : h == 4 ? Cursor.SE_RESIZE_CURSOR
+                            : h == 5 ? Cursor.MOVE_CURSOR : Cursor.DEFAULT_CURSOR;
+                    livePreviewLabel.setCursor(Cursor.getPredefinedCursor(cursor));
+                }
+
+                @Override public void mousePressed(MouseEvent e) {
+                    dragMode = 0;
+                    if (!SwingUtilities.isLeftMouseButton(e) || !canPlaceMediaInPreview()) return;
+                    int h = hit(e);
+                    if (h == 0) return;
+                    double[] f = toFrame(e, previewIconTransform());
+                    int[] r = mediaPreviewRect();
+                    if (h == 5) {
+                        dragMode = 1;
+                        grabDx = f[0] - (r[0] + r[2] / 2.0);
+                        grabDy = f[1] - (r[1] + r[3] / 2.0);
+                    } else {
+                        dragMode = 2;
+                        signX = (h == 2 || h == 4) ? 1 : -1;
+                        signY = (h == 3 || h == 4) ? 1 : -1;
+                        anchorX = signX > 0 ? r[0] : r[0] + r[2];
+                        anchorY = signY > 0 ? r[1] : r[1] + r[3];
+                    }
+                    isAdjustingMedia = true;
+                }
+
+                @Override public void mouseDragged(MouseEvent e) {
+                    if (dragMode == 0) return;
+                    if (!canPlaceMediaInPreview()) { mouseReleased(e); return; }
+                    double frameW = getPreviewWidth(), frameH = getPreviewHeight();
+                    double[] f = toFrame(e, previewIconTransform());
+                    if (dragMode == 1) {
+                        setMediaPlacement(
+                                (int) Math.round((f[0] - grabDx) * 100 / frameW),
+                                (int) Math.round((f[1] - grabDy) * 100 / frameH),
+                                getMediaW());
+                    } else {
+                        // Width from whichever pointer axis pulls further, height from the aspect
+                        double aspect = mediaAspect();
+                        double dw = Math.max(signX * (f[0] - anchorX), signY * (f[1] - anchorY) * aspect);
+                        int wPct = clampToSpinner(mediaWSpinner, (int) Math.round(dw * 100 / frameW));
+                        double w = frameW * wPct / 100.0, h = w / aspect;
+                        setMediaPlacement(
+                                (int) Math.round((anchorX + signX * w / 2) * 100 / frameW),
+                                (int) Math.round((anchorY + signY * h / 2) * 100 / frameH),
+                                wPct);
+                    }
+                    // Throttle (not debounce) the full re-render so the media follows the
+                    // pointer while dragging; the outline itself repaints on every move.
+                    if (!previewTimer.isRunning()) previewTimer.start();
+                }
+
+                @Override public void mouseReleased(MouseEvent e) {
+                    if (dragMode == 0) return;
+                    dragMode = 0;
+                    isAdjustingMedia = false;
+                    onFormatChanged();
+                }
+
+                @Override public void mouseWheelMoved(MouseWheelEvent e) {
+                    if (dragMode == 0 && canPlaceMediaInPreview() && hit(e) != 0) {
+                        int step = e.isShiftDown() ? 10 : 2;
+                        mediaWSpinner.setValue(clampToSpinner(mediaWSpinner,
+                                getMediaW() - (int) Math.signum(e.getPreciseWheelRotation()) * step));
+                        return;
+                    }
+                    // Not ours: let the enclosing scroll pane scroll as usual
+                    Container parent = livePreviewLabel.getParent();
+                    if (parent != null) parent.dispatchEvent(SwingUtilities.convertMouseEvent(livePreviewLabel, e, parent));
+                }
+            };
+            livePreviewLabel.addMouseListener(m);
+            livePreviewLabel.addMouseMotionListener(m);
+            livePreviewLabel.addMouseWheelListener(m);
+        }
 
         private boolean isLoadingRowPreset = false;
 
