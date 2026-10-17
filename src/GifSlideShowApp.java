@@ -396,6 +396,7 @@ public class GifSlideShowApp extends JFrame {
         // Display
         props.setProperty("displayMode", source.getDisplayMode());
         props.setProperty("mediaLayout", source.getMediaLayout().encode());
+        if (source.getMediaLook() != null) props.setProperty("mediaLook", source.getMediaLook());
         props.setProperty("subtitleY", String.valueOf(source.getSubtitleY()));
         props.setProperty("subtitleBgOpacity", String.valueOf(source.getSubtitleBgOpacity()));
         props.setProperty("sourceVideoVolume", String.valueOf(source.getSourceVideoVolume()));
@@ -935,6 +936,8 @@ public class GifSlideShowApp extends JFrame {
             mediaLayout.y = parseIntOr(props.getProperty("mediaY"), 50);
             mediaLayout.w = parseIntOr(props.getProperty("mediaW"), 80);
         }
+        // Presets saved before the look name was stored: the look they match, if any
+        String mediaLook = props.getProperty("mediaLook", mediaLayout.matchingLook());
         int subtitleY = Integer.parseInt(props.getProperty("subtitleY", "5"));
         int subtitleBgOpacity = Integer.parseInt(props.getProperty("subtitleBgOpacity", "78"));
         int sourceVideoVolume = Integer.parseInt(props.getProperty("sourceVideoVolume", "25"));
@@ -1473,6 +1476,7 @@ public class GifSlideShowApp extends JFrame {
                 row.applySlidePictureFormats(slidePictureFormats, true, false);
                 row.applySoundFxListFromMaster(soundFxList);
                 row.setMediaLayout(mediaLayout);
+                row.setMediaLook(mediaLook);
                 row.getQuiz().copyVisualSettingsFrom(tmpl);
                 row.refreshQuizToolbarFromState();
                 row.applyLayoutGroupPanelState(lgCols, lgAnchorX, lgAnchorY,
@@ -7021,6 +7025,7 @@ public class GifSlideShowApp extends JFrame {
                         karaokeIntensityList, karaokeTightList);
                 row.applySoundFxListFromMaster(soundFxList);
                 row.setMediaLayout(source.getMediaLayout());
+                row.setMediaLook(source.getMediaLook());
                 // Broadcast the master row's quiz visual / shared settings
                 // (everything except the per-slide enabled flag, correct
                 // answer index, and question/generated audio files).
@@ -30741,14 +30746,14 @@ public class GifSlideShowApp extends JFrame {
             toolbar2c.setBackground(new Color(50, 95, 95));
 
             String[] looks = new String[MediaLayout.LOOKS.length + 1];
-            looks[0] = "(custom)";
+            looks[0] = "Look…";
             System.arraycopy(MediaLayout.LOOKS, 0, looks, 1, MediaLayout.LOOKS.length);
             mediaLookCombo = new JComboBox<>(looks);
             mediaLookCombo.setPreferredSize(new Dimension(110, 28));
             mediaLookCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             mediaLookCombo.setToolTipText("One-click designed looks: background, rounded corners, shadow and border together (switches Image Display to Custom)");
-            // The chosen look stays shown (and arrow keys step through the looks)
-            // until a setting is changed by hand, which shows "(custom)"
+            // The chosen look stays shown as the starting point while its settings
+            // are tuned (arrow keys step through the looks; re-picking re-applies it)
             mediaLookCombo.addActionListener(e -> {
                 if (isRefreshingPickers || mediaLookCombo.getSelectedIndex() <= 0) return;
                 applyMediaLook((String) mediaLookCombo.getSelectedItem());
@@ -30765,10 +30770,7 @@ public class GifSlideShowApp extends JFrame {
                     + "<b>Solid</b> color 1</html>");
             mediaBgCombo.addActionListener(e -> {
                 updateMediaPlacementControls();
-                if (!isAdjustingMedia) {
-                    onFormatChanged();
-                    refreshLookCombo();
-                }
+                if (!isAdjustingMedia) onFormatChanged();
             });
 
             mediaColor1Btn = makeMediaColorButton("Background color 1", () -> mediaColor1, c -> mediaColor1 = c);
@@ -30795,9 +30797,7 @@ public class GifSlideShowApp extends JFrame {
                     mediaVignetteSpinner, mediaGrainSpinner, mediaGlowSpinner }) {
                 sp.setPreferredSize(new Dimension(50, 28));
                 sp.addChangeListener(e -> {
-                    if (isAdjustingMedia) return;
-                    onFormatChanged();
-                    refreshLookCombo();
+                    if (!isAdjustingMedia) onFormatChanged();
                 });
             }
 
@@ -45387,14 +45387,18 @@ public class GifSlideShowApp extends JFrame {
             mediaShadowSpinner.setValue(clampToSpinner(mediaShadowSpinner, l.shadow));
             mediaBorderSpinner.setValue(clampToSpinner(mediaBorderSpinner, l.border));
             refreshMediaColorButtons();
-            refreshLookCombo();
             schedulePreview();
         }
 
-        /** Points the Look picker at the look the current settings match, or "(custom)". */
-        private void refreshLookCombo() {
-            String match = getMediaLayout().matchingLook();
-            setPickerSilently(mediaLookCombo, match);
+        /** The look last picked in the Look list (the starting point the settings were
+         *  tuned from), or null if none was picked. */
+        String getMediaLook() {
+            return mediaLookCombo.getSelectedIndex() > 0 ? (String) mediaLookCombo.getSelectedItem() : null;
+        }
+
+        /** Shows a look in the Look list without applying it (presets, first-slide sync). */
+        void setMediaLook(String look) {
+            setPickerSilently(mediaLookCombo, look);
         }
 
         /** Points the Snap picker at the position the media sits in, or "Snap…". */
@@ -45445,7 +45449,6 @@ public class GifSlideShowApp extends JFrame {
                 set.accept(c);
                 b.setIcon(colorSwatchIcon(c));
                 onFormatChanged();
-                refreshLookCombo();
             }));
             return b;
         }
