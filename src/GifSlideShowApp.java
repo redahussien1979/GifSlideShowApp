@@ -7593,6 +7593,22 @@ public class GifSlideShowApp extends JFrame {
 
         int[] placement() { return new int[]{ x, y, w }; }
 
+        /** The {@link #LOOKS} entry this layout's styling equals (placement aside),
+         *  or null. Colors a style doesn't use are not compared. */
+        String matchingLook() {
+            for (String look : LOOKS) {
+                MediaLayout t = new MediaLayout();
+                t.applyLook(look);
+                boolean same = t.bg.equals(bg) && t.dim == dim && t.round == round && t.shadow == shadow
+                        && t.border == border && t.vignette == vignette && t.grain == grain && t.glow == glow
+                        && (border == 0 || t.borderColor.equals(borderColor))
+                        && (glow == 0 || t.glowColor.equals(glowColor))
+                        && (isBlur() || (t.c1.equals(c1) && t.c2.equals(c2) && t.c3.equals(c3)));
+                if (same) return look;
+            }
+            return null;
+        }
+
         /** Corner radius in px of media drawn dw x dh. */
         int cornerRadius(int dw, int dh) { return (int) Math.round(Math.min(dw, dh) / 2.0 * round / 100.0); }
 
@@ -30023,6 +30039,9 @@ public class GifSlideShowApp extends JFrame {
         // Set while a preview drag / snap writes the spinners, so their listeners
         // leave the (once-per-gesture) format sync to the gesture itself.
         private boolean isAdjustingMedia = false;
+        // Set while the Look / Snap pickers are re-pointed to match the current
+        // settings, so that doesn't count as the user choosing an item.
+        private boolean isRefreshingPickers = false;
         private final JCheckBox fxRoundCornersCheck;
         private final JSpinner fxCornerRadiusSpinner;
         private final JCheckBox fxVignetteCheck;
@@ -30684,6 +30703,7 @@ public class GifSlideShowApp extends JFrame {
             for (JSpinner sp : new JSpinner[]{ mediaXSpinner, mediaYSpinner, mediaWSpinner }) {
                 sp.addChangeListener(e -> {
                     if (!isAdjustingMedia) onFormatChanged();
+                    refreshSnapCombo();
                     livePreviewLabel.repaint();
                 });
             }
@@ -30694,11 +30714,11 @@ public class GifSlideShowApp extends JFrame {
             mediaSnapCombo.setPreferredSize(new Dimension(98, 28));
             mediaSnapCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             mediaSnapCombo.setToolTipText("Move the image / video flush to an edge, corner or the centre (switches Image Display to Custom)");
+            // The chosen position stays shown (and arrow keys step through them)
+            // until the media is moved elsewhere
             mediaSnapCombo.addActionListener(e -> {
-                int idx = mediaSnapCombo.getSelectedIndex();
-                if (idx <= 0) return;
+                if (isRefreshingPickers || mediaSnapCombo.getSelectedIndex() <= 0) return;
                 snapMedia((String) mediaSnapCombo.getSelectedItem());
-                mediaSnapCombo.setSelectedIndex(0);
             });
 
             // ===== Toolbar Row 2b: Custom placement of the image / video =====
@@ -30711,7 +30731,7 @@ public class GifSlideShowApp extends JFrame {
             toolbar2b.add(styledLabel("W%:"));
             toolbar2b.add(mediaWSpinner);
             toolbar2b.add(mediaSnapCombo);
-            JLabel mediaDragHint = styledLabel("(or drag it in the preview: corner = resize, wheel = size)");
+            JLabel mediaDragHint = styledLabel("(or in the preview: drag it, corner = resize, wheel = size; click it, then arrows move, +/- = size)");
             mediaDragHint.setFont(new Font("Segoe UI", Font.ITALIC, 10));
             mediaDragHint.setForeground(new Color(150, 170, 170));
             toolbar2b.add(mediaDragHint);
@@ -30721,16 +30741,17 @@ public class GifSlideShowApp extends JFrame {
             toolbar2c.setBackground(new Color(50, 95, 95));
 
             String[] looks = new String[MediaLayout.LOOKS.length + 1];
-            looks[0] = "Look…";
+            looks[0] = "(custom)";
             System.arraycopy(MediaLayout.LOOKS, 0, looks, 1, MediaLayout.LOOKS.length);
             mediaLookCombo = new JComboBox<>(looks);
             mediaLookCombo.setPreferredSize(new Dimension(110, 28));
             mediaLookCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             mediaLookCombo.setToolTipText("One-click designed looks: background, rounded corners, shadow and border together (switches Image Display to Custom)");
+            // The chosen look stays shown (and arrow keys step through the looks)
+            // until a setting is changed by hand, which shows "(custom)"
             mediaLookCombo.addActionListener(e -> {
-                if (mediaLookCombo.getSelectedIndex() <= 0) return;
+                if (isRefreshingPickers || mediaLookCombo.getSelectedIndex() <= 0) return;
                 applyMediaLook((String) mediaLookCombo.getSelectedItem());
-                mediaLookCombo.setSelectedIndex(0);
             });
 
             mediaBgCombo = new JComboBox<>(MediaLayout.BG_STYLES);
@@ -30744,7 +30765,10 @@ public class GifSlideShowApp extends JFrame {
                     + "<b>Solid</b> color 1</html>");
             mediaBgCombo.addActionListener(e -> {
                 updateMediaPlacementControls();
-                if (!isAdjustingMedia) onFormatChanged();
+                if (!isAdjustingMedia) {
+                    onFormatChanged();
+                    refreshLookCombo();
+                }
             });
 
             mediaColor1Btn = makeMediaColorButton("Background color 1", () -> mediaColor1, c -> mediaColor1 = c);
@@ -30770,7 +30794,11 @@ public class GifSlideShowApp extends JFrame {
             for (JSpinner sp : new JSpinner[]{ mediaDimSpinner, mediaRoundSpinner, mediaShadowSpinner, mediaBorderSpinner,
                     mediaVignetteSpinner, mediaGrainSpinner, mediaGlowSpinner }) {
                 sp.setPreferredSize(new Dimension(50, 28));
-                sp.addChangeListener(e -> { if (!isAdjustingMedia) onFormatChanged(); });
+                sp.addChangeListener(e -> {
+                    if (isAdjustingMedia) return;
+                    onFormatChanged();
+                    refreshLookCombo();
+                });
             }
 
             toolbar2c.add(styledLabel("      Custom look   "));
@@ -45359,7 +45387,35 @@ public class GifSlideShowApp extends JFrame {
             mediaShadowSpinner.setValue(clampToSpinner(mediaShadowSpinner, l.shadow));
             mediaBorderSpinner.setValue(clampToSpinner(mediaBorderSpinner, l.border));
             refreshMediaColorButtons();
+            refreshLookCombo();
             schedulePreview();
+        }
+
+        /** Points the Look picker at the look the current settings match, or "(custom)". */
+        private void refreshLookCombo() {
+            String match = getMediaLayout().matchingLook();
+            setPickerSilently(mediaLookCombo, match);
+        }
+
+        /** Points the Snap picker at the position the media sits in, or "Snap…". */
+        private void refreshSnapCombo() {
+            String match = null;
+            for (int i = 1; i < mediaSnapCombo.getItemCount() && match == null; i++) {
+                String where = mediaSnapCombo.getItemAt(i);
+                int[] p = snappedPosition(where);
+                if (p[0] == getMediaX() && p[1] == getMediaY()) match = where;
+            }
+            setPickerSilently(mediaSnapCombo, match);
+        }
+
+        private void setPickerSilently(JComboBox<String> picker, String item) {
+            isRefreshingPickers = true;
+            try {
+                if (item == null) picker.setSelectedIndex(0);
+                else picker.setSelectedItem(item);
+            } finally {
+                isRefreshingPickers = false;
+            }
         }
 
         /** Applies one of the {@link MediaLayout#LOOKS} (keeping the placement) and
@@ -45389,6 +45445,7 @@ public class GifSlideShowApp extends JFrame {
                 set.accept(c);
                 b.setIcon(colorSwatchIcon(c));
                 onFormatChanged();
+                refreshLookCombo();
             }));
             return b;
         }
@@ -45458,19 +45515,26 @@ public class GifSlideShowApp extends JFrame {
         /** Moves the media flush to an edge / corner ("Top-Left" … "Bottom-Right", "Center")
          *  at its current width, and switches Image Display to Custom. */
         private void snapMedia(String where) {
-            double frameW = getPreviewWidth(), frameH = getPreviewHeight();
-            double halfW = getMediaW() / 2.0;
-            double halfH = getMediaW() * frameW / mediaAspect() / frameH / 2.0;
-            double x = where.contains("Left") ? halfW : where.contains("Right") ? 100 - halfW : 50;
-            double y = where.startsWith("Top") ? halfH : where.startsWith("Bottom") ? 100 - halfH : 50;
+            int[] p = snappedPosition(where);
             isAdjustingMedia = true;
             try {
-                setMediaPlacement((int) Math.round(x), (int) Math.round(y), getMediaW());
+                setMediaPlacement(p[0], p[1], getMediaW());
             } finally {
                 isAdjustingMedia = false;
             }
             if (isCustomDisplay()) onFormatChanged();
             else displayModeCombo.setSelectedItem(CUSTOM_DISPLAY_MODE);
+        }
+
+        /** {x, y} that puts the media flush to an edge / corner ("Top-Left" … "Bottom-Right",
+         *  "Center") at its current width. */
+        private int[] snappedPosition(String where) {
+            double frameW = getPreviewWidth(), frameH = getPreviewHeight();
+            double halfW = getMediaW() / 2.0;
+            double halfH = getMediaW() * frameW / mediaAspect() / frameH / 2.0;
+            double x = where.contains("Left") ? halfW : where.contains("Right") ? 100 - halfW : 50;
+            double y = where.startsWith("Top") ? halfH : where.startsWith("Bottom") ? 100 - halfH : 50;
+            return new int[]{ (int) Math.round(x), (int) Math.round(y) };
         }
 
         /** True when the live preview should offer drag / resize of the media. */
@@ -45518,7 +45582,7 @@ public class GifSlideShowApp extends JFrame {
             g.setColor(new Color(0, 0, 0, 140));
             g.setStroke(new BasicStroke(3f));
             g.drawRect(x, y, w, h);
-            g.setColor(new Color(29, 161, 242));
+            g.setColor(livePreviewLabel.isFocusOwner() ? new Color(255, 196, 0) : new Color(29, 161, 242));
             g.setStroke(new BasicStroke(1.5f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER,
                     10f, new float[]{ 6f, 4f }, 0f));
             g.drawRect(x, y, w, h);
@@ -45577,6 +45641,7 @@ public class GifSlideShowApp extends JFrame {
                 @Override public void mousePressed(MouseEvent e) {
                     dragMode = 0;
                     if (!SwingUtilities.isLeftMouseButton(e) || !canPlaceMediaInPreview()) return;
+                    livePreviewLabel.requestFocusInWindow();
                     int h = hit(e);
                     if (h == 0) return;
                     double[] f = toFrame(e, previewIconTransform());
@@ -45643,6 +45708,34 @@ public class GifSlideShowApp extends JFrame {
             livePreviewLabel.addMouseListener(m);
             livePreviewLabel.addMouseMotionListener(m);
             livePreviewLabel.addMouseWheelListener(m);
+
+            // Keyboard, once the preview is clicked: arrows move the media 1%
+            // (Shift: 5%), + / - (or Page Up / Down) resize it by 1% (Shift: 5%)
+            livePreviewLabel.setFocusable(true);
+            livePreviewLabel.addFocusListener(new FocusAdapter() {
+                @Override public void focusGained(FocusEvent e) { livePreviewLabel.repaint(); }
+                @Override public void focusLost(FocusEvent e) { livePreviewLabel.repaint(); }
+            });
+            InputMap im = livePreviewLabel.getInputMap(JComponent.WHEN_FOCUSED);
+            ActionMap am = livePreviewLabel.getActionMap();
+            Object[][] keys = {
+                    { KeyEvent.VK_LEFT, -1, 0, 0 }, { KeyEvent.VK_RIGHT, 1, 0, 0 },
+                    { KeyEvent.VK_UP, 0, -1, 0 }, { KeyEvent.VK_DOWN, 0, 1, 0 },
+                    { KeyEvent.VK_ADD, 0, 0, 1 }, { KeyEvent.VK_EQUALS, 0, 0, 1 }, { KeyEvent.VK_PAGE_UP, 0, 0, 1 },
+                    { KeyEvent.VK_SUBTRACT, 0, 0, -1 }, { KeyEvent.VK_MINUS, 0, 0, -1 }, { KeyEvent.VK_PAGE_DOWN, 0, 0, -1 } };
+            for (Object[] k : keys) {
+                for (int step : new int[]{ 1, 5 }) {
+                    int key = (Integer) k[0], dx = (Integer) k[1] * step, dy = (Integer) k[2] * step, dw = (Integer) k[3] * step;
+                    String name = "media-nudge-" + key + "-" + step;
+                    im.put(KeyStroke.getKeyStroke(key, step == 5 ? InputEvent.SHIFT_DOWN_MASK : 0), name);
+                    am.put(name, new AbstractAction() {
+                        @Override public void actionPerformed(ActionEvent e) {
+                            if (!canPlaceMediaInPreview()) return;
+                            setMediaPlacement(getMediaX() + dx, getMediaY() + dy, getMediaW() + dw);
+                        }
+                    });
+                }
+            }
         }
 
         private boolean isLoadingRowPreset = false;
