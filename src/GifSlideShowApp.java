@@ -395,9 +395,7 @@ public class GifSlideShowApp extends JFrame {
 
         // Display
         props.setProperty("displayMode", source.getDisplayMode());
-        props.setProperty("mediaX", String.valueOf(source.getMediaX()));
-        props.setProperty("mediaY", String.valueOf(source.getMediaY()));
-        props.setProperty("mediaW", String.valueOf(source.getMediaW()));
+        props.setProperty("mediaLayout", source.getMediaLayout().encode());
         props.setProperty("subtitleY", String.valueOf(source.getSubtitleY()));
         props.setProperty("subtitleBgOpacity", String.valueOf(source.getSubtitleBgOpacity()));
         props.setProperty("sourceVideoVolume", String.valueOf(source.getSourceVideoVolume()));
@@ -929,9 +927,14 @@ public class GifSlideShowApp extends JFrame {
         Color highlightColor = hexToColor(props.getProperty("highlightColor", "#FFFF00B4"));
 
         String displayMode = props.getProperty("displayMode", "Blur-Fit");
-        int mediaX = parseIntOr(props.getProperty("mediaX"), 50);
-        int mediaY = parseIntOr(props.getProperty("mediaY"), 50);
-        int mediaW = parseIntOr(props.getProperty("mediaW"), 80);
+        MediaLayout mediaLayout = MediaLayout.parse(props.getProperty("mediaLayout"));
+        if (mediaLayout == null) {
+            // Presets saved before the Custom look: placement only
+            mediaLayout = new MediaLayout();
+            mediaLayout.x = parseIntOr(props.getProperty("mediaX"), 50);
+            mediaLayout.y = parseIntOr(props.getProperty("mediaY"), 50);
+            mediaLayout.w = parseIntOr(props.getProperty("mediaW"), 80);
+        }
         int subtitleY = Integer.parseInt(props.getProperty("subtitleY", "5"));
         int subtitleBgOpacity = Integer.parseInt(props.getProperty("subtitleBgOpacity", "78"));
         int sourceVideoVolume = Integer.parseInt(props.getProperty("sourceVideoVolume", "25"));
@@ -1469,7 +1472,7 @@ public class GifSlideShowApp extends JFrame {
                 // preset saved without a picture leaves each slide's own alone.
                 row.applySlidePictureFormats(slidePictureFormats, true, false);
                 row.applySoundFxListFromMaster(soundFxList);
-                row.setMediaPlacement(mediaX, mediaY, mediaW);
+                row.setMediaLayout(mediaLayout);
                 row.getQuiz().copyVisualSettingsFrom(tmpl);
                 row.refreshQuizToolbarFromState();
                 row.applyLayoutGroupPanelState(lgCols, lgAnchorX, lgAnchorY,
@@ -7017,7 +7020,7 @@ public class GifSlideShowApp extends JFrame {
                         karaokeStyleList, karaokeColorList,
                         karaokeIntensityList, karaokeTightList);
                 row.applySoundFxListFromMaster(soundFxList);
-                row.setMediaPlacement(source.getMediaX(), source.getMediaY(), source.getMediaW());
+                row.setMediaLayout(source.getMediaLayout());
                 // Broadcast the master row's quiz visual / shared settings
                 // (everything except the per-slide enabled flag, correct
                 // answer index, and question/generated audio files).
@@ -7479,27 +7482,102 @@ public class GifSlideShowApp extends JFrame {
     private static final String CUSTOM_DISPLAY_PREFIX = CUSTOM_DISPLAY_MODE + ":";
 
     /**
-     * Render-time form of the "Custom" display mode. The placement rides inside
-     * the display-mode string ("Custom:x:y:w") so every renderFrame call site and
-     * SlideData carry it without new parameters. x / y are the media's centre
-     * (% of frame width / height), w its width (% of frame width); the height
-     * follows the media's own aspect ratio.
+     * Placement and look of a slide in the "Custom" Image Display mode. It rides
+     * inside the render display-mode string ("Custom:x:y:w:bg:c1:c2:dim:round:
+     * shadow:border:borderColor", see {@link #encode}) so every renderFrame call
+     * site and SlideData carry it without new parameters.
+     * <ul>
+     * <li>x / y: the media's centre, % of frame width / height; w: its width, %
+     *     of frame width (the height follows the media's aspect ratio).</li>
+     * <li>bg: what fills the frame around the media — Solid (c1), Gradient
+     *     (c1 top to c2 bottom), Radial (c1 glow around the media fading to c2) or
+     *     Blur (the media itself, zoomed to fill, blurred and darkened by dim %;
+     *     an uploaded video's blur plays along with it in the MP4).</li>
+     * <li>round: corner radius, % of half the media's short side (50 = pill);
+     *     shadow: soft drop-shadow strength 0..100; border: frame width in px of
+     *     a 1080 px frame, in borderColor (alpha allowed, e.g. a glassy edge).</li>
+     * </ul>
      */
-    static String customDisplayMode(int xPct, int yPct, int wPct) {
-        return CUSTOM_DISPLAY_PREFIX + xPct + ":" + yPct + ":" + wPct;
-    }
+    static final class MediaLayout {
+        static final String[] BG_STYLES = { "Solid", "Gradient", "Radial", "Blur" };
+        static final String[] LOOKS = { "Studio Dark", "Blur Glass", "Blur Cinema", "Midnight Glow",
+                "Sunset", "Ocean", "Clean White", "Neon Frame", "Polaroid", "Plain" };
 
-    /** {x, y, w} of a "Custom:x:y:w" display mode, or null for any other mode. */
-    static int[] parseCustomPlacement(String displayMode) {
-        if (displayMode == null || !displayMode.startsWith(CUSTOM_DISPLAY_PREFIX)) return null;
-        String[] p = displayMode.substring(CUSTOM_DISPLAY_PREFIX.length()).split(":");
-        if (p.length != 3) return null;
-        try {
-            return new int[]{ Integer.parseInt(p[0]), Integer.parseInt(p[1]),
-                    Math.max(1, Integer.parseInt(p[2])) };
-        } catch (NumberFormatException e) {
-            return null;
+        int x = 50, y = 50, w = 80;
+        String bg = "Solid";
+        Color c1 = new Color(21, 32, 43), c2 = new Color(6, 9, 14);
+        int dim = 40, round = 0, shadow = 0, border = 0;
+        Color borderColor = Color.WHITE;
+
+        boolean isBlur() { return "Blur".equals(bg); }
+
+        String encode() {
+            return CUSTOM_DISPLAY_PREFIX + x + ":" + y + ":" + w + ":" + bg + ":" + hex(c1) + ":" + hex(c2)
+                    + ":" + dim + ":" + round + ":" + shadow + ":" + border + ":" + hex(borderColor);
         }
+
+        /** The layout of a "Custom:…" display mode (the short "Custom:x:y:w" form
+         *  takes the default look), or null for any other mode. */
+        static MediaLayout parse(String displayMode) {
+            if (displayMode == null || !displayMode.startsWith(CUSTOM_DISPLAY_PREFIX)) return null;
+            String[] p = displayMode.substring(CUSTOM_DISPLAY_PREFIX.length()).split(":");
+            if (p.length != 3 && p.length != 11) return null;
+            try {
+                MediaLayout l = new MediaLayout();
+                l.x = Integer.parseInt(p[0]);
+                l.y = Integer.parseInt(p[1]);
+                l.w = Math.max(1, Integer.parseInt(p[2]));
+                if (p.length == 11) {
+                    l.bg = java.util.Arrays.asList(BG_STYLES).contains(p[3]) ? p[3] : "Solid";
+                    l.c1 = unhex(p[4]);
+                    l.c2 = unhex(p[5]);
+                    l.dim = clamp(Integer.parseInt(p[6]), 0, 100);
+                    l.round = clamp(Integer.parseInt(p[7]), 0, 50);
+                    l.shadow = clamp(Integer.parseInt(p[8]), 0, 100);
+                    l.border = clamp(Integer.parseInt(p[9]), 0, 200);
+                    l.borderColor = unhex(p[10]);
+                }
+                return l;
+            } catch (IllegalArgumentException e) {
+                return null;
+            }
+        }
+
+        /** Sets everything but the placement to one of the {@link #LOOKS}. */
+        void applyLook(String look) {
+            dim = 40; round = 0; shadow = 0; border = 0; borderColor = Color.WHITE;
+            switch (look) {
+                case "Studio Dark":   bg = "Radial";   c1 = new Color(0x2A3446); c2 = new Color(0x0B0F17); round = 6; shadow = 70; break;
+                case "Blur Glass":    bg = "Blur";     dim = 30; round = 8; shadow = 60; border = 3; borderColor = new Color(255, 255, 255, 110); break;
+                case "Blur Cinema":   bg = "Blur";     dim = 60; shadow = 80; break;
+                case "Midnight Glow": bg = "Radial";   c1 = new Color(0x1E3A8A); c2 = new Color(0x020617); round = 6; shadow = 70; border = 2; borderColor = new Color(0x60A5FA); break;
+                case "Sunset":        bg = "Gradient"; c1 = new Color(0xF97316); c2 = new Color(0x7C3AED); round = 8; shadow = 60; break;
+                case "Ocean":         bg = "Gradient"; c1 = new Color(0x0EA5E9); c2 = new Color(0x0F172A); round = 6; shadow = 60; break;
+                case "Clean White":   bg = "Solid";    c1 = new Color(0xF4F5F7); round = 6; shadow = 45; break;
+                case "Neon Frame":    bg = "Radial";   c1 = new Color(0x1A1033); c2 = new Color(0x05040A); round = 6; border = 4; borderColor = new Color(0x22D3EE); break;
+                case "Polaroid":      bg = "Solid";    c1 = new Color(0xE9E4DA); border = 14; shadow = 50; break;
+                default:              bg = "Solid";    c1 = new Color(21, 32, 43); c2 = new Color(6, 9, 14); break; // "Plain"
+            }
+        }
+
+        int[] placement() { return new int[]{ x, y, w }; }
+
+        /** Corner radius in px of media drawn dw x dh. */
+        int cornerRadius(int dw, int dh) { return (int) Math.round(Math.min(dw, dh) / 2.0 * round / 100.0); }
+
+        /** Border width in px in a targetW x targetH frame. */
+        int borderPx(int targetW, int targetH) {
+            return border <= 0 ? 0 : Math.max(1, (int) Math.round(border * Math.min(targetW, targetH) / 1080.0));
+        }
+
+        /** Blur radius (px) of the Blur background in a targetW x targetH frame. */
+        static int blurRadius(int targetW, int targetH) {
+            return Math.max(2, (int) Math.round(Math.max(targetW, targetH) * 0.035));
+        }
+
+        private static int clamp(int v, int lo, int hi) { return Math.max(lo, Math.min(hi, v)); }
+        private static String hex(Color c) { return String.format("%08X", c.getRGB()); }
+        private static Color unhex(String h) { return new Color((int) Long.parseLong(h, 16), true); }
     }
 
     /**
@@ -7515,6 +7593,98 @@ public class GifSlideShowApp extends JFrame {
         int cx = (int) Math.round(targetW * placement[0] / 100.0);
         int cy = (int) Math.round(targetH * placement[1] / 100.0);
         return new int[]{ cx - dw / 2, cy - dh / 2, dw, dh };
+    }
+
+    /** Fills the whole frame with a Custom layout's background (see {@link MediaLayout}). */
+    static void paintCustomBackground(Graphics2D g, BufferedImage image, MediaLayout l,
+                                      int[] r, int targetW, int targetH) {
+        Graphics2D bg = (Graphics2D) g.create();
+        switch (l.bg) {
+            case "Gradient":
+                bg.setPaint(new GradientPaint(0, 0, l.c1, 0, targetH, l.c2));
+                break;
+            case "Radial": {
+                float cx = r[0] + r[2] / 2f, cy = r[1] + r[3] / 2f;
+                float radius = Math.max(1f, 0.8f * Math.max(targetW, targetH));
+                bg.setPaint(new RadialGradientPaint(cx, cy, radius,
+                        new float[]{ 0f, 1f }, new Color[]{ l.c1, l.c2 }));
+                break;
+            }
+            case "Blur": {
+                double sc = Math.max((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
+                int cw = (int) Math.ceil(image.getWidth() * sc), ch = (int) Math.ceil(image.getHeight() * sc);
+                BufferedImage cover = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
+                Graphics2D cg = cover.createGraphics();
+                cg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                cg.drawImage(image, (targetW - cw) / 2, (targetH - ch) / 2, cw, ch, null);
+                cg.dispose();
+                bg.drawImage(applyStackBlur(cover, MediaLayout.blurRadius(targetW, targetH)), 0, 0, null);
+                bg.setColor(new Color(0, 0, 0, Math.round(255 * l.dim / 100f)));
+                break;
+            }
+            default:
+                bg.setColor(l.c1);
+        }
+        bg.fillRect(0, 0, targetW, targetH);
+        bg.dispose();
+    }
+
+    /** A Custom layout's soft drop shadow and border, drawn under media at rect r. */
+    static void paintCustomChrome(Graphics2D g, MediaLayout l, int[] r, int targetW, int targetH) {
+        Graphics2D cg = (Graphics2D) g.create();
+        cg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        int rad = l.cornerRadius(r[2], r[3]);
+        int bw = l.borderPx(targetW, targetH);
+        if (l.shadow > 0) {
+            // Stacked translucent round-rects grow outward: dense under the media,
+            // fading to nothing at `soft` px, i.e. a soft shadow without a blur pass.
+            int unit = Math.min(targetW, targetH);
+            int soft = Math.max(3, (int) Math.round(unit * 0.045));
+            int dy = (int) Math.round(unit * 0.012);
+            int steps = Math.min(soft, 18);
+            double peak = 0.75 * l.shadow / 100.0;
+            float a = (float) (1 - Math.pow(1 - peak, 1.0 / steps));
+            cg.setColor(new Color(0f, 0f, 0f, a));
+            for (int i = 1; i <= steps; i++) {
+                double grow = bw + soft * (double) i / steps;
+                cg.fill(new RoundRectangle2D.Double(r[0] - grow, r[1] - grow + dy,
+                        r[2] + 2 * grow, r[3] + 2 * grow, 2 * (rad + grow), 2 * (rad + grow)));
+            }
+        }
+        if (bw > 0) {
+            cg.setColor(l.borderColor);
+            Area ring = new Area(new RoundRectangle2D.Double(r[0] - bw, r[1] - bw,
+                    r[2] + 2 * bw, r[3] + 2 * bw, 2 * (rad + bw), 2 * (rad + bw)));
+            ring.subtract(new Area(new RoundRectangle2D.Double(r[0], r[1], r[2], r[3], 2 * rad, 2 * rad)));
+            cg.fill(ring);
+        }
+        cg.dispose();
+    }
+
+    /** Draws the media into rect r with the layout's rounded corners (anti-aliased). */
+    static void paintCustomMedia(Graphics2D g, BufferedImage image, MediaLayout l, int[] r) {
+        int rad = l.cornerRadius(r[2], r[3]);
+        if (rad <= 0) {
+            g.drawImage(image, r[0], r[1], r[2], r[3], null);
+            return;
+        }
+        g.drawImage(roundedMask(r[2], r[3], rad, image), r[0], r[1], null);
+    }
+
+    /** A w x h ARGB round-rect of radius rad: white, or the given image clipped to it. */
+    static BufferedImage roundedMask(int w, int h, int rad, BufferedImage fill) {
+        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D mg = out.createGraphics();
+        mg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        mg.setColor(Color.WHITE);
+        mg.fill(new RoundRectangle2D.Double(0, 0, w, h, 2 * rad, 2 * rad));
+        if (fill != null) {
+            mg.setComposite(AlphaComposite.SrcIn);
+            mg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            mg.drawImage(fill, 0, 0, w, h, null);
+        }
+        mg.dispose();
+        return out;
     }
 
     static BufferedImage renderFrame(BufferedImage image, String text,
@@ -7725,7 +7895,7 @@ public class GifSlideShowApp extends JFrame {
                 image = srcRounded;
             }
 
-            int[] customPlacement = parseCustomPlacement(displayMode);
+            MediaLayout customLayout = MediaLayout.parse(displayMode);
 
             // ========== IMAGE SHAPE MODE (floating shaped image on blurred background) ==========
             if (overlayEnabled && overlaySize > 0) {
@@ -7801,11 +7971,13 @@ public class GifSlideShowApp extends JFrame {
                     sg.dispose();
                     g.drawImage(rectImg, drawX, drawY, null);
                 }
-            } else if (customPlacement != null) {
-                // Custom: media at a free position / size on the plain base
-                int[] r = customMediaRect(customPlacement,
+            } else if (customLayout != null) {
+                // Custom: media at a free position / size over its styled background
+                int[] r = customMediaRect(customLayout.placement(),
                         image.getWidth(), image.getHeight(), targetW, targetH);
-                g.drawImage(image, r[0], r[1], r[2], r[3], null);
+                paintCustomBackground(g, image, customLayout, r, targetW, targetH);
+                paintCustomChrome(g, customLayout, r, targetW, targetH);
+                paintCustomMedia(g, image, customLayout, r);
             } else
 
                 switch (displayMode) {
@@ -19284,6 +19456,11 @@ public class GifSlideShowApp extends JFrame {
                             // ovTaskRect: pixel rect {x, y, w, h} of a source video placed with the
                             // "Custom" Image Display mode; null = the task's fill / size% placement.
                             java.util.List<int[]> ovTaskRect = new java.util.ArrayList<>();
+                            // With a rect: the slide's Custom layout and its looped still inputs
+                            // ("[n:v]" shadow/border layer and rounded-corner mask, or null).
+                            java.util.List<MediaLayout> ovTaskLayout = new java.util.ArrayList<>();
+                            java.util.List<String> ovTaskChromeIn = new java.util.ArrayList<>();
+                            java.util.List<String> ovTaskMaskIn = new java.util.ArrayList<>();
                             int ovInIdx = 1;
 
                             // Source videos first (underneath decorations + explicit overlay), fill mode, on top of base frame
@@ -19307,8 +19484,20 @@ public class GifSlideShowApp extends JFrame {
                                     ovTaskIsPng.add(Boolean.FALSE);
                                     ovTaskIsPngSeq.add(Boolean.FALSE);
                                     ovTaskIsSourceVideo.add(Boolean.TRUE);
-                                    ovTaskRect.add(sourceVideoRect(s, videoW, videoH));
+                                    int[] svRect = sourceVideoRect(s, videoW, videoH);
+                                    ovTaskRect.add(svRect);
                                     ovInIdx++;
+                                    String chromeIn = null, maskIn = null;
+                                    if (svRect != null) {
+                                        File[] stills = writeCustomVideoInputs(sourceVideoLayout(s), svRect,
+                                                videoW, videoH, tempDir, "s" + i);
+                                        addCustomVideoInputs(ovCmd, stills);
+                                        if (stills[0] != null) chromeIn = "[" + (ovInIdx++) + ":v]";
+                                        if (stills[1] != null) maskIn = "[" + (ovInIdx++) + ":v]";
+                                    }
+                                    ovTaskLayout.add(svRect != null ? sourceVideoLayout(s) : null);
+                                    ovTaskChromeIn.add(chromeIn);
+                                    ovTaskMaskIn.add(maskIn);
                                 }
                             }
                             // Decoration layers for each source-video slide: a transparent PNG
@@ -19344,6 +19533,9 @@ public class GifSlideShowApp extends JFrame {
                                             ovTaskIsPngSeq.add(Boolean.TRUE);
                                             ovTaskIsSourceVideo.add(Boolean.FALSE);
                                             ovTaskRect.add(null);
+                                            ovTaskLayout.add(null);
+                                            ovTaskChromeIn.add(null);
+                                            ovTaskMaskIn.add(null);
                                             ovInIdx++;
                                         } else {
                                             ovCmd.add("-loop"); ovCmd.add("1");
@@ -19360,6 +19552,9 @@ public class GifSlideShowApp extends JFrame {
                                             ovTaskIsPngSeq.add(Boolean.FALSE);
                                             ovTaskIsSourceVideo.add(Boolean.FALSE);
                                             ovTaskRect.add(null);
+                                            ovTaskLayout.add(null);
+                                            ovTaskChromeIn.add(null);
+                                            ovTaskMaskIn.add(null);
                                             ovInIdx++;
                                         }
                                     } catch (IOException ioe) {
@@ -19384,6 +19579,9 @@ public class GifSlideShowApp extends JFrame {
                                     ovTaskIsPngSeq.add(Boolean.FALSE);
                                     ovTaskIsSourceVideo.add(Boolean.FALSE);
                                     ovTaskRect.add(null);
+                                    ovTaskLayout.add(null);
+                                    ovTaskChromeIn.add(null);
+                                    ovTaskMaskIn.add(null);
                                     ovInIdx++;
                                 }
                             }
@@ -19438,11 +19636,10 @@ public class GifSlideShowApp extends JFrame {
                                 }
 
                                 if (rect != null) {
-                                    // "Custom" Image Display: the exact rect the slide's preview drew
-                                    vFilter.append("[").append(ii).append(":v]").append(ptsShift).append("scale=")
-                                            .append(rect[2]).append(":").append(rect[3]).append(",setsar=1").append(scaledLbl).append(";");
-                                    vFilter.append(currentVid).append(scaledLbl).append("overlay=").append(rect[0]).append(":").append(rect[1])
-                                            .append(enableExpr).append(":eof_action=pass").append(outLbl).append(";");
+                                    // "Custom" Image Display: the exact rect and look the slide's preview drew
+                                    vFilter.append(customVideoFilter("[" + ii + ":v]" + ptsShift, currentVid, outLbl,
+                                            "c" + j, ovTaskLayout.get(j), rect, videoW, videoH,
+                                            ovTaskChromeIn.get(j), ovTaskMaskIn.get(j), enableExpr)).append(";");
                                 } else if (fill) {
                                     int fillW = videoW; if (fillW % 2 != 0) fillW++;
                                     int fillH = videoH; if (fillH % 2 != 0) fillH++;
@@ -20440,7 +20637,8 @@ public class GifSlideShowApp extends JFrame {
                                 }
                                 applySourceVideoAndDecoration(slideOutFile, s.sourceVideoFile,
                                         decoOut, decoIsSeq, fps, videoW, videoH, crf, tempDir,
-                                        s.sourceVideoVolume, norm, sourceVideoRect(s, videoW, videoH));
+                                        s.sourceVideoVolume, norm,
+                                        sourceVideoLayout(s), sourceVideoRect(s, videoW, videoH));
                             }
 
                             // Apply per-slide video overlay if set
@@ -20853,9 +21051,114 @@ public class GifSlideShowApp extends JFrame {
      * same image the editor preview places — so preview and export agree.
      */
     private static int[] sourceVideoRect(SlideData s, int videoW, int videoH) {
-        int[] placement = parseCustomPlacement(s.displayMode);
-        if (placement == null || s.image == null || (s.overlayEnabled && s.overlaySize > 0)) return null;
-        return customMediaRect(placement, s.image.getWidth(), s.image.getHeight(), videoW, videoH);
+        MediaLayout l = sourceVideoLayout(s);
+        return l == null ? null : customMediaRect(l.placement(), s.image.getWidth(), s.image.getHeight(), videoW, videoH);
+    }
+
+    /** The slide's Custom layout when its uploaded video is custom-placed, else null. */
+    private static MediaLayout sourceVideoLayout(SlideData s) {
+        MediaLayout l = MediaLayout.parse(s.displayMode);
+        return (l == null || s.image == null || (s.overlayEnabled && s.overlaySize > 0)) ? null : l;
+    }
+
+    /**
+     * Writes the still inputs a Custom-layout source video needs into dir:
+     * {chrome, mask}, either null when not needed. chrome (videoW x videoH,
+     * transparent) re-draws the shadow / border over a Blur background, which
+     * covers the base frame they were rendered into; mask (rect-sized, gray) is
+     * the alpha of the rounded corners.
+     */
+    static File[] writeCustomVideoInputs(MediaLayout l, int[] r, int videoW, int videoH,
+                                         File dir, String tag) throws IOException {
+        dir.mkdirs();
+        File chrome = null, mask = null;
+        if (l.isBlur() && (l.shadow > 0 || l.borderPx(videoW, videoH) > 0)) {
+            BufferedImage c = new BufferedImage(videoW, videoH, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D cg = c.createGraphics();
+            paintCustomChrome(cg, l, r, videoW, videoH);
+            cg.dispose();
+            chrome = new File(dir, "custom_chrome_" + tag + ".png");
+            ImageIO.write(c, "png", chrome);
+        }
+        int rad = l.cornerRadius(r[2], r[3]);
+        if (rad > 0) {
+            BufferedImage m = new BufferedImage(r[2], r[3], BufferedImage.TYPE_BYTE_GRAY);
+            Graphics2D mg = m.createGraphics();
+            mg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            mg.setColor(Color.BLACK);
+            mg.fillRect(0, 0, r[2], r[3]);
+            mg.setColor(Color.WHITE);
+            mg.fill(new RoundRectangle2D.Double(0, 0, r[2], r[3], 2 * rad, 2 * rad));
+            mg.dispose();
+            mask = new File(dir, "custom_mask_" + tag + ".png");
+            ImageIO.write(m, "png", mask);
+        }
+        return new File[]{ chrome, mask };
+    }
+
+    /**
+     * Adds the {chrome, mask} stills of {@link #writeCustomVideoInputs} as ffmpeg
+     * inputs, in that order, skipping nulls. The chrome is ONE frame (overlay
+     * holds it — a looped still there stalls the graph next to the split
+     * source); the mask is looped, as alphamerge needs one per video frame.
+     */
+    static void addCustomVideoInputs(java.util.List<String> cmd, File[] stills) {
+        if (stills[0] != null) {
+            cmd.add("-i"); cmd.add(stills[0].getAbsolutePath());
+        }
+        if (stills[1] != null) {
+            cmd.add("-loop"); cmd.add("1");
+            cmd.add("-i"); cmd.add(stills[1].getAbsolutePath());
+        }
+    }
+
+    /**
+     * Filter-graph fragment (no trailing ';') laying a Custom-layout source
+     * video over baseLbl into outLbl, matching what renderFrame draws for the
+     * still: a Blur background made from the playing video itself (zoomed to
+     * fill, blurred, darkened by dim %), the shadow / border (chromeIn) back on
+     * top of it, then the video in rect r with rounded corners (maskIn).
+     * srcHead is the source stream plus any timing chain, e.g. "[1:v]" or
+     * "[3:v]tpad=…,setpts=PTS-STARTPTS,"; chromeIn / maskIn are looped PNG
+     * inputs ("[4:v]") or null; enable is an overlay ":enable=…" option or "".
+     */
+    static String customVideoFilter(String srcHead, String baseLbl, String outLbl, String tag,
+                                    MediaLayout l, int[] r, int videoW, int videoH,
+                                    String chromeIn, String maskIn, String enable) {
+        StringBuilder f = new StringBuilder();
+        String fgHead = srcHead;
+        if (l.isBlur()) {
+            String k = String.format(java.util.Locale.US, "%.3f", 1 - l.dim / 100.0);
+            String sigma = String.format(java.util.Locale.US, "%.1f",
+                    MediaLayout.blurRadius(videoW, videoH) / 2.2);
+            f.append(srcHead).append("split=2[bgs").append(tag).append("][fgs").append(tag).append("];");
+            f.append("[bgs").append(tag).append("]scale=").append(videoW).append(':').append(videoH)
+                    .append(":force_original_aspect_ratio=increase,crop=").append(videoW).append(':').append(videoH)
+                    .append(",setsar=1,gblur=sigma=").append(sigma)
+                    .append(",format=yuv420p,lutyuv=y='16+(val-16)*").append(k)
+                    .append("':u='128+(val-128)*").append(k)
+                    .append("':v='128+(val-128)*").append(k).append("'[bgv").append(tag).append("];");
+            f.append(baseLbl).append("[bgv").append(tag).append("]overlay=0:0").append(enable)
+                    .append(":eof_action=pass[bga").append(tag).append("];");
+            baseLbl = "[bga" + tag + "]";
+            if (chromeIn != null) {
+                f.append(baseLbl).append(chromeIn).append("overlay=0:0").append(enable)
+                        .append("[bgc").append(tag).append("];");
+                baseLbl = "[bgc" + tag + "]";
+            }
+            fgHead = "[fgs" + tag + "]";
+        }
+        f.append(fgHead).append("scale=").append(r[2]).append(':').append(r[3]).append(",setsar=1");
+        if (maskIn != null) {
+            f.append("[fgr").append(tag).append("];");
+            f.append(maskIn).append("format=gray,scale=").append(r[2]).append(':').append(r[3])
+                    .append("[mk").append(tag).append("];");
+            f.append("[fgr").append(tag).append("][mk").append(tag).append("]alphamerge");
+        }
+        f.append("[fg").append(tag).append("];");
+        f.append(baseLbl).append("[fg").append(tag).append("]overlay=").append(r[0]).append(':').append(r[1])
+                .append(enable).append(":eof_action=pass").append(outLbl);
+        return f.toString();
     }
 
     /**
@@ -20863,8 +21166,9 @@ public class GifSlideShowApp extends JFrame {
      * transparent decoration PNG (text/slide number/etc.) on top of the slide's
      * base video. Single FFmpeg pass; mixes source video audio with base audio
      * if the source has any. The decoration PNG is optional. A non-null
-     * mediaRect {x, y, w, h} places the source video there instead of filling
-     * the frame (the "Custom" Image Display mode).
+     * layout places the source video in mediaRect {x, y, w, h} with that
+     * layout's background and styling instead of filling the frame (the
+     * "Custom" Image Display mode).
      */
     private static void applySourceVideoAndDecoration(File baseVideo, File sourceVideo,
                                                       File decoration, boolean decorationIsSeq,
@@ -20873,6 +21177,7 @@ public class GifSlideShowApp extends JFrame {
                                                       File tempDir,
                                                       int sourceVideoVolumePct,
                                                       String audioNormFilter,
+                                                      MediaLayout layout,
                                                       int[] mediaRect) throws IOException, InterruptedException {
         File preOverlay = new File(tempDir, "pre_sv_" + System.currentTimeMillis() + ".mp4");
         if (!baseVideo.renameTo(preOverlay)) {
@@ -20886,27 +21191,34 @@ public class GifSlideShowApp extends JFrame {
 
         boolean hasDeco = decoration != null && decoration.exists();
 
-        // Build video filter: source video fill (or custom rect) over base, then
+        // Custom layout: its extra still inputs come after the decoration input
+        File[] customInputs = layout != null
+                ? writeCustomVideoInputs(layout, mediaRect, videoW, videoH, tempDir, "sv")
+                : new File[]{ null, null };
+        int nextInput = hasDeco ? 3 : 2;
+        String chromeIn = customInputs[0] != null ? "[" + (nextInput++) + ":v]" : null;
+        String maskIn = customInputs[1] != null ? "[" + nextInput + ":v]" : null;
+
+        // Build video filter: source video fill (or custom layout) over base, then
         // (if present) decoration on top
         StringBuilder vf = new StringBuilder();
-        String svPos = "0:0";
-        if (mediaRect != null) {
-            vf.append("[1:v]scale=").append(mediaRect[2]).append(":").append(mediaRect[3])
-                    .append(",setsar=1[sv];");
-            svPos = mediaRect[0] + ":" + mediaRect[1];
+        String svOut = hasDeco ? "[tmp]" : "[outv]";
+        if (layout != null) {
+            vf.append(customVideoFilter("[1:v]", "[0:v]", svOut, "sv", layout, mediaRect,
+                    videoW, videoH, chromeIn, maskIn, "")).append(';');
         } else {
             vf.append("[1:v]scale=").append(fillW).append(":").append(fillH)
                     .append(":force_original_aspect_ratio=increase,crop=")
                     .append(fillW).append(":").append(fillH).append("[sv];");
+            vf.append("[0:v][sv]overlay=0:0:eof_action=pass").append(svOut).append(';');
         }
         if (hasDeco) {
-            vf.append("[0:v][sv]overlay=").append(svPos).append(":eof_action=pass[tmp];");
             vf.append("[2:v]scale=").append(fillW).append(":").append(fillH)
                     .append(":force_original_aspect_ratio=increase,crop=")
                     .append(fillW).append(":").append(fillH).append("[deco];");
             vf.append("[tmp][deco]overlay=0:0:eof_action=pass[outv]");
         } else {
-            vf.append("[0:v][sv]overlay=").append(svPos).append(":eof_action=pass[outv]");
+            vf.setLength(vf.length() - 1);
         }
 
         boolean baseHasAudio = probeHasAudio(preOverlay);
@@ -20946,6 +21258,7 @@ public class GifSlideShowApp extends JFrame {
                 cmd.add("-i"); cmd.add(decoration.getAbsolutePath());
             }
         }
+        addCustomVideoInputs(cmd, customInputs);
         cmd.add("-filter_complex"); cmd.add(vf.toString());
         cmd.add("-map"); cmd.add("[outv]");
         if (audioMap != null) {
@@ -29487,6 +29800,19 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner mediaYSpinner;
         private final JSpinner mediaWSpinner;
         private final JComboBox<String> mediaSnapCombo;
+        // "Custom" look: background, rounded corners, shadow and border (see MediaLayout)
+        private final JComboBox<String> mediaLookCombo;
+        private final JComboBox<String> mediaBgCombo;
+        private final JButton mediaColor1Btn;
+        private final JButton mediaColor2Btn;
+        private final JSpinner mediaDimSpinner;
+        private final JSpinner mediaRoundSpinner;
+        private final JSpinner mediaShadowSpinner;
+        private final JSpinner mediaBorderSpinner;
+        private final JButton mediaBorderColorBtn;
+        private Color mediaColor1 = new MediaLayout().c1;
+        private Color mediaColor2 = new MediaLayout().c2;
+        private Color mediaBorderColor = new MediaLayout().borderColor;
         // Set while a preview drag / snap writes the spinners, so their listeners
         // leave the (once-per-gesture) format sync to the gesture itself.
         private boolean isAdjustingMedia = false;
@@ -30182,6 +30508,68 @@ public class GifSlideShowApp extends JFrame {
             mediaDragHint.setFont(new Font("Segoe UI", Font.ITALIC, 10));
             mediaDragHint.setForeground(new Color(150, 170, 170));
             toolbar2b.add(mediaDragHint);
+
+            // ===== Toolbar Row 2c: Custom look (background + frame styling) =====
+            JPanel toolbar2c = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            toolbar2c.setBackground(new Color(50, 95, 95));
+
+            String[] looks = new String[MediaLayout.LOOKS.length + 1];
+            looks[0] = "Look…";
+            System.arraycopy(MediaLayout.LOOKS, 0, looks, 1, MediaLayout.LOOKS.length);
+            mediaLookCombo = new JComboBox<>(looks);
+            mediaLookCombo.setPreferredSize(new Dimension(110, 28));
+            mediaLookCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            mediaLookCombo.setToolTipText("One-click designed looks: background, rounded corners, shadow and border together (switches Image Display to Custom)");
+            mediaLookCombo.addActionListener(e -> {
+                if (mediaLookCombo.getSelectedIndex() <= 0) return;
+                applyMediaLook((String) mediaLookCombo.getSelectedItem());
+                mediaLookCombo.setSelectedIndex(0);
+            });
+
+            mediaBgCombo = new JComboBox<>(MediaLayout.BG_STYLES);
+            mediaBgCombo.setPreferredSize(new Dimension(86, 28));
+            mediaBgCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            mediaBgCombo.setToolTipText("<html>Background around the image / video:<br>"
+                    + "<b>Solid</b> color 1 · <b>Gradient</b> color 1 (top) to color 2 (bottom)<br>"
+                    + "<b>Radial</b> color 1 glowing around the media, fading to color 2<br>"
+                    + "<b>Blur</b> the media itself, zoomed and blurred (moves with the video in the MP4)</html>");
+            mediaBgCombo.addActionListener(e -> {
+                updateMediaPlacementControls();
+                if (!isAdjustingMedia) onFormatChanged();
+            });
+
+            mediaColor1Btn = makeMediaColorButton("Background color 1", () -> mediaColor1, c -> mediaColor1 = c);
+            mediaColor2Btn = makeMediaColorButton("Background color 2 (Gradient / Radial)", () -> mediaColor2, c -> mediaColor2 = c);
+            mediaBorderColorBtn = makeMediaColorButton("Border color", () -> mediaBorderColor, c -> mediaBorderColor = c);
+
+            mediaDimSpinner = new JSpinner(new SpinnerNumberModel(40, 0, 90, 5));
+            mediaDimSpinner.setToolTipText("Blur background: how much to darken it (0 = as is), so the media stands out");
+            mediaRoundSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 50, 1));
+            mediaRoundSpinner.setToolTipText("Rounded corners (0 = square, 50 = fully rounded ends)");
+            mediaShadowSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 100, 5));
+            mediaShadowSpinner.setToolTipText("Soft drop shadow under the media (0 = none)");
+            mediaBorderSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 60, 1));
+            mediaBorderSpinner.setToolTipText("Border / frame width around the media (px of a 1080 px frame; 0 = none)");
+            for (JSpinner sp : new JSpinner[]{ mediaDimSpinner, mediaRoundSpinner, mediaShadowSpinner, mediaBorderSpinner }) {
+                sp.setPreferredSize(new Dimension(50, 28));
+                sp.addChangeListener(e -> { if (!isAdjustingMedia) onFormatChanged(); });
+            }
+
+            toolbar2c.add(styledLabel("      Custom look   "));
+            toolbar2c.add(mediaLookCombo);
+            toolbar2c.add(styledLabel("BG:"));
+            toolbar2c.add(mediaBgCombo);
+            toolbar2c.add(mediaColor1Btn);
+            toolbar2c.add(mediaColor2Btn);
+            toolbar2c.add(styledLabel("Dim%:"));
+            toolbar2c.add(mediaDimSpinner);
+            toolbar2c.add(styledLabel("Round%:"));
+            toolbar2c.add(mediaRoundSpinner);
+            toolbar2c.add(styledLabel("Shadow%:"));
+            toolbar2c.add(mediaShadowSpinner);
+            toolbar2c.add(styledLabel("Border:"));
+            toolbar2c.add(mediaBorderSpinner);
+            toolbar2c.add(mediaBorderColorBtn);
             updateMediaPlacementControls();
 
             // ===== Toolbar Row 3: Slide number overlay =====
@@ -33910,6 +34298,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar2);
             toolbarsPanel.add(toolbar2b);
+            toolbarsPanel.add(toolbar2c);
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar3);
             toolbarsPanel.add(createToolbarSeparator());
@@ -44695,9 +45084,95 @@ public class GifSlideShowApp extends JFrame {
             mediaWSpinner.setValue(clampToSpinner(mediaWSpinner, w));
         }
 
-        /** Display mode handed to renderFrame / SlideData: "Custom" carries its placement. */
+        /** Display mode handed to renderFrame / SlideData: "Custom" carries its layout. */
         String getRenderDisplayMode() {
-            return isCustomDisplay() ? customDisplayMode(getMediaX(), getMediaY(), getMediaW()) : getDisplayMode();
+            return isCustomDisplay() ? getMediaLayout().encode() : getDisplayMode();
+        }
+
+        /** This slide's Custom placement and look, from the toolbar. */
+        MediaLayout getMediaLayout() {
+            MediaLayout l = new MediaLayout();
+            l.x = getMediaX();
+            l.y = getMediaY();
+            l.w = getMediaW();
+            l.bg = (String) mediaBgCombo.getSelectedItem();
+            l.c1 = mediaColor1;
+            l.c2 = mediaColor2;
+            l.dim = (int) mediaDimSpinner.getValue();
+            l.round = (int) mediaRoundSpinner.getValue();
+            l.shadow = (int) mediaShadowSpinner.getValue();
+            l.border = (int) mediaBorderSpinner.getValue();
+            l.borderColor = mediaBorderColor;
+            return l;
+        }
+
+        /** Loads a Custom placement and look into the toolbar (presets, first-slide sync). */
+        void setMediaLayout(MediaLayout l) {
+            setMediaPlacement(l.x, l.y, l.w);
+            mediaBgCombo.setSelectedItem(l.bg);
+            mediaColor1 = l.c1;
+            mediaColor2 = l.c2;
+            mediaBorderColor = l.borderColor;
+            mediaDimSpinner.setValue(clampToSpinner(mediaDimSpinner, l.dim));
+            mediaRoundSpinner.setValue(clampToSpinner(mediaRoundSpinner, l.round));
+            mediaShadowSpinner.setValue(clampToSpinner(mediaShadowSpinner, l.shadow));
+            mediaBorderSpinner.setValue(clampToSpinner(mediaBorderSpinner, l.border));
+            refreshMediaColorButtons();
+            schedulePreview();
+        }
+
+        /** Applies one of the {@link MediaLayout#LOOKS} (keeping the placement) and
+         *  switches Image Display to Custom. */
+        private void applyMediaLook(String look) {
+            MediaLayout l = getMediaLayout();
+            l.applyLook(look);
+            isAdjustingMedia = true;
+            try {
+                setMediaLayout(l);
+            } finally {
+                isAdjustingMedia = false;
+            }
+            if (isCustomDisplay()) onFormatChanged();
+            else displayModeCombo.setSelectedItem(CUSTOM_DISPLAY_MODE);
+        }
+
+        private JButton makeMediaColorButton(String title, java.util.function.Supplier<Color> get,
+                                             java.util.function.Consumer<Color> set) {
+            JButton b = new JButton();
+            b.setPreferredSize(new Dimension(28, 26));
+            b.setMargin(new Insets(0, 0, 0, 0));
+            b.setFocusPainted(false);
+            b.setToolTipText(title);
+            b.setIcon(colorSwatchIcon(get.get()));
+            b.addActionListener(e -> pickColorLive(panel, title, get.get(), c -> {
+                set.accept(c);
+                b.setIcon(colorSwatchIcon(c));
+                onFormatChanged();
+            }));
+            return b;
+        }
+
+        private void refreshMediaColorButtons() {
+            mediaColor1Btn.setIcon(colorSwatchIcon(mediaColor1));
+            mediaColor2Btn.setIcon(colorSwatchIcon(mediaColor2));
+            mediaBorderColorBtn.setIcon(colorSwatchIcon(mediaBorderColor));
+        }
+
+        /** A small filled swatch (on a checker, so translucent colors read as such). */
+        private Icon colorSwatchIcon(Color c) {
+            BufferedImage img = new BufferedImage(16, 14, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = img.createGraphics();
+            for (int y = 0; y < 14; y += 4)
+                for (int x = 0; x < 16; x += 4) {
+                    g.setColor(((x + y) / 4) % 2 == 0 ? Color.WHITE : Color.LIGHT_GRAY);
+                    g.fillRect(x, y, 4, 4);
+                }
+            g.setColor(c);
+            g.fillRect(0, 0, 16, 14);
+            g.setColor(Color.DARK_GRAY);
+            g.drawRect(0, 0, 15, 13);
+            g.dispose();
+            return new ImageIcon(img);
         }
 
         private int clampToSpinner(JSpinner sp, int v) {
@@ -44710,6 +45185,17 @@ public class GifSlideShowApp extends JFrame {
             mediaXSpinner.setEnabled(custom);
             mediaYSpinner.setEnabled(custom);
             mediaWSpinner.setEnabled(custom);
+            String bg = (String) mediaBgCombo.getSelectedItem();
+            boolean blur = "Blur".equals(bg);
+            boolean twoTone = "Gradient".equals(bg) || "Radial".equals(bg);
+            mediaBgCombo.setEnabled(custom);
+            mediaColor1Btn.setEnabled(custom && !blur);
+            mediaColor2Btn.setEnabled(custom && twoTone);
+            mediaDimSpinner.setEnabled(custom && blur);
+            mediaRoundSpinner.setEnabled(custom);
+            mediaShadowSpinner.setEnabled(custom);
+            mediaBorderSpinner.setEnabled(custom);
+            mediaBorderColorBtn.setEnabled(custom);
             livePreviewLabel.setCursor(Cursor.getDefaultCursor());
             livePreviewLabel.repaint();
         }
