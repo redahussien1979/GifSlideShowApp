@@ -7483,51 +7483,57 @@ public class GifSlideShowApp extends JFrame {
 
     /**
      * Placement and look of a slide in the "Custom" Image Display mode. It rides
-     * inside the render display-mode string ("Custom:x:y:w:bg:c1:c2:dim:round:
-     * shadow:border:borderColor", see {@link #encode}) so every renderFrame call
-     * site and SlideData carry it without new parameters.
+     * inside the render display-mode string (see {@link #encode}) so every
+     * renderFrame call site and SlideData carry it without new parameters.
      * <ul>
      * <li>x / y: the media's centre, % of frame width / height; w: its width, %
      *     of frame width (the height follows the media's aspect ratio).</li>
-     * <li>bg: what fills the frame around the media — Solid (c1), Gradient
-     *     (c1 top to c2 bottom), Radial (c1 glow around the media fading to c2) or
-     *     Blur (the media itself, zoomed to fill, blurred and darkened by dim %;
-     *     an uploaded video's blur plays along with it in the MP4).</li>
+     * <li>bg: what fills the frame around the media — Blur (the media itself,
+     *     zoomed to fill, heavily blurred and darkened by dim %; an uploaded
+     *     video's blur plays along with it in the MP4), Mesh (soft blobs of c2 /
+     *     c3 light over a c1 base), Gradient (c1 top to c2 bottom), Radial (a c1
+     *     spotlight behind the media fading to c2) or Solid (c1).</li>
+     * <li>vignette / grain: a darkened rim and fine film grain over the
+     *     background (0..100) — the finish that keeps flat colors from looking
+     *     cheap and hides gradient banding.</li>
      * <li>round: corner radius, % of half the media's short side (50 = pill);
-     *     shadow: soft drop-shadow strength 0..100; border: frame width in px of
-     *     a 1080 px frame, in borderColor (alpha allowed, e.g. a glassy edge).</li>
+     *     shadow: a soft two-layer drop shadow (0..100); glow: a soft halo in
+     *     glowColor (0..100); border: an edge stroke, px of a 1080 px frame, in
+     *     borderColor (alpha allowed, e.g. a glassy hairline).</li>
      * </ul>
      */
     static final class MediaLayout {
-        static final String[] BG_STYLES = { "Solid", "Gradient", "Radial", "Blur" };
-        static final String[] LOOKS = { "Studio Dark", "Blur Glass", "Blur Cinema", "Midnight Glow",
-                "Sunset", "Ocean", "Clean White", "Neon Frame", "Polaroid", "Plain" };
+        static final String[] BG_STYLES = { "Blur", "Mesh", "Gradient", "Radial", "Solid" };
+        static final String[] LOOKS = { "Cinematic Blur", "Frosted Glass", "Newsroom", "Midnight Aurora",
+                "Warm Studio", "Emerald", "Rose Dusk", "Clean Light", "Neon Glow", "Plain" };
 
         int x = 50, y = 50, w = 80;
         String bg = "Solid";
-        Color c1 = new Color(21, 32, 43), c2 = new Color(6, 9, 14);
-        int dim = 40, round = 0, shadow = 0, border = 0;
-        Color borderColor = Color.WHITE;
+        Color c1 = new Color(21, 32, 43), c2 = new Color(6, 9, 14), c3 = new Color(30, 64, 175);
+        int dim = 30, round = 0, shadow = 0, border = 0, vignette = 0, grain = 0, glow = 0;
+        Color borderColor = Color.WHITE, glowColor = new Color(0x22D3EE);
 
         boolean isBlur() { return "Blur".equals(bg); }
 
         String encode() {
             return CUSTOM_DISPLAY_PREFIX + x + ":" + y + ":" + w + ":" + bg + ":" + hex(c1) + ":" + hex(c2)
-                    + ":" + dim + ":" + round + ":" + shadow + ":" + border + ":" + hex(borderColor);
+                    + ":" + dim + ":" + round + ":" + shadow + ":" + border + ":" + hex(borderColor)
+                    + ":" + hex(c3) + ":" + vignette + ":" + grain + ":" + glow + ":" + hex(glowColor);
         }
 
-        /** The layout of a "Custom:…" display mode (the short "Custom:x:y:w" form
-         *  takes the default look), or null for any other mode. */
+        /** The layout of a "Custom:…" display mode, or null for any other mode.
+         *  Older short forms (placement only; or without c3 / vignette / grain /
+         *  glow) take the defaults for what they lack. */
         static MediaLayout parse(String displayMode) {
             if (displayMode == null || !displayMode.startsWith(CUSTOM_DISPLAY_PREFIX)) return null;
             String[] p = displayMode.substring(CUSTOM_DISPLAY_PREFIX.length()).split(":");
-            if (p.length != 3 && p.length != 11) return null;
+            if (p.length != 3 && p.length != 11 && p.length != 16) return null;
             try {
                 MediaLayout l = new MediaLayout();
                 l.x = Integer.parseInt(p[0]);
                 l.y = Integer.parseInt(p[1]);
                 l.w = Math.max(1, Integer.parseInt(p[2]));
-                if (p.length == 11) {
+                if (p.length >= 11) {
                     l.bg = java.util.Arrays.asList(BG_STYLES).contains(p[3]) ? p[3] : "Solid";
                     l.c1 = unhex(p[4]);
                     l.c2 = unhex(p[5]);
@@ -7537,6 +7543,13 @@ public class GifSlideShowApp extends JFrame {
                     l.border = clamp(Integer.parseInt(p[9]), 0, 200);
                     l.borderColor = unhex(p[10]);
                 }
+                if (p.length == 16) {
+                    l.c3 = unhex(p[11]);
+                    l.vignette = clamp(Integer.parseInt(p[12]), 0, 100);
+                    l.grain = clamp(Integer.parseInt(p[13]), 0, 100);
+                    l.glow = clamp(Integer.parseInt(p[14]), 0, 100);
+                    l.glowColor = unhex(p[15]);
+                }
                 return l;
             } catch (IllegalArgumentException e) {
                 return null;
@@ -7545,18 +7558,36 @@ public class GifSlideShowApp extends JFrame {
 
         /** Sets everything but the placement to one of the {@link #LOOKS}. */
         void applyLook(String look) {
-            dim = 40; round = 0; shadow = 0; border = 0; borderColor = Color.WHITE;
+            // Shared finish: rounded card, soft shadow, rim vignette, faint grain
+            dim = 30; round = 12; shadow = 70; border = 0; vignette = 45; grain = 12; glow = 0;
+            borderColor = new Color(255, 255, 255, 60);
+            glowColor = new Color(0x22D3EE);
             switch (look) {
-                case "Studio Dark":   bg = "Radial";   c1 = new Color(0x2A3446); c2 = new Color(0x0B0F17); round = 6; shadow = 70; break;
-                case "Blur Glass":    bg = "Blur";     dim = 30; round = 8; shadow = 60; border = 3; borderColor = new Color(255, 255, 255, 110); break;
-                case "Blur Cinema":   bg = "Blur";     dim = 60; shadow = 80; break;
-                case "Midnight Glow": bg = "Radial";   c1 = new Color(0x1E3A8A); c2 = new Color(0x020617); round = 6; shadow = 70; border = 2; borderColor = new Color(0x60A5FA); break;
-                case "Sunset":        bg = "Gradient"; c1 = new Color(0xF97316); c2 = new Color(0x7C3AED); round = 8; shadow = 60; break;
-                case "Ocean":         bg = "Gradient"; c1 = new Color(0x0EA5E9); c2 = new Color(0x0F172A); round = 6; shadow = 60; break;
-                case "Clean White":   bg = "Solid";    c1 = new Color(0xF4F5F7); round = 6; shadow = 45; break;
-                case "Neon Frame":    bg = "Radial";   c1 = new Color(0x1A1033); c2 = new Color(0x05040A); round = 6; border = 4; borderColor = new Color(0x22D3EE); break;
-                case "Polaroid":      bg = "Solid";    c1 = new Color(0xE9E4DA); border = 14; shadow = 50; break;
-                default:              bg = "Solid";    c1 = new Color(21, 32, 43); c2 = new Color(6, 9, 14); break; // "Plain"
+                case "Cinematic Blur":
+                    bg = "Blur"; dim = 35; vignette = 55; grain = 0; border = 2; break;
+                case "Frosted Glass":
+                    bg = "Blur"; dim = 12; vignette = 25; grain = 0; round = 16; shadow = 55;
+                    border = 3; borderColor = new Color(255, 255, 255, 110); break;
+                case "Newsroom":
+                    bg = "Mesh"; c1 = new Color(0x060B1A); c2 = new Color(0x1D4ED8); c3 = new Color(0x0891B2);
+                    round = 8; border = 2; break;
+                case "Midnight Aurora":
+                    bg = "Mesh"; c1 = new Color(0x05060F); c2 = new Color(0x6D28D9); c3 = new Color(0x0E7490); break;
+                case "Warm Studio":
+                    bg = "Mesh"; c1 = new Color(0x120A06); c2 = new Color(0xB45309); c3 = new Color(0x7C2D12); break;
+                case "Emerald":
+                    bg = "Mesh"; c1 = new Color(0x02110C); c2 = new Color(0x047857); c3 = new Color(0x0E7490); break;
+                case "Rose Dusk":
+                    bg = "Mesh"; c1 = new Color(0x12060C); c2 = new Color(0xBE185D); c3 = new Color(0xC2410C); break;
+                case "Clean Light":
+                    bg = "Mesh"; c1 = new Color(0xF3F4F6); c2 = new Color(0xDBEAFE); c3 = new Color(0xFCE7F3);
+                    vignette = 10; grain = 8; shadow = 45; break;
+                case "Neon Glow":
+                    bg = "Radial"; c1 = new Color(0x0B1220); c2 = new Color(0x020308); shadow = 40; glow = 70;
+                    border = 2; borderColor = new Color(0x67E8F9); glowColor = new Color(0x06B6D4); break;
+                default: // "Plain"
+                    bg = "Solid"; c1 = new Color(21, 32, 43); c2 = new Color(6, 9, 14); c3 = new Color(30, 64, 175);
+                    round = 0; shadow = 0; vignette = 0; grain = 0; borderColor = Color.WHITE; break;
             }
         }
 
@@ -7570,9 +7601,15 @@ public class GifSlideShowApp extends JFrame {
             return border <= 0 ? 0 : Math.max(1, (int) Math.round(border * Math.min(targetW, targetH) / 1080.0));
         }
 
-        /** Blur radius (px) of the Blur background in a targetW x targetH frame. */
+        /** True when something is drawn over the background besides the media. */
+        boolean hasOverlay() { return vignette > 0 || grain > 0 || shadow > 0 || glow > 0 || border > 0; }
+
+        /** The Blur background is blurred at 1/BLUR_DOWN size (smooth and fast). */
+        static final int BLUR_DOWN = 8;
+
+        /** Box-blur radius at 1/BLUR_DOWN size for a targetW x targetH frame. */
         static int blurRadius(int targetW, int targetH) {
-            return Math.max(2, (int) Math.round(Math.max(targetW, targetH) * 0.035));
+            return Math.max(1, (int) Math.round(Math.max(targetW, targetH) * 0.045 / BLUR_DOWN));
         }
 
         private static int clamp(int v, int lo, int hi) { return Math.max(lo, Math.min(hi, v)); }
@@ -7599,66 +7636,222 @@ public class GifSlideShowApp extends JFrame {
     static void paintCustomBackground(Graphics2D g, BufferedImage image, MediaLayout l,
                                       int[] r, int targetW, int targetH) {
         Graphics2D bg = (Graphics2D) g.create();
+        bg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        bg.setRenderingHint(RenderingHints.KEY_COLOR_RENDERING, RenderingHints.VALUE_COLOR_RENDER_QUALITY);
         switch (l.bg) {
+            case "Blur": {
+                bg.drawImage(heavyBlurCover(image, targetW, targetH), 0, 0, null);
+                bg.setColor(new Color(0, 0, 0, Math.round(255 * l.dim / 100f)));
+                bg.fillRect(0, 0, targetW, targetH);
+                break;
+            }
+            case "Mesh": {
+                // Soft light pools over a deep base: two large blobs at opposite
+                // corners and two smaller accents, each fading out to nothing
+                bg.setColor(l.c1);
+                bg.fillRect(0, 0, targetW, targetH);
+                float u = Math.max(targetW, targetH);
+                meshBlob(bg, l.c2, 0.10f * targetW, 0.08f * targetH, 0.85f * u, 0.85f);
+                meshBlob(bg, l.c3, 0.95f * targetW, 0.92f * targetH, 0.80f * u, 0.80f);
+                meshBlob(bg, l.c3, 0.92f * targetW, 0.18f * targetH, 0.40f * u, 0.45f);
+                meshBlob(bg, l.c2, 0.05f * targetW, 0.78f * targetH, 0.38f * u, 0.40f);
+                break;
+            }
             case "Gradient":
                 bg.setPaint(new GradientPaint(0, 0, l.c1, 0, targetH, l.c2));
+                bg.fillRect(0, 0, targetW, targetH);
                 break;
             case "Radial": {
                 float cx = r[0] + r[2] / 2f, cy = r[1] + r[3] / 2f;
-                float radius = Math.max(1f, 0.8f * Math.max(targetW, targetH));
+                float radius = Math.max(1f, 0.75f * Math.max(targetW, targetH));
                 bg.setPaint(new RadialGradientPaint(cx, cy, radius,
-                        new float[]{ 0f, 1f }, new Color[]{ l.c1, l.c2 }));
-                break;
-            }
-            case "Blur": {
-                double sc = Math.max((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
-                int cw = (int) Math.ceil(image.getWidth() * sc), ch = (int) Math.ceil(image.getHeight() * sc);
-                BufferedImage cover = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
-                Graphics2D cg = cover.createGraphics();
-                cg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-                cg.drawImage(image, (targetW - cw) / 2, (targetH - ch) / 2, cw, ch, null);
-                cg.dispose();
-                bg.drawImage(applyStackBlur(cover, MediaLayout.blurRadius(targetW, targetH)), 0, 0, null);
-                bg.setColor(new Color(0, 0, 0, Math.round(255 * l.dim / 100f)));
+                        new float[]{ 0f, 0.55f, 1f }, new Color[]{ l.c1, mix(l.c1, l.c2, 0.6f), l.c2 }));
+                bg.fillRect(0, 0, targetW, targetH);
                 break;
             }
             default:
                 bg.setColor(l.c1);
+                bg.fillRect(0, 0, targetW, targetH);
         }
-        bg.fillRect(0, 0, targetW, targetH);
         bg.dispose();
     }
 
-    /** A Custom layout's soft drop shadow and border, drawn under media at rect r. */
+    /** A radial pool of color c at (cx, cy) fading from alpha a to clear over radius. */
+    private static void meshBlob(Graphics2D g, Color c, float cx, float cy, float radius, float a) {
+        Color in = new Color(c.getRed(), c.getGreen(), c.getBlue(), Math.round(255 * a));
+        Color mid = new Color(c.getRed(), c.getGreen(), c.getBlue(), Math.round(255 * a * 0.35f));
+        Color out = new Color(c.getRed(), c.getGreen(), c.getBlue(), 0);
+        g.setPaint(new RadialGradientPaint(cx, cy, radius, new float[]{ 0f, 0.5f, 1f },
+                new Color[]{ in, mid, out }));
+        g.fill(new java.awt.geom.Ellipse2D.Float(cx - radius, cy - radius, 2 * radius, 2 * radius));
+    }
+
+    private static Color mix(Color a, Color b, float t) {
+        return new Color(Math.round(a.getRed() + (b.getRed() - a.getRed()) * t),
+                Math.round(a.getGreen() + (b.getGreen() - a.getGreen()) * t),
+                Math.round(a.getBlue() + (b.getBlue() - a.getBlue()) * t));
+    }
+
+    /**
+     * The image scaled to cover the frame and heavily blurred: shrunk to
+     * 1/BLUR_DOWN by halving (no aliasing), box-blurred three times (≈ Gaussian)
+     * and scaled back up — the same steps the MP4 filter takes per video frame.
+     */
+    static BufferedImage heavyBlurCover(BufferedImage image, int targetW, int targetH) {
+        int sw = Math.max(1, targetW / MediaLayout.BLUR_DOWN), sh = Math.max(1, targetH / MediaLayout.BLUR_DOWN);
+        double sc = Math.max((double) targetW / image.getWidth(), (double) targetH / image.getHeight());
+        BufferedImage cur = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
+        Graphics2D cg = cur.createGraphics();
+        cg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        int cw = (int) Math.ceil(image.getWidth() * sc), ch = (int) Math.ceil(image.getHeight() * sc);
+        cg.drawImage(image, (targetW - cw) / 2, (targetH - ch) / 2, cw, ch, null);
+        cg.dispose();
+        while (cur.getWidth() / 2 >= sw && cur.getHeight() / 2 >= sh) {
+            cur = scaledCopy(cur, cur.getWidth() / 2, cur.getHeight() / 2);
+        }
+        BufferedImage small = scaledCopy(cur, sw, sh);
+        int[] px = small.getRGB(0, 0, sw, sh, null, 0, sw);
+        boxBlur3(px, sw, sh, MediaLayout.blurRadius(targetW, targetH));
+        small.setRGB(0, 0, sw, sh, px, 0, sw);
+        return scaledCopy(small, targetW, targetH);
+    }
+
+    private static BufferedImage scaledCopy(BufferedImage src, int w, int h) {
+        BufferedImage out = new BufferedImage(w, h, src.getType() == BufferedImage.TYPE_INT_ARGB
+                ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = out.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g.drawImage(src, 0, 0, w, h, null);
+        g.dispose();
+        return out;
+    }
+
+    /** Three box-blur passes (horizontal + vertical, all four ARGB channels,
+     *  edges clamped): a close, fast approximation of a Gaussian of sigma ≈ r. */
+    static void boxBlur3(int[] px, int w, int h, int r) {
+        if (r < 1) return;
+        int[] tmp = new int[px.length];
+        for (int pass = 0; pass < 3; pass++) {
+            boxBlurLine(px, tmp, w, h, r, true);
+            boxBlurLine(tmp, px, w, h, r, false);
+        }
+    }
+
+    private static void boxBlurLine(int[] src, int[] dst, int w, int h, int r, boolean horizontal) {
+        int lines = horizontal ? h : w, len = horizontal ? w : h;
+        int step = horizontal ? 1 : w;
+        int div = 2 * r + 1;
+        for (int line = 0; line < lines; line++) {
+            int base = horizontal ? line * w : line;
+            int sa = 0, sr = 0, sg = 0, sb = 0;
+            for (int i = -r; i <= r; i++) {
+                int p = src[base + Math.max(0, Math.min(len - 1, i)) * step];
+                sa += p >>> 24; sr += (p >> 16) & 0xFF; sg += (p >> 8) & 0xFF; sb += p & 0xFF;
+            }
+            for (int i = 0; i < len; i++) {
+                dst[base + i * step] = ((sa / div) << 24) | ((sr / div) << 16) | ((sg / div) << 8) | (sb / div);
+                int pOut = src[base + Math.max(0, i - r) * step];
+                int pIn = src[base + Math.min(len - 1, i + r + 1) * step];
+                sa += (pIn >>> 24) - (pOut >>> 24);
+                sr += ((pIn >> 16) & 0xFF) - ((pOut >> 16) & 0xFF);
+                sg += ((pIn >> 8) & 0xFF) - ((pOut >> 8) & 0xFF);
+                sb += (pIn & 0xFF) - (pOut & 0xFF);
+            }
+        }
+    }
+
+    /** A Custom layout's finish over the background: rim vignette, then film grain. */
+    static void paintCustomFinish(Graphics2D g, MediaLayout l, int targetW, int targetH) {
+        Graphics2D fg = (Graphics2D) g.create();
+        if (l.vignette > 0) {
+            // Elliptical, frame-shaped: clear in the middle, darkening toward the rim
+            float a = Math.min(1f, l.vignette / 100f * 0.85f);
+            // A unit circle stretched to the frame: edge midpoints at 0.8, corners past 1
+            java.awt.geom.AffineTransform toFrame = new java.awt.geom.AffineTransform(
+                    targetW * 0.625, 0, 0, targetH * 0.625, targetW / 2.0, targetH / 2.0);
+            java.awt.geom.Point2D.Float o = new java.awt.geom.Point2D.Float(0, 0);
+            fg.setPaint(new RadialGradientPaint(o, 1f, o, new float[]{ 0f, 0.45f, 1f },
+                    new Color[]{ new Color(0, 0, 0, 0), new Color(0, 0, 0, 0), new Color(0f, 0f, 0f, a) },
+                    MultipleGradientPaint.CycleMethod.NO_CYCLE, MultipleGradientPaint.ColorSpaceType.SRGB,
+                    toFrame));
+            fg.fillRect(0, 0, targetW, targetH);
+        }
+        if (l.grain > 0) {
+            // Fixed-seed monochrome noise, so every frame and the MP4 match
+            BufferedImage noise = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_ARGB);
+            int[] px = new int[targetW * targetH];
+            Random rnd = new Random(0x5EEDL);
+            double amp = l.grain / 100.0 * 60;
+            for (int i = 0; i < px.length; i++) {
+                double v = rnd.nextGaussian() * amp;
+                int alpha = (int) Math.min(255, Math.abs(v));
+                px[i] = (alpha << 24) | (v > 0 ? 0xFFFFFF : 0);
+            }
+            noise.setRGB(0, 0, targetW, targetH, px, 0, targetW);
+            fg.drawImage(noise, 0, 0, null);
+        }
+        fg.dispose();
+    }
+
+    /** A Custom layout's glow, soft shadow and border, drawn under media at rect r. */
     static void paintCustomChrome(Graphics2D g, MediaLayout l, int[] r, int targetW, int targetH) {
         Graphics2D cg = (Graphics2D) g.create();
         cg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         int rad = l.cornerRadius(r[2], r[3]);
         int bw = l.borderPx(targetW, targetH);
+        double unit = Math.min(targetW, targetH);
+        Shape card = new RoundRectangle2D.Double(r[0] - bw, r[1] - bw, r[2] + 2 * bw, r[3] + 2 * bw,
+                2 * (rad + bw), 2 * (rad + bw));
+        if (l.glow > 0) {
+            drawSoftShape(cg, card, l.glowColor, unit * 0.045, 0, Math.min(1f, l.glow / 100f));
+            drawSoftShape(cg, card, l.glowColor, unit * 0.012, 0, Math.min(1f, l.glow / 100f * 0.8f));
+        }
         if (l.shadow > 0) {
-            // Stacked translucent round-rects grow outward: dense under the media,
-            // fading to nothing at `soft` px, i.e. a soft shadow without a blur pass.
-            int unit = Math.min(targetW, targetH);
-            int soft = Math.max(3, (int) Math.round(unit * 0.045));
-            int dy = (int) Math.round(unit * 0.012);
-            int steps = Math.min(soft, 18);
-            double peak = 0.75 * l.shadow / 100.0;
-            float a = (float) (1 - Math.pow(1 - peak, 1.0 / steps));
-            cg.setColor(new Color(0f, 0f, 0f, a));
-            for (int i = 1; i <= steps; i++) {
-                double grow = bw + soft * (double) i / steps;
-                cg.fill(new RoundRectangle2D.Double(r[0] - grow, r[1] - grow + dy,
-                        r[2] + 2 * grow, r[3] + 2 * grow, 2 * (rad + grow), 2 * (rad + grow)));
-            }
+            float s = l.shadow / 100f;
+            // Ambient (wide, offset down) + contact (tight): reads as a lifted card
+            drawSoftShape(cg, card, Color.BLACK, unit * 0.05, unit * 0.03, Math.min(1f, 0.65f * s));
+            drawSoftShape(cg, card, Color.BLACK, unit * 0.008, unit * 0.005, Math.min(1f, 0.45f * s));
         }
         if (bw > 0) {
             cg.setColor(l.borderColor);
-            Area ring = new Area(new RoundRectangle2D.Double(r[0] - bw, r[1] - bw,
-                    r[2] + 2 * bw, r[3] + 2 * bw, 2 * (rad + bw), 2 * (rad + bw)));
+            Area ring = new Area(card);
             ring.subtract(new Area(new RoundRectangle2D.Double(r[0], r[1], r[2], r[3], 2 * rad, 2 * rad)));
             cg.fill(ring);
         }
         cg.dispose();
+    }
+
+    /** Fills shape blurred by a Gaussian of ≈ sigma px, offset down by dy, in color
+     *  at the given opacity (blurred at a reduced size, so wide blurs stay cheap). */
+    static void drawSoftShape(Graphics2D g, Shape shape, Color color, double sigma, double dy, float opacity) {
+        if (opacity <= 0 || sigma <= 0) return;
+        int down = Math.max(1, (int) Math.floor(sigma / 3));
+        int rs = Math.max(1, (int) Math.round(sigma / down));
+        java.awt.geom.Rectangle2D b = shape.getBounds2D();
+        double pad = 3 * sigma;
+        int w = Math.max(1, (int) Math.ceil((b.getWidth() + 2 * pad) / down));
+        int h = Math.max(1, (int) Math.ceil((b.getHeight() + 2 * pad) / down));
+        BufferedImage m = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D mg = m.createGraphics();
+        mg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        mg.scale(1.0 / down, 1.0 / down);
+        mg.translate(pad - b.getX(), pad - b.getY());
+        mg.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue()));
+        mg.fill(shape);
+        mg.dispose();
+        int[] px = m.getRGB(0, 0, w, h, null, 0, w);
+        boxBlur3(px, w, h, rs);
+        int rgb = color.getRGB() & 0xFFFFFF;
+        float a = opacity * color.getAlpha() / 255f;
+        for (int i = 0; i < px.length; i++) {
+            px[i] = (Math.round((px[i] >>> 24) * a) << 24) | rgb;
+        }
+        m.setRGB(0, 0, w, h, px, 0, w);
+        Graphics2D dg = (Graphics2D) g.create();
+        dg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        dg.drawImage(m, (int) Math.round(b.getX() - pad), (int) Math.round(b.getY() - pad + dy),
+                (int) Math.round(w * (double) down), (int) Math.round(h * (double) down), null);
+        dg.dispose();
     }
 
     /** Draws the media into rect r with the layout's rounded corners (anti-aliased). */
@@ -7680,7 +7873,7 @@ public class GifSlideShowApp extends JFrame {
         mg.fill(new RoundRectangle2D.Double(0, 0, w, h, 2 * rad, 2 * rad));
         if (fill != null) {
             mg.setComposite(AlphaComposite.SrcIn);
-            mg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            mg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
             mg.drawImage(fill, 0, 0, w, h, null);
         }
         mg.dispose();
@@ -7976,6 +8169,7 @@ public class GifSlideShowApp extends JFrame {
                 int[] r = customMediaRect(customLayout.placement(),
                         image.getWidth(), image.getHeight(), targetW, targetH);
                 paintCustomBackground(g, image, customLayout, r, targetW, targetH);
+                paintCustomFinish(g, customLayout, targetW, targetH);
                 paintCustomChrome(g, customLayout, r, targetW, targetH);
                 paintCustomMedia(g, image, customLayout, r);
             } else
@@ -21064,17 +21258,18 @@ public class GifSlideShowApp extends JFrame {
     /**
      * Writes the still inputs a Custom-layout source video needs into dir:
      * {chrome, mask}, either null when not needed. chrome (videoW x videoH,
-     * transparent) re-draws the shadow / border over a Blur background, which
-     * covers the base frame they were rendered into; mask (rect-sized, gray) is
-     * the alpha of the rounded corners.
+     * transparent) re-draws the vignette / grain / glow / shadow / border over
+     * a Blur background, which covers the base frame they were rendered into;
+     * mask (rect-sized, gray) is the alpha of the rounded corners.
      */
     static File[] writeCustomVideoInputs(MediaLayout l, int[] r, int videoW, int videoH,
                                          File dir, String tag) throws IOException {
         dir.mkdirs();
         File chrome = null, mask = null;
-        if (l.isBlur() && (l.shadow > 0 || l.borderPx(videoW, videoH) > 0)) {
+        if (l.isBlur() && l.hasOverlay()) {
             BufferedImage c = new BufferedImage(videoW, videoH, BufferedImage.TYPE_INT_ARGB);
             Graphics2D cg = c.createGraphics();
+            paintCustomFinish(cg, l, videoW, videoH);
             paintCustomChrome(cg, l, r, videoW, videoH);
             cg.dispose();
             chrome = new File(dir, "custom_chrome_" + tag + ".png");
@@ -21116,8 +21311,9 @@ public class GifSlideShowApp extends JFrame {
      * Filter-graph fragment (no trailing ';') laying a Custom-layout source
      * video over baseLbl into outLbl, matching what renderFrame draws for the
      * still: a Blur background made from the playing video itself (zoomed to
-     * fill, blurred, darkened by dim %), the shadow / border (chromeIn) back on
-     * top of it, then the video in rect r with rounded corners (maskIn).
+     * fill, shrunk, blurred, scaled back up and darkened by dim % — the steps of
+     * heavyBlurCover), the finish and chrome (chromeIn) back on top of it, then
+     * the video in rect r with rounded corners (maskIn).
      * srcHead is the source stream plus any timing chain, e.g. "[1:v]" or
      * "[3:v]tpad=…,setpts=PTS-STARTPTS,"; chromeIn / maskIn are looped PNG
      * inputs ("[4:v]") or null; enable is an overlay ":enable=…" option or "".
@@ -21129,13 +21325,17 @@ public class GifSlideShowApp extends JFrame {
         String fgHead = srcHead;
         if (l.isBlur()) {
             String k = String.format(java.util.Locale.US, "%.3f", 1 - l.dim / 100.0);
-            String sigma = String.format(java.util.Locale.US, "%.1f",
-                    MediaLayout.blurRadius(videoW, videoH) / 2.2);
+            // Three box passes of radius r (heavyBlurCover) ≈ a Gaussian of sigma √(r(r+1))
+            int br = MediaLayout.blurRadius(videoW, videoH);
+            String sigma = String.format(java.util.Locale.US, "%.2f", Math.sqrt(br * (br + 1.0)));
+            int sw = Math.max(1, videoW / MediaLayout.BLUR_DOWN), sh = Math.max(1, videoH / MediaLayout.BLUR_DOWN);
             f.append(srcHead).append("split=2[bgs").append(tag).append("][fgs").append(tag).append("];");
             f.append("[bgs").append(tag).append("]scale=").append(videoW).append(':').append(videoH)
                     .append(":force_original_aspect_ratio=increase,crop=").append(videoW).append(':').append(videoH)
-                    .append(",setsar=1,gblur=sigma=").append(sigma)
-                    .append(",format=yuv420p,lutyuv=y='16+(val-16)*").append(k)
+                    .append(",scale=").append(sw).append(':').append(sh).append(":flags=area")
+                    .append(",gblur=sigma=").append(sigma)
+                    .append(",scale=").append(videoW).append(':').append(videoH).append(":flags=bilinear")
+                    .append(",setsar=1,format=yuv420p,lutyuv=y='16+(val-16)*").append(k)
                     .append("':u='128+(val-128)*").append(k)
                     .append("':v='128+(val-128)*").append(k).append("'[bgv").append(tag).append("];");
             f.append(baseLbl).append("[bgv").append(tag).append("]overlay=0:0").append(enable)
@@ -29810,9 +30010,16 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner mediaShadowSpinner;
         private final JSpinner mediaBorderSpinner;
         private final JButton mediaBorderColorBtn;
+        private final JButton mediaColor3Btn;
+        private final JSpinner mediaVignetteSpinner;
+        private final JSpinner mediaGrainSpinner;
+        private final JSpinner mediaGlowSpinner;
+        private final JButton mediaGlowColorBtn;
         private Color mediaColor1 = new MediaLayout().c1;
         private Color mediaColor2 = new MediaLayout().c2;
+        private Color mediaColor3 = new MediaLayout().c3;
         private Color mediaBorderColor = new MediaLayout().borderColor;
+        private Color mediaGlowColor = new MediaLayout().glowColor;
         // Set while a preview drag / snap writes the spinners, so their listeners
         // leave the (once-per-gesture) format sync to the gesture itself.
         private boolean isAdjustingMedia = false;
@@ -30530,19 +30737,23 @@ public class GifSlideShowApp extends JFrame {
             mediaBgCombo.setPreferredSize(new Dimension(86, 28));
             mediaBgCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             mediaBgCombo.setToolTipText("<html>Background around the image / video:<br>"
-                    + "<b>Solid</b> color 1 · <b>Gradient</b> color 1 (top) to color 2 (bottom)<br>"
-                    + "<b>Radial</b> color 1 glowing around the media, fading to color 2<br>"
-                    + "<b>Blur</b> the media itself, zoomed and blurred (moves with the video in the MP4)</html>");
+                    + "<b>Blur</b> the media itself, zoomed and heavily blurred (moves with the video in the MP4)<br>"
+                    + "<b>Mesh</b> soft pools of color 2 and 3 light over a color 1 base<br>"
+                    + "<b>Gradient</b> color 1 (top) to color 2 (bottom)<br>"
+                    + "<b>Radial</b> a color 1 spotlight behind the media fading to color 2<br>"
+                    + "<b>Solid</b> color 1</html>");
             mediaBgCombo.addActionListener(e -> {
                 updateMediaPlacementControls();
                 if (!isAdjustingMedia) onFormatChanged();
             });
 
             mediaColor1Btn = makeMediaColorButton("Background color 1", () -> mediaColor1, c -> mediaColor1 = c);
-            mediaColor2Btn = makeMediaColorButton("Background color 2 (Gradient / Radial)", () -> mediaColor2, c -> mediaColor2 = c);
+            mediaColor2Btn = makeMediaColorButton("Background color 2 (Mesh / Gradient / Radial)", () -> mediaColor2, c -> mediaColor2 = c);
+            mediaColor3Btn = makeMediaColorButton("Background color 3 (Mesh)", () -> mediaColor3, c -> mediaColor3 = c);
             mediaBorderColorBtn = makeMediaColorButton("Border color", () -> mediaBorderColor, c -> mediaBorderColor = c);
+            mediaGlowColorBtn = makeMediaColorButton("Glow color", () -> mediaGlowColor, c -> mediaGlowColor = c);
 
-            mediaDimSpinner = new JSpinner(new SpinnerNumberModel(40, 0, 90, 5));
+            mediaDimSpinner = new JSpinner(new SpinnerNumberModel(30, 0, 90, 5));
             mediaDimSpinner.setToolTipText("Blur background: how much to darken it (0 = as is), so the media stands out");
             mediaRoundSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 50, 1));
             mediaRoundSpinner.setToolTipText("Rounded corners (0 = square, 50 = fully rounded ends)");
@@ -30550,7 +30761,14 @@ public class GifSlideShowApp extends JFrame {
             mediaShadowSpinner.setToolTipText("Soft drop shadow under the media (0 = none)");
             mediaBorderSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 60, 1));
             mediaBorderSpinner.setToolTipText("Border / frame width around the media (px of a 1080 px frame; 0 = none)");
-            for (JSpinner sp : new JSpinner[]{ mediaDimSpinner, mediaRoundSpinner, mediaShadowSpinner, mediaBorderSpinner }) {
+            mediaVignetteSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 100, 5));
+            mediaVignetteSpinner.setToolTipText("Darken the background toward the frame's edges, drawing the eye to the media");
+            mediaGrainSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 100, 2));
+            mediaGrainSpinner.setToolTipText("Fine film grain over the background (hides color banding; 8-15 is subtle)");
+            mediaGlowSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 100, 5));
+            mediaGlowSpinner.setToolTipText("Soft colored halo around the media (0 = none)");
+            for (JSpinner sp : new JSpinner[]{ mediaDimSpinner, mediaRoundSpinner, mediaShadowSpinner, mediaBorderSpinner,
+                    mediaVignetteSpinner, mediaGrainSpinner, mediaGlowSpinner }) {
                 sp.setPreferredSize(new Dimension(50, 28));
                 sp.addChangeListener(e -> { if (!isAdjustingMedia) onFormatChanged(); });
             }
@@ -30561,15 +30779,27 @@ public class GifSlideShowApp extends JFrame {
             toolbar2c.add(mediaBgCombo);
             toolbar2c.add(mediaColor1Btn);
             toolbar2c.add(mediaColor2Btn);
+            toolbar2c.add(mediaColor3Btn);
             toolbar2c.add(styledLabel("Dim%:"));
             toolbar2c.add(mediaDimSpinner);
-            toolbar2c.add(styledLabel("Round%:"));
-            toolbar2c.add(mediaRoundSpinner);
-            toolbar2c.add(styledLabel("Shadow%:"));
-            toolbar2c.add(mediaShadowSpinner);
-            toolbar2c.add(styledLabel("Border:"));
-            toolbar2c.add(mediaBorderSpinner);
-            toolbar2c.add(mediaBorderColorBtn);
+            toolbar2c.add(styledLabel("Vignette%:"));
+            toolbar2c.add(mediaVignetteSpinner);
+            toolbar2c.add(styledLabel("Grain%:"));
+            toolbar2c.add(mediaGrainSpinner);
+
+            // ===== Toolbar Row 2d: Custom frame (corners, shadow, glow, border) =====
+            JPanel toolbar2d = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            toolbar2d.setBackground(new Color(50, 95, 95));
+            toolbar2d.add(styledLabel("      Custom frame   Round%:"));
+            toolbar2d.add(mediaRoundSpinner);
+            toolbar2d.add(styledLabel("Shadow%:"));
+            toolbar2d.add(mediaShadowSpinner);
+            toolbar2d.add(styledLabel("Glow%:"));
+            toolbar2d.add(mediaGlowSpinner);
+            toolbar2d.add(mediaGlowColorBtn);
+            toolbar2d.add(styledLabel("Border:"));
+            toolbar2d.add(mediaBorderSpinner);
+            toolbar2d.add(mediaBorderColorBtn);
             updateMediaPlacementControls();
 
             // ===== Toolbar Row 3: Slide number overlay =====
@@ -34299,6 +34529,7 @@ public class GifSlideShowApp extends JFrame {
             toolbarsPanel.add(toolbar2);
             toolbarsPanel.add(toolbar2b);
             toolbarsPanel.add(toolbar2c);
+            toolbarsPanel.add(toolbar2d);
             toolbarsPanel.add(createToolbarSeparator());
             toolbarsPanel.add(toolbar3);
             toolbarsPanel.add(createToolbarSeparator());
@@ -45103,6 +45334,11 @@ public class GifSlideShowApp extends JFrame {
             l.shadow = (int) mediaShadowSpinner.getValue();
             l.border = (int) mediaBorderSpinner.getValue();
             l.borderColor = mediaBorderColor;
+            l.c3 = mediaColor3;
+            l.vignette = (int) mediaVignetteSpinner.getValue();
+            l.grain = (int) mediaGrainSpinner.getValue();
+            l.glow = (int) mediaGlowSpinner.getValue();
+            l.glowColor = mediaGlowColor;
             return l;
         }
 
@@ -45113,6 +45349,11 @@ public class GifSlideShowApp extends JFrame {
             mediaColor1 = l.c1;
             mediaColor2 = l.c2;
             mediaBorderColor = l.borderColor;
+            mediaColor3 = l.c3;
+            mediaGlowColor = l.glowColor;
+            mediaVignetteSpinner.setValue(clampToSpinner(mediaVignetteSpinner, l.vignette));
+            mediaGrainSpinner.setValue(clampToSpinner(mediaGrainSpinner, l.grain));
+            mediaGlowSpinner.setValue(clampToSpinner(mediaGlowSpinner, l.glow));
             mediaDimSpinner.setValue(clampToSpinner(mediaDimSpinner, l.dim));
             mediaRoundSpinner.setValue(clampToSpinner(mediaRoundSpinner, l.round));
             mediaShadowSpinner.setValue(clampToSpinner(mediaShadowSpinner, l.shadow));
@@ -45156,6 +45397,8 @@ public class GifSlideShowApp extends JFrame {
             mediaColor1Btn.setIcon(colorSwatchIcon(mediaColor1));
             mediaColor2Btn.setIcon(colorSwatchIcon(mediaColor2));
             mediaBorderColorBtn.setIcon(colorSwatchIcon(mediaBorderColor));
+            mediaColor3Btn.setIcon(colorSwatchIcon(mediaColor3));
+            mediaGlowColorBtn.setIcon(colorSwatchIcon(mediaGlowColor));
         }
 
         /** A small filled swatch (on a checker, so translucent colors read as such). */
@@ -45187,10 +45430,16 @@ public class GifSlideShowApp extends JFrame {
             mediaWSpinner.setEnabled(custom);
             String bg = (String) mediaBgCombo.getSelectedItem();
             boolean blur = "Blur".equals(bg);
-            boolean twoTone = "Gradient".equals(bg) || "Radial".equals(bg);
+            boolean mesh = "Mesh".equals(bg);
+            boolean twoTone = mesh || "Gradient".equals(bg) || "Radial".equals(bg);
             mediaBgCombo.setEnabled(custom);
             mediaColor1Btn.setEnabled(custom && !blur);
             mediaColor2Btn.setEnabled(custom && twoTone);
+            mediaColor3Btn.setEnabled(custom && mesh);
+            mediaVignetteSpinner.setEnabled(custom);
+            mediaGrainSpinner.setEnabled(custom);
+            mediaGlowSpinner.setEnabled(custom);
+            mediaGlowColorBtn.setEnabled(custom);
             mediaDimSpinner.setEnabled(custom && blur);
             mediaRoundSpinner.setEnabled(custom);
             mediaShadowSpinner.setEnabled(custom);
