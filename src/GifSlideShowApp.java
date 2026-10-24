@@ -502,6 +502,7 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(p + "highlightTightness", String.valueOf(t.highlightTightness));
             props.setProperty(p + "highlightWidthPct", String.valueOf(t.highlightWidthPct));
             props.setProperty(p + "highlightHeightPct", String.valueOf(t.highlightHeightPct));
+            props.setProperty(p + "highlightFixedW", String.valueOf(t.highlightFixedW));
             writeHlGroups(props, p, t.hlGroups, t.ulGroups);
             writeFnGroups(props, p, t.fnGroups);
             props.setProperty(p + "underlineStyle", t.underlineStyle);
@@ -1041,6 +1042,7 @@ public class GifSlideShowApp extends JFrame {
             // Absent on presets predating HL W% / H%: 100 is the size they had.
             loaded.highlightWidthPct  = parseIntOr(props.getProperty(p + "highlightWidthPct"), 100);
             loaded.highlightHeightPct = parseIntOr(props.getProperty(p + "highlightHeightPct"), 100);
+            loaded.highlightFixedW    = Math.max(0, parseIntOr(props.getProperty(p + "highlightFixedW"), 0));
             loaded.ulGroups = readUlGroups(props, p);
             loaded.fnGroups = readFnGroups(props, p);
             loaded.bgColor2          = hexToColor(props.getProperty(p + "bgColor2", "#3C3C3C"));
@@ -2187,6 +2189,7 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(gp + "fxSpeedMs", String.valueOf(g.fxSpeedMs));
             props.setProperty(gp + "widthPct", String.valueOf(g.widthPct));
             props.setProperty(gp + "heightPct", String.valueOf(g.heightPct));
+            props.setProperty(gp + "fixedW", String.valueOf(g.fixedW));
         }
         int un = ulGroups == null ? 0 : ulGroups.size();
         props.setProperty(p + "ulGroupCount", String.valueOf(un));
@@ -2216,6 +2219,7 @@ public class GifSlideShowApp extends JFrame {
             g.fxSpeedMs = parseIntOr(props.getProperty(gp + "fxSpeedMs"), 1600);
             g.widthPct  = parseIntOr(props.getProperty(gp + "widthPct"), 100);
             g.heightPct = parseIntOr(props.getProperty(gp + "heightPct"), 100);
+            g.fixedW    = Math.max(0, parseIntOr(props.getProperty(gp + "fixedW"), 0));
             out.add(g);
         }
         return out;
@@ -9359,13 +9363,14 @@ public class GifSlideShowApp extends JFrame {
                         String[] gHlTerms;
                         Color gHlColor;
                         String gHlStyleRaw;
-                        int gHlTight, gHlWpct, gHlHpct;
+                        int gHlTight, gHlWpct, gHlHpct, gHlFixW;
                         if (hlGi < 0) {
                             gHlSegs = stHlSegments; gHlTerms = stHlTerms;
                             gHlColor = st.highlightColor;
                             gHlStyleRaw = st.highlightStyle != null ? st.highlightStyle : "Regular";
                             gHlTight = st.highlightTightness;
                             gHlWpct = st.highlightWidthPct; gHlHpct = st.highlightHeightPct;
+                            gHlFixW = st.highlightFixedW;
                         } else {
                             SlideTextData.HlGroup hlGrp = st.hlGroups.get(hlGi);
                             gHlSegs = stExtraHlSegments.get(hlGi); gHlTerms = stExtraHlTerms.get(hlGi);
@@ -9373,6 +9378,7 @@ public class GifSlideShowApp extends JFrame {
                             gHlStyleRaw = hlGrp.style != null ? hlGrp.style : "Regular";
                             gHlTight = hlGrp.tightness;
                             gHlWpct = hlGrp.widthPct; gHlHpct = hlGrp.heightPct;
+                            gHlFixW = hlGrp.fixedW;
                         }
                         if (gHlSegs == null || gHlSegs.get(li).isEmpty()) continue;
                         String gHlStyleSkipCheck = gHlStyleRaw;
@@ -9419,7 +9425,13 @@ public class GifSlideShowApp extends JFrame {
                                 // and height are the group's own (W% / H% beside Tight).
                                 int hlWpct = gHlWpct <= 0 ? 100 : gHlWpct;
                                 int hlHpct = gHlHpct <= 0 ? 100 : gHlHpct;
-                                if (hlWpct != 100) {
+                                if (gHlFixW > 0) {
+                                    // Fix W: the same width for every word, however long,
+                                    // centred on it (replaces Tight's padding and W%).
+                                    int nW = Math.max(1, Math.round(gHlFixW * stScaleFactor));
+                                    hlRectX = hlX + (hlW - nW) / 2;
+                                    hlRectW = nW;
+                                } else if (hlWpct != 100) {
                                     int nW = Math.max(1, Math.round(hlRectW * hlWpct / 100f));
                                     hlRectX -= (nW - hlRectW) / 2;
                                     hlRectW = nW;
@@ -24379,16 +24391,18 @@ public class GifSlideShowApp extends JFrame {
         for (int gi = 0; gi < groups; gi++) {
             String words, style;
             Color color;
-            int tight, wPct, hPct;
+            int tight, wPct, hPct, fixW;
             if (gi == 0) {
                 words = st.highlightText; style = st.highlightStyle;
                 color = st.highlightColor; tight = st.highlightTightness;
                 wPct = st.highlightWidthPct; hPct = st.highlightHeightPct;
+                fixW = st.highlightFixedW;
             } else {
                 SlideTextData.HlGroup grp = st.hlGroups.get(gi - 1);
                 if (grp == null) continue;
                 words = grp.words; style = grp.style; color = grp.color; tight = grp.tightness;
                 wPct = grp.widthPct; hPct = grp.heightPct;
+                fixW = grp.fixedW;
             }
             if (words == null || words.trim().isEmpty()) continue;
             if (style == null || "None".equals(style)) continue;
@@ -24419,7 +24433,8 @@ public class GifSlideShowApp extends JFrame {
             int rectW = Math.max(1, wordW + padX * 2);
             if (wPct <= 0) wPct = 100;
             if (hPct <= 0) hPct = 100;
-            if (wPct != 100) rectW = Math.max(1, Math.round(rectW * wPct / 100f));
+            if (fixW > 0) rectW = Math.max(1, (int) Math.round(fixW * scaleFactor));
+            else if (wPct != 100) rectW = Math.max(1, Math.round(rectW * wPct / 100f));
             if (hPct != 100) rectH = Math.max(2, Math.round(rectH * hPct / 100f));
             Color c = color != null ? color : new Color(255, 100, 150, 180);
             if (st.highlightIntensityPct >= 0 && st.highlightIntensityPct != 100) {
@@ -27202,6 +27217,9 @@ public class GifSlideShowApp extends JFrame {
     static final int HL_SIZE_MIN_PCT = 10;
     static final int HL_SIZE_MAX_PCT = 400;
 
+    /** Largest Fix W (px of a 1920-px frame) — the full frame width. */
+    static final int HL_FIXED_W_MAX = 1920;
+
     static int clampHlSizePct(int pct) {
         return pct <= 0 ? 100 : Math.max(HL_SIZE_MIN_PCT, Math.min(HL_SIZE_MAX_PCT, pct));
     }
@@ -28079,6 +28097,10 @@ public class GifSlideShowApp extends JFrame {
         // toolbar; each HlGroup carries its own widthPct / heightPct).
         int highlightHeightPct = 100;    // HL_SIZE_MIN_PCT..HL_SIZE_MAX_PCT
         int highlightWidthPct = 100;     // HL_SIZE_MIN_PCT..HL_SIZE_MAX_PCT
+        // Fix W: 0 = Auto (the mark follows the word); otherwise every mark of the
+        // primary group is exactly this wide, in px of a 1920-px frame (scaled with
+        // the output), so marks match across words and texts. Replaces W%.
+        int highlightFixedW = 0;
 
         // ===== Extra highlight / underline groups (HL2, HL3, ... / UL2, UL3, ...) =====
         // The HL/UL boxes on the toolbar are now dropdowns: index 0 is this text's
@@ -28106,11 +28128,12 @@ public class GifSlideShowApp extends JFrame {
             // Tight leaves it), scaled about the word's centre.
             int widthPct = 100;
             int heightPct = 100;
+            int fixedW = 0;          // Fix W, as SlideTextData.highlightFixedW
             HlGroup copy() {
                 HlGroup g = new HlGroup();
                 g.words = words; g.color = color; g.style = style; g.tightness = tightness;
                 g.fx = fx; g.fxSpeedMs = fxSpeedMs;
-                g.widthPct = widthPct; g.heightPct = heightPct;
+                g.widthPct = widthPct; g.heightPct = heightPct; g.fixedW = fixedW;
                 return g;
             }
         }
@@ -28275,6 +28298,7 @@ public class GifSlideShowApp extends JFrame {
             dst.highlightFxSpeedMs = src.highlightFxSpeedMs;
             dst.highlightWidthPct  = src.highlightWidthPct;
             dst.highlightHeightPct = src.highlightHeightPct;
+            dst.highlightFixedW    = src.highlightFixedW;
             dst.ulGroups = new java.util.ArrayList<>();
             if (src.ulGroups != null) for (UlGroup g : src.ulGroups) if (g != null) dst.ulGroups.add(g.copy());
             // Font-words groups ride along on the same terms as HL/UL, so a
@@ -30779,6 +30803,7 @@ public class GifSlideShowApp extends JFrame {
         private final JSpinner slideTextHighlightTightnessSpinner;
         private final JSpinner slideTextHighlightWidthSpinner;
         private final JSpinner slideTextHighlightHeightSpinner;
+        private final JSpinner slideTextHighlightFixWSpinner;
         /** Live effect played on the selected HL group's words, and how long one
          *  cycle of it lasts. Like the colour / style / Tight controls beside them,
          *  these read and write whichever group the HL dropdown has selected. */
@@ -32614,6 +32639,15 @@ public class GifSlideShowApp extends JFrame {
                     + "). Grows or shrinks the mark evenly about the word's centre, independent of Tight.");
             slideTextHighlightHeightSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
+            slideTextHighlightFixWSpinner = new JSpinner(new SpinnerNumberModel(0, 0, HL_FIXED_W_MAX, 5));
+            slideTextHighlightFixWSpinner.setPreferredSize(new Dimension(60, 24));
+            slideTextHighlightFixWSpinner.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            slideTextHighlightFixWSpinner.setToolTipText("Fix W: one fixed width for every highlight mark of the group selected "
+                    + "on the left, whatever the word's length — 0 = Auto (the mark follows the word). In px of a "
+                    + "1920-px-wide video (scaled with the output size), centred on each word. Give several texts the "
+                    + "same number to get marks of exactly the same width. Replaces W% while set; H% still applies.");
+            slideTextHighlightFixWSpinner.addChangeListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
+
             slideTextHighlightFxCombo = new JComboBox<>(highlightFxChoices());
             slideTextHighlightFxCombo.setPreferredSize(new Dimension(104, 24));
             slideTextHighlightFxCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
@@ -32871,6 +32905,9 @@ public class GifSlideShowApp extends JFrame {
             JLabel tc4cHlHLbl = styledLabel("H%:");
             tc4cHlHLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
             tc4cHlHLbl.setForeground(new Color(140, 210, 160));
+            JLabel tc4cHlFixWLbl = styledLabel("Fix W:");
+            tc4cHlFixWLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+            tc4cHlFixWLbl.setForeground(new Color(140, 210, 160));
             JLabel tc4cHlFxLbl = styledLabel("FX:");
             tc4cHlFxLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
             tc4cHlFxLbl.setForeground(new Color(140, 210, 160));
@@ -32905,6 +32942,8 @@ public class GifSlideShowApp extends JFrame {
             toolbar4c1b.add(slideTextHighlightWidthSpinner);
             toolbar4c1b.add(tc4cHlHLbl);
             toolbar4c1b.add(slideTextHighlightHeightSpinner);
+            toolbar4c1b.add(tc4cHlFixWLbl);
+            toolbar4c1b.add(slideTextHighlightFixWSpinner);
             toolbar4c1b.add(tc4cHlFxLbl);
             toolbar4c1b.add(slideTextHighlightFxCombo);
             toolbar4c1b.add(slideTextHighlightFxSpeedSpinner);
@@ -35577,7 +35616,7 @@ public class GifSlideShowApp extends JFrame {
                     slideTextHighlightColorBtn.setForeground(item.highlightColor);
                     slideTextHighlightStyleCombo.setSelectedItem(item.highlightStyle);
                     slideTextHighlightTightnessSpinner.setValue(item.highlightTightness);
-                    setHlSizeSpinners(item.highlightWidthPct, item.highlightHeightPct);
+                    setHlSizeSpinners(item.highlightWidthPct, item.highlightHeightPct, item.highlightFixedW);
                     selectHighlightFx(item.highlightFx);
                     slideTextHighlightFxSpeedSpinner.setValue(hlFxSpeedOf(item.highlightFxSpeedMs));
                 } else {
@@ -35587,7 +35626,7 @@ public class GifSlideShowApp extends JFrame {
                     slideTextHighlightColorBtn.setForeground(slideTextHighlightColor);
                     slideTextHighlightStyleCombo.setSelectedItem(g.style != null ? g.style : "Regular");
                     slideTextHighlightTightnessSpinner.setValue(g.tightness);
-                    setHlSizeSpinners(g.widthPct, g.heightPct);
+                    setHlSizeSpinners(g.widthPct, g.heightPct, g.fixedW);
                     selectHighlightFx(g.fx);
                     slideTextHighlightFxSpeedSpinner.setValue(hlFxSpeedOf(g.fxSpeedMs));
                 }
@@ -35632,7 +35671,7 @@ public class GifSlideShowApp extends JFrame {
                 slideTextHighlightColorBtn.setForeground(slideTextHighlightColor);
                 slideTextHighlightStyleCombo.setSelectedItem("Regular");
                 slideTextHighlightTightnessSpinner.setValue(50);
-                setHlSizeSpinners(100, 100);
+                setHlSizeSpinners(100, 100, 0);
                 selectHighlightFx(HL_FX_NONE);
                 slideTextHighlightFxSpeedSpinner.setValue(1600);
             } finally {
@@ -35640,11 +35679,12 @@ public class GifSlideShowApp extends JFrame {
             }
         }
 
-        /** Show a group's mark W% / H% in their spinners, clamped into range so a
-         *  value from an older or hand-edited preset can never make them throw. */
-        private void setHlSizeSpinners(int widthPct, int heightPct) {
+        /** Show a group's mark W% / H% / Fix W in their spinners, clamped into range
+         *  so a value from an older or hand-edited preset can never make them throw. */
+        private void setHlSizeSpinners(int widthPct, int heightPct, int fixedW) {
             slideTextHighlightWidthSpinner.setValue(clampHlSizePct(widthPct));
             slideTextHighlightHeightSpinner.setValue(clampHlSizePct(heightPct));
+            slideTextHighlightFixWSpinner.setValue(Math.max(0, Math.min(HL_FIXED_W_MAX, fixedW)));
         }
 
         /** Clamp a stored cycle length into the speed spinner's range, so a value
@@ -35863,7 +35903,7 @@ public class GifSlideShowApp extends JFrame {
             if (prevItem.fnGroups != null) for (SlideTextData.FnGroup g : prevItem.fnGroups) if (g != null) newFnGroups.add(g.copy());
 
             String newHlFx;
-            int newHlFxSpeedMs, newHlWidthPct, newHlHeightPct;
+            int newHlFxSpeedMs, newHlWidthPct, newHlHeightPct, newHlFixedW;
             if (currentHlGroupIndex < 0) {
                 newHlText = (String) slideTextHighlightCombo.getEditor().getItem();
                 newHlColor = slideTextHighlightColor;
@@ -35873,6 +35913,7 @@ public class GifSlideShowApp extends JFrame {
                 newHlFxSpeedMs = (int) slideTextHighlightFxSpeedSpinner.getValue();
                 newHlWidthPct = (int) slideTextHighlightWidthSpinner.getValue();
                 newHlHeightPct = (int) slideTextHighlightHeightSpinner.getValue();
+                newHlFixedW = (int) slideTextHighlightFixWSpinner.getValue();
             } else {
                 newHlText = prevItem.highlightText;
                 newHlColor = prevItem.highlightColor;
@@ -35882,6 +35923,7 @@ public class GifSlideShowApp extends JFrame {
                 newHlFxSpeedMs = prevItem.highlightFxSpeedMs;
                 newHlWidthPct = prevItem.highlightWidthPct;
                 newHlHeightPct = prevItem.highlightHeightPct;
+                newHlFixedW = prevItem.highlightFixedW;
                 while (newHlGroups.size() <= currentHlGroupIndex) newHlGroups.add(new SlideTextData.HlGroup());
                 SlideTextData.HlGroup g = newHlGroups.get(currentHlGroupIndex);
                 g.words = (String) slideTextHighlightCombo.getEditor().getItem();
@@ -35892,6 +35934,7 @@ public class GifSlideShowApp extends JFrame {
                 g.fxSpeedMs = (int) slideTextHighlightFxSpeedSpinner.getValue();
                 g.widthPct = (int) slideTextHighlightWidthSpinner.getValue();
                 g.heightPct = (int) slideTextHighlightHeightSpinner.getValue();
+                g.fixedW = (int) slideTextHighlightFixWSpinner.getValue();
             }
             if (currentUlGroupIndex < 0) {
                 newUlStyle = (String) slideTextUnderlineCombo.getSelectedItem();
@@ -35992,6 +36035,7 @@ public class GifSlideShowApp extends JFrame {
             newItem.highlightFxSpeedMs = newHlFxSpeedMs;
             newItem.highlightWidthPct = newHlWidthPct;
             newItem.highlightHeightPct = newHlHeightPct;
+            newItem.highlightFixedW = newHlFixedW;
             newItem.ulGroups = newUlGroups;
             newItem.fnGroups = newFnGroups;
             // The Texts-Timer timeline is edited in its own dialog, not on the
@@ -36094,7 +36138,7 @@ public class GifSlideShowApp extends JFrame {
                 slideTextHighlightColorBtn.setForeground(item.highlightColor);
                 slideTextHighlightStyleCombo.setSelectedItem(item.highlightStyle);
                 slideTextHighlightTightnessSpinner.setValue(item.highlightTightness);
-                setHlSizeSpinners(item.highlightWidthPct, item.highlightHeightPct);
+                setHlSizeSpinners(item.highlightWidthPct, item.highlightHeightPct, item.highlightFixedW);
                 selectHighlightFx(item.highlightFx);
                 slideTextHighlightFxSpeedSpinner.setValue(hlFxSpeedOf(item.highlightFxSpeedMs));
                 slideTextUnderlineCombo.setSelectedItem(item.underlineStyle);
@@ -40839,6 +40883,7 @@ public class GifSlideShowApp extends JFrame {
             m.highlightFxSpeedMs = (gHl ? src : dst).highlightFxSpeedMs;
             m.highlightWidthPct  = (gHl ? src : dst).highlightWidthPct;
             m.highlightHeightPct = (gHl ? src : dst).highlightHeightPct;
+            m.highlightFixedW    = (gHl ? src : dst).highlightFixedW;
             List<SlideTextData.UlGroup> ulGroupsFrom = (gWord ? src : dst).ulGroups;
             m.ulGroups = new java.util.ArrayList<>();
             if (ulGroupsFrom != null) for (SlideTextData.UlGroup ug : ulGroupsFrom) if (ug != null) m.ulGroups.add(ug.copy());
@@ -44440,6 +44485,7 @@ public class GifSlideShowApp extends JFrame {
             c.highlightIntensityPct = old.highlightIntensityPct;
             c.highlightHeightPct    = old.highlightHeightPct;
             c.highlightWidthPct     = old.highlightWidthPct;
+            c.highlightFixedW       = old.highlightFixedW;
             // The word-by-word reveal schedule is keyed to the exact words it was
             // built from, so a genuinely new string starts without one.
             if (text != null && !text.equals(old.text)) {
