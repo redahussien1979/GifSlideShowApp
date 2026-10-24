@@ -24760,18 +24760,67 @@ public class GifSlideShowApp extends JFrame {
                     g.fillRect(x, y, w, h);
                     break;
                 }
-                case "Chip": {
-                    // UI status chip: tinted pill, hairline border, status dot on the left.
+                case "Chip": case "Chip Pulse": case "Chip Live": case "Chip Arrow":
+                case "Chip Check": case "Chip Cross": {
+                    // UI status chip: tinted pill, hairline border, and a marker in its
+                    // own slot on the left — a dot for plain "Chip", otherwise the one
+                    // the style names.
                     float lead = h * 0.75f;
                     java.awt.geom.RoundRectangle2D.Float pill = new java.awt.geom.RoundRectangle2D.Float(
                             x - lead, y, w + lead, h, h, h);
                     g.setColor(hlWithAlpha(c, a * 0.28f));
                     g.fill(pill);
                     g.setStroke(new BasicStroke(Math.max(1f, 1.3f * sfF)));
-                    g.setColor(hlWithAlpha(c, Math.min(255, a + 40)));
+                    Color ink = hlWithAlpha(c, Math.min(255, a + 40));
+                    g.setColor(ink);
                     g.draw(pill);
-                    float dr = Math.max(2f, h * 0.14f);
-                    g.fill(new java.awt.geom.Ellipse2D.Float(x - lead / 2f - dr, y + h / 2f - dr, dr * 2, dr * 2));
+                    float cx = x - lead / 2f, cy = y + h / 2f, s = h * 0.17f;   // marker centre / half-size
+                    BasicStroke markLine = new BasicStroke(Math.max(1.6f, h * 0.075f),
+                            BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
+                    switch (kind) {
+                        case "Chip Pulse":     // dot inside a soft halo — a status light
+                            g.setColor(hlWithAlpha(c, a * 0.35f));
+                            g.fill(new java.awt.geom.Ellipse2D.Float(cx - s * 1.6f, cy - s * 1.6f, s * 3.2f, s * 3.2f));
+                            g.setColor(ink);
+                            g.fill(new java.awt.geom.Ellipse2D.Float(cx - s * 0.8f, cy - s * 0.8f, s * 1.6f, s * 1.6f));
+                            break;
+                        case "Chip Live": {    // dot inside a thin ring — a "LIVE" indicator
+                            g.setStroke(new BasicStroke(Math.max(1f, 1.2f * sfF)));
+                            g.setColor(hlWithAlpha(c, a * 0.6f));
+                            g.draw(new java.awt.geom.Ellipse2D.Float(cx - s * 1.45f, cy - s * 1.45f, s * 2.9f, s * 2.9f));
+                            g.setColor(ink);
+                            g.fill(new java.awt.geom.Ellipse2D.Float(cx - s * 0.7f, cy - s * 0.7f, s * 1.4f, s * 1.4f));
+                            break;
+                        }
+                        case "Chip Arrow": {   // solid play-style triangle pointing at the word
+                            java.awt.geom.Path2D.Float tri = new java.awt.geom.Path2D.Float();
+                            tri.moveTo(cx - s * 0.7f, cy - s);
+                            tri.lineTo(cx + s * 0.95f, cy);
+                            tri.lineTo(cx - s * 0.7f, cy + s);
+                            tri.closePath();
+                            g.fill(tri);
+                            break;
+                        }
+                        case "Chip Check": {
+                            java.awt.geom.Path2D.Float tick = new java.awt.geom.Path2D.Float();
+                            tick.moveTo(cx - s, cy);
+                            tick.lineTo(cx - s * 0.3f, cy + s * 0.75f);
+                            tick.lineTo(cx + s * 1.05f, cy - s * 0.85f);
+                            g.setStroke(markLine);
+                            g.draw(tick);
+                            break;
+                        }
+                        case "Chip Cross":
+                            g.setStroke(markLine);
+                            g.draw(new java.awt.geom.Line2D.Float(cx - s * 0.8f, cy - s * 0.8f, cx + s * 0.8f, cy + s * 0.8f));
+                            g.draw(new java.awt.geom.Line2D.Float(cx - s * 0.8f, cy + s * 0.8f, cx + s * 0.8f, cy - s * 0.8f));
+                            break;
+                        default: {             // "Chip": the status dot
+                            float dr = Math.max(2f, h * 0.14f);
+                            g.fill(new java.awt.geom.Ellipse2D.Float(cx - dr, cy - dr, dr * 2, dr * 2));
+                            break;
+                        }
+                    }
                     break;
                 }
                 case "Soft Card": {
@@ -27017,7 +27066,8 @@ public class GifSlideShowApp extends JFrame {
 
     static final String[] HIGHLIGHT_STYLES = { "None", "Regular", "Brush", "Brush2", "Pill", "Gradient", "Glow", "Box", "Circle", "Scribble", "Sketch", "Sketch Bold", "Ink", "Strikethrough", "Tag", "Speech Bubble", "Marker",
             "Glass", "Neon", "Gradient Border", "Sticker", "Slant", "Brackets", "Half Marker", "Spotlight", "Shimmer", "Holographic", "Duotone", "3D Block", "Side Bars",
-            "Ribbon", "Chip", "Soft Card", "Double Frame", "Folded Note", "Watercolor", "Aurora", "Floor Glow", "Hexagon", "Chevron", "Brutalist", "Neumorphic", "Halftone" };
+            "Ribbon", "Chip", "Chip Pulse", "Chip Live", "Chip Arrow", "Chip Check", "Chip Cross",
+            "Soft Card", "Double Frame", "Folded Note", "Watercolor", "Aurora", "Floor Glow", "Hexagon", "Chevron", "Brutalist", "Neumorphic", "Halftone" };
     /** Range of the HL W% / H% spinners (mark size as % of its natural size). */
     static final int HL_SIZE_MIN_PCT = 10;
     static final int HL_SIZE_MAX_PCT = 400;
@@ -27031,7 +27081,7 @@ public class GifSlideShowApp extends JFrame {
     static final java.util.Set<String> MODERN_HL_STYLES = new java.util.HashSet<>(java.util.Arrays.asList(
             "Glass", "Neon", "Gradient Border", "Sticker", "Slant", "Brackets", "Half Marker",
             "Spotlight", "Shimmer", "Holographic", "Duotone", "3D Block", "Side Bars",
-            "Ribbon", "Chip", "Soft Card", "Double Frame", "Folded Note", "Watercolor", "Aurora",
+            "Ribbon", "Chip", "Chip Pulse", "Chip Live", "Chip Arrow", "Chip Check", "Chip Cross", "Soft Card", "Double Frame", "Folded Note", "Watercolor", "Aurora",
             "Floor Glow", "Hexagon", "Chevron", "Brutalist", "Neumorphic", "Halftone"));
 
     /** Per-word effects available on toolbar 7d. Each style is rendered as a
