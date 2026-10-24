@@ -24732,6 +24732,135 @@ public class GifSlideShowApp extends JFrame {
                     g.fill(new java.awt.geom.RoundRectangle2D.Float(x + w + gap, y, bw, h, bw, bw));
                     break;
                 }
+                case "Tape": {
+                    // Washi-tape strip: slight tilt, torn zig-zag ends, fine fibre lines
+                    // and a soft sheen. Torn edges are seeded by the mark's size.
+                    Random tr = new Random(31L * w + h);
+                    g.rotate(Math.toRadians(-2), x + w / 2.0, y + h / 2.0);
+                    float ext = h * 0.35f, x0 = x - ext, x1 = x + w + ext, t0 = y + h * 0.05f, t1 = y + h * 0.95f;
+                    int teeth = 6;
+                    java.awt.geom.Path2D.Float tape = new java.awt.geom.Path2D.Float();
+                    tape.moveTo(x0, t0);
+                    tape.lineTo(x1, t0);
+                    for (int i = 1; i <= teeth; i++)
+                        tape.lineTo(x1 + (i % 2 == 0 ? 0 : -h * 0.07f) - tr.nextFloat() * h * 0.04f, t0 + (t1 - t0) * i / teeth);
+                    tape.lineTo(x0, t1);
+                    for (int i = teeth - 1; i >= 1; i--)
+                        tape.lineTo(x0 + (i % 2 == 0 ? 0 : h * 0.07f) + tr.nextFloat() * h * 0.04f, t0 + (t1 - t0) * i / teeth);
+                    tape.closePath();
+                    g.setColor(hlWithAlpha(c, a * 0.78f));
+                    g.fill(tape);
+                    g.clip(tape);
+                    g.setStroke(new BasicStroke(Math.max(1f, sfF)));
+                    g.setColor(new Color(255, 255, 255, Math.min(22, a / 8)));
+                    for (float ly = t0 + 3 * sfF; ly < t1; ly += 4 * sfF) g.draw(new java.awt.geom.Line2D.Float(x0, ly, x1, ly));
+                    g.setPaint(new GradientPaint(0, t0, new Color(255, 255, 255, Math.min(60, a / 3)),
+                            0, t0 + (t1 - t0) * 0.5f, new Color(255, 255, 255, 0)));
+                    g.fill(tape);
+                    break;
+                }
+                case "Torn Paper": {
+                    // Paper strip with ragged top and bottom edges and a soft drop shadow.
+                    Random pr = new Random(31L * w + h);
+                    float ext = h * 0.25f, x0 = x - ext, x1 = x + w + ext;
+                    int n = Math.max(8, (int) ((x1 - x0) / (7f * sfF)));
+                    java.awt.geom.Path2D.Float paper = new java.awt.geom.Path2D.Float();
+                    paper.moveTo(x0, y + h * 0.08f);
+                    for (int i = 1; i <= n; i++) paper.lineTo(x0 + (x1 - x0) * i / n, y + h * 0.02f + pr.nextFloat() * h * 0.12f);
+                    for (int i = n; i >= 0; i--) paper.lineTo(x0 + (x1 - x0) * i / n, y + h * 0.88f + pr.nextFloat() * h * 0.12f);
+                    paper.closePath();
+                    g.setColor(new Color(0, 0, 0, Math.min(70, a * 70 / 255)));
+                    g.fill(java.awt.geom.AffineTransform.getTranslateInstance(2 * sfF, 3 * sfF).createTransformedShape(paper));
+                    g.setColor(c);
+                    g.fill(paper);
+                    g.setStroke(new BasicStroke(Math.max(1f, sfF)));
+                    g.setColor(new Color(255, 255, 255, Math.min(90, a / 2)));
+                    g.draw(paper);
+                    break;
+                }
+                case "Callout Arrow": {
+                    // Hand-drawn curved arrow rising from below-left to point at the word.
+                    float sx = x - h * 0.9f, sy = y + h * 1.55f, ex = x + w * 0.22f, ey = y + h + 3 * sfF;
+                    float c2x = ex - h * 0.8f, c2y = ey + h * 0.55f;
+                    java.awt.geom.Path2D.Float shaft = new java.awt.geom.Path2D.Float();
+                    shaft.moveTo(sx, sy);
+                    shaft.curveTo(sx + h * 0.1f, sy - h * 0.5f, c2x, c2y, ex, ey);
+                    g.setColor(hlWithAlpha(c, Math.min(255, a + 50)));
+                    g.setStroke(new BasicStroke(Math.max(2f, h * 0.075f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g.draw(shaft);
+                    double ang = Math.atan2(ey - c2y, ex - c2x);   // direction the curve arrives in
+                    float hl = h * 0.32f;
+                    java.awt.geom.Path2D.Float head = new java.awt.geom.Path2D.Float();
+                    head.moveTo(ex + hl * (float) Math.cos(ang + Math.PI - 0.5), ey + hl * (float) Math.sin(ang + Math.PI - 0.5));
+                    head.lineTo(ex, ey);
+                    head.lineTo(ex + hl * (float) Math.cos(ang + Math.PI + 0.5), ey + hl * (float) Math.sin(ang + Math.PI + 0.5));
+                    g.draw(head);
+                    break;
+                }
+                case "Badge": {
+                    // Light tint behind the word plus a notification badge on its top-right corner.
+                    g.setColor(hlWithAlpha(c, a * 0.18f));
+                    g.fill(new java.awt.geom.RoundRectangle2D.Float(x, y, w, h, 8 * sfF, 8 * sfF));
+                    float br = h * 0.27f, bx = x + w, by = y;
+                    g.setColor(new Color(0, 0, 0, Math.min(60, a / 3)));
+                    g.fill(new java.awt.geom.Ellipse2D.Float(bx - br + sfF, by - br + 2 * sfF, br * 2, br * 2));
+                    g.setColor(hlWithAlpha(c, 255));
+                    g.fill(new java.awt.geom.Ellipse2D.Float(bx - br, by - br, br * 2, br * 2));
+                    g.setStroke(new BasicStroke(Math.max(1.5f, 2f * sfF)));
+                    g.setColor(Color.WHITE);
+                    g.draw(new java.awt.geom.Ellipse2D.Float(bx - br, by - br, br * 2, br * 2));
+                    g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                    g.setFont(new Font("SansSerif", Font.BOLD, Math.max(6, Math.round(br * 1.25f))));
+                    FontMetrics bfm = g.getFontMetrics();
+                    g.drawString("1", bx - bfm.stringWidth("1") / 2f, by + bfm.getAscent() * 0.36f);
+                    break;
+                }
+                case "Blob": {
+                    // Soft organic shape: an ellipse with a gentle, size-seeded wobble.
+                    Random br = new Random(31L * w + h);
+                    float cx = x + w / 2f, cy = y + h / 2f, rx = w / 2f + h * 0.35f, ry = h / 2f + h * 0.18f;
+                    double p1 = br.nextDouble() * 6, p2 = br.nextDouble() * 6;
+                    int n = 64;
+                    float[] px = new float[n], py = new float[n];
+                    for (int i = 0; i < n; i++) {
+                        double t = i * 2 * Math.PI / n;
+                        double m = 1 + 0.06 * Math.sin(3 * t + p1) + 0.04 * Math.sin(5 * t + p2);
+                        px[i] = (float) (cx + rx * m * Math.cos(t));
+                        py[i] = (float) (cy + ry * m * Math.sin(t));
+                    }
+                    java.awt.geom.Path2D.Float blob = new java.awt.geom.Path2D.Float();
+                    blob.moveTo((px[n - 1] + px[0]) / 2, (py[n - 1] + py[0]) / 2);
+                    for (int i = 0; i < n; i++) {
+                        int j = (i + 1) % n;
+                        blob.quadTo(px[i], py[i], (px[i] + px[j]) / 2, (py[i] + py[j]) / 2);
+                    }
+                    blob.closePath();
+                    g.setColor(c);
+                    g.fill(blob);
+                    break;
+                }
+                case "Quote Marks": {
+                    // Large curly quotes hung at the word's top corners.
+                    g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                    g.setColor(hlWithAlpha(c, Math.min(255, a + 50)));
+                    g.setFont(new Font("Serif", Font.BOLD, Math.max(8, Math.round(h * 1.5f))));
+                    FontMetrics qfm = g.getFontMetrics();
+                    float qy = y + qfm.getAscent() * 0.62f, gap = 2 * sfF;
+                    g.drawString("“", x - qfm.stringWidth("“") - gap, qy);
+                    g.drawString("”", x + w + gap, qy);
+                    break;
+                }
+                case "Curly Braces": {
+                    // { } framing the word, centred on it — a code-style accent.
+                    g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                    g.setColor(hlWithAlpha(c, Math.min(255, a + 50)));
+                    g.setFont(new Font("Monospaced", Font.BOLD, Math.max(8, Math.round(h * 1.1f))));
+                    FontMetrics cfm = g.getFontMetrics();
+                    float base = y + h / 2f + (cfm.getAscent() - cfm.getDescent()) / 2f, gap = sfF;
+                    g.drawString("{", x - cfm.stringWidth("{") - gap, base);
+                    g.drawString("}", x + w + gap, base);
+                    break;
+                }
                 case "Ribbon": {
                     // Banner with folded, notched tails tucked behind each end.
                     float d = h * 0.28f, t = h * 0.75f, tuck = t * 0.35f;
@@ -24760,18 +24889,67 @@ public class GifSlideShowApp extends JFrame {
                     g.fillRect(x, y, w, h);
                     break;
                 }
-                case "Chip": {
-                    // UI status chip: tinted pill, hairline border, status dot on the left.
+                case "Chip": case "Chip Pulse": case "Chip Live": case "Chip Arrow":
+                case "Chip Check": case "Chip Cross": {
+                    // UI status chip: tinted pill, hairline border, and a marker in its
+                    // own slot on the left — a dot for plain "Chip", otherwise the one
+                    // the style names.
                     float lead = h * 0.75f;
                     java.awt.geom.RoundRectangle2D.Float pill = new java.awt.geom.RoundRectangle2D.Float(
                             x - lead, y, w + lead, h, h, h);
                     g.setColor(hlWithAlpha(c, a * 0.28f));
                     g.fill(pill);
                     g.setStroke(new BasicStroke(Math.max(1f, 1.3f * sfF)));
-                    g.setColor(hlWithAlpha(c, Math.min(255, a + 40)));
+                    Color ink = hlWithAlpha(c, Math.min(255, a + 40));
+                    g.setColor(ink);
                     g.draw(pill);
-                    float dr = Math.max(2f, h * 0.14f);
-                    g.fill(new java.awt.geom.Ellipse2D.Float(x - lead / 2f - dr, y + h / 2f - dr, dr * 2, dr * 2));
+                    float cx = x - lead / 2f, cy = y + h / 2f, s = h * 0.17f;   // marker centre / half-size
+                    BasicStroke markLine = new BasicStroke(Math.max(1.6f, h * 0.075f),
+                            BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
+                    switch (kind) {
+                        case "Chip Pulse":     // dot inside a soft halo — a status light
+                            g.setColor(hlWithAlpha(c, a * 0.35f));
+                            g.fill(new java.awt.geom.Ellipse2D.Float(cx - s * 1.6f, cy - s * 1.6f, s * 3.2f, s * 3.2f));
+                            g.setColor(ink);
+                            g.fill(new java.awt.geom.Ellipse2D.Float(cx - s * 0.8f, cy - s * 0.8f, s * 1.6f, s * 1.6f));
+                            break;
+                        case "Chip Live": {    // dot inside a thin ring — a "LIVE" indicator
+                            g.setStroke(new BasicStroke(Math.max(1f, 1.2f * sfF)));
+                            g.setColor(hlWithAlpha(c, a * 0.6f));
+                            g.draw(new java.awt.geom.Ellipse2D.Float(cx - s * 1.45f, cy - s * 1.45f, s * 2.9f, s * 2.9f));
+                            g.setColor(ink);
+                            g.fill(new java.awt.geom.Ellipse2D.Float(cx - s * 0.7f, cy - s * 0.7f, s * 1.4f, s * 1.4f));
+                            break;
+                        }
+                        case "Chip Arrow": {   // solid play-style triangle pointing at the word
+                            java.awt.geom.Path2D.Float tri = new java.awt.geom.Path2D.Float();
+                            tri.moveTo(cx - s * 0.7f, cy - s);
+                            tri.lineTo(cx + s * 0.95f, cy);
+                            tri.lineTo(cx - s * 0.7f, cy + s);
+                            tri.closePath();
+                            g.fill(tri);
+                            break;
+                        }
+                        case "Chip Check": {
+                            java.awt.geom.Path2D.Float tick = new java.awt.geom.Path2D.Float();
+                            tick.moveTo(cx - s, cy);
+                            tick.lineTo(cx - s * 0.3f, cy + s * 0.75f);
+                            tick.lineTo(cx + s * 1.05f, cy - s * 0.85f);
+                            g.setStroke(markLine);
+                            g.draw(tick);
+                            break;
+                        }
+                        case "Chip Cross":
+                            g.setStroke(markLine);
+                            g.draw(new java.awt.geom.Line2D.Float(cx - s * 0.8f, cy - s * 0.8f, cx + s * 0.8f, cy + s * 0.8f));
+                            g.draw(new java.awt.geom.Line2D.Float(cx - s * 0.8f, cy + s * 0.8f, cx + s * 0.8f, cy - s * 0.8f));
+                            break;
+                        default: {             // "Chip": the status dot
+                            float dr = Math.max(2f, h * 0.14f);
+                            g.fill(new java.awt.geom.Ellipse2D.Float(cx - dr, cy - dr, dr * 2, dr * 2));
+                            break;
+                        }
+                    }
                     break;
                 }
                 case "Soft Card": {
@@ -27017,7 +27195,9 @@ public class GifSlideShowApp extends JFrame {
 
     static final String[] HIGHLIGHT_STYLES = { "None", "Regular", "Brush", "Brush2", "Pill", "Gradient", "Glow", "Box", "Circle", "Scribble", "Sketch", "Sketch Bold", "Ink", "Strikethrough", "Tag", "Speech Bubble", "Marker",
             "Glass", "Neon", "Gradient Border", "Sticker", "Slant", "Brackets", "Half Marker", "Spotlight", "Shimmer", "Holographic", "Duotone", "3D Block", "Side Bars",
-            "Ribbon", "Chip", "Soft Card", "Double Frame", "Folded Note", "Watercolor", "Aurora", "Floor Glow", "Hexagon", "Chevron", "Brutalist", "Neumorphic", "Halftone" };
+            "Ribbon", "Chip", "Chip Pulse", "Chip Live", "Chip Arrow", "Chip Check", "Chip Cross",
+            "Soft Card", "Double Frame", "Folded Note", "Watercolor", "Aurora", "Floor Glow", "Hexagon", "Chevron", "Brutalist", "Neumorphic", "Halftone",
+            "Tape", "Torn Paper", "Callout Arrow", "Badge", "Blob", "Quote Marks", "Curly Braces" };
     /** Range of the HL W% / H% spinners (mark size as % of its natural size). */
     static final int HL_SIZE_MIN_PCT = 10;
     static final int HL_SIZE_MAX_PCT = 400;
@@ -27031,8 +27211,9 @@ public class GifSlideShowApp extends JFrame {
     static final java.util.Set<String> MODERN_HL_STYLES = new java.util.HashSet<>(java.util.Arrays.asList(
             "Glass", "Neon", "Gradient Border", "Sticker", "Slant", "Brackets", "Half Marker",
             "Spotlight", "Shimmer", "Holographic", "Duotone", "3D Block", "Side Bars",
-            "Ribbon", "Chip", "Soft Card", "Double Frame", "Folded Note", "Watercolor", "Aurora",
-            "Floor Glow", "Hexagon", "Chevron", "Brutalist", "Neumorphic", "Halftone"));
+            "Ribbon", "Chip", "Chip Pulse", "Chip Live", "Chip Arrow", "Chip Check", "Chip Cross", "Soft Card", "Double Frame", "Folded Note", "Watercolor", "Aurora",
+            "Floor Glow", "Hexagon", "Chevron", "Brutalist", "Neumorphic", "Halftone",
+            "Tape", "Torn Paper", "Callout Arrow", "Badge", "Blob", "Quote Marks", "Curly Braces"));
 
     /** Per-word effects available on toolbar 7d. Each style is rendered as a
      *  geometry tightly fitted to the active word's bounding box, independent
