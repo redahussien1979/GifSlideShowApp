@@ -152,7 +152,7 @@ public class GifSlideShowApp extends JFrame {
         header.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
         mainPanel.add(header, BorderLayout.NORTH);
 
-        slidesPanel = new JPanel();
+        slidesPanel = new SlidesStackPanel();
         slidesPanel.setLayout(new BoxLayout(slidesPanel, BoxLayout.Y_AXIS));
         slidesPanel.setBackground(new Color(30, 30, 30));
 
@@ -24761,6 +24761,36 @@ public class GifSlideShowApp extends JFrame {
     }
 
     /**
+     * The page that stacks the slide panels. It follows the window's width (each
+     * slide panel used to be pinned at 1100 px, so in a narrower window the right
+     * end of every toolbar sat off-screen behind a horizontal scrollbar), and its
+     * toolbar rows wrap to fit. Only below {@link #MIN_WIDTH} — narrower than the
+     * window's own minimum size allows — does it stop shrinking and scroll sideways.
+     */
+    static final class SlidesStackPanel extends JPanel implements Scrollable {
+        /** Narrowest page at which every toolbar control still fits on a row:
+         *  the slide panel's fixed left part (controls + preview, ~575 px) plus a
+         *  toolbar column wider than its widest single control. */
+        static final int MIN_WIDTH = 850;
+
+        @Override public Dimension getPreferredSize() {
+            Dimension d = super.getPreferredSize();
+            d.width = Math.min(d.width, MIN_WIDTH);
+            return d;
+        }
+        @Override public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
+        @Override public int getScrollableUnitIncrement(Rectangle r, int orientation, int direction) { return 20; }
+        @Override public int getScrollableBlockIncrement(Rectangle r, int orientation, int direction) {
+            return orientation == SwingConstants.VERTICAL ? r.height : r.width;
+        }
+        @Override public boolean getScrollableTracksViewportWidth() {
+            Container vp = getParent();
+            return vp instanceof JViewport && vp.getWidth() >= MIN_WIDTH;
+        }
+        @Override public boolean getScrollableTracksViewportHeight() { return false; }
+    }
+
+    /**
      * A FlowLayout that wraps onto extra lines AND reports the height those lines
      * need. Plain FlowLayout always asks for a single line, so inside a vertical
      * stack the controls past the right edge are simply cut off; with this, a row
@@ -31118,10 +31148,15 @@ public class GifSlideShowApp extends JFrame {
             toolbar2b.add(styledLabel("W%:"));
             toolbar2b.add(mediaWSpinner);
             toolbar2b.add(mediaSnapCombo);
-            JLabel mediaDragHint = styledLabel("(or in the preview: drag it, corner = resize, wheel = size; click it, then arrows move, +/- = size)");
-            mediaDragHint.setFont(new Font("Segoe UI", Font.ITALIC, 10));
-            mediaDragHint.setForeground(new Color(150, 170, 170));
-            toolbar2b.add(mediaDragHint);
+            // In parts, so a narrow row can wrap between them instead of
+            // needing one ~450 px line.
+            for (String hint : new String[] { "(or in the preview: drag it,", "corner = resize, wheel = size;",
+                                              "click it, then arrows move, +/- = size)" }) {
+                JLabel mediaDragHint = styledLabel(hint);
+                mediaDragHint.setFont(new Font("Segoe UI", Font.ITALIC, 10));
+                mediaDragHint.setForeground(new Color(150, 170, 170));
+                toolbar2b.add(mediaDragHint);
+            }
 
             // ===== Toolbar Row 2c: Custom look (background + frame styling) =====
             JPanel toolbar2c = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
@@ -32520,9 +32555,13 @@ public class GifSlideShowApp extends JFrame {
             JLabel tc4c2LandLbl = styledLabel("Land:");
             tc4c2LandLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
             tc4c2LandLbl.setForeground(new Color(255, 200, 100));
-            JLabel tc4c2HintLbl = styledLabel("(Settle: 0=slow..100=instant  Roll: 1=slow flip..10=blur)");
+            // Two halves, so a narrow row can wrap between them.
+            JLabel tc4c2HintLbl = styledLabel("(Settle: 0=slow..100=instant");
             tc4c2HintLbl.setFont(new Font("Segoe UI", Font.ITALIC, 10));
             tc4c2HintLbl.setForeground(new Color(180, 180, 140));
+            JLabel tc4c2HintLbl2 = styledLabel("Roll: 1=slow flip..10=blur)");
+            tc4c2HintLbl2.setFont(new Font("Segoe UI", Font.ITALIC, 10));
+            tc4c2HintLbl2.setForeground(new Color(180, 180, 140));
             toolbar4c2.add(tc4c2OdoLbl);
             toolbar4c2.add(slideTextOdometerCheck);
             toolbar4c2.add(tc4c2SpdLbl);
@@ -32532,6 +32571,7 @@ public class GifSlideShowApp extends JFrame {
             toolbar4c2.add(tc4c2LandLbl);
             toolbar4c2.add(slideTextOdometerLandCombo);
             toolbar4c2.add(tc4c2HintLbl);
+            toolbar4c2.add(tc4c2HintLbl2);
 
             // --- Entry Animation controls ---
             slideTextAnimCheck = new JCheckBox("Animate");
