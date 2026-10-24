@@ -10052,7 +10052,9 @@ public class GifSlideShowApp extends JFrame {
                                         gHL.setTransform(savedMTx);
                                         break;
                                     }
-                                    default: { // "Regular"
+                                    default: { // "Regular", or one of MODERN_HL_STYLES
+                                        if (drawModernHlMark(gHL, hlStyle, hlRectX, hlRectY, hlRectW, hlRectH,
+                                                hlC, stScaleFactor)) break;
                                         gHL.setColor(new Color(hlC.getRed(), hlC.getGreen(), hlC.getBlue(), hlC.getAlpha()));
                                         gHL.fillRoundRect(hlRectX, hlRectY, hlRectW, hlRectH, arc, arc);
                                         break;
@@ -24382,6 +24384,7 @@ public class GifSlideShowApp extends JFrame {
                 case "Regular": case "Pill": case "Gradient": case "Box": case "Marker":
                     break;
                 default:
+                    if (MODERN_HL_STYLES.contains(kind)) break;
                     continue;   // not reproducible on a moving copy — see above
             }
             if (!wordInTermList(words, word)) continue;
@@ -24453,6 +24456,7 @@ public class GifSlideShowApp extends JFrame {
                         break;
                     }
                     default:
+                        if (drawModernHlMark(g, kind, rectX, rectY, rectW, rectH, c, scaleFactor)) break;
                         g.setColor(c);
                         g.fillRoundRect(rectX, rectY, rectW, rectH, arc, arc);
                         break;
@@ -24461,6 +24465,285 @@ public class GifSlideShowApp extends JFrame {
                 g.dispose();
             }
         }
+    }
+
+    /**
+     * Draw one of the {@link #MODERN_HL_STYLES} behind a word. {@code (x, y, w, h)}
+     * is the mark's rect after Tight and the width / height / intensity tuning, and
+     * {@code c} its colour (alpha included). Every style is a pure function of those
+     * inputs — no per-occurrence randomness — so the paragraph and a moving word
+     * copy draw the same mark.
+     *
+     * @return false (drawing nothing) when {@code kind} is not a modern style
+     */
+    static boolean drawModernHlMark(Graphics2D g0, String kind, int x, int y, int w, int h,
+                                    Color c, double sf) {
+        if (kind == null || !MODERN_HL_STYLES.contains(kind)) return false;
+        if (w <= 0 || h <= 0) return true;
+        int a = c.getAlpha();
+        float sfF = (float) Math.max(0.25, sf);
+        Graphics2D g = (Graphics2D) g0.create();
+        try {
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+            switch (kind) {
+                case "Glass": {
+                    // Frosted pane: soft ambient shadow, translucent tinted body,
+                    // glossy upper half and a hairline white rim.
+                    float r = Math.max(4f, Math.min(h * 0.45f, 14f * sfF));
+                    for (int i = 3; i >= 1; i--) {
+                        float e = i * 1.6f * sfF;
+                        g.setColor(new Color(0, 0, 0, Math.max(2, a / (10 + i * 4))));
+                        g.fill(new java.awt.geom.RoundRectangle2D.Float(x - e, y - e + 2 * sfF,
+                                w + e * 2, h + e * 2, r + e * 2, r + e * 2));
+                    }
+                    java.awt.geom.RoundRectangle2D.Float body =
+                            new java.awt.geom.RoundRectangle2D.Float(x, y, w, h, r * 2, r * 2);
+                    g.setPaint(new GradientPaint(x, y, hlWithAlpha(c, a * 0.62f),
+                            x, y + h, hlWithAlpha(c, a * 0.34f)));
+                    g.fill(body);
+                    g.setPaint(new GradientPaint(x, y, new Color(255, 255, 255, Math.min(255, a * 95 / 255)),
+                            x, y + h * 0.55f, new Color(255, 255, 255, 0)));
+                    g.fill(body);
+                    g.setStroke(new BasicStroke(Math.max(1f, 1.2f * sfF)));
+                    g.setColor(new Color(255, 255, 255, Math.min(255, a * 170 / 255)));
+                    g.draw(body);
+                    break;
+                }
+                case "Neon": {
+                    // Thin lit tube: layered colour halo, saturated core, white-hot centre.
+                    float r = Math.max(4f, h * 0.32f);
+                    java.awt.geom.RoundRectangle2D.Float tube =
+                            new java.awt.geom.RoundRectangle2D.Float(x, y, w, h, r * 2, r * 2);
+                    float core = Math.max(1.5f, 2.2f * sfF);
+                    int glowA = Math.min(255, a + 40);
+                    int layers = 7;
+                    for (int l = layers; l >= 1; l--) {
+                        double t = (double) l / layers;
+                        g.setStroke(new BasicStroke(core + l * 2.4f * sfF,
+                                BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                        g.setColor(hlWithAlpha(c, (float) (glowA * 0.22 * (1.0 - t * t)) + 4));
+                        g.draw(tube);
+                    }
+                    g.setColor(hlWithAlpha(c, a / 9f));
+                    g.fill(tube);
+                    g.setStroke(new BasicStroke(core, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g.setColor(hlWithAlpha(c, glowA));
+                    g.draw(tube);
+                    g.setStroke(new BasicStroke(Math.max(0.8f, core * 0.4f),
+                            BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g.setColor(new Color(255, 255, 255, Math.min(230, glowA)));
+                    g.draw(tube);
+                    break;
+                }
+                case "Gradient Border": {
+                    // Outline that sweeps from the chosen colour to a companion hue,
+                    // over a faint wash of the same gradient.
+                    float r = Math.max(4f, h * 0.35f);
+                    float sw = Math.max(2f, 2.6f * sfF);
+                    Color c2 = hlHueShift(c, 0.30f);
+                    java.awt.geom.RoundRectangle2D.Float frame = new java.awt.geom.RoundRectangle2D.Float(
+                            x + sw / 2, y + sw / 2, w - sw, h - sw, r * 2, r * 2);
+                    g.setPaint(new GradientPaint(x, y, hlWithAlpha(c, a / 6f),
+                            x + w, y + h, hlWithAlpha(c2, a / 6f)));
+                    g.fill(frame);
+                    g.setPaint(new GradientPaint(x, y, hlWithAlpha(c, Math.min(255, a + 50)),
+                            x + w, y + h, hlWithAlpha(c2, Math.min(255, a + 50))));
+                    g.setStroke(new BasicStroke(sw, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g.draw(frame);
+                    break;
+                }
+                case "Sticker": {
+                    // Die-cut label: slight tilt, hard offset shadow, white rim.
+                    float r = Math.max(3f, 6f * sfF);
+                    g.rotate(Math.toRadians(-2.5), x + w / 2.0, y + h / 2.0);
+                    java.awt.geom.RoundRectangle2D.Float body =
+                            new java.awt.geom.RoundRectangle2D.Float(x, y, w, h, r * 2, r * 2);
+                    float off = Math.max(2f, 4f * sfF);
+                    g.setColor(new Color(0, 0, 0, Math.min(190, a * 190 / 255)));
+                    g.fill(java.awt.geom.AffineTransform.getTranslateInstance(off, off).createTransformedShape(body));
+                    g.setColor(c);
+                    g.fill(body);
+                    g.setStroke(new BasicStroke(Math.max(1.5f, 2.6f * sfF), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g.setColor(new Color(255, 255, 255, Math.min(255, a + 40)));
+                    g.draw(body);
+                    break;
+                }
+                case "Slant": {
+                    // Sports / news-banner parallelogram with a thin accent slash in front.
+                    float s = h * 0.30f;
+                    float left = x - s / 2, right = x + w + s / 2;
+                    java.awt.geom.Path2D.Float band = new java.awt.geom.Path2D.Float();
+                    band.moveTo(left + s / 2, y);
+                    band.lineTo(right + s / 2, y);
+                    band.lineTo(right - s / 2, y + h);
+                    band.lineTo(left - s / 2, y + h);
+                    band.closePath();
+                    g.setColor(c);
+                    g.fill(band);
+                    float gap = Math.max(2f, s * 0.30f), bw = Math.max(2f, s * 0.40f);
+                    java.awt.geom.Path2D.Float slash = new java.awt.geom.Path2D.Float();
+                    slash.moveTo(left + s / 2 - gap - bw, y);
+                    slash.lineTo(left + s / 2 - gap, y);
+                    slash.lineTo(left - s / 2 - gap, y + h);
+                    slash.lineTo(left - s / 2 - gap - bw, y + h);
+                    slash.closePath();
+                    g.fill(slash);
+                    break;
+                }
+                case "Brackets": {
+                    // Camera focus frame: four rounded corner marks over a faint tint.
+                    float pad = 3f * sfF;
+                    float x0 = x - pad, y0 = y - pad, x1 = x + w + pad, y1 = y + h + pad;
+                    float len = Math.max(4f * sfF, Math.min(w, h) * 0.38f);
+                    float rr = Math.min(len * 0.45f, 5f * sfF);
+                    g.setColor(hlWithAlpha(c, a / 10f));
+                    g.fill(new java.awt.geom.RoundRectangle2D.Float(x0, y0, x1 - x0, y1 - y0, rr * 2, rr * 2));
+                    java.awt.geom.Path2D.Float p = new java.awt.geom.Path2D.Float();
+                    p.moveTo(x0, y0 + len); p.lineTo(x0, y0 + rr); p.quadTo(x0, y0, x0 + rr, y0); p.lineTo(x0 + len, y0);
+                    p.moveTo(x1 - len, y0); p.lineTo(x1 - rr, y0); p.quadTo(x1, y0, x1, y0 + rr); p.lineTo(x1, y0 + len);
+                    p.moveTo(x1, y1 - len); p.lineTo(x1, y1 - rr); p.quadTo(x1, y1, x1 - rr, y1); p.lineTo(x1 - len, y1);
+                    p.moveTo(x0 + len, y1); p.lineTo(x0 + rr, y1); p.quadTo(x0, y1, x0, y1 - rr); p.lineTo(x0, y1 - len);
+                    g.setStroke(new BasicStroke(Math.max(2f, 2.6f * sfF), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g.setColor(hlWithAlpha(c, Math.min(255, a + 50)));
+                    g.draw(p);
+                    break;
+                }
+                case "Half Marker": {
+                    // Editorial highlight: a band over the lower ~40% of the word.
+                    float bx = x - 2f * sfF, bw = w + 4f * sfF;
+                    float by = y + h * 0.52f, bh = Math.max(2f, h * 0.40f);
+                    float r = Math.min(bh, 4f * sfF);
+                    g.setColor(hlWithAlpha(c, Math.min(a, 210)));
+                    g.fill(new java.awt.geom.RoundRectangle2D.Float(bx, by, bw, bh, r, r));
+                    break;
+                }
+                case "Spotlight": {
+                    // Soft elliptical pool of light with no hard edge.
+                    double cx = x + w / 2.0, cy = y + h / 2.0;
+                    double rx = w / 2.0 + h * 0.85, ry = h * 1.05;
+                    g.translate(cx, cy);
+                    g.scale(rx, ry);
+                    g.setPaint(new java.awt.RadialGradientPaint(0f, 0f, 1f,
+                            new float[]{ 0f, 0.45f, 1f },
+                            new Color[]{ hlWithAlpha(c, a), hlWithAlpha(c, a * 0.55f), hlWithAlpha(c, 0) }));
+                    g.fill(new java.awt.geom.Ellipse2D.Double(-1, -1, 2, 2));
+                    break;
+                }
+                case "Shimmer": {
+                    // Polished bar caught mid-sweep by a diagonal light streak.
+                    float r = Math.max(3f, 5f * sfF);
+                    java.awt.geom.RoundRectangle2D.Float body =
+                            new java.awt.geom.RoundRectangle2D.Float(x, y, w, h, r * 2, r * 2);
+                    g.setPaint(new GradientPaint(x, y, hlWithAlpha(hlShade(c, 1.15f), a),
+                            x, y + h, hlWithAlpha(hlShade(c, 0.88f), a)));
+                    g.fill(body);
+                    g.clip(body);
+                    // Streaks are upright rects in a space sheared so they lean right
+                    // by 0.6h over the bar's height; their gradient leans with them.
+                    g.translate(0, y + h);
+                    g.shear(-0.6, 0);
+                    float[][] streaks = { { 0.58f, Math.max(4f, w * 0.16f), 170f }, { 0.76f, Math.max(2f, w * 0.05f), 120f } };
+                    for (float[] st : streaks) {
+                        float sx = x + w * st[0], sw = st[1];
+                        int sa = Math.min(255, Math.round(st[2] * a / 255f));
+                        g.setPaint(new java.awt.LinearGradientPaint(sx, 0f, sx + sw, 0f,
+                                new float[]{ 0f, 0.5f, 1f },
+                                new Color[]{ new Color(255, 255, 255, 0), new Color(255, 255, 255, sa), new Color(255, 255, 255, 0) }));
+                        g.fill(new java.awt.geom.Rectangle2D.Float(sx, -h, sw, h));
+                    }
+                    break;
+                }
+                case "Holographic": {
+                    // Iridescent foil: hue sweep seeded from the chosen colour plus gloss.
+                    float r = Math.max(3f, h * 0.30f);
+                    java.awt.geom.RoundRectangle2D.Float body =
+                            new java.awt.geom.RoundRectangle2D.Float(x, y, w, h, r * 2, r * 2);
+                    float[] hsb = Color.RGBtoHSB(c.getRed(), c.getGreen(), c.getBlue(), null);
+                    float[] offs = { 0f, 0.17f, 0.45f, 0.70f, 1f };
+                    Color[] cols = new Color[offs.length];
+                    for (int i = 0; i < offs.length; i++) {
+                        float hue = hsb[0] + (i == offs.length - 1 ? 0f : offs[i] * 0.85f);
+                        Color hc = Color.getHSBColor(hue - (float) Math.floor(hue), 0.50f, 1f);
+                        cols[i] = hlWithAlpha(hc, a);
+                    }
+                    g.setPaint(new java.awt.LinearGradientPaint(x, y, x + Math.max(1, w), y + h * 0.35f, offs, cols));
+                    g.fill(body);
+                    g.setPaint(new GradientPaint(x, y, new Color(255, 255, 255, Math.min(255, a * 90 / 255)),
+                            x, y + h * 0.45f, new Color(255, 255, 255, 0)));
+                    g.fill(body);
+                    break;
+                }
+                case "Duotone": {
+                    // Two tones of the chosen colour meeting on a diagonal split.
+                    float r = Math.max(3f, 5f * sfF);
+                    java.awt.geom.RoundRectangle2D.Float body =
+                            new java.awt.geom.RoundRectangle2D.Float(x, y, w, h, r * 2, r * 2);
+                    g.clip(body);
+                    g.setColor(c);
+                    g.fill(body);
+                    float mid = x + w / 2f, lean = h * 0.22f;
+                    java.awt.geom.Path2D.Float right = new java.awt.geom.Path2D.Float();
+                    right.moveTo(mid + lean, y);
+                    right.lineTo(x + w, y);
+                    right.lineTo(x + w, y + h);
+                    right.lineTo(mid - lean, y + h);
+                    right.closePath();
+                    g.setColor(hlWithAlpha(hlShade(c, 0.70f), a));
+                    g.fill(right);
+                    break;
+                }
+                case "3D Block": {
+                    // Key-cap block: solid extruded side, face, and a lit top edge.
+                    float r = Math.max(2f, 4f * sfF);
+                    int depth = Math.max(3, Math.round(4f * sfF));
+                    g.setColor(hlWithAlpha(hlShade(c, 0.55f), a));
+                    for (int i = depth; i >= 1; i--) {
+                        g.fill(new java.awt.geom.RoundRectangle2D.Float(x + i, y + i, w, h, r * 2, r * 2));
+                    }
+                    g.setColor(c);
+                    g.fill(new java.awt.geom.RoundRectangle2D.Float(x, y, w, h, r * 2, r * 2));
+                    g.setStroke(new BasicStroke(Math.max(1f, 1.2f * sfF), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g.setColor(new Color(255, 255, 255, Math.min(140, a * 140 / 255)));
+                    g.draw(new java.awt.geom.Line2D.Float(x + r, y + 1, x + w - r, y + 1));
+                    break;
+                }
+                case "Side Bars": {
+                    // Quote-style vertical bars framing the word, over a faint tint.
+                    float bw = Math.max(2f, 3f * sfF), gap = Math.max(2f, 3f * sfF);
+                    g.setColor(hlWithAlpha(c, a / 9f));
+                    g.fillRect(x, y, w, h);
+                    g.setColor(hlWithAlpha(c, Math.min(255, a + 50)));
+                    g.fill(new java.awt.geom.RoundRectangle2D.Float(x - gap - bw, y, bw, h, bw, bw));
+                    g.fill(new java.awt.geom.RoundRectangle2D.Float(x + w + gap, y, bw, h, bw, bw));
+                    break;
+                }
+            }
+        } finally {
+            g.dispose();
+        }
+        return true;
+    }
+
+    /** {@code c} with its alpha replaced by {@code alpha} (clamped to 0..255). */
+    private static Color hlWithAlpha(Color c, float alpha) {
+        return new Color(c.getRed(), c.getGreen(), c.getBlue(), Math.max(0, Math.min(255, Math.round(alpha))));
+    }
+
+    /** {@code c} with its RGB scaled by {@code f} (clamped), alpha kept. */
+    private static Color hlShade(Color c, float f) {
+        return new Color(Math.min(255, Math.round(c.getRed() * f)), Math.min(255, Math.round(c.getGreen() * f)),
+                Math.min(255, Math.round(c.getBlue() * f)), c.getAlpha());
+    }
+
+    /** A vivid companion colour {@code shift} of the way around the hue wheel from
+     *  {@code c}; greys get enough saturation that the companion still reads. */
+    private static Color hlHueShift(Color c, float shift) {
+        float[] hsb = Color.RGBtoHSB(c.getRed(), c.getGreen(), c.getBlue(), null);
+        float hue = hsb[0] + shift;
+        Color rgb = Color.getHSBColor(hue - (float) Math.floor(hue),
+                Math.max(0.6f, hsb[1]), Math.max(0.85f, hsb[2]));
+        return hlWithAlpha(rgb, c.getAlpha());
     }
 
     /** Resolve {@code word}'s own format inside {@code st} (see {@link WordOwnFormat}). */
@@ -26423,7 +26706,13 @@ public class GifSlideShowApp extends JFrame {
             "Stars", "Hearts", "Confetti", "Bubbles", "Snow", "Petals"
     };
 
-    static final String[] HIGHLIGHT_STYLES = { "None", "Regular", "Brush", "Brush2", "Pill", "Gradient", "Glow", "Box", "Circle", "Scribble", "Sketch", "Sketch Bold", "Ink", "Strikethrough", "Tag", "Speech Bubble", "Marker" };
+    static final String[] HIGHLIGHT_STYLES = { "None", "Regular", "Brush", "Brush2", "Pill", "Gradient", "Glow", "Box", "Circle", "Scribble", "Sketch", "Sketch Bold", "Ink", "Strikethrough", "Tag", "Speech Bubble", "Marker",
+            "Glass", "Neon", "Gradient Border", "Sticker", "Slant", "Brackets", "Half Marker", "Spotlight", "Shimmer", "Holographic", "Duotone", "3D Block", "Side Bars" };
+    /** The highlight styles drawn by {@link #drawModernHlMark}: deterministic shapes,
+     *  so they render identically in the paragraph and on a moving word copy. */
+    static final java.util.Set<String> MODERN_HL_STYLES = new java.util.HashSet<>(java.util.Arrays.asList(
+            "Glass", "Neon", "Gradient Border", "Sticker", "Slant", "Brackets", "Half Marker",
+            "Spotlight", "Shimmer", "Holographic", "Duotone", "3D Block", "Side Bars"));
 
     /** Per-word effects available on toolbar 7d. Each style is rendered as a
      *  geometry tightly fitted to the active word's bounding box, independent
