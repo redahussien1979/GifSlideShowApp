@@ -14501,6 +14501,10 @@ public class GifSlideShowApp extends JFrame {
                 g.setPaint(oldPaint);
                 break;
             }
+            case "Top Shine": case "Glass Glare": case "Double Glare": case "Wet Look": case "Satin":
+            case "Bottom Glow": case "Bevel Shine": case "Corner Glint": case "Lacquer": case "Pearl":
+                drawGlossOverlay(g, kind, alphaMax, x, y, w, h);
+                break;
             case "Vignette": {
                 // Darker edges that pull the eye to the text in the middle.
                 Graphics2D gv = (Graphics2D) g.create();
@@ -14553,6 +14557,157 @@ public class GifSlideShowApp extends JFrame {
             }
             default:
                 break;
+        }
+    }
+
+    /** White of the given alpha (clamped) — the base colour of every gloss highlight. */
+    private static Color glossWhite(double alpha) {
+        return new Color(255, 255, 255, Math.max(0, Math.min(255, (int) Math.round(alpha))));
+    }
+
+    /** Black of the given alpha (clamped) — the shade side of Bevel Shine / Lacquer. */
+    private static Color glossShade(double alpha) {
+        return new Color(0, 0, 0, Math.max(0, Math.min(255, (int) Math.round(alpha))));
+    }
+
+    /**
+     * The gloss family of BG textures (Noise list). Each is a light / reflection
+     * laid over the box, sized from the box itself so it reads the same on a
+     * one-word label and a full paragraph, with {@code aMax} (from Int) as its
+     * strength. Drawn on a copy of {@code g0}, so the caller's paint, stroke and
+     * transform are untouched; the caller has already clipped to the BG shape.
+     */
+    private static void drawGlossOverlay(Graphics2D g0, String kind, int aMax, int x, int y, int w, int h) {
+        if (w <= 0 || h <= 0) return;
+        Graphics2D g = (Graphics2D) g0.create();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        try {
+            switch (kind) {
+                case "Top Shine": {
+                    // Soft light falling from the top edge, crowned by a crisp hairline
+                    // that fades out toward both ends.
+                    g.setPaint(new GradientPaint(x, y, glossWhite(aMax * 0.40), x, y + h * 0.35f, glossWhite(0)));
+                    g.fillRect(x, y, w, h);
+                    float line = Math.max(1f, h * 0.018f);
+                    g.setPaint(new java.awt.LinearGradientPaint(x, 0, x + w, 0, new float[]{0f, 0.5f, 1f},
+                            new Color[]{glossWhite(0), glossWhite(aMax * 0.9), glossWhite(0)}));
+                    g.fill(new java.awt.geom.Rectangle2D.Float(x, y + line * 1.2f, w, line));
+                    break;
+                }
+                case "Glass Glare":
+                case "Double Glare": {
+                    // Diagonal light band(s) across the box, like a reflection on glass.
+                    // Upright bands in a sheared space, so each band's falloff leans with it.
+                    g.translate(0, y + h);
+                    g.shear(-0.9, 0);
+                    float[][] bands = "Glass Glare".equals(kind)
+                            ? new float[][]{{0.30f, 0.22f, 0.42f}}
+                            : new float[][]{{0.28f, 0.22f, 0.40f}, {0.56f, 0.05f, 0.55f}};
+                    for (float[] b : bands) {
+                        float bx = x + w * b[0], bw = Math.max(3f, w * b[1]);
+                        g.setPaint(new java.awt.LinearGradientPaint(bx, 0, bx + bw, 0, new float[]{0f, 0.5f, 1f},
+                                new Color[]{glossWhite(0), glossWhite(aMax * b[2]), glossWhite(0)}));
+                        g.fill(new java.awt.geom.Rectangle2D.Float(bx, -h, bw, h));
+                    }
+                    break;
+                }
+                case "Wet Look": {
+                    // Bold, rounded "wet" highlight inset across the top — candy / glass-button shine.
+                    float in = Math.max(3f, h * 0.07f);
+                    float hh = h * 0.42f;
+                    java.awt.geom.RoundRectangle2D.Float hl = new java.awt.geom.RoundRectangle2D.Float(
+                            x + in * 1.6f, y + in, Math.max(1f, w - in * 3.2f), hh, hh * 0.9f, hh * 0.9f);
+                    g.setPaint(new GradientPaint(x, y + in, glossWhite(aMax * 0.75), x, y + in + hh, glossWhite(aMax * 0.04)));
+                    g.fill(hl);
+                    break;
+                }
+                case "Satin": {
+                    // Wide, low-contrast sheen running diagonally through the middle.
+                    g.setPaint(new java.awt.LinearGradientPaint(x, y, x + w, y + h,
+                            new float[]{0f, 0.35f, 0.5f, 0.65f, 1f},
+                            new Color[]{glossWhite(0), glossWhite(aMax * 0.10), glossWhite(aMax * 0.26),
+                                        glossWhite(aMax * 0.10), glossWhite(0)}));
+                    g.fillRect(x, y, w, h);
+                    break;
+                }
+                case "Bottom Glow": {
+                    // Light rising from the bottom edge with a bright fading base line.
+                    g.setPaint(new GradientPaint(x, y + h, glossWhite(aMax * 0.55), x, y + h * 0.45f, glossWhite(0)));
+                    g.fillRect(x, y, w, h);
+                    float line = Math.max(1f, h * 0.018f);
+                    g.setPaint(new java.awt.LinearGradientPaint(x, 0, x + w, 0, new float[]{0f, 0.5f, 1f},
+                            new Color[]{glossWhite(0), glossWhite(aMax * 0.9), glossWhite(0)}));
+                    g.fill(new java.awt.geom.Rectangle2D.Float(x, y + h - line * 2.2f, w, line));
+                    break;
+                }
+                case "Bevel Shine": {
+                    // Raised-button bevel: lit top and left edges, shaded bottom and right.
+                    float t = Math.max(2f, Math.min(h, w) * 0.12f);
+                    g.setPaint(new GradientPaint(x, y, glossWhite(aMax * 0.55), x, y + t, glossWhite(0)));
+                    g.fill(new java.awt.geom.Rectangle2D.Float(x, y, w, t));
+                    g.setPaint(new GradientPaint(x, y, glossWhite(aMax * 0.40), x + t, y, glossWhite(0)));
+                    g.fill(new java.awt.geom.Rectangle2D.Float(x, y, t, h));
+                    g.setPaint(new GradientPaint(x, y + h, glossShade(aMax * 0.50), x, y + h - t, glossShade(0)));
+                    g.fill(new java.awt.geom.Rectangle2D.Float(x, y + h - t, w, t));
+                    g.setPaint(new GradientPaint(x + w, y, glossShade(aMax * 0.40), x + w - t, y, glossShade(0)));
+                    g.fill(new java.awt.geom.Rectangle2D.Float(x + w - t, y, t, h));
+                    break;
+                }
+                case "Corner Glint": {
+                    // A four-point sparkle with a soft halo tucked into the top-right
+                    // corner, small enough to stay in the padding above the text.
+                    float s = Math.max(5f, Math.min(h * 0.13f, w * 0.07f));
+                    float cx = x + w - s * 1.05f, cy = y + s * 1.05f;
+                    g.setPaint(new java.awt.RadialGradientPaint(new java.awt.geom.Point2D.Float(cx, cy), s * 1.6f,
+                            new float[]{0f, 1f}, new Color[]{glossWhite(aMax * 0.45), glossWhite(0)}));
+                    g.fill(new java.awt.geom.Ellipse2D.Float(cx - s * 1.6f, cy - s * 1.6f, s * 3.2f, s * 3.2f));
+                    java.awt.geom.Path2D.Float star = new java.awt.geom.Path2D.Float();
+                    float k = s * 0.12f;
+                    star.moveTo(cx, cy - s);
+                    star.lineTo(cx + k, cy - k);
+                    star.lineTo(cx + s, cy);
+                    star.lineTo(cx + k, cy + k);
+                    star.lineTo(cx, cy + s);
+                    star.lineTo(cx - k, cy + k);
+                    star.lineTo(cx - s, cy);
+                    star.lineTo(cx - k, cy - k);
+                    star.closePath();
+                    g.setColor(glossWhite(aMax * 0.95));
+                    g.fill(star);
+                    break;
+                }
+                case "Lacquer": {
+                    // High-gloss paint: a bright reflection along the top edge with one
+                    // crisp horizon line inside it (kept in the top padding, clear of
+                    // the text), and a quiet lower reflection.
+                    g.setPaint(new java.awt.LinearGradientPaint(x, y, x, y + h,
+                            new float[]{0f, 0.07f, 0.095f, 0.11f, 0.13f, 0.45f, 0.82f, 1f},
+                            new Color[]{glossWhite(aMax * 0.40), glossWhite(aMax * 0.12), glossWhite(aMax * 0.42),
+                                        glossWhite(aMax * 0.10), glossWhite(aMax * 0.03), glossWhite(0),
+                                        glossWhite(aMax * 0.10), glossShade(aMax * 0.18)}));
+                    g.fillRect(x, y, w, h);
+                    break;
+                }
+                case "Pearl": {
+                    // Pearlescent sheen: faint pink / white / blue / champagne drift
+                    // with a soft top light.
+                    g.setPaint(new java.awt.LinearGradientPaint(x, y, x + w, y + h,
+                            new float[]{0f, 0.3f, 0.55f, 0.8f, 1f},
+                            new Color[]{new Color(255, 200, 230, Math.min(255, (int) (aMax * 0.22))),
+                                        glossWhite(aMax * 0.30),
+                                        new Color(190, 220, 255, Math.min(255, (int) (aMax * 0.22))),
+                                        glossWhite(aMax * 0.20),
+                                        new Color(255, 230, 200, Math.min(255, (int) (aMax * 0.18)))}));
+                    g.fillRect(x, y, w, h);
+                    g.setPaint(new GradientPaint(x, y, glossWhite(aMax * 0.30), x, y + h * 0.45f, glossWhite(0)));
+                    g.fillRect(x, y, w, h);
+                    break;
+                }
+                default:
+                    break;
+            }
+        } finally {
+            g.dispose();
         }
     }
 
@@ -32738,12 +32893,15 @@ public class GifSlideShowApp extends JFrame {
 
             // ===== Toolbar 4b4: Texture & Effects =====
             slideTextBgNoiseCombo = new JComboBox<>(new String[] { "None", "Grain", "Paper", "TV", "Halftone",
-                    "Micro Noise", "Light Leak", "Gloss", "Vignette", "Dot Grid", "Topographic" });
+                    "Micro Noise", "Light Leak", "Gloss", "Vignette", "Dot Grid", "Topographic",
+                    "Top Shine", "Glass Glare", "Double Glare", "Wet Look", "Satin", "Bottom Glow",
+                    "Bevel Shine", "Corner Glint", "Lacquer", "Pearl" });
             slideTextBgNoiseCombo.setPreferredSize(new Dimension(85, 24));
             slideTextBgNoiseCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             slideTextBgNoiseCombo.setToolTipText("Texture overlay — Grain (film), Paper (fibers), TV (scanlines+static), Halftone (dot pattern), "
                     + "Micro Noise (fine premium grain), Light Leak (warm film light), Gloss (glossy reflection), "
-                    + "Vignette (darker edges), Dot Grid, Topographic (contour lines). Int sets the strength.");
+                    + "Vignette (darker edges), Dot Grid, Topographic (contour lines), and gloss: Top Shine, Glass Glare, "
+                    + "Double Glare, Wet Look, Satin, Bottom Glow, Bevel Shine, Corner Glint, Lacquer, Pearl. Int sets the strength.");
             slideTextBgNoiseCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
             slideTextBgNoiseSpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 5));
@@ -37011,7 +37169,9 @@ public class GifSlideShowApp extends JFrame {
             // ---- Row 3: texture & shadow & glow ----
             JPanel r3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
             JComboBox<String> noiseCb = new JComboBox<>(new String[]{"None", "Grain", "Paper", "TV", "Halftone",
-                    "Micro Noise", "Light Leak", "Gloss", "Vignette", "Dot Grid", "Topographic"});
+                    "Micro Noise", "Light Leak", "Gloss", "Vignette", "Dot Grid", "Topographic",
+                    "Top Shine", "Glass Glare", "Double Glare", "Wet Look", "Satin", "Bottom Glow",
+                    "Bevel Shine", "Corner Glint", "Lacquer", "Pearl"});
             noiseCb.setSelectedItem(b.bgNoiseKind);
             noiseCb.addActionListener(e -> { b.bgNoiseKind = (String) noiseCb.getSelectedItem(); onChange.run(); });
 
