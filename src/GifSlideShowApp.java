@@ -16103,7 +16103,8 @@ public class GifSlideShowApp extends JFrame {
                 sd.slideTimer = st.copy();
                 int[][] tl = audioTimeline(row.getSlideAudioDurationsMsList(),
                         row.getSlideAudioFilesList(), row.getAudioGapMs());
-                sd.slideTimerStartMs = sd.slideTimer.resolveStartMs(tl[0], tl[1], totalAudioMs(tl[1]));
+                sd.slideTimerStartMs = sd.slideTimer.resolveStartMs(tl[0], tl[1], totalAudioMs(tl[1]),
+                        row.timerTextShownMs());
                 // Probe the end-of-countdown sound once here, so computeSlideDuration
                 // can leave room for it without shelling out to ffprobe per frame.
                 if (sd.slideTimer.hasEndAudio()) {
@@ -23408,6 +23409,29 @@ public class GifSlideShowApp extends JFrame {
      * anchored items count, so a slide timed the old way keeps its length.
      * Call after {@link #resolveAudioAnchors}.
      */
+    /**
+     * When each text is fully on screen, ms from the slide start: its Appear time
+     * (or, for a text a Motion trigger reveals, the moment that trigger lands —
+     * the same override applyQuizHideMask draws with) plus its entrance
+     * animation. Index = text index. Used by the Slide Timer's "After text
+     * appears" start, so it follows any text whether or not it has audio.
+     * Call after {@link #resolveAudioAnchors} so "After Tn audio" appears count.
+     */
+    static int[] textShownTimes(List<SlideTextData> texts) {
+        int n = texts == null ? 0 : texts.size();
+        int[] out = new int[n];
+        if (n == 0) return out;
+        long[] trig = computeActionTriggerAppear(texts);
+        for (int i = 0; i < n; i++) {
+            SlideTextData st = texts.get(i);
+            if (st == null) continue;
+            long appear = (i < trig.length && trig[i] != Long.MAX_VALUE) ? trig[i] : st.timerAppearMs;
+            int entrance = slideTextHasAppearEffect(st) ? st.timerAppearDurMs : 0;
+            out[i] = (int) Math.min(Integer.MAX_VALUE, Math.max(0, appear) + entrance);
+        }
+        return out;
+    }
+
     static int audioAnchoredTailMs(List<SlideTextData> texts, int[] audioEnds) {
         int tail = 0;
         if (texts == null) return 0;
@@ -38369,6 +38393,9 @@ public class GifSlideShowApp extends JFrame {
             final java.util.List<File> audFiles = getSlideAudioFilesList();
             final int[][] tl = audioTimeline(audDurs, audFiles, getAudioGapMs());
             final int audioTotalMs = totalAudioMs(tl[1]);
+            // When each text is fully on screen, for "After text appears" — any
+            // text, with or without audio.
+            final int[] textShown = timerTextShownMs();
 
             final Window owner = SwingUtilities.getWindowAncestor(panel);
             final JDialog dlg = new JDialog(owner, "Slide Timer", Dialog.ModalityType.APPLICATION_MODAL);
@@ -38599,31 +38626,39 @@ public class GifSlideShowApp extends JFrame {
             // Which audios exist, for the after/before-a-text's-audio modes.
             final java.util.List<Integer> audioIdxs = new java.util.ArrayList<>();
             final DefaultComboBoxModel<String> audioModel = new DefaultComboBoxModel<>();
-            for (int i = 0; i < tl[0].length; i++) {
-                if (tl[0][i] < 0) continue;
+            // Every text, for "After text appears" — audio or not.
+            final java.util.List<Integer> textIdxs = new java.util.ArrayList<>();
+            final DefaultComboBoxModel<String> textModel = new DefaultComboBoxModel<>();
+            java.util.function.IntFunction<String> textTitle = i -> {
                 String content = "";
                 if (i < slideTextItems.size() && slideTextItems.get(i) != null
                         && slideTextItems.get(i).text != null) {
                     content = slideTextItems.get(i).text.replace('\n', ' ').trim();
                 }
                 if (content.length() > 34) content = content.substring(0, 31) + "…";
+                return "Text " + (i + 1) + (content.isEmpty() ? "" : " — " + content);
+            };
+            for (int i = 0; i < tl[0].length; i++) {
+                if (tl[0][i] < 0) continue;
                 audioIdxs.add(i + 1);
-                audioModel.addElement("Text " + (i + 1)
-                        + (content.isEmpty() ? "" : " — " + content)
+                audioModel.addElement(textTitle.apply(i)
                         + "   [" + timerSecs(tl[0][i]) + " → " + timerSecs(tl[1][i]) + "]");
             }
-            final JComboBox<String> audioCombo = new JComboBox<>(audioModel);
-            if (audioModel.getSize() == 0) {
-                audioModel.addElement("(this slide has no audio yet)");
-                audioCombo.setEnabled(false);
-            } else {
-                int sel = audioIdxs.indexOf(live.startTextIndex);
-                audioCombo.setSelectedIndex(sel >= 0 ? sel : 0);
-                if (sel < 0) live.startTextIndex = audioIdxs.get(0);
+            for (int i = 0; i < slideTextItems.size(); i++) {
+                textIdxs.add(i + 1);
+                textModel.addElement(textTitle.apply(i) + "   [on screen at "
+                        + timerSecs(i < textShown.length ? textShown[i] : 0) + "]");
             }
+            final boolean noAudio = audioIdxs.isEmpty();
+            if (noAudio) audioModel.addElement("(this slide has no audio yet)");
+            final JComboBox<String> audioCombo = new JComboBox<>(audioModel);
+            // Which list the "…relative to" box shows right now, index-aligned to its model.
+            final java.util.List<Integer>[] shownIdxs = new java.util.List[]{ audioIdxs };
+            final boolean[] swappingModel = { false };
             audioCombo.addActionListener(e -> {
+                if (swappingModel[0]) return;
                 int i = audioCombo.getSelectedIndex();
-                if (i >= 0 && i < audioIdxs.size()) live.startTextIndex = audioIdxs.get(i);
+                if (i >= 0 && i < shownIdxs[0].size()) live.startTextIndex = shownIdxs[0].get(i);
                 refresh.run();
             });
 
@@ -38631,11 +38666,31 @@ public class GifSlideShowApp extends JFrame {
             final JTextField offField = new JTextField(String.format(java.util.Locale.US, "%.1f", live.offsetMs / 1000.0), 6);
             final JComboBox<String> startCombo = new JComboBox<>(SlideTimer.startModes());
             startCombo.setSelectedItem(live.startMode);
+            startCombo.setToolTipText("<html><b>After text appears</b> starts the timer once the chosen "
+                    + "text is on screen (its Appear time plus its entrance), plus the Offset — "
+                    + "for any text, with or without audio.</html>");
 
             final Runnable syncStartEnable = () -> {
                 String m = (String) startCombo.getSelectedItem();
-                boolean needsText = SlideTimer.START_AFTER_AUDIO.equals(m) || SlideTimer.START_BEFORE_AUDIO.equals(m);
-                audioCombo.setEnabled(needsText && !audioIdxs.isEmpty());
+                boolean afterText = SlideTimer.START_AFTER_TEXT.equals(m);
+                boolean needsAudio = SlideTimer.START_AFTER_AUDIO.equals(m) || SlideTimer.START_BEFORE_AUDIO.equals(m);
+                // Show the list that mode picks from, keeping the chosen text when
+                // it is in that list and falling back to the first entry otherwise.
+                java.util.List<Integer> want = afterText ? textIdxs : audioIdxs;
+                DefaultComboBoxModel<String> wantModel = afterText ? textModel : audioModel;
+                swappingModel[0] = true;
+                try {
+                    if (audioCombo.getModel() != wantModel) audioCombo.setModel(wantModel);
+                    shownIdxs[0] = want;
+                    if (!want.isEmpty()) {
+                        int sel = want.indexOf(live.startTextIndex);
+                        if (sel < 0 && (afterText || needsAudio)) live.startTextIndex = want.get(0);
+                        audioCombo.setSelectedIndex(Math.max(0, sel));
+                    }
+                } finally {
+                    swappingModel[0] = false;
+                }
+                audioCombo.setEnabled(afterText ? !textIdxs.isEmpty() : (needsAudio && !noAudio));
                 atField.setEnabled(SlideTimer.START_AT_TIME.equals(m));
             };
             startCombo.addActionListener(e -> {
@@ -38979,7 +39034,7 @@ public class GifSlideShowApp extends JFrame {
 
             refreshHolder[0] = () -> {
                 canvas.repaint();
-                int start = live.resolveStartMs(tl[0], tl[1], audioTotalMs);
+                int start = live.resolveStartMs(tl[0], tl[1], audioTotalMs, textShown);
                 timingInfo.setText("<html><body style='width:300px'><b>Starts at " + timerSecs(start)
                         + "</b> · hits zero at " + timerSecs(start + live.totalMs())
                         + " · slide audio ends at " + timerSecs(audioTotalMs)
@@ -46268,7 +46323,13 @@ public class GifSlideShowApp extends JFrame {
             if (slideTimer == null) return 0;
             int[][] tl = audioTimeline(getSlideAudioDurationsMsList(),
                     getSlideAudioFilesList(), getAudioGapMs());
-            return slideTimer.resolveStartMs(tl[0], tl[1], totalAudioMs(tl[1]));
+            return slideTimer.resolveStartMs(tl[0], tl[1], totalAudioMs(tl[1]), timerTextShownMs());
+        }
+
+        /** When each of this slide's texts is fully on screen, ms — for the Slide
+         *  Timer's "After text appears" start. See {@link #textShownTimes}. */
+        int[] timerTextShownMs() {
+            return textShownTimes(getSlideTextDataList());
         }
 
         List<SlidePictureData> getSlidePictureDataList() {
