@@ -525,6 +525,11 @@ public class GifSlideShowApp extends JFrame {
             props.setProperty(p + "timerAppearEffect", t.timerAppearEffect == null ? "None" : t.timerAppearEffect);
             props.setProperty(p + "timerAppearEasing", t.timerAppearEasing == null ? "Ease Out" : t.timerAppearEasing);
             props.setProperty(p + "timerAppearDurMs", String.valueOf(t.timerAppearDurMs));
+            // Audio-anchored Appear ("After Tn audio"). timerAppearMs above already
+            // holds this slide's resolved time, so a build without the feature
+            // still shows the text at the right moment.
+            props.setProperty(p + "timerAppearAudioText", String.valueOf(Math.max(-1, t.timerAppearAudioText)));
+            props.setProperty(p + "timerAppearAudioOffsetMs", String.valueOf(t.timerAppearAudioOffsetMs));
             if (t.wordRevealMs != null && t.wordRevealMs.length > 0) {
                 StringBuilder wr = new StringBuilder();
                 for (int k = 0; k < t.wordRevealMs.length; k++) {
@@ -566,6 +571,9 @@ public class GifSlideShowApp extends JFrame {
                 props.setProperty(ap + "word", a.word == null ? "" : a.word);
                 props.setProperty(ap + "wordOccurrence", String.valueOf(a.wordOccurrence));
                 props.setProperty(ap + "sound", a.sound == null ? "" : a.sound);
+                // Audio trigger (Action column); atMs above is its resolved time.
+                props.setProperty(ap + "audioAnchorText", String.valueOf(a.audioAnchorText));
+                props.setProperty(ap + "audioOffsetMs", String.valueOf(a.audioOffsetMs));
             }
             // Alternating Text (Texts Timer → "Alternate…"). Absent keys load as
             // defaults so presets written before this feature keep working. Each
@@ -1081,6 +1089,14 @@ public class GifSlideShowApp extends JFrame {
             loaded.timerAppearEffect = props.getProperty(p + "timerAppearEffect", "None");
             loaded.timerAppearEasing = props.getProperty(p + "timerAppearEasing", "Ease Out");
             loaded.timerAppearDurMs  = Integer.parseInt(props.getProperty(p + "timerAppearDurMs", "500"));
+            // Audio-anchored Appear. A preset written before this feature has no
+            // key: AUDIO_ANCHOR_UNSET makes applying it leave each slide's own
+            // setting alone, while an explicit -1 does switch the anchor off.
+            String anchorStr = props.getProperty(p + "timerAppearAudioText");
+            loaded.timerAppearAudioText = anchorStr == null ? AUDIO_ANCHOR_UNSET
+                    : Math.max(-1, parseIntOr(anchorStr, -1));
+            loaded.timerAppearAudioOffsetMs = parseIntOr(
+                    props.getProperty(p + "timerAppearAudioOffsetMs", "0"), 0);
             String wrStr = props.getProperty(p + "wordRevealMs", "");
             if (wrStr != null && !wrStr.trim().isEmpty()) {
                 String[] parts = wrStr.split(",");
@@ -1131,6 +1147,9 @@ public class GifSlideShowApp extends JFrame {
                 a.word = props.getProperty(ap + "word", "");
                 a.wordOccurrence = Integer.parseInt(props.getProperty(ap + "wordOccurrence", "1"));
                 a.sound = props.getProperty(ap + "sound", "");
+                // Absent before the Action column existed: -1 = an ordinary timed action.
+                a.audioAnchorText = Math.max(-1, parseIntOr(props.getProperty(ap + "audioAnchorText", "-1"), -1));
+                a.audioOffsetMs = parseIntOr(props.getProperty(ap + "audioOffsetMs", "0"), 0);
                 loaded.actions.add(a);
             }
             // Alternating Text (parallel to the save block above). Missing keys fall
@@ -16071,6 +16090,9 @@ public class GifSlideShowApp extends JFrame {
             // Sound FX ride along unrendered; the MP4 exports apply them in the
             // background (applySoundFx), and the GIF / image exports never need them.
             slides.get(slides.size() - 1).soundFx = row.getSoundFxForAudioList();
+            // Audio-anchored Appear / Action times were resolved against this
+            // slide's audio by getSlideTextDataList() above; note how far they reach.
+            slides.get(slides.size() - 1).audioAnchoredEndMs = row.getAudioAnchoredEndMs();
             // Countdown timer: copy the snapshot and resolve its start against
             // THIS slide's audio timeline, so "after text 2's audio" (or the
             // default "after all audio + 1s") becomes one plain ms offset the
@@ -16277,6 +16299,9 @@ public class GifSlideShowApp extends JFrame {
             }
             if (actionsEnd > dur) dur = actionsEnd;
         }
+        // A text set to appear (or act) after a text's audio must get to show:
+        // when that lands past the last audio, the slide runs on until it has.
+        if (s.audioAnchoredEndMs > dur) dur = s.audioAnchoredEndMs;
         // A carousel set to "stretch the slide" must get to show every card.
         if (s.slideCarousel != null && s.slideCarousel.isActive() && s.slideCarousel.stretchSlide) {
             int carouselEnd = s.slideCarousel.requiredSlideMs();
@@ -23336,6 +23361,72 @@ public class GifSlideShowApp extends JFrame {
         return total;
     }
 
+    /** {@code SlideTextData.timerAppearAudioText} as loaded from a preset that
+     *  predates audio-anchored timing: "the preset says nothing", so applying it
+     *  leaves each slide's own setting alone. Read everywhere else as "off". */
+    static final int AUDIO_ANCHOR_UNSET = -2;
+
+    /** End of text {@code textIdx}'s audio on the slide, ms, or -1 when that
+     *  text has no audio there (or the index is out of range). */
+    static int audioEndOf(int[] audioEnds, int textIdx) {
+        return (audioEnds != null && textIdx >= 0 && textIdx < audioEnds.length)
+                ? audioEnds[textIdx] : -1;
+    }
+
+    /**
+     * Turn every audio-anchored time on these texts into the plain ms the
+     * renderer reads: an "After Tn audio" Appear sets {@code timerAppearMs}, an
+     * Action-column action sets {@code atMs}, each to the end of that text's
+     * audio plus its offset (never before the slide starts). {@code audioEnds}
+     * is the slide's {@link #audioTimeline} ends. An anchor whose text has no
+     * audio on this slide keeps its last resolved time rather than collapsing to
+     * 0, so a missing file never throws the text to the start of the slide.
+     * Mutates in place; idempotent.
+     */
+    static void resolveAudioAnchors(List<SlideTextData> texts, int[] audioEnds) {
+        if (texts == null) return;
+        for (SlideTextData st : texts) {
+            if (st == null) continue;
+            if (st.hasAudioAnchoredAppear()) {
+                int end = audioEndOf(audioEnds, st.timerAppearAudioText);
+                if (end >= 0) st.timerAppearMs = Math.max(0, end + st.timerAppearAudioOffsetMs);
+            }
+            if (st.actions == null) continue;
+            for (SlideTextData.Action a : st.actions) {
+                if (a == null || !a.isAudioAnchored()) continue;
+                int end = audioEndOf(audioEnds, a.audioAnchorText);
+                if (end >= 0) a.atMs = Math.max(0, end + a.audioOffsetMs);
+            }
+        }
+    }
+
+    /**
+     * How long the slide must run for every audio-anchored appear / action to
+     * actually be seen, ms (0 when nothing is anchored). An appear set to "after
+     * the last audio + 1 s" lands after the audio, which is what normally ends
+     * the slide — without this the text would be cut before it ever showed. Only
+     * anchored items count, so a slide timed the old way keeps its length.
+     * Call after {@link #resolveAudioAnchors}.
+     */
+    static int audioAnchoredTailMs(List<SlideTextData> texts, int[] audioEnds) {
+        int tail = 0;
+        if (texts == null) return 0;
+        for (SlideTextData st : texts) {
+            if (st == null) continue;
+            if (st.hasAudioAnchoredAppear() && audioEndOf(audioEnds, st.timerAppearAudioText) >= 0
+                    && (st.timerDisappearMs < 0 || st.timerDisappearMs > st.timerAppearMs)) {
+                int entrance = slideTextHasAppearEffect(st) ? st.timerAppearDurMs : 0;
+                tail = Math.max(tail, st.timerAppearMs + entrance + 1000);
+            }
+            if (st.actions == null) continue;
+            for (SlideTextData.Action a : st.actions) {
+                if (a == null || !a.isAudioAnchored() || audioEndOf(audioEnds, a.audioAnchorText) < 0) continue;
+                tail = Math.max(tail, a.atMs + Math.max(0, a.durMs) + 700);
+            }
+        }
+        return tail;
+    }
+
     /**
      * Flip {@code quizHidden} on every slide text BEFORE renderFrame runs so
      * the quiz's chosen "delayed reveal text" stays out of the rendered frame
@@ -27740,6 +27831,23 @@ public class GifSlideShowApp extends JFrame {
         String timerAppearEasing = "Ease Out";
         int    timerAppearDurMs  = 500;
 
+        // ===== Audio-anchored appear (Texts Timer → Appear "After Tn audio") =====
+        // Lets a text appear when another text's audio FINISHES, plus an offset,
+        // instead of at a fixed second. timerAppearAudioText is that text's index
+        // (-1 = off: timerAppearMs is the user's own absolute time, as before).
+        // While it is set, timerAppearMs is re-derived from THIS slide's audio
+        // timeline (end of that text's audio + timerAppearAudioOffsetMs; see
+        // resolveAudioAnchors), so the render, export and older readers keep using
+        // the one absolute field unchanged, and a slide whose narration runs longer
+        // or shorter still reveals the text right after the audio ends.
+        // AUDIO_ANCHOR_UNSET only ever comes from a preset written before this
+        // feature ("the preset says nothing here"); every reader treats it as off.
+        int timerAppearAudioText = -1;
+        int timerAppearAudioOffsetMs = 0;
+
+        /** True when this text's appear time follows a text's audio. */
+        boolean hasAudioAnchoredAppear() { return timerAppearAudioText >= 0; }
+
         // ===== Timed Text Actions (Texts Timer → "Motion…") =====
         // Time-triggered behaviours layered on top of the appear/disappear
         // timeline above. Each action fires at its own time (ms from slide start)
@@ -27965,7 +28073,19 @@ public class GifSlideShowApp extends JFrame {
             // silent on an in-place effect, the way it behaved before the picker.
             String sound = "";
 
+            // Audio trigger (Texts Timer → "Action…"). -1 = an ordinary timed action
+            // that fires at atMs (the Motion column). >= 0 = the index of the text
+            // whose audio FINISHING fires it, audioOffsetMs later; atMs is then
+            // re-derived from each slide's own audio timeline (resolveAudioAnchors),
+            // so the render path still reads nothing but atMs.
+            int audioAnchorText = -1;
+            int audioOffsetMs = 0;
+
             Action() {}
+
+            /** True when this action fires on a text's audio ending (the Action
+             *  column) rather than at a fixed time (the Motion column). */
+            boolean isAudioAnchored() { return audioAnchorText >= 0; }
 
             /** True for the two relocation kinds (they use toX/toY + landing). */
             boolean isMove() { return MOTION_MOVE.equals(kind) || MOTION_MOVE_COPY.equals(kind); }
@@ -28058,6 +28178,7 @@ public class GifSlideShowApp extends JFrame {
                 a.triggerXPct = triggerXPct; a.triggerYPct = triggerYPct;
                 a.word = word; a.wordOccurrence = wordOccurrence;
                 a.sound = sound;
+                a.audioAnchorText = audioAnchorText; a.audioOffsetMs = audioOffsetMs;
                 return a;
             }
         }
@@ -28312,6 +28433,8 @@ public class GifSlideShowApp extends JFrame {
             dst.timerAppearEffect = src.timerAppearEffect;
             dst.timerAppearEasing = src.timerAppearEasing;
             dst.timerAppearDurMs  = src.timerAppearDurMs;
+            dst.timerAppearAudioText     = src.timerAppearAudioText;
+            dst.timerAppearAudioOffsetMs = src.timerAppearAudioOffsetMs;
             // Word-by-word reveal schedule + current count ride along so the
             // HL-clone render pass reveals the same words as the saved item.
             dst.wordRevealMs      = src.wordRevealMs;
@@ -30516,6 +30639,10 @@ public class GifSlideShowApp extends JFrame {
         int slideTimerStartMs;
         /** Length of the timer's "play this when it finishes" file, ms (0 = none). */
         int slideTimerEndAudioMs;
+        /** Where the last audio-anchored text appear / Action-column action has
+         *  played out, ms from slide start (0 = none). Set externally after
+         *  construction; computeSlideDuration stretches the slide to reach it. */
+        int audioAnchoredEndMs;
         // Card carousel (the "🎠 Carousel" toolbar button). A snapshot set externally
         // after construction like slideTimer; its audio-synced turn times are
         // already resolved against this slide's audio timeline.
@@ -36046,6 +36173,8 @@ public class GifSlideShowApp extends JFrame {
             newItem.timerAppearEffect = prevItem.timerAppearEffect;
             newItem.timerAppearEasing = prevItem.timerAppearEasing;
             newItem.timerAppearDurMs = prevItem.timerAppearDurMs;
+            newItem.timerAppearAudioText = prevItem.timerAppearAudioText;
+            newItem.timerAppearAudioOffsetMs = prevItem.timerAppearAudioOffsetMs;
             // The word-by-word reveal schedule isn't a main-toolbar control
             // either, so carry it forward too — otherwise any toolbar-driven
             // rebuild (including Layout Group stamping) would silently drop the
@@ -40899,6 +41028,8 @@ public class GifSlideShowApp extends JFrame {
             m.timerAppearEffect = tmFrom.timerAppearEffect;
             m.timerAppearEasing = tmFrom.timerAppearEasing;
             m.timerAppearDurMs  = tmFrom.timerAppearDurMs;
+            m.timerAppearAudioText     = tmFrom.timerAppearAudioText;
+            m.timerAppearAudioOffsetMs = tmFrom.timerAppearAudioOffsetMs;
             m.wordRevealMs      = tmFrom.wordRevealMs;
             m.actions = new java.util.ArrayList<>();
             if (tmFrom.actions != null) {
@@ -41172,6 +41303,15 @@ public class GifSlideShowApp extends JFrame {
                         "Texts Timer", JOptionPane.INFORMATION_MESSAGE);
                 return;
             }
+            // This slide's audio as it stands now — the Audio column shows each
+            // text's length, and every "After Tn audio" time is measured from the
+            // end of that text's audio here. Settle the saved anchored times
+            // against it first, so the rows open on what the video will do.
+            resolveAudioAnchoredTimes();
+            final java.util.List<Integer> audioLens = getSlideAudioDurationsMsList();
+            final int[][] audioTl = textAudioTimeline();
+            final int[] audioStarts = audioTl[0];
+            final int[] audioEnds = audioTl[1];
 
             final Window owner = SwingUtilities.getWindowAncestor(panel);
             final JDialog dlg = new JDialog(owner, "Texts Timer", Dialog.ModalityType.APPLICATION_MODAL);
@@ -41198,6 +41338,37 @@ public class GifSlideShowApp extends JFrame {
             // the items so Cancel discards changes; altBtns lets Clear All reset labels.
             final java.util.List<SlideTextData.AltConfig> rowAlt = new java.util.ArrayList<>();
             final java.util.List<JButton> altBtns = new java.util.ArrayList<>();
+            // How each row's Appear is read: entry 0 = "At" (the field is seconds
+            // from the slide start, as always); entry n = "After Tn audio" (the
+            // field is seconds added to the moment Text n's audio finishes).
+            final java.util.List<JComboBox<String>> appearModeCombos = new java.util.ArrayList<>();
+            // Audio-triggered action working copies (one list per row), edited via
+            // the per-row "Action…" button and committed on Apply together with
+            // the row's Motion list. Kept apart from rowActions so the Motion
+            // editor only ever sees — and rewrites — the timed actions.
+            final java.util.List<java.util.List<SlideTextData.Action>> rowAudioActions = new java.util.ArrayList<>();
+            final java.util.List<JButton> audioActionBtns = new java.util.ArrayList<>();
+            // The Appear modes: "At", then "After Tn audio" for every text. A text
+            // with no audio on this slide is still listed — a preset or another
+            // slide may have chosen it — but drawn greyed (appearModeRenderer).
+            final String[] appearModes = new String[slideTextItems.size() + 1];
+            appearModes[0] = "At";
+            for (int li = 0; li < slideTextItems.size(); li++) {
+                appearModes[li + 1] = "After T" + (li + 1) + " audio";
+            }
+            final javax.swing.ListCellRenderer<Object> appearModeRenderer = new DefaultListCellRenderer() {
+                @Override public Component getListCellRendererComponent(JList<?> list, Object value,
+                        int index, boolean isSelected, boolean cellHasFocus) {
+                    Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                    if (index > 0 && audioEndOf(audioEnds, index - 1) < 0) {
+                        if (!isSelected) c.setForeground(Color.GRAY);
+                        ((JComponent) c).setToolTipText("Text " + index + " has no audio on this slide.");
+                    } else {
+                        ((JComponent) c).setToolTipText(null);
+                    }
+                    return c;
+                }
+            };
             // Labels for the "trigger another text" picker in the Motion editor,
             // index-aligned to slideTextItems.
             final String[] textLabels = new String[slideTextItems.size()];
@@ -41225,6 +41396,19 @@ public class GifSlideShowApp extends JFrame {
             // copy carrying the row's current Appear / Go / Effect / Ease / Anim,
             // Motion and Alternate settings; a value that does not parse yet keeps
             // the text's saved one, so typing never blanks the preview.
+            // The moment a row's Appear stands for right now, ms from the slide
+            // start: the field itself under "At", or the end of the chosen text's
+            // audio plus the field under "After Tn audio". -1 when the field does
+            // not parse yet, or the chosen text has no audio on this slide.
+            final java.util.function.IntUnaryOperator appearMsOf = ri -> {
+                if (ri < 0 || ri >= appearFields.size()) return -1;
+                String t = appearFields.get(ri).getText().trim();
+                int mode = appearModeCombos.get(ri).getSelectedIndex();
+                if (mode <= 0) return t.isEmpty() ? 0 : Math.max(0, parseFieldMs(t, 1000.0, -1));
+                int end = audioEndOf(audioEnds, mode - 1);
+                int off = t.isEmpty() ? 0 : parseFieldMs(t, 1000.0, Integer.MIN_VALUE);
+                return (end < 0 || off == Integer.MIN_VALUE) ? -1 : Math.max(0, end + off);
+            };
             final TimerLivePreview preview = new TimerLivePreview(() -> {
                 java.util.List<SlideTextData> out = new java.util.ArrayList<>();
                 for (int pi = 0; pi < slideTextItems.size(); pi++) {
@@ -41232,8 +41416,22 @@ public class GifSlideShowApp extends JFrame {
                     SlideTextData cp = deepCopySlideText(src);
                     if (pi < appearFields.size()) {
                         String aTxt = appearFields.get(pi).getText().trim();
-                        int aMs = aTxt.isEmpty() ? 0                       // empty = 0, as Apply
-                                : Math.max(0, parseFieldMs(aTxt, 1000.0, src.timerAppearMs));
+                        int mode = appearModeCombos.get(pi).getSelectedIndex();
+                        int aMs;
+                        if (mode > 0) {
+                            // After Tn audio: a value still being typed (or a text
+                            // with no audio) keeps the saved time, so the preview
+                            // never blanks mid-edit.
+                            int eff = appearMsOf.applyAsInt(pi);
+                            aMs = eff >= 0 ? eff : src.timerAppearMs;
+                            cp.timerAppearAudioText = mode - 1;
+                            cp.timerAppearAudioOffsetMs = aTxt.isEmpty() ? 0
+                                    : parseFieldMs(aTxt, 1000.0, src.timerAppearAudioOffsetMs);
+                        } else {
+                            aMs = aTxt.isEmpty() ? 0                       // empty = 0, as Apply
+                                    : Math.max(0, parseFieldMs(aTxt, 1000.0, src.timerAppearMs));
+                            cp.timerAppearAudioText = -1;
+                        }
                         String goTxt = goFields.get(pi).getText().trim();
                         int gMs = goTxt.isEmpty() ? -1 : parseFieldMs(goTxt, 1000.0, src.timerDisappearMs);
                         cp.timerAppearMs = aMs;
@@ -41250,6 +41448,15 @@ public class GifSlideShowApp extends JFrame {
                     if (pi < rowActions.size()) {
                         cp.actions = new java.util.ArrayList<>();
                         for (SlideTextData.Action a : rowActions.get(pi)) if (a != null) cp.actions.add(a.copy());
+                        if (pi < rowAudioActions.size()) {
+                            for (SlideTextData.Action a : rowAudioActions.get(pi)) {
+                                if (a == null) continue;
+                                SlideTextData.Action c = a.copy();
+                                int end = audioEndOf(audioEnds, c.audioAnchorText);
+                                if (end >= 0) c.atMs = Math.max(0, end + c.audioOffsetMs);
+                                cp.actions.add(c);
+                            }
+                        }
                     }
                     if (pi < rowAlt.size()) rowAlt.get(pi).applyTo(cp);
                     out.add(cp);
@@ -41277,16 +41484,21 @@ public class GifSlideShowApp extends JFrame {
                 return l;
             };
             gc.gridy = 0;
-            gc.gridx = 0; rows.add(hdr.apply("Repeat"), gc);
-            gc.gridx = 1; rows.add(hdr.apply("Text"), gc);
-            gc.gridx = 2; rows.add(hdr.apply("Appear (s)"), gc);
-            gc.gridx = 3; rows.add(hdr.apply("Go (s)"), gc);
-            gc.gridx = 4; rows.add(hdr.apply("Effect"), gc);
-            gc.gridx = 5; rows.add(hdr.apply("Ease"), gc);
-            gc.gridx = 6; rows.add(hdr.apply("Anim (ms)"), gc);
-            gc.gridx = 7; rows.add(hdr.apply("Preview"), gc);
-            gc.gridx = 8; rows.add(hdr.apply("Motion"), gc);
-            gc.gridx = 9; rows.add(hdr.apply("Alternate"), gc);
+            JLabel audioHdr = hdr.apply("Audio (s)");
+            audioHdr.setToolTipText("How long each text's audio plays (both clips and the Gap, when a "
+                    + "text has a second audio). Empty = the text has no audio.");
+            gc.gridx = 0; rows.add(audioHdr, gc);
+            gc.gridx = 1; rows.add(hdr.apply("Repeat"), gc);
+            gc.gridx = 2; rows.add(hdr.apply("Text"), gc);
+            gc.gridx = 3; rows.add(hdr.apply("Appear (s)"), gc);
+            gc.gridx = 4; rows.add(hdr.apply("Go (s)"), gc);
+            gc.gridx = 5; rows.add(hdr.apply("Effect"), gc);
+            gc.gridx = 6; rows.add(hdr.apply("Ease"), gc);
+            gc.gridx = 7; rows.add(hdr.apply("Anim (ms)"), gc);
+            gc.gridx = 8; rows.add(hdr.apply("Preview"), gc);
+            gc.gridx = 9; rows.add(hdr.apply("Motion"), gc);
+            gc.gridx = 10; rows.add(hdr.apply("Alternate"), gc);
+            gc.gridx = 11; rows.add(hdr.apply("Action"), gc);
 
             for (int i = 0; i < slideTextItems.size(); i++) {
                 SlideTextData st = slideTextItems.get(i);
@@ -41306,12 +41518,104 @@ public class GifSlideShowApp extends JFrame {
                         + "Then press \"Repeat ticked \u25B8\" below.");
                 repeatChecks.add(rptCheck);
 
-                JTextField appear = new JTextField(timerMsToSecStr(st.timerAppearMs), 5);
+                // Audio column: how long this text's audio plays, read-only.
+                final int audioEndMs = audioEndOf(audioEnds, i);
+                final int audioLenMs = (audioEndMs >= 0 && i < audioLens.size() && audioLens.get(i) != null)
+                        ? audioLens.get(i) : 0;
+                JLabel audioLbl = new JLabel(audioLenMs > 0 ? String.format(java.util.Locale.ROOT,
+                        "%.2f", audioLenMs / 1000.0) : "—", SwingConstants.CENTER);
+                audioLbl.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+                if (audioLenMs > 0) {
+                    audioLbl.setToolTipText("Text " + (i + 1) + "'s audio plays for "
+                            + timerMsToSecStr(audioLenMs) + " s — from " + timerMsToSecStr(audioStarts[i])
+                            + " s to " + timerMsToSecStr(audioEndMs) + " s on this slide.");
+                } else {
+                    audioLbl.setForeground(Color.GRAY);
+                    audioLbl.setToolTipText("Text " + (i + 1) + " has no audio on this slide.");
+                }
+
+                // Appear: "At" a fixed second (as always), or "After Tn audio" —
+                // the field then holds the seconds added once that audio ends.
+                final boolean anchoredHere = st.hasAudioAnchoredAppear()
+                        && st.timerAppearAudioText < slideTextItems.size();
+                JComboBox<String> appearMode = new JComboBox<>(appearModes);
+                appearMode.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+                appearMode.setPrototypeDisplayValue("After T10 audio");
+                appearMode.setMaximumRowCount(Math.min(appearModes.length, 16));
+                appearMode.setRenderer(appearModeRenderer);
+                appearMode.setSelectedIndex(anchoredHere ? st.timerAppearAudioText + 1 : 0);
+                appearMode.setToolTipText("<html><b>At</b> = the text appears at the seconds typed "
+                        + "beside this, counted from the start of the slide.<br><b>After Tn audio</b> = "
+                        + "it appears when Text n's audio finishes, plus the seconds typed beside this "
+                        + "(0 = right away, 1 = a second later, -0.5 = just before it ends).<br>The time "
+                        + "follows the audio: a longer or shorter recording, or the same setting on "
+                        + "another slide, still lands right after that audio.</html>");
+                JTextField appear = new JTextField(anchoredHere
+                        ? timerMsToSecStr(st.timerAppearAudioOffsetMs)
+                        : timerMsToSecStr(st.timerAppearMs), 4);
                 JTextField go     = new JTextField(st.timerDisappearMs < 0 ? "" : timerMsToSecStr(st.timerDisappearMs), 5);
-                appear.setToolTipText("Seconds from the start of this slide before the text appears (0 = from the start).");
                 go.setToolTipText("Seconds from the start of this slide when the text disappears. Leave empty to keep it on screen.");
+                // Where an "After Tn audio" Appear lands on this slide, live.
+                JLabel appearAt = new JLabel();
+                appearAt.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+                // Fixed width, so the hint changing as you type never reflows the table.
+                appearAt.setPreferredSize(new Dimension(58, appearAt.getFontMetrics(appearAt.getFont()).getHeight()));
+                appearModeCombos.add(appearMode);
                 appearFields.add(appear);
                 goFields.add(go);
+                final int modeRow = i;
+                final Runnable updAppearHint = () -> {
+                    int mode = appearMode.getSelectedIndex();
+                    if (mode <= 0) {
+                        appearAt.setText("");
+                        appear.setToolTipText("Seconds from the start of this slide before the text appears (0 = from the start).");
+                        return;
+                    }
+                    appear.setToolTipText("Seconds after Text " + mode + "'s audio finishes "
+                            + "(0 = right away; may be negative to come in just before it ends).");
+                    if (audioEndOf(audioEnds, mode - 1) < 0) {
+                        appearAt.setText("no audio");
+                        appearAt.setForeground(new Color(190, 60, 40));
+                        appearAt.setToolTipText("Text " + mode + " has no audio on this slide, so there is "
+                                + "nothing to follow. Give it an audio, or pick another text.");
+                        return;
+                    }
+                    int eff = appearMsOf.applyAsInt(modeRow);
+                    appearAt.setForeground(new Color(90, 90, 90));
+                    appearAt.setText(eff < 0 ? "" : "= " + timerMsToSecStr(eff) + " s");
+                    appearAt.setToolTipText("On this slide the text appears at this second.");
+                };
+                // Switching mode keeps the text where it is when that is knowable:
+                // leaving "After" writes the moment it stood for back as a plain
+                // second; entering it starts right as the audio ends (+0).
+                final int[] lastMode = { appearMode.getSelectedIndex() };
+                appearMode.addActionListener(ev -> {
+                    int mode = appearMode.getSelectedIndex();
+                    int prev = lastMode[0];
+                    if (mode != prev) {
+                        if (mode == 0) {
+                            int end = audioEndOf(audioEnds, prev - 1);
+                            int off = parseFieldMs(appear.getText(), 1000.0, 0);
+                            if (end >= 0) appear.setText(timerMsToSecStr(Math.max(0, end + off)));
+                        } else if (prev == 0) {
+                            appear.setText("0");
+                        }
+                        lastMode[0] = mode;
+                    }
+                    updAppearHint.run();
+                    preview.markDirty();
+                });
+                appear.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+                    @Override public void insertUpdate(javax.swing.event.DocumentEvent e)  { updAppearHint.run(); }
+                    @Override public void removeUpdate(javax.swing.event.DocumentEvent e)  { updAppearHint.run(); }
+                    @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { updAppearHint.run(); }
+                });
+                updAppearHint.run();
+                JPanel appearCell = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 0));
+                appearCell.setOpaque(false);
+                appearCell.add(appearMode);
+                appearCell.add(appear);
+                appearCell.add(appearAt);
 
                 JComboBox<String> effectCombo = new JComboBox<>(APPEAR_EFFECTS);
                 effectCombo.setSelectedItem(st.timerAppearEffect == null ? "None" : st.timerAppearEffect);
@@ -41361,11 +41665,18 @@ public class GifSlideShowApp extends JFrame {
 
                 // Timed actions (Move / Move Copy / Pulse / …). Deep-copied working
                 // list edited by the per-row Motion editor; committed on Apply.
+                // Audio-triggered ones belong to the Action column, so they go to
+                // their own working list instead.
                 java.util.List<SlideTextData.Action> myActs = new java.util.ArrayList<>();
+                java.util.List<SlideTextData.Action> myAudioActs = new java.util.ArrayList<>();
                 if (st.actions != null) {
-                    for (SlideTextData.Action a : st.actions) if (a != null) myActs.add(a.copy());
+                    for (SlideTextData.Action a : st.actions) {
+                        if (a == null) continue;
+                        (a.isAudioAnchored() ? myAudioActs : myActs).add(a.copy());
+                    }
                 }
                 rowActions.add(myActs);
+                rowAudioActions.add(myAudioActs);
                 final int rowIdx = i;
                 JButton motionBtn = new JButton();
                 motionBtn.setFont(new Font("Segoe UI", Font.PLAIN, 12));
@@ -41408,6 +41719,28 @@ public class GifSlideShowApp extends JFrame {
                 });
                 altBtns.add(altBtn);
 
+                // Audio-triggered actions: when a text's audio finishes, move this
+                // text (or a copy) somewhere new, play an effect, reveal a text…
+                JButton audioActBtn = new JButton();
+                audioActBtn.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+                audioActBtn.setToolTipText("<html>Do something with this text when a text's <b>audio "
+                        + "finishes</b> — e.g. move it to a new spot once its own audio ends.<br>"
+                        + "Each action has every Motion option (Move / Move Copy, effects, landing "
+                        + "format, trigger, sound) and fires at the end of the chosen audio plus an "
+                        + "optional delay, on every slide that carries it.</html>");
+                Runnable updAudioActLbl = () -> {
+                    int c = rowAudioActions.get(rowIdx).size();
+                    audioActBtn.setText(c == 0 ? "Action…" : "Action (" + c + ")");
+                };
+                updAudioActLbl.run();
+                audioActBtn.addActionListener(ev -> {
+                    openTextAudioActionEditor(dlg, rowIdx + 1, rowAudioActions.get(rowIdx),
+                            textLabels, textPositions, audioEnds);
+                    updAudioActLbl.run();
+                    preview.markDirty();
+                });
+                audioActionBtns.add(audioActBtn);
+
                 // Replay just this text's entrance in the live preview.
                 JButton rowPlayBtn = new JButton("\u25B6");
                 rowPlayBtn.setFont(new Font("Segoe UI Symbol", Font.PLAIN, 12));
@@ -41420,20 +41753,23 @@ public class GifSlideShowApp extends JFrame {
                 });
 
                 gc.gridy = i + 1;
-                gc.gridx = 0; rows.add(rptCheck, gc);
-                gc.gridx = 1; rows.add(nameLbl, gc);
-                gc.gridx = 2; rows.add(appear, gc);
-                gc.gridx = 3; rows.add(go, gc);
-                gc.gridx = 4; rows.add(effectCombo, gc);
-                gc.gridx = 5; rows.add(easeCombo, gc);
-                gc.gridx = 6; rows.add(dur, gc);
-                gc.gridx = 7; rows.add(rowPlayBtn, gc);
-                gc.gridx = 8; rows.add(motionBtn, gc);
-                gc.gridx = 9; rows.add(altBtn, gc);
+                gc.gridx = 0; gc.anchor = GridBagConstraints.CENTER; rows.add(audioLbl, gc);
+                gc.anchor = GridBagConstraints.WEST;
+                gc.gridx = 1; rows.add(rptCheck, gc);
+                gc.gridx = 2; rows.add(nameLbl, gc);
+                gc.gridx = 3; rows.add(appearCell, gc);
+                gc.gridx = 4; rows.add(go, gc);
+                gc.gridx = 5; rows.add(effectCombo, gc);
+                gc.gridx = 6; rows.add(easeCombo, gc);
+                gc.gridx = 7; rows.add(dur, gc);
+                gc.gridx = 8; rows.add(rowPlayBtn, gc);
+                gc.gridx = 9; rows.add(motionBtn, gc);
+                gc.gridx = 10; rows.add(altBtn, gc);
+                gc.gridx = 11; rows.add(audioActBtn, gc);
             }
 
             JScrollPane rowsScroll = new JScrollPane(rows);
-            rowsScroll.setPreferredSize(new Dimension(1120, Math.min(360, 40 + slideTextItems.size() * 32)));
+            rowsScroll.setPreferredSize(new Dimension(1440, Math.min(360, 40 + slideTextItems.size() * 32)));
             rowsScroll.getVerticalScrollBar().setUnitIncrement(18);
 
             JLabel help = new JLabel("<html>Times are in seconds from the start of this slide. "
@@ -41445,7 +41781,11 @@ public class GifSlideShowApp extends JFrame {
                     + "<b>Motion</b> makes a text (or a copy of it) move to a new spot at a chosen time, "
                     + "format on landing, and optionally trigger another text — or play an in-place effect.<br>"
                     + "<b>Alternate</b> swaps a text with one or more other strings at the same spot on a "
-                    + "repeating timer (A ↔ B ↔ A…), for an optional number of seconds.</html>");
+                    + "repeating timer (A ↔ B ↔ A…), for an optional number of seconds.<br>"
+                    + "<b>Audio</b> shows how long each text's audio plays. Set <b>Appear</b> to "
+                    + "<b>After Tn audio</b> to bring a text in when that audio finishes, plus the seconds "
+                    + "beside it (0, 1, 2.5…). <b>Action</b> does something when an audio finishes — "
+                    + "e.g. move the text to a new spot. Both follow each slide's own audio.</html>");
             help.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             help.setBorder(BorderFactory.createEmptyBorder(0, 2, 6, 2));
 
@@ -41612,13 +41952,15 @@ public class GifSlideShowApp extends JFrame {
                         }
                     }
                     gi++;
-                    int startMs = msAt.apply(appearFields, first);
+                    // Appear through appearMsOf: an "After Tn audio" row's box holds
+                    // an offset, not a time.
+                    int startMs = appearMsOf.applyAsInt(first);
                     if (startMs < 0) startMs = 0;
                     int endMs = msAt.apply(goFields, last);
                     if (endMs <= startMs) {
                         // No Go time on the last word — run up to the next word's
                         // Appear, or half a second if this is the last word of all.
-                        int nextAppear = msAt.apply(appearFields, last + 1);
+                        int nextAppear = appearMsOf.applyAsInt(last + 1);
                         endMs = (nextAppear > startMs) ? nextAppear : startMs + 500;
                     }
                     if (endMs <= startMs) {
@@ -41882,8 +42224,99 @@ public class GifSlideShowApp extends JFrame {
                         JOptionPane.INFORMATION_MESSAGE);
             });
 
+            // Push the audio-relative timing — each row's "After Tn audio" Appear and
+            // its Action-column actions — to the same text number on every other
+            // slide. Because both are rules ("when Text 1's audio ends"), every
+            // slide then times them against its OWN audio. Fixed Appear seconds,
+            // Go times and Motion stay exactly as each slide has them.
+            JButton audioAllSlidesBtn = new JButton("Audio timing → all slides");
+            audioAllSlidesBtn.setToolTipText("<html>Copy every row's <b>After Tn audio</b> Appear and its "
+                    + "<b>Action</b> list to the same text on every other slide (Text 1 → Text 1, …).<br>"
+                    + "Each slide then times them from its own audio. A row set to <b>At</b> switches "
+                    + "that text back to its own fixed time there.<br>Go times, Motion and fixed "
+                    + "Appear seconds are not touched. Locked slides are left alone.</html>");
+            audioAllSlidesBtn.addActionListener(e -> {
+                int nRows = appearModeCombos.size();
+                if (nRows == 0) return;
+                int[] anc = new int[nRows];
+                int[] off = new int[nRows];
+                int anchoredRows = 0, actionCount = 0;
+                for (int i = 0; i < nRows; i++) {
+                    int mode = appearModeCombos.get(i).getSelectedIndex();
+                    anc[i] = mode - 1;
+                    if (mode > 0) {
+                        String t = appearFields.get(i).getText().trim();
+                        int ms = t.isEmpty() ? 0 : parseFieldMs(t, 1000.0, Integer.MIN_VALUE);
+                        if (ms == Integer.MIN_VALUE) {
+                            JOptionPane.showMessageDialog(dlg,
+                                    "Text " + (i + 1) + ": \"" + t + "\" is not a valid Appear delay.",
+                                    "Texts Timer", JOptionPane.ERROR_MESSAGE);
+                            return;
+                        }
+                        off[i] = ms;
+                        anchoredRows++;
+                    }
+                    actionCount += rowAudioActions.get(i).size();
+                }
+                int ok = JOptionPane.showConfirmDialog(dlg,
+                        "<html><body style='width:360px'>Copy this slide's audio timing to every other "
+                                + "slide?<br><br>" + anchoredRows + " text(s) appear after an audio, and there "
+                                + (actionCount == 1 ? "is 1 Action" : "are " + actionCount + " Actions")
+                                + ". Text n on every slide takes Text n's setting here, replacing its own "
+                                + "<b>After Tn audio</b> Appear and <b>Action</b> list (a row set to "
+                                + "<b>At</b> clears them there).<br><br>Each slide times them from its own "
+                                + "audio. Go times, Motion and fixed Appear seconds stay as they are; "
+                                + "locked slides are left alone.</body></html>",
+                        "Apply to all slides", JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
+                if (ok != JOptionPane.OK_OPTION) return;
+                int applied = 0, locked = 0, missingAudio = 0;
+                for (SlideRow row : slideRows) {
+                    if (row == SlideRow.this || row.isTitleGridSlide) continue;
+                    if (row.isLocked()) { locked++; continue; }
+                    int[] rowEnds = row.textAudioTimeline()[1];
+                    boolean missing = false;
+                    for (int t = 0; t < nRows && t < row.slideTextItems.size(); t++) {
+                        SlideTextData st = row.slideTextItems.get(t);
+                        st.timerAppearAudioText = anc[t];
+                        st.timerAppearAudioOffsetMs = anc[t] >= 0 ? off[t] : 0;
+                        if (anc[t] >= 0 && audioEndOf(rowEnds, anc[t]) < 0) missing = true;
+                        java.util.List<SlideTextData.Action> merged = new java.util.ArrayList<>();
+                        if (st.actions != null) {
+                            for (SlideTextData.Action a : st.actions) {
+                                if (a != null && !a.isAudioAnchored()) merged.add(a);
+                            }
+                        }
+                        for (SlideTextData.Action a : rowAudioActions.get(t)) {
+                            if (a == null) continue;
+                            merged.add(a.copy());
+                            if (audioEndOf(rowEnds, a.audioAnchorText) < 0) missing = true;
+                        }
+                        st.actions = merged;
+                    }
+                    row.resolveAudioAnchoredTimes();
+                    row.schedulePreview();
+                    if (missing) missingAudio++;
+                    applied++;
+                }
+                String msg = "Copied the audio timing to " + applied + " other slide(s)."
+                        + "\nClick Apply to keep it on this slide too.";
+                if (locked > 0) msg += "\n" + locked + " locked slide(s) were left alone.";
+                if (missingAudio > 0) {
+                    msg += "\n\n" + missingAudio + " slide(s) are missing an audio one of these follows."
+                            + "\nThere the text keeps its previous time until that text gets an audio.";
+                }
+                JOptionPane.showMessageDialog(dlg, msg, "Apply to all slides",
+                        JOptionPane.INFORMATION_MESSAGE);
+            });
+
             clearBtn.addActionListener(e -> {
+                // Modes first: leaving "After" rewrites the box, and the 0 below must win.
+                for (JComboBox<String> c : appearModeCombos) c.setSelectedIndex(0);
                 for (JTextField f : appearFields) f.setText("0");
+                for (int i = 0; i < rowAudioActions.size(); i++) {
+                    rowAudioActions.get(i).clear();
+                    if (i < audioActionBtns.size()) audioActionBtns.get(i).setText("Action…");
+                }
                 for (JTextField f : goFields) f.setText("");
                 for (JComboBox<String> c : effectCombos) c.setSelectedItem("None");
                 for (JComboBox<String> c : easeCombos)   c.setSelectedItem("Ease Out");
@@ -41917,21 +42350,45 @@ public class GifSlideShowApp extends JFrame {
                 String[] effectVal = new String[n];
                 String[] easeVal   = new String[n];
                 int[] durMs = new int[n];
+                int[] anchorText = new int[n];
+                int[] anchorOffMs = new int[n];
                 for (int i = 0; i < n; i++) {
                     String aStr = appearFields.get(i).getText().trim();
                     String gStr = goFields.get(i).getText().trim();
+                    int mode = appearModeCombos.get(i).getSelectedIndex();
                     double aSec = 0.0;
                     if (!aStr.isEmpty()) {
                         try { aSec = Double.parseDouble(aStr); }
                         catch (NumberFormatException ex) {
                             JOptionPane.showMessageDialog(dlg,
-                                    "Text " + (i + 1) + ": \"" + aStr + "\" is not a valid Appear time.",
+                                    "Text " + (i + 1) + ": \"" + aStr + "\" is not a valid Appear "
+                                            + (mode > 0 ? "delay." : "time."),
                                     "Texts Timer", JOptionPane.ERROR_MESSAGE);
                             return;
                         }
                     }
-                    if (aSec < 0) aSec = 0;
-                    int a = (int) Math.round(aSec * 1000.0);
+                    int a;
+                    if (mode > 0) {
+                        // After Tn audio: the box is the delay after that audio ends
+                        // (negative allowed — it can lead in just before the end).
+                        int end = audioEndOf(audioEnds, mode - 1);
+                        if (end < 0) {
+                            JOptionPane.showMessageDialog(dlg,
+                                    "Text " + (i + 1) + ": Appear is set to follow Text " + mode
+                                            + "'s audio, but Text " + mode + " has no audio on this slide.\n"
+                                            + "Give Text " + mode + " an audio, or choose another text (or \"At\").",
+                                    "Texts Timer", JOptionPane.ERROR_MESSAGE);
+                            return;
+                        }
+                        anchorText[i] = mode - 1;
+                        anchorOffMs[i] = (int) Math.round(aSec * 1000.0);
+                        a = Math.max(0, end + anchorOffMs[i]);
+                    } else {
+                        if (aSec < 0) aSec = 0;
+                        anchorText[i] = -1;
+                        anchorOffMs[i] = 0;
+                        a = (int) Math.round(aSec * 1000.0);
+                    }
                     int g = -1;
                     if (!gStr.isEmpty()) {
                         double gSec;
@@ -41945,7 +42402,9 @@ public class GifSlideShowApp extends JFrame {
                         g = (int) Math.round(gSec * 1000.0);
                         if (g <= a) {
                             JOptionPane.showMessageDialog(dlg,
-                                    "Text " + (i + 1) + ": the Go time must be later than the Appear time.",
+                                    "Text " + (i + 1) + ": the Go time must be later than the Appear time"
+                                            + (mode > 0 ? " (" + timerMsToSecStr(a) + " s on this slide, after "
+                                                    + "Text " + mode + "'s audio)." : "."),
                                     "Texts Timer", JOptionPane.ERROR_MESSAGE);
                             return;
                         }
@@ -42052,15 +42511,22 @@ public class GifSlideShowApp extends JFrame {
                     slideTextItems.get(i).timerAppearEffect = effectVal[i];
                     slideTextItems.get(i).timerAppearEasing = easeVal[i];
                     slideTextItems.get(i).timerAppearDurMs = durMs[i];
-                    // Timed actions — commit the per-row working copy edited via Motion.
+                    slideTextItems.get(i).timerAppearAudioText = anchorText[i];
+                    slideTextItems.get(i).timerAppearAudioOffsetMs = anchorOffMs[i];
+                    // Timed actions — commit the per-row working copy edited via
+                    // Motion, followed by the audio-triggered ones from Action.
                     if (i < rowActions.size()) {
-                        slideTextItems.get(i).actions = new java.util.ArrayList<>(rowActions.get(i));
+                        java.util.List<SlideTextData.Action> all = new java.util.ArrayList<>(rowActions.get(i));
+                        if (i < rowAudioActions.size()) all.addAll(rowAudioActions.get(i));
+                        slideTextItems.get(i).actions = all;
                     }
                     // Alternating text — commit the per-row working copy.
                     if (i < rowAlt.size()) {
                         rowAlt.get(i).applyTo(slideTextItems.get(i));
                     }
                 }
+                // Settle the Action column's fire times against this slide's audio.
+                resolveAudioAnchoredTimes();
                 setVideoRepeats(repeats);
                 setVideoRepeatCrossfade(crossfadeCheck.isSelected());
                 double slowAll = ((Number) slowAllSpinner.getValue()).doubleValue();
@@ -42125,6 +42591,7 @@ public class GifSlideShowApp extends JFrame {
             JPanel btnLeft = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6));
             btnLeft.add(applyAllBtn);
             btnLeft.add(effectAllSlidesBtn);
+            btnLeft.add(audioAllSlidesBtn);
             btnLeft.add(previewToggle);
             JPanel btnRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 6));
             btnRight.add(clearBtn);
@@ -42291,6 +42758,207 @@ public class GifSlideShowApp extends JFrame {
             dlg.add(root, BorderLayout.CENTER);
             dlg.add(btns, BorderLayout.SOUTH);
             dlg.pack();
+            dlg.setLocationRelativeTo(owner);
+            dlg.setVisible(true);
+        }
+
+        /**
+         * Editor for one text's audio-triggered actions (Texts Timer → "Action…").
+         * Each row is a full Motion row — Move / Move Copy, layered effects,
+         * landing format, word target, trigger and sound — that fires when a
+         * chosen text's audio FINISHES, plus a delay, instead of at a fixed
+         * second. Edits {@code actions} in place on OK; Cancel leaves it as it
+         * was. {@code audioEnds} is this slide's audio timeline (ends, ms), used
+         * to show where each row lands and to refuse a text with no audio.
+         */
+        private void openTextAudioActionEditor(Window owner, int textNumber,
+                                               java.util.List<SlideTextData.Action> actions,
+                                               String[] textLabels, int[][] textPositions,
+                                               int[] audioEnds) {
+            final JDialog dlg = new JDialog(owner, "Text Action — Text " + textNumber,
+                    Dialog.ModalityType.APPLICATION_MODAL);
+            dlg.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+
+            // Same live re-read of every text's place as the Motion editor, so a
+            // trigger's "Follow text" lands where that text sits now.
+            if (textPositions != null) {
+                for (int li = 0; li < textPositions.length && li < slideTextItems.size(); li++) {
+                    SlideTextData sx = slideTextItems.get(li);
+                    if (sx != null) textPositions[li] = new int[]{ sx.x, sx.y };
+                }
+            }
+            final java.util.function.BiFunction<String, Integer, Integer> pInt = (s, d) -> {
+                try { return Integer.parseInt(s.trim()); } catch (Exception ex) { return d; }
+            };
+            final java.util.function.BiFunction<String, Double, Double> pDbl = (s, d) -> {
+                try { return Double.parseDouble(s.trim()); } catch (Exception ex) { return d; }
+            };
+            final String[] triggerChoices = new String[textLabels.length + 1];
+            triggerChoices[0] = "(none)";
+            System.arraycopy(textLabels, 0, triggerChoices, 1, textLabels.length);
+
+            // A new action follows this text's own audio when it has one — the
+            // usual ask, "when my audio ends, move me" — else the first text that
+            // does.
+            final int ownIdx = textNumber - 1;
+            int firstWithAudio = -1;
+            for (int li = 0; li < textLabels.length; li++) {
+                if (audioEndOf(audioEnds, li) >= 0) { firstWithAudio = li; break; }
+            }
+            final int defaultAnchor = audioEndOf(audioEnds, ownIdx) >= 0 ? ownIdx
+                    : (firstWithAudio >= 0 ? firstWithAudio : Math.max(0, ownIdx));
+
+            final JPanel rowsPanel = new JPanel();
+            rowsPanel.setLayout(new BoxLayout(rowsPanel, BoxLayout.Y_AXIS));
+            rowsPanel.setBackground(Color.WHITE);
+            // Rows stack from the top rather than being stretched to fill the view.
+            final JPanel rowsHolder = new JPanel(new BorderLayout());
+            rowsHolder.setBackground(Color.WHITE);
+            rowsHolder.add(rowsPanel, BorderLayout.NORTH);
+            final JScrollPane scroll = new JScrollPane(rowsHolder);
+            scroll.setPreferredSize(new Dimension(980, 360));
+            scroll.getVerticalScrollBar().setUnitIncrement(18);
+
+            final java.util.List<ActionRowUI> rowUIs = new java.util.ArrayList<>();
+            // Each action keeps its own effects here — they usually answer
+            // different audios, so nothing is linked across rows.
+            final boolean[] linkFx = { false };
+            final Runnable rebuild = () -> {
+                rowsPanel.removeAll();
+                if (rowUIs.isEmpty()) {
+                    JLabel empty = new JLabel("No action yet — click \"Add action\" below.");
+                    empty.setFont(new Font("Segoe UI", Font.ITALIC, 12));
+                    empty.setForeground(new Color(120, 120, 120));
+                    empty.setBorder(BorderFactory.createEmptyBorder(14, 8, 14, 8));
+                    empty.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
+                    rowsPanel.add(empty);
+                }
+                for (int k = 0; k < rowUIs.size(); k++) {
+                    ActionRowUI r = rowUIs.get(k);
+                    r.setIndexLabel(k + 1);
+                    r.panel.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
+                    rowsPanel.add(r.panel);
+                    rowsPanel.add(Box.createVerticalStrut(6));
+                }
+                rowsPanel.revalidate();
+                rowsPanel.repaint();
+            };
+            for (SlideTextData.Action a : actions) {
+                if (a != null) {
+                    rowUIs.add(new ActionRowUI(a, triggerChoices, textPositions, rowUIs,
+                            rebuild, pInt, pDbl, linkFx, textLabels, audioEnds));
+                }
+            }
+            rebuild.run();
+
+            JButton addBtn = new JButton("＋ Add action");
+            addBtn.setToolTipText("Add an action that fires when an audio finishes. It starts as a Move "
+                    + "of this text; set where it goes in To X% / Y%.");
+            addBtn.addActionListener(e -> {
+                SlideTextData.Action a = new SlideTextData.Action();
+                a.audioAnchorText = defaultAnchor;
+                // Start from where the text already sits, so the destination only
+                // has to be nudged rather than found from scratch.
+                if (ownIdx >= 0 && ownIdx < slideTextItems.size()) {
+                    SlideTextData own = slideTextItems.get(ownIdx);
+                    a.toXPct = Math.max(0, Math.min(100, own.x));
+                    a.toYPct = Math.max(0, Math.min(100, own.y));
+                }
+                rowUIs.add(new ActionRowUI(a, triggerChoices, textPositions, rowUIs,
+                        rebuild, pInt, pDbl, linkFx, textLabels, audioEnds));
+                rebuild.run();
+            });
+
+            JLabel help = new JLabel("<html><body style='width:940px'>Each action fires <b>when the audio of the text you choose "
+                    + "finishes</b>, plus the seconds in <b>finishes + (s)</b> (0 = right away, 1 = a second "
+                    + "later, -0.5 = just before it ends). The time follows the audio, so a longer or "
+                    + "shorter recording — or the same action on another slide — still fires right after "
+                    + "it.<br>The rest of the row works exactly like <b>Motion</b>: <b>Move</b> sends this "
+                    + "text to <b>To X% / Y%</b> (percent of the frame), <b>Move Copy</b> sends a duplicate "
+                    + "and leaves the original, <b>None</b> stays put; tick any <b>effects</b> to play with "
+                    + "it, <b>Format on landing</b> restyles it on arrival, <b>Word</b> targets one word, "
+                    + "<b>Trigger</b> reveals another text when it lands, and <b>Sound</b> picks its cue.<br>"
+                    + "<b>Audio timing → all slides</b> in the Texts Timer copies these to the same text "
+                    + "on every slide.</body></html>");
+            help.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            help.setBorder(BorderFactory.createEmptyBorder(2, 2, 8, 2));
+
+            // Play this slide with the edited rows, so the action can be seen.
+            final int textIndex = textNumber - 1;
+            JButton previewBtn = new JButton("▶ Preview");
+            previewBtn.setToolTipText("Play this slide's timeline in a loop so you can see the action.");
+            previewBtn.addActionListener(e -> {
+                java.util.List<SlideTextData> committed = getSlideTextDataList();
+                java.util.List<SlideTextData> previewTexts = new java.util.ArrayList<>();
+                for (int i = 0; i < committed.size(); i++) {
+                    SlideTextData cp = committed.get(i).cloneForRender();
+                    if (i == textIndex) {
+                        cp.actions = new java.util.ArrayList<>();
+                        java.util.List<SlideTextData.Action> own = committed.get(i).actions;
+                        if (own != null) {
+                            for (SlideTextData.Action a : own) {
+                                if (a != null && !a.isAudioAnchored()) cp.actions.add(a.copy());
+                            }
+                        }
+                        for (ActionRowUI r : rowUIs) cp.actions.add(r.toAction());
+                    }
+                    previewTexts.add(cp);
+                }
+                playMotionPreview(dlg, previewTexts);
+            });
+
+            JButton okBtn = new JButton("OK");
+            JButton cancelBtn = new JButton("Cancel");
+            okBtn.addActionListener(e -> {
+                // An action can only follow an audio this slide actually has.
+                for (int k = 0; k < rowUIs.size(); k++) {
+                    int at = rowUIs.get(k).audioAnchorIndex();
+                    if (audioEndOf(audioEnds, at) < 0) {
+                        JOptionPane.showMessageDialog(dlg,
+                                "Action #" + (k + 1) + " follows Text " + (at + 1) + "'s audio, but Text "
+                                        + (at + 1) + " has no audio on this slide.\n"
+                                        + "Choose a text that has an audio.",
+                                "Text Action", JOptionPane.ERROR_MESSAGE);
+                        return;
+                    }
+                }
+                java.util.List<SlideTextData.Action> out = new java.util.ArrayList<>();
+                for (ActionRowUI r : rowUIs) out.add(r.toAction());
+                actions.clear();
+                actions.addAll(out);
+                dlg.dispose();
+            });
+            cancelBtn.addActionListener(e -> dlg.dispose());
+
+            JPanel top = new JPanel(new BorderLayout());
+            top.setBorder(BorderFactory.createEmptyBorder(10, 12, 4, 12));
+            top.add(help, BorderLayout.NORTH);
+            top.add(scroll, BorderLayout.CENTER);
+            JPanel addLine = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+            addLine.add(addBtn);
+            if (firstWithAudio < 0) {
+                JLabel none = new JLabel("This slide has no text audio yet — add one first.");
+                none.setFont(new Font("Segoe UI", Font.ITALIC, 11));
+                none.setForeground(new Color(190, 60, 40));
+                addLine.add(none);
+            }
+            top.add(addLine, BorderLayout.SOUTH);
+
+            JPanel btnLeft = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6));
+            btnLeft.add(previewBtn);
+            JPanel btnRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 6));
+            btnRight.add(cancelBtn);
+            btnRight.add(okBtn);
+            JPanel btns = new JPanel(new BorderLayout());
+            btns.add(btnLeft, BorderLayout.WEST);
+            btns.add(btnRight, BorderLayout.EAST);
+
+            dlg.setLayout(new BorderLayout());
+            dlg.add(top, BorderLayout.CENTER);
+            dlg.add(btns, BorderLayout.SOUTH);
+            dlg.pack();
+            dlg.setSize(Math.max(840, dlg.getPreferredSize().width),
+                    Math.min(640, Math.max(380, dlg.getPreferredSize().height)));
             dlg.setLocationRelativeTo(owner);
             dlg.setVisible(true);
         }
@@ -42719,6 +43387,14 @@ public class GifSlideShowApp extends JFrame {
                     } else {
                         for (SlideTextData.Action a : current) copy.add(a.copy());
                     }
+                    // This editor owns only the timed actions; the slide's
+                    // audio-triggered ones (the Action column) stay as they were.
+                    java.util.List<SlideTextData.Action> prevActs = row.slideTextItems.get(textIndex).actions;
+                    if (prevActs != null) {
+                        for (SlideTextData.Action a : prevActs) {
+                            if (a != null && a.isAudioAnchored()) copy.add(a.copy());
+                        }
+                    }
                     row.slideTextItems.get(textIndex).actions = copy;
                     // Each row owns its preview timer, so repaint the ones that
                     // actually changed — otherwise the new motion stays invisible
@@ -42800,6 +43476,13 @@ public class GifSlideShowApp extends JFrame {
                     if (i == textIndex) {
                         cp.actions = new java.util.ArrayList<>();
                         for (SlideTextData.Action a : current) cp.actions.add(a.copy());
+                        // Keep the text's audio-triggered actions playing alongside.
+                        java.util.List<SlideTextData.Action> own = committed.get(i).actions;
+                        if (own != null) {
+                            for (SlideTextData.Action a : own) {
+                                if (a != null && a.isAudioAnchored()) cp.actions.add(a.copy());
+                            }
+                        }
                     }
                     previewTexts.add(cp);
                 }
@@ -43792,12 +44475,31 @@ public class GifSlideShowApp extends JFrame {
             /** Shared with the whole dialog: while set, all rows play one set of
              *  effects, and ticking an effect on any row hands it to the rest. */
             private final boolean[] linkFx;
+            /** Audio mode (the Texts Timer's Action column): which text's audio
+             *  finishing fires this row; the At box then holds the delay after it.
+             *  Null on an ordinary Motion row. */
+            private final JComboBox<String> audioCombo;
+            /** The slide's per-text audio ends (audioTimeline), for audio mode. */
+            private final int[] audioEnds;
+            /** Where an audio-mode row fires on this slide, live ("= 4.2 s"). */
+            private final JLabel audioAtLbl = new JLabel();
 
             ActionRowUI(SlideTextData.Action a, String[] triggerChoices, int[][] textPositions,
                         java.util.List<ActionRowUI> owner, Runnable rebuild,
                         java.util.function.BiFunction<String, Integer, Integer> pInt,
                         java.util.function.BiFunction<String, Double, Double> pDbl,
                         boolean[] linkFx) {
+                this(a, triggerChoices, textPositions, owner, rebuild, pInt, pDbl, linkFx, null, null);
+            }
+
+            /** A row in audio mode when {@code audioChoices} is non-null: one entry
+             *  per slide text (index-aligned), firing when that text's audio, whose
+             *  end on this slide is {@code audioEnds[i]}, finishes. */
+            ActionRowUI(SlideTextData.Action a, String[] triggerChoices, int[][] textPositions,
+                        java.util.List<ActionRowUI> owner, Runnable rebuild,
+                        java.util.function.BiFunction<String, Integer, Integer> pInt,
+                        java.util.function.BiFunction<String, Double, Double> pDbl,
+                        boolean[] linkFx, String[] audioChoices, int[] audioEnds) {
                 this.pInt = pInt;
                 this.pDbl = pDbl;
                 this.siblings = owner;
@@ -43805,6 +44507,8 @@ public class GifSlideShowApp extends JFrame {
                 this.textPositions = textPositions;
                 this.triggerCombo = new JComboBox<>(triggerChoices);
                 this.landColor = a.landColor;
+                this.audioEnds = audioEnds;
+                this.audioCombo = audioChoices == null ? null : new JComboBox<>(audioChoices);
 
                 panel.setBackground(new Color(248, 248, 250));
                 panel.setBorder(BorderFactory.createCompoundBorder(
@@ -43818,8 +44522,36 @@ public class GifSlideShowApp extends JFrame {
                         () -> Math.max(1, pInt.apply(durField.getText(), 800)),
                         holdCheck::isSelected,
                         this::onBehaviourChanged);
-                atField.setText(timerMsToSecStr(a.atMs));
-                atField.setToolTipText("When this action fires — seconds from the start of the slide.");
+                if (audioCombo == null) {
+                    atField.setText(timerMsToSecStr(a.atMs));
+                    atField.setToolTipText("When this action fires — seconds from the start of the slide.");
+                } else {
+                    atField.setText(timerMsToSecStr(a.audioOffsetMs));
+                    atField.setToolTipText("Seconds after the chosen audio finishes (0 = right away; "
+                            + "may be negative to start just before it ends).");
+                    int sel = a.audioAnchorText;
+                    audioCombo.setSelectedIndex(sel >= 0 && sel < audioCombo.getItemCount() ? sel : 0);
+                    audioCombo.setMaximumRowCount(Math.min(audioCombo.getItemCount(), 16));
+                    audioCombo.setToolTipText("The text whose audio finishing fires this action.");
+                    audioCombo.setRenderer(new DefaultListCellRenderer() {
+                        @Override public Component getListCellRendererComponent(JList<?> list, Object value,
+                                int index, boolean isSelected, boolean cellHasFocus) {
+                            Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                            if (!isSelected && index >= 0 && audioEndOf(audioEnds, index) < 0) {
+                                c.setForeground(Color.GRAY);
+                            }
+                            return c;
+                        }
+                    });
+                    audioAtLbl.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+                    audioCombo.addActionListener(ev -> refreshAudioAt());
+                    atField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+                        @Override public void insertUpdate(javax.swing.event.DocumentEvent e)  { refreshAudioAt(); }
+                        @Override public void removeUpdate(javax.swing.event.DocumentEvent e)  { refreshAudioAt(); }
+                        @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { refreshAudioAt(); }
+                    });
+                    refreshAudioAt();
+                }
                 durField.setText(String.valueOf(a.durMs));
                 durField.setToolTipText("How long the move / effect takes, in milliseconds (e.g. 800).");
                 easeCombo.setSelectedItem(a.easing == null ? "Ease Out" : a.easing);
@@ -43957,11 +44689,23 @@ public class GifSlideShowApp extends JFrame {
                 GridBagConstraints g = new GridBagConstraints();
                 g.insets = new Insets(2, 4, 2, 4);
                 g.anchor = GridBagConstraints.WEST;
+                // Audio mode opens with the line that says WHEN it fires; every
+                // other line keeps its Motion layout, one row lower.
+                final int y0 = audioCombo == null ? 0 : 1;
+                if (audioCombo != null) {
+                    g.gridy = 0;
+                    g.gridx = 0; panel.add(idxLbl, g);
+                    JLabel when = new JLabel("When the audio of");
+                    when.setFont(new Font("Segoe UI", Font.BOLD, 12));
+                    g.gridx = 1; panel.add(when, g);
+                    g.gridx = 2; g.gridwidth = 4; panel.add(audioCombo, g); g.gridwidth = 1;
+                    g.gridx = 6; g.gridwidth = 3; panel.add(audioAtLbl, g); g.gridwidth = 1;
+                }
                 // Line 1
-                g.gridy = 0;
-                g.gridx = 0; panel.add(idxLbl, g);
+                g.gridy = y0;
+                if (audioCombo == null) { g.gridx = 0; panel.add(idxLbl, g); }
                 g.gridx = 1; panel.add(kindPicker, g);
-                g.gridx = 2; panel.add(new JLabel("At (s):"), g);
+                g.gridx = 2; panel.add(new JLabel(audioCombo == null ? "At (s):" : "finishes + (s):"), g);
                 g.gridx = 3; panel.add(atField, g);
                 g.gridx = 4; panel.add(new JLabel("Dur (ms):"), g);
                 g.gridx = 5; panel.add(durField, g);
@@ -43972,7 +44716,7 @@ public class GifSlideShowApp extends JFrame {
                 panel.add(removeBtn, g);
                 g.weightx = 0; g.anchor = GridBagConstraints.WEST;
                 // Line 2
-                g.gridy = 1;
+                g.gridy = y0 + 1;
                 g.gridx = 1; panel.add(new JLabel("To X%:"), g);
                 g.gridx = 2; panel.add(toXField, g);
                 g.gridx = 3; panel.add(new JLabel("Y%:"), g);
@@ -43982,20 +44726,20 @@ public class GifSlideShowApp extends JFrame {
                 g.gridx = 7; panel.add(colorBtn, g);
                 // Line 3 — the rest of the landing format: its typeface, or the
                 // one-click "wear the trigger text's format" instead.
-                g.gridy = 2;
+                g.gridy = y0 + 2;
                 g.gridx = 1; panel.add(new JLabel("Land font:"), g);
                 g.gridx = 2; g.gridwidth = 2; panel.add(landFontCombo, g); g.gridwidth = 1;
                 g.gridx = 4; panel.add(new JLabel("Style:"), g);
                 g.gridx = 5; g.gridwidth = 2; panel.add(landStyleCombo, g); g.gridwidth = 1;
                 g.gridx = 7; panel.add(matchTrigCheck, g);
                 // Line 4 — word target (optional)
-                g.gridy = 3;
+                g.gridy = y0 + 3;
                 g.gridx = 1; panel.add(new JLabel("Word:"), g);
                 g.gridx = 2; g.gridwidth = 3; panel.add(wordField, g); g.gridwidth = 1;
                 g.gridx = 5; panel.add(new JLabel("Occurrence:"), g);
                 g.gridx = 6; panel.add(occSpinner, g);
                 // Line 5 — trigger (+ optional position for the triggered text)
-                g.gridy = 4;
+                g.gridy = y0 + 4;
                 g.gridx = 1; panel.add(new JLabel("Trigger:"), g);
                 g.gridx = 2; g.gridwidth = 2; panel.add(triggerCombo, g); g.gridwidth = 1;
                 g.gridx = 4; panel.add(new JLabel("at X%:"), g);
@@ -44004,7 +44748,7 @@ public class GifSlideShowApp extends JFrame {
                 g.gridx = 7; panel.add(trigYField, g);
                 g.gridx = 8; panel.add(trigFollowCheck, g);
                 // Line 6 — the sound this action plays
-                g.gridy = 5;
+                g.gridy = y0 + 5;
                 g.gridx = 1; panel.add(new JLabel("Sound:"), g);
                 g.gridx = 2; g.gridwidth = 2; panel.add(soundCombo, g); g.gridwidth = 1;
                 g.gridx = 4; panel.add(soundPlayBtn, g);
@@ -44144,10 +44888,38 @@ public class GifSlideShowApp extends JFrame {
 
             void setIndexLabel(int n) { idxLbl.setText("#" + n); }
 
+            /** Audio mode: the text whose audio fires this row (-1 on a Motion row). */
+            int audioAnchorIndex() { return audioCombo == null ? -1 : audioCombo.getSelectedIndex(); }
+
+            /** Audio mode: show where this row fires on the slide, or that the
+             *  chosen text has no audio to follow. */
+            private void refreshAudioAt() {
+                if (audioCombo == null) return;
+                int end = audioEndOf(audioEnds, audioCombo.getSelectedIndex());
+                if (end < 0) {
+                    audioAtLbl.setText("no audio on this slide");
+                    audioAtLbl.setForeground(new Color(190, 60, 40));
+                    return;
+                }
+                int off = (int) Math.round(pDbl.apply(atField.getText(), 0.0) * 1000.0);
+                audioAtLbl.setText("ends at " + timerMsToSecStr(end) + " s  →  fires at "
+                        + timerMsToSecStr(Math.max(0, end + off)) + " s");
+                audioAtLbl.setForeground(new Color(90, 90, 90));
+            }
+
             SlideTextData.Action toAction() {
                 SlideTextData.Action a = new SlideTextData.Action();
                 kindPicker.applyTo(a);
-                a.atMs = (int) Math.round(Math.max(0.0, pDbl.apply(atField.getText(), 0.0)) * 1000.0);
+                if (audioCombo == null) {
+                    a.atMs = (int) Math.round(Math.max(0.0, pDbl.apply(atField.getText(), 0.0)) * 1000.0);
+                } else {
+                    // Fires when the chosen audio ends, plus the delay; atMs is that
+                    // moment on THIS slide (re-derived per slide by resolveAudioAnchors).
+                    a.audioAnchorText = Math.max(0, audioCombo.getSelectedIndex());
+                    a.audioOffsetMs = (int) Math.round(pDbl.apply(atField.getText(), 0.0) * 1000.0);
+                    int end = audioEndOf(audioEnds, a.audioAnchorText);
+                    a.atMs = Math.max(0, (end >= 0 ? end : 0) + a.audioOffsetMs);
+                }
                 a.durMs = Math.max(1, pInt.apply(durField.getText(), 800));
                 a.easing = (String) easeCombo.getSelectedItem();
                 a.loopSlide = holdCheck.isSelected();
@@ -44199,6 +44971,7 @@ public class GifSlideShowApp extends JFrame {
                         toXField, toYField, scaleField, wordField, occSpinner, triggerCombo,
                         trigXField, trigYField, trigFollowCheck, soundCombo };
                 for (JComponent c : fields) c.addFocusListener(fa);
+                if (audioCombo != null) audioCombo.addFocusListener(fa);
                 panel.addMouseListener(new java.awt.event.MouseAdapter() {
                     @Override public void mousePressed(java.awt.event.MouseEvent e) {
                         setter.accept(ActionRowUI.this);
@@ -44241,7 +45014,38 @@ public class GifSlideShowApp extends JFrame {
 
         List<SlideTextData> getSlideTextDataList() {
             saveCurrentSlideTextToItem();
+            // Every consumer (export, previews, presets, the master format sync)
+            // reads plain ms, so settle any "after Tn audio" time against this
+            // slide's audio as it stands now — a new file, a re-recorded line or
+            // a different Gap moves the text with it.
+            resolveAudioAnchoredTimes();
             return new ArrayList<>(slideTextItems);
+        }
+
+        /** This slide's per-text audio {starts, ends}, ms from the slide start
+         *  (entry -1 = that text has no audio), laid out exactly like the export's
+         *  audio track. Built from the duration list plus each text's primary
+         *  file, so it never has to render the merged two-audio clip just to
+         *  learn its length. */
+        int[][] textAudioTimeline() {
+            java.util.List<Integer> durs = getSlideAudioDurationsMsList();
+            java.util.List<File> files = new java.util.ArrayList<>(durs.size());
+            for (int i = 0; i < durs.size(); i++) files.add(slideAudioFiles.get(i));
+            return audioTimeline(durs, files, getAudioGapMs());
+        }
+
+        /** Re-derive every audio-anchored Appear / Action time on this slide from
+         *  its own audio timeline. See {@link #resolveAudioAnchors}. */
+        void resolveAudioAnchoredTimes() {
+            resolveAudioAnchors(slideTextItems, textAudioTimeline()[1]);
+        }
+
+        /** How long this slide must run for its audio-anchored texts and actions
+         *  to play out, ms (0 = nothing anchored). */
+        int getAudioAnchoredEndMs() {
+            int[] ends = textAudioTimeline()[1];
+            resolveAudioAnchors(slideTextItems, ends);
+            return audioAnchoredTailMs(slideTextItems, ends);
         }
 
         List<SlideTextData> getSlideTextFormats() {
@@ -44327,6 +45131,20 @@ public class GifSlideShowApp extends JFrame {
             return out;
         }
 
+        /** Which "After Tn audio" Appear a broadcast text ends up with — the same
+         *  rule as {@link #actionsToApply}: a preset being applied hands over its
+         *  anchor (it is a rule, "after Text 1's audio", that reads right on every
+         *  slide), unless it predates the feature and says nothing; a plain format
+         *  sync keeps the slide's own. The absolute time is re-derived from this
+         *  slide's audio the next time its texts are read. */
+        private void audioAnchorToApply(SlideTextData fmt, SlideTextData existing, SlideTextData applied) {
+            boolean fromPreset = isApplyingPreset && fmt != null
+                    && fmt.timerAppearAudioText != AUDIO_ANCHOR_UNSET;
+            SlideTextData from = fromPreset ? fmt : existing;
+            applied.timerAppearAudioText = from == null ? -1 : Math.max(-1, from.timerAppearAudioText);
+            applied.timerAppearAudioOffsetMs = from == null ? 0 : from.timerAppearAudioOffsetMs;
+        }
+
         void applySlideTextFormats(List<SlideTextData> formats) {
             if (formats == null || formats.isEmpty()) return;
             // Ensure we have at least as many items as the source.
@@ -44382,6 +45200,7 @@ public class GifSlideShowApp extends JFrame {
                 applied.timerAppearEffect = existing.timerAppearEffect;
                 applied.timerAppearEasing = existing.timerAppearEasing;
                 applied.timerAppearDurMs = existing.timerAppearDurMs;
+                audioAnchorToApply(fmt, existing, applied);
                 // Timed actions: a preset carries the deck's motion, so applying
                 // one hands its actions to this slide; a plain format sync from
                 // slide 1 leaves the slide's own motion alone (copyBgStyle above
@@ -44423,6 +45242,9 @@ public class GifSlideShowApp extends JFrame {
                     applied.timerAppearEffect = existing.timerAppearEffect;
                     applied.timerAppearEasing = existing.timerAppearEasing;
                     applied.timerAppearDurMs = existing.timerAppearDurMs;
+                    // An anchor names one particular text, so the last row's is
+                    // never stretched over the extra texts: they keep their own.
+                    audioAnchorToApply(null, existing, applied);
                     // Same rule as the matched items above.
                     applied.actions = actionsToApply(lastFmt, existing);
                     slideTextItems.set(i, applied);
