@@ -14451,6 +14451,106 @@ public class GifSlideShowApp extends JFrame {
                 }
                 break;
             }
+            case "Micro Noise": {
+                // Very fine, low-contrast monochrome grain — the quiet "premium" noise
+                // that makes a flat colour look printed rather than digital.
+                int dots = (int) (w * h * 0.9);
+                for (int i = 0; i < dots; i++) {
+                    int a = (int) (rnd.nextDouble() * alphaMax * 0.16);
+                    if (a < 2) continue;
+                    int v = rnd.nextBoolean() ? 255 : 0;
+                    g.setColor(new Color(v, v, v, a));
+                    g.fillRect(x + rnd.nextInt(Math.max(1, w)), y + rnd.nextInt(Math.max(1, h)), 1, 1);
+                }
+                break;
+            }
+            case "Light Leak": {
+                // Warm film light bleeding in from the top-right, with a softer
+                // glow answering it from the bottom-left.
+                Paint oldPaint = g.getPaint();
+                float far = Math.max(1, Math.max(w, h));
+                g.setPaint(new java.awt.RadialGradientPaint(
+                        new java.awt.geom.Point2D.Float(x + w * 0.95f, y + h * 0.05f), far * 0.8f,
+                        new float[]{0f, 0.4f, 1f},
+                        new Color[]{new Color(255, 170, 60, Math.min(255, (int) (alphaMax * 0.75))),
+                                    new Color(255, 60, 90, Math.min(255, (int) (alphaMax * 0.35))),
+                                    new Color(255, 60, 90, 0)}));
+                g.fillRect(x, y, w, h);
+                g.setPaint(new java.awt.RadialGradientPaint(
+                        new java.awt.geom.Point2D.Float(x + w * 0.05f, y + h * 0.95f), far * 0.45f,
+                        new float[]{0f, 1f},
+                        new Color[]{new Color(255, 220, 120, Math.min(255, (int) (alphaMax * 0.35))),
+                                    new Color(255, 220, 120, 0)}));
+                g.fillRect(x, y, w, h);
+                g.setPaint(oldPaint);
+                break;
+            }
+            case "Gloss": {
+                // Glossy reflection over the upper part with a soft curved lower
+                // edge, like an app icon or a glass button.
+                Paint oldPaint = g.getPaint();
+                java.awt.geom.Path2D hl = new java.awt.geom.Path2D.Float();
+                hl.moveTo(x, y);
+                hl.lineTo(x + w, y);
+                hl.lineTo(x + w, y + h * 0.38f);
+                hl.quadTo(x + w * 0.5f, y + h * 0.58f, x, y + h * 0.45f);
+                hl.closePath();
+                g.setPaint(new java.awt.GradientPaint(x, y, new Color(255, 255, 255, Math.min(255, (int) (alphaMax * 0.45))),
+                        x, y + h * 0.5f, new Color(255, 255, 255, Math.min(255, (int) (alphaMax * 0.08)))));
+                g.fill(hl);
+                g.setPaint(oldPaint);
+                break;
+            }
+            case "Vignette": {
+                // Darker edges that pull the eye to the text in the middle.
+                Graphics2D gv = (Graphics2D) g.create();
+                gv.translate(x + w / 2.0, y + h / 2.0);
+                gv.scale(Math.max(1, w) / 2.0, Math.max(1, h) / 2.0);
+                gv.setPaint(new java.awt.RadialGradientPaint(new java.awt.geom.Point2D.Float(0, 0), 1.42f,
+                        new float[]{0f, 0.55f, 1f},
+                        new Color[]{new Color(0, 0, 0, 0),
+                                    new Color(0, 0, 0, Math.min(255, (int) (alphaMax * 0.12))),
+                                    new Color(0, 0, 0, Math.min(255, (int) (alphaMax * 0.75)))}));
+                gv.fill(new java.awt.geom.Rectangle2D.Float(-1, -1, 2, 2));
+                gv.dispose();
+                break;
+            }
+            case "Dot Grid": {
+                // Fine, even dot grid (Figma / Notion canvas). Spacing follows the
+                // box height so the grid reads the same on small and large boxes.
+                float sp = Math.max(6f, Math.min(18f, h / 12f));
+                float dr = Math.max(0.8f, sp * 0.11f);
+                g.setColor(new Color(255, 255, 255, Math.min(255, (int) (alphaMax * 0.35))));
+                for (float yy = y + sp / 2; yy < y + h; yy += sp) {
+                    for (float xx = x + sp / 2; xx < x + w; xx += sp) {
+                        g.fill(new java.awt.geom.Ellipse2D.Float(xx - dr, yy - dr, dr * 2, dr * 2));
+                    }
+                }
+                break;
+            }
+            case "Topographic": {
+                // Map-style contour lines: rings of a gently wobbling loop around an
+                // off-centre peak, spaced by the box height.
+                double step = Math.max(6, Math.min(20, h / 11.0));
+                double p1 = rnd.nextDouble() * 6, p2 = rnd.nextDouble() * 6;
+                double cx = x + w * 0.35, cy = y + h * 0.6;
+                int rings = (int) Math.ceil(Math.hypot(w, h) / step) + 2;
+                g.setStroke(new BasicStroke(1f));
+                g.setColor(new Color(255, 255, 255, Math.min(255, (int) (alphaMax * 0.28))));
+                for (int ring = 1; ring <= rings; ring++) {
+                    java.awt.geom.Path2D pth = new java.awt.geom.Path2D.Float();
+                    double base = ring * step;
+                    for (int s = 0; s <= 180; s++) {
+                        double t = s * 2 * Math.PI / 180;
+                        double m = base * (1 + 0.18 * Math.sin(3 * t + p1 + ring * 0.15) + 0.1 * Math.sin(5 * t + p2));
+                        double px = cx + m * 1.7 * Math.cos(t), py = cy + m * Math.sin(t);
+                        if (s == 0) pth.moveTo(px, py); else pth.lineTo(px, py);
+                    }
+                    pth.closePath();
+                    g.draw(pth);
+                }
+                break;
+            }
             default:
                 break;
         }
@@ -32637,10 +32737,13 @@ public class GifSlideShowApp extends JFrame {
             toolbar4b3.add(slideTextBgBorderColorBtn);
 
             // ===== Toolbar 4b4: Texture & Effects =====
-            slideTextBgNoiseCombo = new JComboBox<>(new String[] { "None", "Grain", "Paper", "TV", "Halftone" });
+            slideTextBgNoiseCombo = new JComboBox<>(new String[] { "None", "Grain", "Paper", "TV", "Halftone",
+                    "Micro Noise", "Light Leak", "Gloss", "Vignette", "Dot Grid", "Topographic" });
             slideTextBgNoiseCombo.setPreferredSize(new Dimension(85, 24));
             slideTextBgNoiseCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-            slideTextBgNoiseCombo.setToolTipText("Texture overlay — Grain (film), Paper (fibers), TV (scanlines+static), Halftone (dot pattern)");
+            slideTextBgNoiseCombo.setToolTipText("Texture overlay — Grain (film), Paper (fibers), TV (scanlines+static), Halftone (dot pattern), "
+                    + "Micro Noise (fine premium grain), Light Leak (warm film light), Gloss (glossy reflection), "
+                    + "Vignette (darker edges), Dot Grid, Topographic (contour lines). Int sets the strength.");
             slideTextBgNoiseCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
             slideTextBgNoiseSpinner = new JSpinner(new SpinnerNumberModel(50, 0, 100, 5));
@@ -36907,7 +37010,8 @@ public class GifSlideShowApp extends JFrame {
 
             // ---- Row 3: texture & shadow & glow ----
             JPanel r3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-            JComboBox<String> noiseCb = new JComboBox<>(new String[]{"None", "Grain", "Paper", "TV", "Halftone"});
+            JComboBox<String> noiseCb = new JComboBox<>(new String[]{"None", "Grain", "Paper", "TV", "Halftone",
+                    "Micro Noise", "Light Leak", "Gloss", "Vignette", "Dot Grid", "Topographic"});
             noiseCb.setSelectedItem(b.bgNoiseKind);
             noiseCb.addActionListener(e -> { b.bgNoiseKind = (String) noiseCb.getSelectedItem(); onChange.run(); });
 
