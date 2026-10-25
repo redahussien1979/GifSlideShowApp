@@ -52,6 +52,9 @@ public class SlideTimer {
     public static final String START_BEFORE_AUDIO = "Before text audio";
     /** Timer starts at an explicit slide-relative time (+ offset). */
     public static final String START_AT_TIME = "At specific time";
+    /** Timer starts once the chosen text is on screen — its Appear time plus its
+     *  entrance animation (+ offset). Works for any text, with or without audio. */
+    public static final String START_AFTER_TEXT = "After text appears";
 
     /** How long the entrance animation runs, in ms. */
     private static final double ENTRANCE_MS = 520.0;
@@ -97,7 +100,7 @@ public class SlideTimer {
 
     // ---- model: when it shows -------------------------------------------
     public String startMode = START_AFTER_ALL_AUDIO;
-    /** 1-based text index for the After/Before-text-audio modes. */
+    /** 1-based text index for the After/Before-text-audio and After-text-appears modes. */
     public int startTextIndex = 1;
     /** Explicit slide-relative start, ms — used by {@link #START_AT_TIME}. */
     public int startAtMs = 0;
@@ -253,7 +256,7 @@ public class SlideTimer {
     }
     public static String[] startModes() {
         return new String[] { START_AFTER_ALL_AUDIO, START_SLIDE, START_AFTER_AUDIO,
-                START_BEFORE_AUDIO, START_AT_TIME };
+                START_BEFORE_AUDIO, START_AT_TIME, START_AFTER_TEXT };
     }
     public static String[] formats() {
         return new String[] { "Seconds", "MM:SS", "0.0 s", "None" };
@@ -376,6 +379,16 @@ public class SlideTimer {
      * @param totalAudioMs end of the last audio on the slide (0 when the slide is silent)
      */
     public int resolveStartMs(int[] audioStartMs, int[] audioEndMs, int totalAudioMs) {
+        return resolveStartMs(audioStartMs, audioEndMs, totalAudioMs, null);
+    }
+
+    /**
+     * Same as {@link #resolveStartMs(int[], int[], int)}, also given when each
+     * text is fully on screen ({@code textShownMs}, slide-relative ms, index =
+     * text index) for {@link #START_AFTER_TEXT}. A text that is not there (or a
+     * null table) starts the timer with the slide.
+     */
+    public int resolveStartMs(int[] audioStartMs, int[] audioEndMs, int totalAudioMs, int[] textShownMs) {
         int base;
         if (START_SLIDE.equals(startMode)) {
             base = 0;
@@ -386,6 +399,8 @@ public class SlideTimer {
         } else if (START_BEFORE_AUDIO.equals(startMode)) {
             // Finish exactly as that audio begins: back the countdown up by its own length.
             base = audioAt(audioStartMs, startTextIndex, 0) - totalMs();
+        } else if (START_AFTER_TEXT.equals(startMode)) {
+            base = audioAt(textShownMs, startTextIndex, 0);
         } else {
             base = totalAudioMs;      // START_AFTER_ALL_AUDIO (default)
         }
