@@ -13996,7 +13996,39 @@ public class GifSlideShowApp extends JFrame {
             g2st.draw(bgShape);
         }
 
+        // Folded Note: shade the folded-down corner flap so the fold reads.
+        if ("Folded Note".equals(st.bgShape)) {
+            double f = foldedNoteCorner(bgW, bgH);
+            java.awt.geom.Path2D ear = new java.awt.geom.Path2D.Double();
+            ear.moveTo(bgX + bgW - f, bgY);
+            ear.lineTo(bgX + bgW - f, bgY + f);
+            ear.lineTo(bgX + bgW, bgY + f);
+            ear.closePath();
+            g2st.setColor(new Color(0, 0, 0, Math.max(30, Math.min(110, alpha * 110 / 255))));
+            g2st.fill(ear);
+        }
+        // Chip: the status dot in the pill's lead-in, in the border colour when a
+        // border is on (so the two match), otherwise white.
+        if ("Chip".equals(st.bgShape)) {
+            double lead = chipLead(bgH);
+            double dr = Math.max(2.5, bgH * 0.07);
+            Color dot = !"None".equals(border) && st.bgBorderWidth > 0 && st.bgBorderColor != null
+                    ? st.bgBorderColor : Color.WHITE;
+            g2st.setColor(new Color(dot.getRed(), dot.getGreen(), dot.getBlue(), Math.max(120, alpha)));
+            g2st.fill(new java.awt.geom.Ellipse2D.Double(bgX - lead / 2 - dr, bgY + bgH / 2.0 - dr, dr * 2, dr * 2));
+        }
+
         g2st.dispose();
+    }
+
+    /** Size of Folded Note's folded corner for a BG box of this size. */
+    private static double foldedNoteCorner(int bgW, int bgH) {
+        return Math.max(4, Math.min(Math.min(bgW, bgH) * 0.3, bgH * 0.45));
+    }
+
+    /** How far Chip's pill reaches out past the box's left edge for its dot. */
+    private static double chipLead(int bgH) {
+        return Math.max(8, bgH * 0.42);
     }
 
     /** Build the BG shape from {@link SlideTextData#bgShape} and the four
@@ -14069,6 +14101,225 @@ public class GifSlideShowApp extends JFrame {
                 p.lineTo(bgX, bgY + bgH);
                 p.closePath();
                 return p;
+            }
+            case "Squircle": {
+                // iOS-style superellipse: flatter sides and softer shoulders than Rounded.
+                double cx = bgX + bgW / 2.0, cy = bgY + bgH / 2.0, ra = bgW / 2.0, rb = bgH / 2.0;
+                double n = 5.0;
+                java.awt.geom.Path2D p = new java.awt.geom.Path2D.Float();
+                for (int i = 0; i <= 240; i++) {
+                    double t = i * 2 * Math.PI / 240, c = Math.cos(t), s = Math.sin(t);
+                    double x = cx + ra * Math.signum(c) * Math.pow(Math.abs(c), 2 / n);
+                    double y = cy + rb * Math.signum(s) * Math.pow(Math.abs(s), 2 / n);
+                    if (i == 0) p.moveTo(x, y); else p.lineTo(x, y);
+                }
+                p.closePath();
+                return p;
+            }
+            case "Cut Corners": {
+                // Chamfered (45-degree) corners — a tech / HUD panel.
+                double c = Math.max(4, Math.min(bgW, bgH) * 0.2);
+                java.awt.geom.Path2D p = new java.awt.geom.Path2D.Float();
+                p.moveTo(bgX + c, bgY);
+                p.lineTo(bgX + bgW - c, bgY);
+                p.lineTo(bgX + bgW, bgY + c);
+                p.lineTo(bgX + bgW, bgY + bgH - c);
+                p.lineTo(bgX + bgW - c, bgY + bgH);
+                p.lineTo(bgX + c, bgY + bgH);
+                p.lineTo(bgX, bgY + bgH - c);
+                p.lineTo(bgX, bgY + c);
+                p.closePath();
+                return p;
+            }
+            case "Ticket": {
+                // Event ticket: half-round notches bitten out of both sides (honours Round%).
+                double nr = Math.max(3, bgH * 0.13);
+                java.awt.geom.Area a = new java.awt.geom.Area(
+                        new java.awt.geom.RoundRectangle2D.Float(bgX, bgY, bgW, bgH, arc, arc));
+                a.subtract(new java.awt.geom.Area(new java.awt.geom.Ellipse2D.Double(
+                        bgX - nr, bgY + bgH / 2.0 - nr, nr * 2, nr * 2)));
+                a.subtract(new java.awt.geom.Area(new java.awt.geom.Ellipse2D.Double(
+                        bgX + bgW - nr, bgY + bgH / 2.0 - nr, nr * 2, nr * 2)));
+                return a;
+            }
+            case "Folder Tab": {
+                // Box with a tab rising ABOVE its top-left edge, so the text keeps its room.
+                double t = Math.max(5, bgH * 0.16), tw = Math.max(t * 2, bgW * 0.32);
+                double tr = Math.min(t * 0.6, 8);
+                java.awt.geom.Area a = new java.awt.geom.Area(
+                        new java.awt.geom.RoundRectangle2D.Float(bgX, bgY, bgW, bgH, arc, arc));
+                java.awt.geom.Path2D tab = new java.awt.geom.Path2D.Double();
+                tab.moveTo(bgX, bgY + Math.max(arc / 2.0, 1));
+                tab.lineTo(bgX, bgY - t + tr);
+                tab.quadTo(bgX, bgY - t, bgX + tr, bgY - t);
+                tab.lineTo(bgX + tw, bgY - t);
+                tab.lineTo(bgX + tw + t * 1.2, bgY + 1);
+                tab.lineTo(bgX, bgY + 1);
+                tab.closePath();
+                a.add(new java.awt.geom.Area(tab));
+                return a;
+            }
+            case "Wave": {
+                // Gentle wavy top and bottom edges; straight sides.
+                double amp = Math.max(1.5, bgH * 0.05);
+                int waves = (int) Math.max(2, Math.round(bgW / Math.max(1.0, bgH * 0.7)));
+                int n = Math.max(60, waves * 24);
+                java.awt.geom.Path2D p = new java.awt.geom.Path2D.Float();
+                for (int i = 0; i <= n; i++) {
+                    double x = bgX + bgW * (double) i / n;
+                    double y = bgY + amp + amp * Math.sin(i * waves * 2 * Math.PI / n);
+                    if (i == 0) p.moveTo(x, y); else p.lineTo(x, y);
+                }
+                for (int i = n; i >= 0; i--) {
+                    double x = bgX + bgW * (double) i / n;
+                    p.lineTo(x, bgY + bgH - amp + amp * Math.sin(i * waves * 2 * Math.PI / n + Math.PI));
+                }
+                p.closePath();
+                return p;
+            }
+            case "Scalloped": {
+                // Seal-style edge: a row of round bumps along all four sides.
+                double r = Math.max(3, bgH * 0.07);
+                java.awt.geom.Area a = new java.awt.geom.Area(new java.awt.geom.Rectangle2D.Double(
+                        bgX + r, bgY + r, Math.max(1, bgW - 2 * r), Math.max(1, bgH - 2 * r)));
+                int nx = (int) Math.max(2, Math.round((bgW - 2 * r) / (r * 1.7)));
+                int ny = (int) Math.max(2, Math.round((bgH - 2 * r) / (r * 1.7)));
+                for (int i = 0; i <= nx; i++) {
+                    double cx = bgX + r + (bgW - 2 * r) * i / nx;
+                    a.add(new java.awt.geom.Area(new java.awt.geom.Ellipse2D.Double(cx - r, bgY, r * 2, r * 2)));
+                    a.add(new java.awt.geom.Area(new java.awt.geom.Ellipse2D.Double(cx - r, bgY + bgH - 2 * r, r * 2, r * 2)));
+                }
+                for (int i = 0; i <= ny; i++) {
+                    double cy = bgY + r + (bgH - 2 * r) * i / ny;
+                    a.add(new java.awt.geom.Area(new java.awt.geom.Ellipse2D.Double(bgX, cy - r, r * 2, r * 2)));
+                    a.add(new java.awt.geom.Area(new java.awt.geom.Ellipse2D.Double(bgX + bgW - 2 * r, cy - r, r * 2, r * 2)));
+                }
+                return a;
+            }
+            case "Cloud": {
+                // Thought cloud: a soft core with puffs along the top, bottom and ends.
+                java.awt.geom.Area a = new java.awt.geom.Area(new java.awt.geom.RoundRectangle2D.Double(
+                        bgX + bgW * 0.08, bgY + bgH * 0.18, bgW * 0.84, bgH * 0.64, bgH * 0.5, bgH * 0.5));
+                int n = (int) Math.max(4, Math.min(12, Math.round(bgW / Math.max(1.0, bgH * 0.55))));
+                for (int i = 0; i < n; i++) {
+                    double cx = bgX + bgW * (0.12 + 0.76 * i / (n - 1));
+                    double rt = bgH * (0.24 + 0.08 * Math.sin(i * 2.1));
+                    double rb = bgH * (0.22 + 0.07 * Math.cos(i * 1.7));
+                    a.add(new java.awt.geom.Area(new java.awt.geom.Ellipse2D.Double(cx - rt, bgY + bgH * 0.26 - rt, rt * 2, rt * 2)));
+                    a.add(new java.awt.geom.Area(new java.awt.geom.Ellipse2D.Double(cx - rb, bgY + bgH * 0.74 - rb, rb * 2, rb * 2)));
+                }
+                double er = bgH * 0.22;
+                a.add(new java.awt.geom.Area(new java.awt.geom.Ellipse2D.Double(bgX, bgY + bgH / 2.0 - er, er * 2, er * 2)));
+                a.add(new java.awt.geom.Area(new java.awt.geom.Ellipse2D.Double(bgX + bgW - er * 2, bgY + bgH / 2.0 - er, er * 2, er * 2)));
+                return a;
+            }
+            case "Sketch Box": {
+                // Hand-drawn box: each edge wobbles slightly. Seeded by the box's
+                // size so a still text never shimmers between frames.
+                Random r = new Random(31L * bgW + bgH);
+                double j = Math.max(1.2, bgH * 0.018);
+                double[][] c = { { bgX, bgY }, { bgX + bgW, bgY }, { bgX + bgW, bgY + bgH }, { bgX, bgY + bgH } };
+                java.awt.geom.Path2D p = new java.awt.geom.Path2D.Float();
+                for (int e = 0; e < 4; e++) {
+                    double[] a0 = c[e], a1 = c[(e + 1) % 4];
+                    double len = Math.hypot(a1[0] - a0[0], a1[1] - a0[1]);
+                    int n = (int) Math.max(4, len / Math.max(8.0, bgH * 0.1));
+                    for (int i = 0; i < n; i++) {
+                        double t = i / (double) n;
+                        double x = a0[0] + (a1[0] - a0[0]) * t + (r.nextDouble() - 0.5) * 2 * j;
+                        double y = a0[1] + (a1[1] - a0[1]) * t + (r.nextDouble() - 0.5) * 2 * j;
+                        if (e == 0 && i == 0) p.moveTo(x, y); else p.lineTo(x, y);
+                    }
+                }
+                p.closePath();
+                return p;
+            }
+            case "Chevron": {
+                // Arrow banner. The point and the tail notch sit OUTSIDE the box, so
+                // they never cut into the text.
+                double k = Math.max(5, bgH * 0.32);
+                java.awt.geom.Path2D p = new java.awt.geom.Path2D.Float();
+                p.moveTo(bgX - k, bgY);
+                p.lineTo(bgX + bgW, bgY);
+                p.lineTo(bgX + bgW + k, bgY + bgH / 2.0);
+                p.lineTo(bgX + bgW, bgY + bgH);
+                p.lineTo(bgX - k, bgY + bgH);
+                p.lineTo(bgX, bgY + bgH / 2.0);
+                p.closePath();
+                return p;
+            }
+            case "Folded Note": {
+                // Note with its top-right corner folded down (the fold is shaded in
+                // drawSlideTextBackground).
+                double f = foldedNoteCorner(bgW, bgH);
+                java.awt.geom.Path2D p = new java.awt.geom.Path2D.Float();
+                p.moveTo(bgX, bgY);
+                p.lineTo(bgX + bgW - f, bgY);
+                p.lineTo(bgX + bgW, bgY + f);
+                p.lineTo(bgX + bgW, bgY + bgH);
+                p.lineTo(bgX, bgY + bgH);
+                p.closePath();
+                return p;
+            }
+            case "Blob": {
+                // Organic rounded shape with a gentle wobble, seeded by the box's size.
+                Random r = new Random(31L * bgW + bgH);
+                double cx = bgX + bgW / 2.0, cy = bgY + bgH / 2.0;
+                double rx = bgW / 2.0 + bgH * 0.06, ry = bgH / 2.0 + bgH * 0.08;
+                double p1 = r.nextDouble() * 6, p2 = r.nextDouble() * 6;
+                int n = 72;
+                double[] px = new double[n], py = new double[n];
+                for (int i = 0; i < n; i++) {
+                    double t = i * 2 * Math.PI / n, c = Math.cos(t), s = Math.sin(t);
+                    double m = 1 + 0.05 * Math.sin(3 * t + p1) + 0.035 * Math.sin(5 * t + p2);
+                    double sq = 1.0 / Math.pow(Math.pow(Math.abs(c), 4) + Math.pow(Math.abs(s), 4), 0.25);
+                    px[i] = cx + rx * m * c * sq * 0.92;
+                    py[i] = cy + ry * m * s * sq * 0.92;
+                }
+                java.awt.geom.Path2D p = new java.awt.geom.Path2D.Double();
+                p.moveTo((px[n - 1] + px[0]) / 2, (py[n - 1] + py[0]) / 2);
+                for (int i = 0; i < n; i++) {
+                    int jj = (i + 1) % n;
+                    p.quadTo(px[i], py[i], (px[i] + px[jj]) / 2, (py[i] + py[jj]) / 2);
+                }
+                p.closePath();
+                return p;
+            }
+            case "Torn Paper": {
+                // Paper strip with ragged top and bottom edges, seeded by the box's size.
+                Random r = new Random(31L * bgW + bgH);
+                double tear = Math.max(2, bgH * 0.08);
+                int n = (int) Math.max(10, bgW / Math.max(6.0, bgH * 0.09));
+                java.awt.geom.Path2D p = new java.awt.geom.Path2D.Float();
+                p.moveTo(bgX, bgY + tear / 2);
+                for (int i = 1; i <= n; i++) p.lineTo(bgX + bgW * (double) i / n, bgY + r.nextDouble() * tear);
+                for (int i = n; i >= 0; i--) p.lineTo(bgX + bgW * (double) i / n, bgY + bgH - r.nextDouble() * tear);
+                p.closePath();
+                return p;
+            }
+            case "Tape": {
+                // Washi-tape strip: torn zig-zag ends and a slight tilt.
+                Random r = new Random(31L * bgW + bgH);
+                double tooth = Math.max(3, bgH * 0.07);
+                int teeth = 8;
+                java.awt.geom.Path2D p = new java.awt.geom.Path2D.Float();
+                p.moveTo(bgX, bgY);
+                p.lineTo(bgX + bgW, bgY);
+                for (int i = 1; i <= teeth; i++)
+                    p.lineTo(bgX + bgW - (i % 2 == 1 ? tooth : 0) - r.nextDouble() * tooth * 0.4, bgY + bgH * (double) i / teeth);
+                p.lineTo(bgX, bgY + bgH);
+                for (int i = teeth - 1; i >= 1; i--)
+                    p.lineTo(bgX + (i % 2 == 1 ? tooth : 0) + r.nextDouble() * tooth * 0.4, bgY + bgH * (double) i / teeth);
+                p.closePath();
+                return java.awt.geom.AffineTransform.getRotateInstance(Math.toRadians(-2),
+                        bgX + bgW / 2.0, bgY + bgH / 2.0).createTransformedShape(p);
+            }
+            case "Chip": {
+                // UI chip: a pill whose left end grows OUTSIDE the box to hold the
+                // status dot (drawn in drawSlideTextBackground), clear of the text.
+                double lead = chipLead(bgH);
+                double rr = Math.min(bgH, bgW + lead) * 0.6;
+                return new java.awt.geom.RoundRectangle2D.Double(bgX - lead, bgY, bgW + lead, bgH, rr, rr);
             }
             case "Rounded":
             default:
@@ -28214,7 +28465,7 @@ public class GifSlideShowApp extends JFrame {
         int bgFrostedBlur = 0;       // 0=off, 1..30 = frosted-glass sheen strength
 
         // --- Shape ---
-        String bgShape = "Rounded";  // Rounded / Pill / Bubble / Tag / Sticker / Hexagon / Parallelogram
+        String bgShape = "Rounded";  // one of the BG Shape combo entries (Rounded, Pill, ..., Chip)
         boolean bgCornerTL = true;
         boolean bgCornerTR = true;
         boolean bgCornerBL = true;
@@ -32321,12 +32572,16 @@ public class GifSlideShowApp extends JFrame {
 
             // ===== Toolbar 4b3: Shape & Border =====
             slideTextBgShapeCombo = new JComboBox<>(new String[] {
-                    "Rounded", "Pill", "Bubble", "Tag", "Sticker", "Hexagon", "Parallelogram"
+                    "Rounded", "Pill", "Bubble", "Tag", "Sticker", "Hexagon", "Parallelogram",
+                    "Squircle", "Cut Corners", "Ticket", "Folder Tab", "Wave", "Scalloped", "Cloud",
+                    "Sketch Box", "Chevron", "Folded Note", "Blob", "Torn Paper", "Tape", "Chip"
             });
             slideTextBgShapeCombo.setPreferredSize(new Dimension(110, 24));
             slideTextBgShapeCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             slideTextBgShapeCombo.setToolTipText(
-                    "BG shape — Rounded (use Round/corners), Pill, Speech Bubble (with tail), Tag (notched), Sticker (white outline + tilt), Hexagon, Parallelogram");
+                    "BG shape — Rounded (use Round/corners), Pill, Speech Bubble (with tail), Tag (notched), Sticker (white outline + tilt), Hexagon, Parallelogram, "
+                    + "Squircle, Cut Corners, Ticket (side notches), Folder Tab, Wave, Scalloped, Cloud, Sketch Box, Chevron (arrow), "
+                    + "Folded Note, Blob, Torn Paper, Tape, Chip (with status dot). Fill, Border, Shadow, Glow, Noise and Frosted work on every shape.");
             slideTextBgShapeCombo.addActionListener(e -> { if (!isLoadingSlideText) onFormatChanged(); });
 
             java.awt.event.ActionListener cornerListener = e -> { if (!isLoadingSlideText) onFormatChanged(); };
@@ -36617,7 +36872,9 @@ public class GifSlideShowApp extends JFrame {
             // ---- Row 2: shape / corners / border ----
             JPanel r2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
             JComboBox<String> shapeCb = new JComboBox<>(new String[]{
-                    "Rounded", "Pill", "Bubble", "Tag", "Sticker", "Hexagon", "Parallelogram"});
+                    "Rounded", "Pill", "Bubble", "Tag", "Sticker", "Hexagon", "Parallelogram",
+                    "Squircle", "Cut Corners", "Ticket", "Folder Tab", "Wave", "Scalloped", "Cloud",
+                    "Sketch Box", "Chevron", "Folded Note", "Blob", "Torn Paper", "Tape", "Chip"});
             shapeCb.setSelectedItem(b.bgShape);
             shapeCb.addActionListener(e -> { b.bgShape = (String) shapeCb.getSelectedItem(); onChange.run(); });
 
