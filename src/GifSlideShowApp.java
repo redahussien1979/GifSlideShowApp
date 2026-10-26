@@ -11833,16 +11833,27 @@ public class GifSlideShowApp extends JFrame {
                             int kBaselineY = kBaselineY0 + li * stLineHeight;
                             java.awt.font.TextLayout kLayout = kline.isEmpty() ? null
                                     : new java.awt.font.TextLayout(kline, stFont, g.getFontRenderContext());
+                            // A line justified by TRACKING spreads its letters apart, so
+                            // a style that redraws the word (Color, Bold, Scale, the
+                            // fills) has to spread its letters by the same gap or the
+                            // copy comes out narrower than the word it covers.
+                            double kLetterGap = (kFit != null && kFit.sepLen == 0) ? kFit.gap : 0;
                             for (int[] seg : segs) {
                                 int sCol = seg[0], eCol = seg[1];
                                 int[] kSpan = markSpan(kFit, kLayout, kline, stFm,
                                         klineX, klineX, sCol, eCol);
                                 int wX = kSpan[0], wW = kSpan[1];
+                                // The glyph origin exactly as drawJustified places it: the
+                                // span above is floored to whole pixels, which would set a
+                                // redrawn word up to a pixel off the one underneath.
+                                double[] kExact = justifiedSpan(kFit, stFm, sCol, eCol);
+                                double glyphX = kExact != null ? klineX + kExact[0] : wX;
                                 drawKaraokeWordEffect(g, st.karaokeStyle,
                                         st.karaokeColor != null ? st.karaokeColor : DEFAULT_KARAOKE_COLOR,
                                         wX, kBaselineY, wW, stAscent, stFm.getDescent(),
                                         kline.substring(sCol, eCol), stFont, stScaleFactor,
-                                        st.karaokeIntensity, st.karaokeTight);
+                                        st.karaokeIntensity, st.karaokeTight,
+                                        glyphX, kLetterGap, stColor);
                             }
                         }
                     }
@@ -14738,18 +14749,32 @@ public class GifSlideShowApp extends JFrame {
     /** Draw a per-word karaoke effect tightly fitted to the word's bounding box.
      *  Independent of the whole-text HL/FX — the existing toolbar-7b controls
      *  paint first, then this overlay sits on top of just the spoken word.
+     *
+     *  <p>Styles that cover the word (the fills, Marker, Spotlight, Outline) paint
+     *  their mark and then draw the word again on top, so the letters stay crisp
+     *  instead of being washed by the mark. Every redraw goes through
+     *  {@link #drawTrackedWord} at {@code glyphX} with {@code letterGap}, i.e. letter
+     *  for letter where the paragraph pass put them, including on a justified line
+     *  that was set by spreading its letters apart.
+     *
      *  @param baselineY pixel y of the text baseline for this line
      *  @param ascent    font ascent (top of the word = baselineY − ascent)
-     *  @param descent   font descent (bottom of the word = baselineY + descent) */
+     *  @param descent   font descent (bottom of the word = baselineY + descent)
+     *  @param glyphX    exact x of the word's first glyph (may be fractional)
+     *  @param letterGap extra space after every letter on a tracked justified line, else 0
+     *  @param textColor the text's own colour, for redrawing the word over a mark */
     private static void drawKaraokeWordEffect(Graphics2D g, String style, Color color,
                                               int x, int baselineY, int w,
                                               int ascent, int descent,
                                               String word, Font font, float scale,
-                                              int intensity, int tightness) {
+                                              int intensity, int tightness,
+                                              double glyphX, double letterGap, Color textColor) {
         if (color == null) color = DEFAULT_KARAOKE_COLOR;
+        if (textColor == null) textColor = Color.WHITE;
         Graphics2D g2 = (Graphics2D) g.create();
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_LCD_HRGB);
+        g2.setFont(font);
 
         // intensity / tightness are 1..10 with 5 == baseline (the original look).
         // iMul scales the visual "strength" (stroke width, glow spread, fill
@@ -14763,6 +14788,10 @@ public class GifSlideShowApp extends JFrame {
         int height = ascent + descent;
         int rx = x - padX, ry = top - padY, rw = w + padX * 2, rh = height + padY * 2;
         int arc = Math.max(4, (int)(6 * scale));
+        // Fill opacity for the solid styles: the colour's own alpha at intensity 5,
+        // rising to fully opaque above it.
+        int fillA = Math.max(1, Math.min(255, (int) Math.round(color.getAlpha() * iMul)));
+        Color fill = new Color(color.getRed(), color.getGreen(), color.getBlue(), fillA);
 
         switch (style) {
             case "Box": {
@@ -14787,9 +14816,8 @@ public class GifSlideShowApp extends JFrame {
                 break;
             }
             case "Color": {
-                g2.setFont(font);
                 g2.setColor(color);
-                g2.drawString(word, x, baselineY);
+                drawTrackedWord(g2, word, glyphX, baselineY, letterGap);
                 break;
             }
             case "Glow": {
@@ -14806,10 +14834,22 @@ public class GifSlideShowApp extends JFrame {
                 break;
             }
             case "Bold": {
+                // A bold cut is wider than the regular word, so drawn from the same
+                // origin it ran past the word's right edge into the next gap. Fit it
+                // to the word's own width instead, so it covers exactly that word.
                 Font bf = font.deriveFont(font.getStyle() | Font.BOLD);
                 g2.setFont(bf);
                 g2.setColor(color);
-                g2.drawString(word, x, baselineY);
+                double bw = trackedWordWidth(g2.getFontMetrics(), word, letterGap);
+                double wordW = trackedWordWidth(g.getFontMetrics(font), word, letterGap);
+                if (bw > 0 && wordW > 0 && Math.abs(bw - wordW) >= 0.5) {
+                    double sx = wordW / bw;
+                    g2.translate(glyphX, 0);
+                    g2.scale(sx, 1.0);
+                    drawTrackedWord(g2, word, 0, baselineY, letterGap / sx);
+                } else {
+                    drawTrackedWord(g2, word, glyphX, baselineY, letterGap);
+                }
                 break;
             }
             case "Scale": {
@@ -14817,16 +14857,276 @@ public class GifSlideShowApp extends JFrame {
                 Font bigger = font.deriveFont(font.getSize2D() * k);
                 g2.setFont(bigger);
                 FontMetrics bfm = g2.getFontMetrics();
-                int bw = bfm.stringWidth(word);
-                int cx = x + w / 2;
+                double bw = trackedWordWidth(bfm, word, letterGap * k);
+                double wordW = trackedWordWidth(g.getFontMetrics(font), word, letterGap);
+                double cx = glyphX + wordW / 2.0;
                 int cy = baselineY + (int)((bfm.getAscent() - ascent) * 0.5);
                 g2.setColor(color);
-                g2.drawString(word, cx - bw / 2, cy);
+                drawTrackedWord(g2, word, cx - bw / 2.0, cy, letterGap * k);
+                break;
+            }
+
+            // ---- Caption styles ------------------------------------------------
+            case "Pill": {
+                // Fully rounded capsule with a soft contact shadow; the word sits on
+                // it in black or white, whichever reads on the chosen colour.
+                int px = rx - (int) Math.round(rh * 0.18);
+                int pw = rw + (int) Math.round(rh * 0.36);
+                fillSoftShadow(g2, px, ry, pw, rh, rh, scale, fillA);
+                g2.setColor(fill);
+                g2.fillRoundRect(px, ry, pw, rh, rh, rh);
+                g2.setColor(contrastInk(color));
+                drawTrackedWord(g2, word, glyphX, baselineY, letterGap);
+                break;
+            }
+            case "Block": {
+                // A solid square-cut slab with the word knocked out of it: the bold
+                // "active word" box of social-video captions.
+                int br = Math.max(2, (int) (2 * scale));
+                g2.setColor(fill);
+                g2.fillRoundRect(rx, ry, rw, rh, br, br);
+                g2.setColor(contrastInk(color));
+                drawTrackedWord(g2, word, glyphX, baselineY, letterGap);
+                break;
+            }
+            case "Gradient Pill": {
+                int px = rx - (int) Math.round(rh * 0.18);
+                int pw = rw + (int) Math.round(rh * 0.36);
+                fillSoftShadow(g2, px, ry, pw, rh, rh, scale, fillA);
+                Color topC = alphaOf(mixColor(color, Color.WHITE, 0.28f), fillA);
+                Color botC = alphaOf(mixColor(color, Color.BLACK, 0.28f), fillA);
+                java.awt.geom.RoundRectangle2D pill =
+                        new java.awt.geom.RoundRectangle2D.Double(px, ry, pw, rh, rh, rh);
+                g2.setPaint(new GradientPaint(0, ry, topC, 0, ry + rh, botC));
+                g2.fill(pill);
+                // Thin sheen along the upper rim, inside the capsule.
+                Shape oldClip = g2.getClip();
+                g2.clip(pill);
+                g2.setPaint(new GradientPaint(0, ry, new Color(255, 255, 255, Math.min(110, fillA / 2)),
+                        0, ry + rh * 0.5f, new Color(255, 255, 255, 0)));
+                g2.fillRect(px, ry, pw, (int) Math.ceil(rh * 0.5));
+                g2.setClip(oldClip);
+                g2.setColor(contrastInk(mixColor(topC, botC, 0.5f)));
+                drawTrackedWord(g2, word, glyphX, baselineY, letterGap);
+                break;
+            }
+            case "Marker": {
+                // Highlighter pen: a slightly slanted translucent band over the lower
+                // part of the word, with chisel-cut ends. The word is redrawn on top
+                // so the ink stays sharp.
+                int mTop = baselineY - (int) Math.round(ascent * 0.55);
+                int mBot = baselineY + (int) Math.round(descent * 0.45);
+                int mH = Math.max(2, mBot - mTop);
+                double slant = mH * 0.25;
+                double mx0 = x - padX, mx1 = x + w + padX;
+                java.awt.geom.Path2D band = new java.awt.geom.Path2D.Double();
+                band.moveTo(mx0 + slant, mTop);
+                band.lineTo(mx1 + slant * 0.4, mTop + mH * 0.06);
+                band.lineTo(mx1 - slant, mBot);
+                band.lineTo(mx0 - slant * 0.4, mBot - mH * 0.06);
+                band.closePath();
+                int a = Math.max(1, Math.min(255, (int) Math.round(color.getAlpha() * 0.6 * iMul)));
+                g2.setColor(alphaOf(color, a));
+                g2.fill(band);
+                g2.setColor(textColor);
+                drawTrackedWord(g2, word, glyphX, baselineY, letterGap);
+                break;
+            }
+            case "Bar": {
+                // A thick rounded bar under the word, shaded top to bottom.
+                int barH = Math.max(3, (int) Math.round(ascent * 0.14 * iMul));
+                int barY = baselineY + Math.max(2, (int) Math.round(descent * 0.35));
+                g2.setPaint(new GradientPaint(0, barY, alphaOf(mixColor(color, Color.WHITE, 0.2f), fillA),
+                        0, barY + barH, alphaOf(mixColor(color, Color.BLACK, 0.15f), fillA)));
+                g2.fillRoundRect(x, barY, w, barH, barH, barH);
+                break;
+            }
+            case "Neon": {
+                // A lit tube: a soft bloom in the colour, then a near-white core.
+                for (int gl = 5; gl >= 1; gl--) {
+                    int alpha = Math.max(8, Math.min(255,
+                            (int) Math.round(color.getAlpha() * 0.22 * iMul / gl)));
+                    g2.setColor(alphaOf(color, alpha));
+                    g2.setStroke(new BasicStroke(Math.max(2f, gl * 2.4f * scale * (float) iMul),
+                            BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g2.drawRoundRect(rx, ry, rw, rh, arc * 2, arc * 2);
+                }
+                g2.setColor(alphaOf(color, Math.max(1, Math.min(255, (int) (220 * Math.min(1.0, iMul))))));
+                g2.setStroke(new BasicStroke(Math.max(1.6f, 2.2f * scale),
+                        BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2.drawRoundRect(rx, ry, rw, rh, arc * 2, arc * 2);
+                g2.setColor(alphaOf(mixColor(color, Color.WHITE, 0.75f), 235));
+                g2.setStroke(new BasicStroke(Math.max(0.8f, 0.9f * scale),
+                        BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2.drawRoundRect(rx, ry, rw, rh, arc * 2, arc * 2);
+                break;
+            }
+            case "Glass": {
+                // Frosted pane: a pale tint, a lit top edge and a hairline border.
+                java.awt.geom.RoundRectangle2D pane =
+                        new java.awt.geom.RoundRectangle2D.Double(rx, ry, rw, rh, arc * 2, arc * 2);
+                fillSoftShadow(g2, rx, ry, rw, rh, arc * 2, scale, (int) Math.round(120 * Math.min(1.0, iMul)));
+                int tintA = (int) Math.round(Math.min(150, 70 * iMul));
+                g2.setPaint(new GradientPaint(0, ry, new Color(255, 255, 255, Math.min(255, tintA + 30)),
+                        0, ry + rh, alphaOf(color, tintA)));
+                g2.fill(pane);
+                g2.setPaint(new GradientPaint(0, ry, new Color(255, 255, 255, 200),
+                        0, ry + rh, new Color(255, 255, 255, 50)));
+                g2.setStroke(new BasicStroke(Math.max(1f, 1.1f * scale)));
+                g2.draw(pane);
+                g2.setColor(textColor);
+                drawTrackedWord(g2, word, glyphX, baselineY, letterGap);
+                break;
+            }
+            case "Spotlight": {
+                // A soft pool of light behind the word, fading to nothing at its rim.
+                float cxL = x + w / 2f, cyL = top + height / 2f;
+                float rad = (float) Math.max(w * 0.62 + padX * 2, height * 1.1);
+                int a = Math.max(1, Math.min(255, (int) Math.round(color.getAlpha() * 0.75 * iMul)));
+                java.awt.geom.AffineTransform saved = g2.getTransform();
+                // Stretch a circular gradient into an ellipse that fits the word.
+                g2.translate(cxL, cyL);
+                g2.scale(1.0, Math.max(0.35, (height * 1.25) / rad));
+                g2.setPaint(new RadialGradientPaint(new java.awt.geom.Point2D.Float(0, 0), rad,
+                        new float[]{0f, 0.55f, 1f},
+                        new Color[]{alphaOf(color, a), alphaOf(color, a / 3), alphaOf(color, 0)}));
+                g2.fill(new java.awt.geom.Ellipse2D.Float(-rad, -rad, rad * 2, rad * 2));
+                g2.setTransform(saved);
+                g2.setColor(textColor);
+                drawTrackedWord(g2, word, glyphX, baselineY, letterGap);
+                break;
+            }
+            case "Outline": {
+                // A stroke traced around the letters themselves, then the letters on
+                // top in the text colour, so the stroke reads as an outer outline.
+                Shape glyphs = trackedWordOutline(g2, word, glyphX, baselineY, letterGap);
+                float sw = Math.max(2f, 3.2f * scale * (float) iMul);
+                g2.setColor(color);
+                g2.setStroke(new BasicStroke(sw, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2.draw(glyphs);
+                g2.setColor(textColor);
+                g2.fill(glyphs);
+                break;
+            }
+            case "Corners": {
+                // Viewfinder brackets on the four corners of the word's box.
+                float sw = Math.max(1.6f, 2.2f * scale * (float) iMul);
+                int len = Math.max(4, (int) Math.round(Math.min(rw, rh) * 0.32));
+                g2.setStroke(new BasicStroke(sw, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2.setColor(color);
+                int x2 = rx + rw, y2 = ry + rh;
+                g2.drawPolyline(new int[]{rx, rx, rx + len}, new int[]{ry + len, ry, ry}, 3);
+                g2.drawPolyline(new int[]{x2 - len, x2, x2}, new int[]{ry, ry, ry + len}, 3);
+                g2.drawPolyline(new int[]{rx, rx, rx + len}, new int[]{y2 - len, y2, y2}, 3);
+                g2.drawPolyline(new int[]{x2 - len, x2, x2}, new int[]{y2, y2, y2 - len}, 3);
+                break;
+            }
+            case "Lift": {
+                // The word lifts off the page on a soft drop shadow, in the effect
+                // colour. The copy stays exactly on the word — moving it would leave
+                // the original letters showing beneath — and the depth comes from
+                // the shadow alone, which Int pushes further out.
+                double depth = scale * iMul;
+                for (int s = 3; s >= 1; s--) {
+                    g2.setColor(new Color(0, 0, 0, 30 * (4 - s)));
+                    drawTrackedWord(g2, word, glyphX + s * depth * 0.7, baselineY + s * depth * 1.1, letterGap);
+                }
+                g2.setColor(color);
+                drawTrackedWord(g2, word, glyphX, baselineY, letterGap);
                 break;
             }
             default: /* "None" or unknown — no-op */ break;
         }
         g2.dispose();
+    }
+
+    /** Draw {@code word} from {@code x}, letter by letter with {@code letterGap} of
+     *  extra space after each letter when it is non-zero — the way a justified line
+     *  set by tracking is drawn — otherwise as one run. */
+    private static void drawTrackedWord(Graphics2D g, String word, double x, double baselineY,
+                                        double letterGap) {
+        if (word == null || word.isEmpty()) return;
+        // Whole pixels, truncated, exactly as drawJustified places each cell: a
+        // fractional origin would set the copy up to a pixel right of the letters
+        // underneath and leave a sliver of them showing.
+        int y = (int) Math.round(baselineY);
+        if (letterGap == 0) {
+            g.drawString(word, (int) Math.floor(x), y);
+            return;
+        }
+        FontMetrics fm = g.getFontMetrics();
+        double dx = x;
+        for (String cell : graphemeCells(word)) {
+            g.drawString(cell, (int) Math.floor(dx), y);
+            dx += fm.stringWidth(cell) + letterGap;
+        }
+    }
+
+    /** The advance of {@code word} as {@link #drawTrackedWord} sets it. */
+    private static double trackedWordWidth(FontMetrics fm, String word, double letterGap) {
+        if (word == null || word.isEmpty()) return 0;
+        if (letterGap == 0) return fm.stringWidth(word);
+        String[] cells = graphemeCells(word);
+        double wsum = 0;
+        for (String c : cells) wsum += fm.stringWidth(c);
+        return wsum + letterGap * (cells.length - 1);
+    }
+
+    /** The outline of {@code word} as {@link #drawTrackedWord} would paint it, in the
+     *  Graphics' current font. Laid out with TextLayout so Arabic joins and bidi
+     *  order come out exactly as drawString draws them. */
+    private static Shape trackedWordOutline(Graphics2D g, String word, double x, double baselineY,
+                                            double letterGap) {
+        java.awt.geom.Path2D out = new java.awt.geom.Path2D.Double();
+        if (word == null || word.isEmpty()) return out;
+        Font f = g.getFont();
+        java.awt.font.FontRenderContext frc = g.getFontRenderContext();
+        FontMetrics fm = g.getFontMetrics();
+        String[] cells = letterGap == 0 ? new String[]{word} : graphemeCells(word);
+        double dx = x;
+        for (String cell : cells) {
+            if (!cell.trim().isEmpty()) {
+                java.awt.font.TextLayout tl = new java.awt.font.TextLayout(cell, f, frc);
+                out.append(tl.getOutline(java.awt.geom.AffineTransform.getTranslateInstance(dx, baselineY)), false);
+            }
+            dx += fm.stringWidth(cell) + letterGap;
+        }
+        return out;
+    }
+
+    /** Black or white, whichever reads better on {@code bg}. */
+    private static Color contrastInk(Color bg) {
+        double lum = (0.299 * bg.getRed() + 0.587 * bg.getGreen() + 0.114 * bg.getBlue()) / 255.0;
+        return lum > 0.55 ? new Color(22, 22, 26) : Color.WHITE;
+    }
+
+    private static Color alphaOf(Color c, int a) {
+        return new Color(c.getRed(), c.getGreen(), c.getBlue(), Math.max(0, Math.min(255, a)));
+    }
+
+    private static Color mixColor(Color a, Color b, float t) {
+        t = Math.max(0f, Math.min(1f, t));
+        return new Color(
+                Math.round(a.getRed()   + (b.getRed()   - a.getRed())   * t),
+                Math.round(a.getGreen() + (b.getGreen() - a.getGreen()) * t),
+                Math.round(a.getBlue()  + (b.getBlue()  - a.getBlue())  * t),
+                Math.round(a.getAlpha() + (b.getAlpha() - a.getAlpha()) * t));
+    }
+
+    /** A soft contact shadow under a rounded shape: a few stacked, slightly offset
+     *  translucent fills that read as one blurred shadow. */
+    private static void fillSoftShadow(Graphics2D g, int x, int y, int w, int h, int arc,
+                                       float scale, int strength) {
+        int base = Math.max(0, Math.min(255, strength)) / 10;
+        if (base <= 0) return;
+        Color saved = g.getColor();
+        int drop = Math.max(1, Math.round(2 * scale));
+        for (int s = 3; s >= 1; s--) {
+            int grow = Math.round(s * scale);
+            g.setColor(new Color(0, 0, 0, Math.min(255, base * (4 - s))));
+            g.fillRoundRect(x - grow, y + drop - grow + s, w + grow * 2, h + grow * 2, arc + grow, arc + grow);
+        }
+        g.setColor(saved);
     }
 
     /** Estimate which word (0-based, whitespace-separated) of {@code text} is
@@ -27853,7 +28153,10 @@ public class GifSlideShowApp extends JFrame {
      *  geometry tightly fitted to the active word's bounding box, independent
      *  of the existing whole-text HL/FX on toolbar 7b. */
     static final String[] KARAOKE_STYLES = {
-            "None", "Box", "Background", "Underline", "Color", "Glow", "Bold", "Scale"
+            "None", "Box", "Background", "Underline", "Color", "Glow", "Bold", "Scale",
+            // Caption styles: the word is redrawn over its mark, so it stays crisp.
+            "Pill", "Gradient Pill", "Block", "Marker", "Bar", "Neon", "Glass",
+            "Spotlight", "Outline", "Corners", "Lift"
     };
     static final String DEFAULT_KARAOKE_STYLE = "Box";
     static final Color  DEFAULT_KARAOKE_COLOR = new Color(255, 220, 0, 220);
@@ -35293,6 +35596,7 @@ public class GifSlideShowApp extends JFrame {
             karaokeStyleCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
             karaokeStyleCombo.setToolTipText("Per-word effect rendered on the active spoken word (tight-fit to the word's bounding box)");
             karaokeStyleCombo.setSelectedItem("Box");
+            karaokeStyleCombo.setMaximumRowCount(KARAOKE_STYLES.length);
             karaokeStyleCombo.addActionListener(e -> onKaraokeUiChanged());
 
             karaokeColorBtn = new JButton();
